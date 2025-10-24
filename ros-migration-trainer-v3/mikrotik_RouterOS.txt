@@ -1,0 +1,141 @@
+Source: https://help.mikrotik.com/docs/display/ROS/RouterOS
+
+A
+t
+tachments (1)
+Page History
+Page Information
+Resolved comments
+View in Hierarchy
+View Source
+Export to PDF
+Export to Word
+Jira links
+RouterOS
+Created by
+Normunds R.
+, last updated by
+Rodions M.
+on
+Oct 21, 2025
+1 minute read
+RouterOS Documentation
+This webpage contains the official RouterOS user manual. RouterOS is the operating system of MikroTik devices. Documentation applies for the latest stable RouterOS version.
+Also available in the
+documentation in PDF format
+for offline use (updated monthly).
+SwOS Documentation
+For RB260, CSS326, CRS3xx, CSS610 and GPEN21 devices running SwOS, see the
+SwOS user manual
+.
+MikroTik Newsletter
+To follow the latest product and software news, make sure to read our newsletters in the blog section.
+Newsletter
+section
+PDF archive of all newsletters
+Recently Updated
+Packages
+yesterday at 2:00 pm
+•
+updated by
+Rodions M.
+•
+view change
+QKD
+Oct 22, 2025
+•
+updated by
+Oskars K.
+•
+view change
+DNS
+Oct 22, 2025
+•
+updated by
+Rodions M.
+•
+view change
+Quick Guide G4
+Oct 21, 2025
+•
+updated by
+Certification Department
+•
+view change
+UA.jpg
+Oct 21, 2025
+•
+attached by
+Certification Department
+IPsec
+Oct 21, 2025
+•
+updated by
+Oskars K.
+•
+view change
+kme.png
+Oct 21, 2025
+•
+attached by
+Oskars K.
+RouterOS
+Oct 21, 2025
+•
+updated by
+Rodions M.
+•
+view change
+DNS
+Oct 20, 2025
+•
+updated by
+Druvis Timma
+•
+view change
+Quick Guide G3
+Oct 20, 2025
+•
+updated by
+Certification Department
+•
+view change
+Configuration Management
+Oct 20, 2025
+•
+updated by
+Rodions M.
+•
+view change
+Quick Guide G10a
+Oct 20, 2025
+•
+updated by
+Certification Department
+•
+view change
+First Time Configuration
+Oct 20, 2025
+•
+updated by
+Māris B.
+•
+view change
+First Time Configuration
+Oct 17, 2025
+•
+updated by
+Rodions M.
+•
+view change
+Software Specifications
+Oct 17, 2025
+•
+updated by
+Rodions M.
+•
+view change
+Show More
+No labels
+Overview
+Content Tools
