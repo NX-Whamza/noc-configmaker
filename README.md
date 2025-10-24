@@ -1,0 +1,2 @@
+# NOCAI
+AI config generator
