@@ -747,6 +747,54 @@ def suggest_config():
     """
     try:
         data = request.json
+        
+        # Handle both old format (partial_config) and new format (device-based)
+        if 'device' in data:
+            # New format from frontend
+            device = data.get('device', '')
+            target_version = data.get('target_version', '')
+            loopback_ip = data.get('loopback_ip', '')
+            public_cidr = data.get('public_cidr', '')
+            bh_cidr = data.get('bh_cidr', '')
+            
+            # Generate suggestions based on device type
+            suggestions = {}
+            
+            if device == 'ccr2004':
+                suggestions = {
+                    'public_port': 'sfp-sfpplus7',
+                    'nat_port': 'sfp-sfpplus8',
+                    'uplink_interface': 'sfp-sfpplus1',
+                    'public_pool': f"{public_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(public_cidr.split('/')[0].split('.')[-1]) + 1}-{public_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(public_cidr.split('/')[0].split('.')[-1]) + 2}",
+                    'gateway': f"{bh_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(bh_cidr.split('/')[0].split('.')[-1]) - 1}"
+                }
+            elif device == 'rb5009':
+                suggestions = {
+                    'public_port': 'ether7',
+                    'nat_port': 'ether8',
+                    'uplink_interface': 'sfp-sfpplus1',
+                    'public_pool': f"{public_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(public_cidr.split('/')[0].split('.')[-1]) + 1}-{public_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(public_cidr.split('/')[0].split('.')[-1]) + 2}",
+                    'gateway': f"{bh_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(bh_cidr.split('/')[0].split('.')[-1]) - 1}"
+                }
+            elif device == 'ccr1036':
+                suggestions = {
+                    'public_port': 'sfp-sfpplus7',
+                    'nat_port': 'sfp-sfpplus8',
+                    'uplink_interface': 'sfp-sfpplus1',
+                    'public_pool': f"{public_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(public_cidr.split('/')[0].split('.')[-1]) + 1}-{public_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(public_cidr.split('/')[0].split('.')[-1]) + 2}",
+                    'gateway': f"{bh_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(bh_cidr.split('/')[0].split('.')[-1]) - 1}"
+                }
+            
+            return jsonify({
+                'success': True,
+                'public_port': suggestions.get('public_port', ''),
+                'nat_port': suggestions.get('nat_port', ''),
+                'uplink_interface': suggestions.get('uplink_interface', ''),
+                'public_pool': suggestions.get('public_pool', ''),
+                'gateway': suggestions.get('gateway', '')
+            })
+        
+        # Old format (legacy)
         partial_config = data.get('partial_config', '')
         config_type = data.get('type', 'tower')
         context = data.get('context', {})  # Customer info, site details, etc.
