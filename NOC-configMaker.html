@@ -1278,12 +1278,19 @@
                         </div>
                     </div>
                     
-                    <!-- AI Assist + Generate Buttons -->
-                    <div class="generate-section" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
-                        <button id="entAutofillBtn" style="background: #607D8B; color: white; border: none; padding: 12px 16px; border-radius: 5px; cursor: pointer; font-size: 14px;" onclick="entAutofillFromExport()">🔄 Autofill from Export</button>
-                        <button id="entSuggestBtn" style="display:none; background: #9C27B0; color: white; border: none; padding: 12px 16px; border-radius: 5px; cursor: pointer; font-size: 14px;" onclick="entAISuggest()">✨ AI Suggest</button>
-                        <button id="entValidateBtn" style="background: #03A9F4; color: white; border: none; padding: 12px 16px; border-radius: 5px; cursor: pointer; font-size: 14px;" onclick="entValidateDryRun()">🧪 Validate / Dry‑run</button>
-                        <button id="generateEnterpriseBtn" style="background: #FF9800; color: white; border: none; padding: 12px 20px; border-radius: 5px; cursor: pointer; font-size: 16px; font-weight: bold;" onclick="generateEnterpriseConfig()">🚀 Generate Enterprise Configuration</button>
+                    <!-- Generate Button -->
+                    <div class="generate-section" style="text-align: center; margin: 20px 0;">
+                        <button id="generateEnterpriseBtn" style="background: #FF9800; color: white; border: none; padding: 15px 30px; border-radius: 8px; cursor: pointer; font-size: 18px; font-weight: bold; box-shadow: 0 4px 8px rgba(0,0,0,0.2);" onclick="generateEnterpriseConfig()">
+                            🚀 Generate Enterprise Configuration
+                        </button>
+                        <div style="margin-top: 10px; font-size: 14px; color: #666;">
+                            Includes automatic validation, AI suggestions, and Nextlink policy compliance
+                        </div>
+                        
+                        <!-- Status Display -->
+                        <div id="aiStatus" style="display: none; padding: 15px; border-radius: 8px; margin-top: 15px; font-size: 14px; font-weight: bold;">
+                            <span id="aiStatusText">Status will appear here...</span>
+                        </div>
                     </div>
 
                     <!-- Paste Export (optional) -->
@@ -6108,10 +6115,17 @@
         }
         function generateEnterpriseConfig() {
             try {
+                // Show status
+                showAIStatus('🚀 Starting configuration generation...', 'info');
+                
                 const device = (document.getElementById('ent_routerboard_device') || {}).value || '';
                 const version = (document.getElementById('ent_routeros_version') || {}).value || '';
                 const loopback = (document.getElementById('ent_loopbackIP') || {}).value || '';
                 const publicCidr = (document.getElementById('ent_publicIP') || {}).value || '';
+                const backhaulIP = (document.getElementById('ent_backhaulIP') || {}).value || '';
+                const gatewayIP = (document.getElementById('ent_gatewayIP') || {}).value || '';
+                const customerCode = (document.getElementById('ent_customerCode') || {}).value || '';
+                
                 // Use simple BH field in AI mode if present
                 const simpleBh = (document.getElementById('ent_bh_cidr_simple') || {}).value || '';
                 const uplinkField = document.querySelector('#ent_uplinksContainer .ent_uplinkIP');
@@ -6124,11 +6138,21 @@
                 const lon = (document.getElementById('ent_longitude') || {}).value || '';
                 const coords = (lat && lon) ? (lat + ', ' + lon) : undefined;
 
-                const effectiveBh = simpleBh || bhCidr;
+                const effectiveBh = backhaulIP || simpleBh || bhCidr;
                 if (!loopback || !publicCidr || !effectiveBh) {
-                    alert('Please provide Loopback /32, Public /29|/30, and Backhaul /29|/30.');
-                return;
-            }
+                    showAIStatus('❌ Please provide Loopback /32, Public /29|/30, and Backhaul /29|/30.', 'error');
+                    return;
+                }
+                
+                if (!device || !version) {
+                    showAIStatus('❌ Please select RouterBoard device and RouterOS version.', 'error');
+                    return;
+                }
+                
+                if (!customerCode) {
+                    showAIStatus('❌ Please enter customer code.', 'error');
+                    return;
+                }
             
                 const payload = {
                     device,
@@ -6136,6 +6160,7 @@
                     loopback_ip: loopback,
                     public_cidr: publicCidr,
                     bh_cidr: effectiveBh,
+                    gateway_ip: gatewayIP,
                     public_port: publicPort,
                     nat_port: natPort,
                     uplink_interface: uplinkIf,
@@ -6144,7 +6169,10 @@
                 };
 
                 const btn = document.getElementById('generateEnterpriseBtn');
-                if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }
+                if (btn) { btn.disabled = true; btn.textContent = '🔄 Generating...'; }
+                
+                showAIStatus('🤖 Getting AI suggestions for optimal configuration...', 'info');
+                
                 // Stage 1: Ask AI for suggestions to fill any missing/derived values
                 const suggestPayload = {
                     device: device, target_version: version, loopback_ip: loopback, public_cidr: publicCidr, bh_cidr: effectiveBh
@@ -6154,8 +6182,12 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(suggestPayload)
-                }).then(function(r){ return r.json(); }).then(function(sres){
+                }).then(function(r){ 
+                    if (!r.ok) throw new Error('Backend not responding. Please start api_server.py');
+                    return r.json(); 
+                }).then(function(sres){
                     if (sres && sres.success) {
+                        showAIStatus('✅ AI suggestions received, applying optimizations...', 'success');
                         // Merge helpful suggestions into payload (non-destructive)
                         if (sres.public_port && !publicPort) payload.public_port = sres.public_port;
                         if (sres.nat_port && !natPort) payload.nat_port = sres.nat_port;
@@ -6167,23 +6199,58 @@
                             const f = document.getElementById('ent_gateway'); if (f) f.value = sres.gateway;
                         }
                     }
+                    
+                    showAIStatus('🔧 Generating configuration with Nextlink policy compliance...', 'info');
+                    
                     // Stage 2: Generate final config
                     return fetch('http://localhost:5000/api/gen-enterprise-non-mpls', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
                     });
                 })
-                .then(function(r){ return r.json(); })
+                .then(function(r){ 
+                    if (!r.ok) throw new Error('Backend not responding. Please start api_server.py');
+                    return r.json(); 
+                })
                 .then(function(res){
-                    if (!res || res.success !== true || !res.config) { throw new Error((res && res.error) || 'Generation failed'); }
-                    window.enterpriseConfigOriginal = res.config;
-                    window.enterprisePasswordsVisible = false;
-                    displayEnterpriseConfig(false);
+                    if (!res || res.success !== true || !res.config) { 
+                        throw new Error((res && res.error) || 'Configuration generation failed'); 
+                    }
+                    
+                    showAIStatus('🔍 Validating generated configuration...', 'info');
+                    
+                    // Stage 3: Validate the generated config
+                    return fetch('http://localhost:5000/api/validate-config', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ config: res.config, type: 'enterprise-non-mpls' })
+                    }).then(function(validationRes) {
+                        return validationRes.json();
+                    }).then(function(validation) {
+                        if (validation && validation.validation && validation.validation.issues && validation.validation.issues.length > 0) {
+                            showAIStatus('⚠️ Configuration generated with warnings. Check output for details.', 'warning');
+                        } else {
+                            showAIStatus('✅ Configuration generated successfully with full validation!', 'success');
+                        }
+                        
+                        window.enterpriseConfigOriginal = res.config;
+                        window.enterprisePasswordsVisible = false;
+                        displayEnterpriseConfig(false);
+                    });
                 })
                 .catch(function(err){
                     console.error(err);
-                    alert('Failed to generate enterprise config: ' + (err && err.message ? err.message : err));
+                    if (err.message.includes('Failed to fetch') || err.message.includes('Backend not responding')) {
+                        showAIStatus('❌ Backend server not running. Please start api_server.py first!', 'error');
+                    } else {
+                        showAIStatus('❌ Error: ' + (err && err.message ? err.message : err), 'error');
+                    }
                 })
-                .finally(function(){ if (btn) { btn.disabled = false; btn.textContent = '🚀 Generate Enterprise Configuration'; } });
+                .finally(function(){ 
+                    if (btn) { 
+                        btn.disabled = false; 
+                        btn.textContent = '🚀 Generate Enterprise Configuration'; 
+                    } 
+                });
             } catch (e) {
                 console.error(e);
                 alert('Unexpected error while generating config.');
