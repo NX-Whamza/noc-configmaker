@@ -329,7 +329,8 @@
                                 <strong>RouterOS Support:</strong><br>
                                 • v6 → v7 migration<br>
                                 • CCR2004 & CCR1036 support<br>
-                                • MPLS/VPLS configuration<br>
+                                • MPLS/VPLS & Non-MPLS towers<br>
+                                • BGP/OSPF routing protocols<br>
                                 • Standardized security policies
                             </div>
                         </div>
@@ -1057,26 +1058,25 @@
                         <div id="ent_manual_device_group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
                             <div>
                                 <label for="ent_routerboard_device">RouterBoard Device:</label>
-                                <select id="ent_routerboard_device">
+                                <select id="ent_routerboard_device" onchange="updateDeviceName()">
                                     <option value="">Select RouterBoard Device</option>
-                                    <option value="rb1009">RB1009 (RouterOS 6.x/7.x)</option>
-                                    <option value="rb2011">RB2011 (RouterOS 6.x/7.x)</option>
-                                    <option value="ccr1036">CCR1036 (RouterOS 6.x/7.x)</option>
-                                    <option value="ccr1072">CCR1072 (RouterOS 6.x/7.x)</option>
-                                    <option value="rb5009">RB5009 (RouterOS 7.x)</option>
-                                    <option value="ccr2004">CCR2004 (RouterOS 7.x)</option>
-                                    <option value="ccr2216">CCR2216 (RouterOS 7.x)</option>
+                                    <option value="ccr2004">CCR2004-12G-4S (12 SFP+, 4 Ethernet) - Recommended</option>
+                                    <option value="rb5009">RB5009 (Small sites) - Recommended</option>
+                                    <option value="ccr1036">CCR1036-12G-4S (12 SFP+, 12 Ethernet)</option>
+                                    <option value="rb1009">RB1009 (Legacy)</option>
+                                    <option value="rb2011">RB2011 (Legacy)</option>
+                                    <option value="ccr1072">CCR1072 (Legacy)</option>
+                                    <option value="ccr2216">CCR2216 (Legacy)</option>
                                 </select>
                             </div>
                             <div>
                                 <label for="ent_routeros_version">RouterOS Version:</label>
                                 <select id="ent_routeros_version">
                                     <option value="">Select RouterOS Version</option>
-                                    <option value="6.45.2">6.45.2 (Legacy Speed Syntax)</option>
-                                    <option value="6.49.2">6.49.2 (Legacy Speed Syntax)</option>
-                                    <option value="7.11.2">7.11.2 (Legacy Speed Syntax)</option>
-                                    <option value="7.16.2">7.16.2 (New Speed Syntax)</option>
-                                    <option value="7.19.4">7.19.4 (New Speed Syntax)</option>
+                                    <option value="7.16.2" selected>7.16.2 (Stable) - Recommended</option>
+                                    <option value="7.19.4">7.19.4 (Latest)</option>
+                                    <option value="7.11.2">7.11.2 (Legacy)</option>
+                                    <option value="6.49.2">6.49.2 (Legacy)</option>
                                 </select>
                             </div>
                         </div>
@@ -1092,8 +1092,8 @@
                                 </select>
                             </div>
                             <div>
-                                <label for="ent_customerCode">Customer Code (e.g., NX-431940):</label>
-                                <input type="text" id="ent_customerCode" placeholder="NX-431940">
+                                <label for="ent_customerCode">Customer Code (e.g., NX-495635-Bureau-Veritas-Goody-Solar):</label>
+                                <input type="text" id="ent_customerCode" placeholder="NX-495635-Bureau-Veritas-Goody-Solar" oninput="updateDeviceName()">
                             </div>
                         </div>
                         
@@ -1135,7 +1135,18 @@
                             </div>
                         </div>
                         
-                        <div id="ent_row_private_pair" style="display:none; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px;">
+                            <div>
+                                <label for="ent_backhaulIP">Backhaul IP/Net (e.g., 10.33.1.92/29):</label>
+                                <input type="text" id="ent_backhaulIP" placeholder="10.33.1.92/29">
+                            </div>
+                            <div>
+                                <label for="ent_gatewayIP">Gateway IP (e.g., 10.33.1.89):</label>
+                                <input type="text" id="ent_gatewayIP" placeholder="10.33.1.89">
+                            </div>
+                        </div>
+                        
+                        <div id="ent_row_private_pair" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px;">
                             <div>
                                 <label for="ent_privateIP">Private IP/Net (e.g., 192.168.88.1/24):</label>
                                 <input type="text" id="ent_privateIP" placeholder="192.168.88.1/24" value="192.168.88.1/24">
@@ -8291,6 +8302,46 @@ function showAIStatus(message, type) {
         statusDiv.style.color = type === 'error' ? '#c62828' : 
                                type === 'warning' ? '#ef6c00' : 
                                type === 'success' ? '#2e7d32' : '#1976D2';
+    }
+}
+
+// Auto-generate device name based on router type and customer code
+function updateDeviceName() {
+    const deviceType = document.getElementById('ent_routerboard_device').value;
+    const customerCode = document.getElementById('ent_customerCode').value;
+    const deviceNameField = document.getElementById('ent_deviceName');
+    
+    if (deviceType && customerCode) {
+        let devicePrefix = '';
+        switch(deviceType) {
+            case 'ccr2004':
+                devicePrefix = 'RTR-MTCCR-2004';
+                break;
+            case 'rb5009':
+                devicePrefix = 'RTR-MTRB-5009';
+                break;
+            case 'ccr1036':
+                devicePrefix = 'RTR-MTCCR1036';
+                break;
+            case 'rb1009':
+                devicePrefix = 'RTR-MTRB1009';
+                break;
+            case 'rb2011':
+                devicePrefix = 'RTR-MTRB2011';
+                break;
+            case 'ccr1072':
+                devicePrefix = 'RTR-MTCCR1072';
+                break;
+            case 'ccr2216':
+                devicePrefix = 'RTR-MTCCR2216';
+                break;
+            default:
+                devicePrefix = 'RTR-MT';
+        }
+        
+        deviceNameField.value = `${devicePrefix}.${customerCode}`;
+    } else {
+        deviceNameField.value = '';
     }
 }
 </script>
