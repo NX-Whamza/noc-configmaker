@@ -1058,7 +1058,7 @@
                         <div id="ent_manual_device_group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
                             <div>
                                 <label for="ent_routerboard_device">RouterBoard Device:</label>
-                                <select id="ent_routerboard_device" onchange="updateDeviceName()">
+                                <select id="ent_routerboard_device" onchange="updateDeviceName(); updateEnterpriseInterfaces();">
                                     <option value="">Select RouterBoard Device</option>
                                     <option value="ccr2004">CCR2004-12G-4S (12 SFP+, 4 Ethernet) - Recommended</option>
                                     <option value="rb5009">RB5009 (Small sites) - Recommended</option>
@@ -1124,48 +1124,40 @@
                     <div class="section">
                         <h2>Network Configuration</h2>
                         
+                        <!-- Public IP Configuration -->
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
                             <div>
-                                <label for="ent_publicIP">Public IP/Net (e.g., 143.55.49.165/30):</label>
-                                <input type="text" id="ent_publicIP" placeholder="143.55.49.165/30">
+                                <label for="ent_publicIP">Public IP Address (e.g., 67.219.122.33/30):</label>
+                                <input type="text" id="ent_publicIP" placeholder="67.219.122.33/30" oninput="updatePublicPoolFromPublicIp()">
                             </div>
-                            <div id="ent_row_public_pool">
-                                <label for="ent_publicPool">Public DHCP Pool (e.g., 143.55.49.166-143.55.49.166):</label>
-                                <input type="text" id="ent_publicPool" placeholder="143.55.49.166-143.55.49.166">
+                            <div>
+                                <label for="ent_publicPool">Public DHCP Pool (auto-filled):</label>
+                                <input type="text" id="ent_publicPool" placeholder="67.219.122.34-67.219.122.34" readonly style="background: var(--output-bg);">
                             </div>
                         </div>
                         
+                        <!-- Backhaul IP Configuration -->
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px;">
                             <div>
-                                <label for="ent_backhaulIP">Backhaul IP/Net (e.g., 10.33.1.92/29):</label>
-                                <input type="text" id="ent_backhaulIP" placeholder="10.33.1.92/29">
+                                <label for="ent_backhaulIP">Backhaul IP Address (e.g., 10.11.1.68/29):</label>
+                                <input type="text" id="ent_backhaulIP" placeholder="10.11.1.68/29" oninput="updateGatewayFromBackhaul()">
                             </div>
                             <div>
-                                <label for="ent_gatewayIP">Gateway IP (e.g., 10.33.1.89):</label>
-                                <input type="text" id="ent_gatewayIP" placeholder="10.33.1.89">
+                                <label for="ent_gatewayIP">Gateway IP (Nextlink router IP):</label>
+                                <input type="text" id="ent_gatewayIP" placeholder="10.11.1.65" readonly style="background: var(--output-bg);">
                             </div>
                         </div>
                         
-                        <div id="ent_row_private_pair" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px;">
+                        <!-- Private IP Configuration -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px;">
                             <div>
-                                <label for="ent_privateIP">Private IP/Net (e.g., 192.168.88.1/24):</label>
+                                <label for="ent_privateIP">Private IP Address (e.g., 192.168.88.1/24):</label>
                                 <input type="text" id="ent_privateIP" placeholder="192.168.88.1/24" value="192.168.88.1/24">
                             </div>
                             <div>
                                 <label for="ent_privatePool">Private DHCP Pool (e.g., 192.168.88.10-192.168.88.254):</label>
                                 <input type="text" id="ent_privatePool" placeholder="192.168.88.10-192.168.88.254" value="192.168.88.10-192.168.88.254">
                             </div>
-                        </div>
-                        
-                        <div id="ent_row_gateway" style="display:none; margin-top: 10px;">
-                            <label for="ent_gateway">Gateway IP (for IP route):</label>
-                            <input type="text" id="ent_gateway" placeholder="10.1.241.89">
-                        </div>
-
-                        <!-- AI mode simple backhaul input (syncs into hidden uplink block) -->
-                        <div id="ent_bh_simple_row" style="margin-top: 10px;">
-                            <label for="ent_bh_cidr_simple">Backhaul IP/Net:</label>
-                            <input type="text" id="ent_bh_cidr_simple" placeholder="10.1.241.92/29" oninput="entSyncBhCidr()">
                         </div>
                     </div>
                     
@@ -5971,8 +5963,9 @@
             const defaults = ['ether7','ether8','sfp-sfpplus1','sfp-sfpplus2'];
             if (!device) return defaults;
             if (device === 'ccr2004') return ['sfp-sfpplus7','sfp-sfpplus8','sfp-sfpplus1','sfp-sfpplus2','ether7','ether8'];
+            if (device === 'ccr1036') return ['sfp-sfpplus7','sfp-sfpplus8','sfp-sfpplus1','sfp-sfpplus2','ether7','ether8'];
             if (device === 'ccr2216') return ['sfp28-1','sfp28-2','sfp28-3','sfp28-4','sfp28-5','sfp28-6','sfp28-7','sfp28-8','sfp28-9','sfp28-10','sfp28-11','sfp28-12','ether1'];
-            if (device === 'rb5009') return ['ether2','ether3','ether4','ether5','ether6','ether7','ether8','sfp-sfpplus1'];
+            if (device === 'rb5009') return ['ether7','ether8','sfp-sfpplus1','ether2','ether3','ether4','ether5','ether6'];
             return defaults;
         }
         function repopulateInterfaceSelect(sel, options, prefer) {
@@ -5991,9 +5984,28 @@
             const pubSel = document.getElementById('ent_publicInterface');
             const natSel = document.getElementById('ent_natInterface');
             const bhSel = document.getElementById('ent_backhaulInterface');
-            repopulateInterfaceSelect(pubSel, ports, dev === 'ccr2004' ? 'ether7' : undefined);
-            repopulateInterfaceSelect(natSel, ports, dev === 'ccr2004' ? 'ether8' : undefined);
-            repopulateInterfaceSelect(bhSel, ports, ports.find(p => p.startsWith('sfp')) || ports[0]);
+            
+            // Auto-select interfaces based on device type and Nextlink policy
+            let publicPort, natPort, backhaulPort;
+            
+            if (dev === 'rb5009') {
+                publicPort = 'ether7';    // Customer Handoff (CX HANDOFF)
+                natPort = 'ether8';       // NAT
+                backhaulPort = 'sfp-sfpplus1'; // Uplink (Weston)
+            } else if (dev === 'ccr2004' || dev === 'ccr1036') {
+                publicPort = 'sfp-sfpplus7';  // Customer Handoff
+                natPort = 'sfp-sfpplus8';     // NAT
+                backhaulPort = 'sfp-sfpplus1'; // Uplink
+            } else {
+                // Default fallback
+                publicPort = ports.find(p => p.includes('ether7')) || ports[0];
+                natPort = ports.find(p => p.includes('ether8')) || ports[1];
+                backhaulPort = ports.find(p => p.startsWith('sfp')) || ports[2];
+            }
+            
+            repopulateInterfaceSelect(pubSel, ports, publicPort);
+            repopulateInterfaceSelect(natSel, ports, natPort);
+            repopulateInterfaceSelect(bhSel, ports, backhaulPort);
         }
 
         function handleEntDeviceChange() {
@@ -8426,6 +8438,60 @@ function updateDeviceName() {
         deviceNameField.value = `${devicePrefix}.${customerCode}`;
     } else {
         deviceNameField.value = '';
+    }
+}
+
+// Auto-fill Public DHCP Pool based on Public IP CIDR
+function updatePublicPoolFromPublicIp() {
+    const publicIP = document.getElementById('ent_publicIP').value.trim();
+    const publicPoolField = document.getElementById('ent_publicPool');
+    
+    if (!publicIP || !publicPoolField) return;
+    
+    try {
+        const info = parseCidr(publicIP);
+        if (!info) return;
+        
+        // Calculate usable IPs (exclude network and broadcast)
+        const networkInt = ipToInt(info.ip) & info.mask;
+        const broadcastInt = networkInt | (~info.mask >>> 0);
+        const firstUsable = networkInt + 1;
+        const lastUsable = broadcastInt - 1;
+        
+        // For /30 networks, only one usable IP
+        if (info.prefix >= 30) {
+            const singleIP = intToIp(firstUsable);
+            publicPoolField.value = `${singleIP}-${singleIP}`;
+        } else {
+            // For larger networks, use first few IPs
+            const startIP = intToIp(firstUsable);
+            const endIP = intToIp(Math.min(firstUsable + 2, lastUsable));
+            publicPoolField.value = `${startIP}-${endIP}`;
+        }
+    } catch (e) {
+        console.log('Error calculating public pool:', e);
+    }
+}
+
+// Auto-fill Gateway IP based on Backhaul IP CIDR
+function updateGatewayFromBackhaul() {
+    const backhaulIP = document.getElementById('ent_backhaulIP').value.trim();
+    const gatewayField = document.getElementById('ent_gatewayIP');
+    
+    if (!backhaulIP || !gatewayField) return;
+    
+    try {
+        const info = parseCidr(backhaulIP);
+        if (!info) return;
+        
+        // Gateway is typically the first usable IP in the subnet
+        const networkInt = ipToInt(info.ip) & info.mask;
+        const gatewayInt = networkInt + 1;
+        const gatewayIP = intToIp(gatewayInt);
+        
+        gatewayField.value = gatewayIP;
+    } catch (e) {
+        console.log('Error calculating gateway IP:', e);
     }
 }
 </script>
