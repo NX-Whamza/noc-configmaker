@@ -1,15 +1,16 @@
 # 🚀 NOC Config Maker - AI-Powered RouterOS Configuration Tool
 
 ## 🎯 Overview
-An intelligent configuration generator for MikroTik RouterOS devices with AI-powered validation, translation, and chat assistance.
+An intelligent configuration generator for MikroTik RouterOS devices with AI-powered validation, translation, and chat assistance. Built specifically for Nextlink Internet with comprehensive RouterOS v6/v7 support and enterprise-grade features.
 
-## ✨ Features
+## ✨ Key Features
 
 ### 🤖 **AI-Powered Configuration**
 - **Smart Config Generation** - AI creates RouterOS configs from minimal input
 - **Auto-Validation** - Validates configurations before deployment
-- **Version Translation** - Converts RouterOS v6 to v7 syntax
+- **Version Translation** - Converts RouterOS v6 to v7 syntax automatically
 - **AI Suggestions** - Intelligent recommendations for optimization
+- **Smart Model Selection** - Automatically chooses the best AI model for each task
 
 ### 💬 **Chat Memory System**
 - **Persistent Memory** - Remembers all conversations across sessions
@@ -17,25 +18,27 @@ An intelligent configuration generator for MikroTik RouterOS devices with AI-pow
 - **Session Management** - Multiple users with individual chat histories
 - **Export Capability** - Save chat history as JSON
 
-### 🏢 **Enterprise Features**
+### 🏢 **Nextlink Enterprise Features**
 - **Non-MPLS Enterprise** - Simplified configs for enterprise customers
 - **Tower MikroTik** - Specialized tower configurations
-- **MPLS/VPLS** - Advanced MPLS configurations
+- **MPLS/VPLS** - Advanced MPLS configurations with proper syntax
 - **Upgrade Existing** - Migrate existing configs to newer versions
+- **Standardized Port Assignments** - Consistent port usage across all devices
 
 ### 🔧 **Technical Capabilities**
 - **RouterOS v6→v7 Migration** - Automated syntax conversion
-- **OSPF/BGP Translation** - Protocol-specific upgrades
+- **OSPF/BGP Translation** - Protocol-specific upgrades with correct templates
 - **Firewall Rules** - Dynamic firewall generation
 - **IP Management** - CIDR parsing and DHCP pools
 - **SNMP/DNS/NTP** - Standard network services
+- **Hardware Support** - CCR2004, CCR1036, and other MikroTik devices
 
 ## 🚀 Quick Start
 
 ### **Option 1: Local Development**
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/noc-configmaker.git
+git clone https://github.com/Wally0517/noc-configmaker.git
 cd noc-configmaker
 
 # Install dependencies
@@ -58,6 +61,18 @@ deploy_ai_server.bat
 client_setup.bat
 ```
 
+### **Option 3: Ollama Local Setup**
+```bash
+# Install Ollama and models
+install_phi3.bat
+
+# Start Ollama server
+start_ollama_server.bat
+
+# Start backend with Ollama
+start_backend.bat
+```
+
 ## 📁 Project Structure
 
 ```
@@ -70,18 +85,18 @@ noc-configmaker/
 ├── deploy_ai_server.bat     # Dedicated server deployment
 ├── client_setup.bat         # Client configuration
 ├── ros-migration-trainer-v3/ # AI training data
-│   ├── ai-consistency-rules.json
-│   ├── nextlink-styleguide.md
-│   ├── routing-ospf.json
-│   ├── routing-bgp.json
+│   ├── mikrotik_BGP.txt
+│   ├── mikrotik_OSPF.txt
+│   ├── mikrotik_RouterOS.txt
 │   └── ... (more training files)
+├── NEXTLINK_INTERNET_POLICY.md # Comprehensive policy document
 ├── chat_history.db          # SQLite chat database
 └── docs/                   # Documentation
 ```
 
 ## 🤖 AI Models Supported
 
-- **phi3:mini** - Fast, reliable for most tasks
+- **phi3:mini** - Fast, reliable for most tasks (default)
 - **qwen2.5-coder:7b** - Excellent for complex translations
 - **llama3.2:3b** - Quick tasks and simple chat
 
@@ -169,6 +184,17 @@ The AI is trained on:
 - **Nextlink Standards** - Company-specific conventions
 - **Migration Rules** - v6→v7 syntax mappings
 - **Best Practices** - Network engineering standards
+- **Live Router Configurations** - Real-world examples
+
+## 🏢 Nextlink Internet Policy
+
+The project includes a comprehensive policy document (`NEXTLINK_INTERNET_POLICY.md`) covering:
+
+- **Standardized Port Assignments** - Consistent port usage across CCR2004 and CCR1036
+- **RouterOS Version Compatibility** - v6 and v7 syntax differences
+- **MPLS and Non-MPLS Configurations** - Complete examples
+- **Security Best Practices** - IP address sanitization and security guidelines
+- **Migration Guidelines** - Step-by-step RouterOS version upgrades
 
 ## 🚀 Deployment Options
 
@@ -182,6 +208,76 @@ The AI is trained on:
 - Accessible from anywhere
 - Better performance for large configs
 - Centralized chat history
+
+### **Ollama Local**
+- Completely offline operation
+- No API costs
+- Fast local processing
+- Privacy-focused
+
+## 🛠️ Setup Scripts
+
+- `start_backend.bat` - Start the Flask backend
+- `start_webui.bat` - Start Open WebUI
+- `deploy_ai_server.bat` - Deploy on dedicated server
+- `client_setup.bat` - Configure client machine
+- `install_phi3.bat` - Install Ollama and phi3 model
+- `start_ollama_server.bat` - Start Ollama service
+
+## 🧪 Testing
+
+### **Test Backend Health**
+```bash
+curl http://localhost:5000/api/health
+```
+
+### **Test Config Validation**
+```bash
+curl -X POST http://localhost:5000/api/validate-config \
+  -H "Content-Type: application/json" \
+  -d '{
+    "config": "/system identity\nset name=TestRouter",
+    "type": "tower"
+  }'
+```
+
+### **Test Chat Functionality**
+```bash
+curl -X POST http://localhost:5000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Help me configure OSPF",
+    "session_id": "test123"
+  }'
+```
+
+## 🔧 Troubleshooting
+
+### **Common Issues**
+
+**"AI Backend offline"**
+- Run: `start_backend.bat`
+- Check if Python server is running on port 5000
+
+**"Connection timeout"**
+- First translation takes longer (loading model)
+- Wait 30 seconds and try again
+- Model stays loaded for 5 minutes
+
+**"Cannot connect to Ollama"**
+- Ollama service stopped
+- Run: `start_ollama_server.bat`
+
+**"API quota exceeded"**
+- Add credits to OpenAI account
+- Or switch to Ollama for free operation
+
+### **Performance Tips**
+
+- **First translation**: 15-30 seconds (model loading)
+- **Subsequent translations**: 5-10 seconds
+- **Model size**: 4.7GB RAM when active
+- **Cost**: $0.00 with Ollama (completely free)
 
 ## 🤝 Contributing
 
@@ -197,18 +293,22 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 🆘 Support
 
-- **Documentation**: Check the `docs/` folder
+- **Documentation**: Check the project files and policy document
 - **Issues**: Create a GitHub issue
 - **Chat**: Use the built-in AI chat for help
+- **Training Data**: All MikroTik documentation is included
 
 ## 🎯 Roadmap
 
-- [ ] Web-based configuration interface
+- [ ] Enhanced web-based configuration interface
 - [ ] Multi-tenant support
-- [ ] Advanced analytics
-- [ ] Integration with network monitoring
+- [ ] Advanced analytics and reporting
+- [ ] Integration with network monitoring tools
 - [ ] Automated testing framework
+- [ ] Real-time configuration validation
 
 ---
 
-**Built with ❤️ for Network Engineers**
+**Built with ❤️ for Network Engineers at Nextlink Internet**
+
+*This tool is specifically designed for Nextlink Internet's network operations, with comprehensive RouterOS support, standardized configurations, and AI-powered assistance for efficient network management.*
