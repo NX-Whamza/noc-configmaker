@@ -1143,8 +1143,8 @@
                                 <input type="text" id="ent_backhaulIP" placeholder="10.11.1.68/29" oninput="updateGatewayFromBackhaul()">
                             </div>
                             <div>
-                                <label for="ent_gatewayIP">Gateway IP (Nextlink router IP):</label>
-                                <input type="text" id="ent_gatewayIP" placeholder="10.11.1.65" readonly style="background: var(--output-bg);">
+                                <label for="ent_gatewayIP">Backhaul Network Address:</label>
+                                <input type="text" id="ent_gatewayIP" placeholder="10.11.1.64/29" readonly style="background: var(--output-bg);">
                             </div>
                         </div>
                         
@@ -8473,25 +8473,25 @@ function updatePublicPoolFromPublicIp() {
     }
 }
 
-// Auto-fill Gateway IP based on Backhaul IP CIDR
+// Auto-fill Network Address based on Backhaul IP CIDR
 function updateGatewayFromBackhaul() {
     const backhaulIP = document.getElementById('ent_backhaulIP').value.trim();
-    const gatewayField = document.getElementById('ent_gatewayIP');
+    const networkField = document.getElementById('ent_gatewayIP');
     
-    if (!backhaulIP || !gatewayField) return;
+    if (!backhaulIP || !networkField) return;
     
     try {
         const info = parseCidr(backhaulIP);
         if (!info) return;
         
-        // Gateway is typically the first usable IP in the subnet
+        // Calculate network address (IP & mask)
         const networkInt = ipToInt(info.ip) & info.mask;
-        const gatewayInt = networkInt + 1;
-        const gatewayIP = intToIp(gatewayInt);
+        const networkIP = intToIp(networkInt);
+        const networkAddress = `${networkIP}/${info.prefix}`;
         
-        gatewayField.value = gatewayIP;
+        networkField.value = networkAddress;
     } catch (e) {
-        console.log('Error calculating gateway IP:', e);
+        console.log('Error calculating network address:', e);
     }
 }
 </script>
