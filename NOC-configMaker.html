@@ -159,6 +159,60 @@
             background: #0c5460;
             color: #d1ecf1;
         }
+        /* Dark mode contrast fixes for inline "Policy Compliance" banners
+           These banners were authored with light backgrounds inline, which
+           reduces contrast in dark mode. We override them here using
+           attribute selectors and !important to beat inline styles. */
+        [data-theme="dark"] div[style*="background: #e8f5e9"] {
+            background: #1f2a1f !important; /* green variant */
+            border-color: #66bb6a !important;
+            color: #e8ffe8 !important;
+        }
+        [data-theme="dark"] div[style*="background: #e8f5e9"] h3 { color: #8be28b !important; }
+
+        [data-theme="dark"] div[style*="background: #fff3e0"] {
+            background: #2a241a !important; /* orange variant */
+            border-color: #ffb74d !important;
+            color: #ffe7c2 !important;
+        }
+        [data-theme="dark"] div[style*="background: #fff3e0"] h3 { color: #ffc977 !important; }
+
+        [data-theme="dark"] div[style*="background: #e3f2fd"] {
+            background: #17222b !important; /* blue variant */
+            border-color: #64b5f6 !important;
+            color: #d7ecff !important;
+        }
+        [data-theme="dark"] div[style*="background: #e3f2fd"] h3 { color: #90caf9 !important; }
+
+        [data-theme="dark"] div[style*="background: #f3e5f5"] {
+            background: #211a23 !important; /* purple variant */
+            border-color: #ce93d8 !important;
+            color: #f0dbf4 !important;
+        }
+        [data-theme="dark"] div[style*="background: #f3e5f5"] h3 { color: #e1bee7 !important; }
+
+        /* Tower Mode selector & hints - dark mode contrast */
+        [data-theme="dark"] #tower-pane .section[style*="background: #f8f9fa"] {
+            background: #202225 !important;
+            border-left-color: #ffb74d !important;
+        }
+        [data-theme="dark"] #tower-pane .section [style*="background: white"] {
+            background: #2a2a2a !important;
+            border-color: #666 !important;
+            color: #eee !important;
+        }
+        [data-theme="dark"] #newModeHint[style*="background: #e8f5e9"] {
+            background: #1f2a1f !important;
+            color: #e8ffe8 !important;
+        }
+        [data-theme="dark"] #dropZone[style*="background: white"] {
+            background: #2a2a2a !important;
+            border-color: #777 !important;
+        }
+        [data-theme="dark"] #uploadedFileName[style*="background: #e3f2fd"] {
+            background: #17222b !important;
+            color: #d7ecff !important;
+        }
         h1 { color: var(--button-bg); text-align: center; }
         h3 {
             color: var(--text-color);
@@ -298,10 +352,7 @@
                     <div class="nav-tab-title">🌐 ENTERPRISE FEEDING SIDE</div>
                     <div class="nav-tab-desc">Commercial/enterprise uplink provisioning</div>
                 </li>
-                <li class="nav-tab" data-tab="ai-chat">
-                    <div class="nav-tab-title">🤖 AI CHAT</div>
-                    <div class="nav-tab-desc">Ask questions and get RouterOS answers</div>
-                </li>
+                
             </ul>
         </div>
         <!-- Content Area -->
@@ -450,19 +501,7 @@
             </div>
         </div>
 
-        <!-- ===== Simple AI Chat Panel ===== -->
-        <div class="content-pane" id="ai-chat-pane" style="display:none;">
-            <div class="container">
-                <h1>AI Assistant Chat</h1>
-                <div style="display:grid; grid-template-columns: 1fr; gap: 10px;">
-                    <div id="chatLog" style="height: 360px; overflow:auto; background: var(--output-bg); color: var(--text-color); padding: 12px; border: 1px solid var(--border-color); border-radius: 6px; font-family: monospace; white-space: pre-wrap;"></div>
-                    <div style="display:flex; gap:8px;">
-                        <input id="chatInput" type="text" placeholder="Ask anything about RouterOS, migrations, standards..." style="flex:1; padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
-                        <button id="chatSendBtn" style="background:#4CAF50; color:white; padding:10px 16px; border:none; border-radius:6px; cursor:pointer;">Send</button>
-                    </div>
-                </div>
-            </div>
-        </div>
+        
         <div class="section">
             <h2>Configuration Type & Device Selection</h2>
             <div class="form-group">
