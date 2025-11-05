@@ -21,6 +21,14 @@ import json
 import requests
 from datetime import datetime
 import sqlite3
+try:
+    import pytz
+    CST = pytz.timezone('America/Chicago')
+    HAS_PYTZ = True
+except ImportError:
+    HAS_PYTZ = False
+    # Fallback: CST is UTC-6, CDT is UTC-5 (daylight saving)
+    import time
 from pathlib import Path
 from nextlink_standards import (
     NEXTLINK_COMMON_ERRORS,
@@ -32,6 +40,18 @@ from nextlink_standards import (
     NEXTLINK_AUTO_DETECTABLE_ERRORS
 )
 from pathlib import Path
+try:
+    from nextlink_enterprise_reference import get_all_standard_blocks
+    HAS_REFERENCE = True
+except ImportError:
+    HAS_REFERENCE = False
+
+try:
+    from nextlink_compliance_reference import get_all_compliance_blocks, validate_compliance
+    HAS_COMPLIANCE = True
+except ImportError:
+    HAS_COMPLIANCE = False
+    print("[WARN] Compliance reference not available - RFC-09-10-25 compliance will not be enforced")
 
 # ========================================
 # SMART MODEL SELECTION
@@ -1009,15 +1029,27 @@ Port Roles:
                 'management': 'ether1'
             }
             
-            # Detect model from config
-            if 'CCR1036' in config:
+            # Detect model from config - check more specific patterns first
+            if 'CCR2216' in config or 'sfp28-' in config:
+                device_info['model'] = 'CCR2216-1G-12XS-2XQ'
+                device_info['type'] = 'ccr2216'
+                device_info['ports'] = ['ether1', 'sfp28-1', 'sfp28-2', 'sfp28-3', 'sfp28-4', 'sfp28-5', 'sfp28-6', 'sfp28-7', 'sfp28-8', 'sfp28-9', 'sfp28-10', 'sfp28-11', 'sfp28-12']
+            elif 'CCR1072' in config or ('sfp1' in config and 'sfp2' in config and 'sfp3' in config and 'sfp4' in config and 'sfp-sfpplus' not in config):
+                device_info['model'] = 'CCR1072-12G-4S+'
+                device_info['type'] = 'ccr1072'
+                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp1', 'sfp2', 'sfp3', 'sfp4']
+            elif 'CCR1036' in config:
                 device_info['model'] = 'CCR1036-12G-4S'
                 device_info['type'] = 'ccr1036'
                 device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp1', 'sfp2', 'sfp3', 'sfp4']
-            elif 'CCR2004' in config:
+            elif 'CCR2004' in config or 'sfp-sfpplus' in config:
                 device_info['model'] = 'CCR2004-1G-12S+2XS'
                 device_info['type'] = 'ccr2004'
                 device_info['ports'] = ['ether1', 'sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4', 'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8', 'sfp-sfpplus9', 'sfp-sfpplus10', 'sfp-sfpplus11', 'sfp-sfpplus12', 'sfp28-1', 'sfp28-2']
+            elif 'CCR2116' in config:
+                device_info['model'] = 'CCR2116-12G-4S+'
+                device_info['type'] = 'ccr2116'
+                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4']
             elif 'RB5009' in config:
                 device_info['model'] = 'RB5009UG+S+'
                 device_info['type'] = 'rb5009'
@@ -1028,6 +1060,13 @@ Port Roles:
         def get_target_device_info(target_device):
             """Get target device information dynamically"""
             device_database = {
+                'ccr1072': {
+                    'model': 'CCR1072-12G-4S+',
+                    'type': 'ccr1072',
+                    'ports': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp1', 'sfp2', 'sfp3', 'sfp4'],
+                    'management': 'ether1',
+                    'description': '12x Gigabit + 4x SFP (CCR1072)'
+                },
                 'ccr2004': {
                     'model': 'CCR2004-1G-12S+2XS',
                     'type': 'ccr2004',
@@ -1041,7 +1080,7 @@ Port Roles:
                     # CCR2216: use only SFP28 ports for access; QSFP28 not used in our workflow
                     'ports': ['ether1', 'sfp28-1', 'sfp28-2', 'sfp28-3', 'sfp28-4', 'sfp28-5', 'sfp28-6', 'sfp28-7', 'sfp28-8', 'sfp28-9', 'sfp28-10', 'sfp28-11', 'sfp28-12'],
                     'management': 'ether1',
-                    'description': '1 Gigabit + 12 SFP+ + 2 SFP28'
+                    'description': '1 Gigabit + 12 SFP28 + 8 QSFP28 (CCR2216)'
                 },
                 'ccr2116': {
                     'model': 'CCR2116-12G-4S+',
@@ -1063,8 +1102,12 @@ Port Roles:
             if key in device_database:
                 return device_database[key]
             # Fuzzy fallback by model substring
+            if '1072' in key:
+                return device_database['ccr1072']
             if '2216' in key:
                 return device_database['ccr2216']
+            if '2116' in key:
+                return device_database['ccr2116']
             if '2004' in key:
                 return device_database['ccr2004']
             if '5009' in key:
@@ -1971,8 +2014,10 @@ Port Roles:
                 mapping = {}
                 tgt_idx = 0
                 for src in used:
-                    # On CCR2216 we migrate even ether1 usages to SFP28 (ether1 should be mgmt-only)
-                    if src == mgmt_port and target_type != 'ccr2216':
+                    # Skip management port mapping unless target device has only 1 ethernet port (like CCR2004, CCR2216)
+                    # For devices with only 1 ethernet (mgmt), we may need to map ether1 data usage to first SFP port
+                    should_skip_mgmt = (src == mgmt_port and len([p for p in target_ports if p.startswith('ether')]) > 1)
+                    if should_skip_mgmt:
                         continue
                     if tgt_idx < len(target_seq):
                         mapping[src] = target_seq[tgt_idx]
@@ -1983,10 +2028,29 @@ Port Roles:
                 for src in sorted(mapping.keys(), key=len, reverse=True):
                     dst = mapping[src]
                     text = re.sub(rf"\b{re.escape(src)}\b", dst, text)
-                # Extra guard: if target is CCR2216, convert any leftover sfp-sfpplusN to sfp28-N
-                if target_device_info.get('type') == 'ccr2216':
-                    for i in range(1, 13):
-                        text = re.sub(rf"\bsfp\-sfpplus{i}\b", f"sfp28-{i}", text)
+                # Port name normalization: convert legacy port names to target device port format
+                # This handles cases where source config uses different port naming conventions
+                target_port_prefix = None
+                if any(p.startswith('sfp28-') for p in target_seq):
+                    target_port_prefix = 'sfp28'
+                elif any(p.startswith('sfp-sfpplus') for p in target_seq):
+                    target_port_prefix = 'sfp-sfpplus'
+                elif any(p.startswith('sfp') and not p.startswith('sfp-sfpplus') and not p.startswith('sfp28') for p in target_seq):
+                    target_port_prefix = 'sfp'
+                
+                # Convert legacy port names to target device format if needed
+                if target_port_prefix:
+                    # Convert sfp-sfpplusN to target format (if target uses sfp28-N)
+                    if target_port_prefix == 'sfp28':
+                        for i in range(1, 13):
+                            text = re.sub(rf"\bsfp\-sfpplus{i}\b", f"sfp28-{i}", text)
+                    # Convert old SFP ports (sfp1, sfp2, etc.) to target format
+                    if target_port_prefix in ['sfp28', 'sfp-sfpplus']:
+                        for i in range(1, 5):
+                            old_pattern = rf"\bsfp{i}\b(?!\d)"
+                            new_port = f"{target_port_prefix}-{i}" if target_port_prefix == 'sfp-sfpplus' else f"sfp28-{i}"
+                            text = re.sub(old_pattern, new_port, text)
+                
                 return text
 
             target_ports = target_device_info.get('ports', [])
@@ -1994,22 +2058,30 @@ Port Roles:
             if target_ports:
                 print(f"[INTERFACE] Dynamic mapping using target ports: {', '.join(target_ports)}")
                 translated = map_interfaces_dynamically(translated, target_ports, mgmt_port, target_device_info.get('type',''))
-                # Ensure CCR2216 ends up with sfp28-* only (ether1 retained for mgmt only)
-                if target_device_info.get('type') == 'ccr2216':
-                    # Replace any remaining ether{2+} occurrences with next sfp28 slot in order
-                    non_mgmt_ethers = re.findall(r"\bether([2-9]|1[0-9])\b", translated)
-                    if non_mgmt_ethers:
-                        sfp28_iter = [f"sfp28-{i}" for i in range(1,13)]
-                        # reserve first few that already exist in text
-                        used = []
-                        for m in re.finditer(r"\bsfp28-([1-9]|1[0-2])\b", translated):
-                            val = int(m.group(1))
-                            if val not in used:
-                                used.append(val)
-                        sfp28_iter = [p for p in sfp28_iter if int(p.split('-')[1]) not in used]
-                        def repl(match):
-                            return sfp28_iter.pop(0) if sfp28_iter else match.group(0)
-                        translated = re.sub(r"\bether([2-9]|1[0-9])\b", repl, translated, count=len(sfp28_iter))
+                # For devices with only 1 ethernet port (mgmt only), map remaining ether ports to available SFP ports
+                # This applies to CCR2004, CCR2216, and other single-ethernet devices
+                ethernet_ports = [p for p in target_ports if p.startswith('ether')]
+                if len(ethernet_ports) == 1:  # Only management ethernet
+                    # Find available SFP ports in target device
+                    sfp_ports = [p for p in target_ports if p.startswith('sfp') and p != mgmt_port]
+                    if sfp_ports:
+                        # Replace any remaining ether{2+} occurrences with next available SFP port
+                        non_mgmt_ethers = re.findall(r"\bether([2-9]|1[0-9])\b", translated)
+                        if non_mgmt_ethers:
+                            # Get already-used SFP ports from config
+                            used_sfp = []
+                            for sfp_port in sfp_ports:
+                                port_num = re.search(r'\d+', sfp_port)
+                                if port_num:
+                                    used_sfp.append(int(port_num.group()))
+                            # Find available SFP port numbers
+                            available_sfp = [p for p in sfp_ports if any(re.search(rf'\b{p}\b', translated))]
+                            remaining_sfp = [p for p in sfp_ports if p not in available_sfp]
+                            
+                            if remaining_sfp:
+                                def repl(match):
+                                    return remaining_sfp.pop(0) if remaining_sfp else match.group(0)
+                                translated = re.sub(r"\bether([2-9]|1[0-9])\b", repl, translated, count=len(remaining_sfp))
 
                 # Force ether1 to be management-only: move any address/OSPF/BGP usage off ether1 to first data port
                 first_data_port = next((p for p in target_ports if p != mgmt_port and not p.startswith('qsfp')), None)
@@ -2094,6 +2166,17 @@ Port Roles:
             return translated
 
         training_context = build_training_context()
+        compliance_note = ""
+        if HAS_COMPLIANCE:
+            compliance_note = """
+MANDATORY COMPLIANCE (RFC-09-10-25):
+- All configurations MUST include NextLink compliance standards
+- The backend will automatically add compliance blocks after translation
+- Ensure DNS servers are 142.147.112.3,142.147.112.19
+- Ensure firewall rules, IP services, NTP, SNMP, and logging follow NextLink standards
+- Compliance will be validated and enforced automatically
+"""
+        
         system_prompt = f"""You are a RouterOS config translator with deep knowledge of RouterOS syntax differences.
 
 CRITICAL RULES:
@@ -2103,7 +2186,7 @@ CRITICAL RULES:
 4. Map interfaces to {target_device.upper()} hardware
 5. PRESERVE all IP addresses, firewall rules, users, passwords
 6. DO NOT remove, modify, or summarize ANY lines
-
+{compliance_note}
 SYNTAX CHANGES NEEDED:
 - BGP: {source_syntax_info['bgp_syntax']} → {target_syntax_info['bgp_peer']}
 - OSPF: {source_syntax_info['ospf_syntax']} → {target_syntax_info['ospf_interface']}
@@ -2143,8 +2226,11 @@ Output (copy every line, update device model to {target_device.upper()}):"""
         # Clean up any markdown formatting
         translated = translated.replace('```routeros', '').replace('```', '').strip()
 
-        # If target is CCR2216, force-convert any CCR2004 SFP+ names to SFP28 names 1:1
-        if target_device_info.get('type') == 'ccr2216':
+        # Port name normalization: convert sfp-sfpplusN to target device port format if needed
+        # This handles upgrades from CCR2004 (sfp-sfpplus) to devices that use sfp28- ports
+        target_ports_list = target_device_info.get('ports', [])
+        if any(p.startswith('sfp28-') for p in target_ports_list):
+            # Target device uses sfp28- ports, convert sfp-sfpplusN to sfp28-N
             for i in range(1, 13):
                 translated = re.sub(rf"\bsfp\-sfpplus{i}\b", f"sfp28-{i}", translated)
 
@@ -2169,17 +2255,150 @@ Output (copy every line, update device model to {target_device.upper()}):"""
             translated = postprocess_to_v7(translated, target_version)
             validation = validate_translation(source_config, translated)
 
+        # ========================================
+        # RFC-09-10-25 COMPLIANCE ENFORCEMENT
+        # ========================================
+        # Extract loopback IP from translated config for compliance blocks
+        loopback_ip = None
+        loopback_match = re.search(r'/ip address\s+add address=([0-9.]+/[0-9]+)\s+interface=loop0', translated, re.IGNORECASE)
+        if not loopback_match:
+            # Try alternative patterns
+            loopback_match = re.search(r'interface=loop0.*?address=([0-9.]+/[0-9]+)', translated, re.IGNORECASE)
+        if loopback_match:
+            loopback_ip = loopback_match.group(1)
+        
+        # If loopback not found, try to extract from source config
+        if not loopback_ip:
+            source_loopback_match = re.search(r'/ip address\s+add address=([0-9.]+/[0-9]+)\s+interface=loop0', source_config, re.IGNORECASE)
+            if source_loopback_match:
+                loopback_ip = source_loopback_match.group(1)
+        
+        # Apply compliance if available
+        compliance_validation = None
+        if HAS_COMPLIANCE:
+            print("[COMPLIANCE] Enforcing RFC-09-10-25 compliance standards...")
+            try:
+                # Get compliance blocks
+                compliance_blocks = get_all_compliance_blocks(loopback_ip or "10.0.0.1/32")
+                
+                # Inject compliance into translated config
+                translated = inject_compliance_blocks(translated, compliance_blocks)
+                
+                # Validate compliance
+                compliance_validation = validate_compliance(translated)
+                
+                if not compliance_validation['compliant']:
+                    print(f"[COMPLIANCE WARNING] {len(compliance_validation['missing_items'])} compliance items missing")
+                else:
+                    print("[COMPLIANCE] ✅ Configuration is compliant")
+                    
+            except Exception as e:
+                print(f"[COMPLIANCE ERROR] Failed to apply compliance: {e}")
+                compliance_validation = {'compliant': False, 'error': str(e)}
+
         return jsonify({
             'success': True,
             'translated_config': translated,
-            'validation': validation
+            'validation': validation,
+            'compliance': compliance_validation
         })
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 # ========================================
-# ENDPOINT 4: AI Config Explanation
+# ENDPOINT 4: Apply Compliance to Config
+# ========================================
+
+@app.route('/api/apply-compliance', methods=['POST'])
+def apply_compliance():
+    """
+    Apply RFC-09-10-25 compliance standards to a RouterOS configuration.
+    Used by both Non-MPLS and MPLS Enterprise config generators.
+    
+    IMPORTANT: This endpoint is ADDITIVE and NON-DESTRUCTIVE:
+    - Adds compliance blocks without removing existing configurations
+    - Skips frontend-only tabs (Tarana, 6GHz) that are production-ready
+    - Preserves all tab-specific functionality
+    - Does not override existing firewall rules, IP services, or other configs
+    """
+    try:
+        data = request.get_json(force=True)
+        config = data.get('config', '')
+        loopback_ip = data.get('loopback_ip', '')
+        
+        if not config:
+            return jsonify({'success': False, 'error': 'No configuration provided'}), 400
+        
+        if not HAS_COMPLIANCE:
+            return jsonify({
+                'success': True,
+                'config': config,
+                'compliance': {'compliant': False, 'error': 'Compliance reference not available'}
+            })
+        
+        # Check if this is a frontend-only tab (Tarana, 6GHz) - these are production-ready
+        config_lower = config.lower()
+        is_tarana_config = ('tarana' in config_lower or 'sector' in config_lower or ('alpha' in config_lower and 'beta' in config_lower))
+        is_6ghz_config = ('6ghz' in config_lower or '6ghz switch' in config_lower)
+        
+        if is_tarana_config or is_6ghz_config:
+            print("[COMPLIANCE] Skipping compliance injection for frontend-only tab (Tarana/6GHz - production ready, self-contained)")
+            return jsonify({
+                'success': True,
+                'config': config,
+                'compliance': {
+                    'compliant': True,
+                    'note': 'Frontend-only tab (production ready) - compliance not needed'
+                }
+            })
+        
+        # Extract loopback IP from config if not provided
+        if not loopback_ip:
+            loopback_match = re.search(r'/ip address\s+add address=([0-9.]+/[0-9]+)\s+interface=loop0', config, re.IGNORECASE)
+            if loopback_match:
+                loopback_ip = loopback_match.group(1)
+            else:
+                # Try alternative pattern
+                loopback_match = re.search(r'interface=loop0.*?address=([0-9.]+/[0-9]+)', config, re.IGNORECASE)
+                if loopback_match:
+                    loopback_ip = loopback_match.group(1)
+        
+        if not loopback_ip:
+            loopback_ip = "10.0.0.1/32"  # Default fallback
+        
+        print(f"[COMPLIANCE] Applying RFC-09-10-25 compliance to configuration (additive, non-destructive)...")
+        
+        # Get compliance blocks
+        compliance_blocks = get_all_compliance_blocks(loopback_ip)
+        
+        # Inject compliance into config (additive, preserves existing configs)
+        compliant_config = inject_compliance_blocks(config, compliance_blocks)
+        
+        # Validate compliance
+        compliance_validation = validate_compliance(compliant_config)
+        
+        if not compliance_validation['compliant']:
+            print(f"[COMPLIANCE WARNING] {len(compliance_validation['missing_items'])} compliance items missing")
+        else:
+            print("[COMPLIANCE] ✅ Configuration is compliant")
+        
+        return jsonify({
+            'success': True,
+            'config': compliant_config,
+            'compliance': compliance_validation
+        })
+        
+    except Exception as e:
+        print(f"[COMPLIANCE ERROR] Failed to apply compliance: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'config': config  # Return original config on error - preserves functionality
+        }), 500
+
+# ========================================
+# ENDPOINT 5: AI Config Explanation
 # ========================================
 
 @app.route('/api/explain-config', methods=['POST'])
@@ -2290,14 +2509,30 @@ def _cidr_details_gen(cidr: str) -> dict:
     hosts = list(net.hosts())
     first_host = str(hosts[0]) if hosts else str(net.network_address)
     last_host = str(hosts[-1]) if hosts else str(net.broadcast_address)
+    
+    # For /30 networks: only 2 usable IPs (gateway and customer)
+    # The user provides the gateway IP, so pool should be customer IP only (gateway + 1)
+    if net.prefixlen == 30 and len(hosts) >= 2:
+        # Gateway is hosts[0], customer is hosts[1]
+        pool_start = str(hosts[1])  # Customer IP (gateway + 1)
+        pool_end = str(hosts[1])    # Same IP for single-IP pool
+    elif len(hosts) > 3:
+        # For larger networks, exclude gateway (first) and broadcast (last)
+        pool_start = str(hosts[1])
+        pool_end = str(hosts[-2])
+    else:
+        # Fallback: use first_host as pool (shouldn't happen for /30)
+        pool_start = first_host
+        pool_end = last_host
+    
     return {
         'network': str(net.network_address),
         'prefix': net.prefixlen,
         'router_ip': first_host,
         'first_host': first_host,
         'last_host': last_host,
-        'pool_start': str(hosts[1]) if len(hosts) > 3 else first_host,
-        'pool_end': str(hosts[-2]) if len(hosts) > 3 else last_host,
+        'pool_start': pool_start,
+        'pool_end': pool_end,
         'broadcast': str(net.broadcast_address),
     }
 
@@ -2313,64 +2548,135 @@ def gen_enterprise_non_mpls():
         uplink_if = data.get('uplink_interface', 'sfp-sfpplus1')
         public_port = data.get('public_port', 'ether7')
         nat_port = data.get('nat_port', 'ether8')
-        dns1 = data.get('dns1', '142.147.112.3')
-        dns2 = data.get('dns2', '142.147.112.19')
+        # Use environment variables or form data - RFC-09-10-25 Compliance defaults
+        # Default to NextLink compliance DNS servers (142.147.112.3, 142.147.112.19)
+        dns1 = data.get('dns1') or os.getenv('NEXTLINK_DNS_PRIMARY', '142.147.112.3')
+        dns2 = data.get('dns2') or os.getenv('NEXTLINK_DNS_SECONDARY', '142.147.112.19')
+        if not dns1 or not dns2:
+            return jsonify({'success': False, 'error': 'DNS servers must be configured. Set NEXTLINK_DNS_PRIMARY and NEXTLINK_DNS_SECONDARY environment variables or configure in nextlink_constants.js'}), 400
+        snmp_community = data.get('snmp_community', 'CHANGE_ME')
         syslog_ip = data.get('syslog_ip')
         coords = data.get('coords')
         identity = data.get('identity', f"RTR-{device}.AUTO-GEN")
 
         pub = _cidr_details_gen(public_cidr)
         bh = _cidr_details_gen(bh_cidr)
+        private_cidr = data.get('private_cidr', '')  # e.g., 192.168.88.1/24
+        private_ip_range = data.get('private_pool', '')  # e.g., 192.168.88.10-192.168.88.254
+        
+        # Extract exact router IPs from user-provided CIDRs (use the IP they provided, not calculated first_host)
+        pub_router_ip_exact = public_cidr.split('/')[0]  # Use exact IP from user input
+        bh_router_ip_exact = bh_cidr.split('/')[0]  # Use exact IP from user input
+        
         if not syslog_ip:
             syslog_ip = loopback_ip.split('/')[0]
-
-        # Build config
+        
+        # Determine speed syntax based on RouterOS version
+        def get_speed_syntax(version):
+            """Determine speed syntax based on RouterOS version"""
+            if version.startswith('7.16') or version.startswith('7.19'):
+                return '1G-baseX'  # For SFP ports
+            return '1G-baseX'  # Default
+        
+        speed_syntax = get_speed_syntax(target_version)
+        loopback_ip_clean = loopback_ip.replace('/32', '').strip()
+        
+        # Parse private CIDR if provided
+        private_network = ''
+        private_gateway = ''
+        if private_cidr:
+            private_parts = private_cidr.split('/')
+            if len(private_parts) == 2:
+                private_ip = private_parts[0]
+                private_prefix = private_parts[1]
+                private_net = _cidr_details_gen(private_cidr)
+                private_network = private_net['network']
+                private_gateway = private_ip  # Use provided IP as gateway
+        
+        # Use standard reference blocks if available
+        standard_blocks = {}
+        if HAS_REFERENCE:
+            try:
+                standard_blocks = get_all_standard_blocks()
+            except Exception as e:
+                print(f"[WARN] Could not load standard blocks: {e}")
+        
+        # Build config blocks in proper order
         blocks = []
+        
+        # System Identity
         blocks.append(f"/system identity\nset name={identity}\n")
+        
+        # Queue Type
         blocks.append("/queue type\nset default-small pfifo-limit=50\n")
-        blocks.append("/interface bridge\nadd name=public-bridge priority=0x1\nadd name=nat-bridge priority=0x1\nadd name=loop0\n")
+        
+        # Interface Bridge
+        blocks.append("/interface bridge\nadd name=loop0\nadd name=nat-bridge priority=0x1\nadd name=public-bridge priority=0x1\n")
+        
+        # Interface Ethernet (with speed for uplink if SFP)
+        ethernet_block = f"/interface ethernet\n"
+        ethernet_block += f"set [ find default-name={public_port} ] comment=\"CX HANDOFF\"\n"
+        ethernet_block += f"set [ find default-name={nat_port} ] comment=NAT\n"
+        # Add speed for uplink interface if it's an SFP port
+        if uplink_if.startswith('sfp'):
+            # Determine speed based on RouterOS version
+            speed = get_speed_syntax(target_version)
+            ethernet_block += f"set [ find default-name={uplink_if} ] auto-negotiation=no comment={identity} speed={speed}\n"
+        blocks.append(ethernet_block)
+        
+        # Interface Bridge Port
         blocks.append("/interface bridge port\n" +
                       f"add bridge=public-bridge interface={public_port}\n" +
                       f"add bridge=nat-bridge interface={nat_port}\n")
-        blocks.append("/interface ethernet\n" +
-                      f"set {public_port} comment=\"CX HANDOFF\"\n" +
-                      f"set {nat_port} comment=NAT\n")
-        # IP addresses
-        private_base = pub['first_host'].rsplit('.', 1)[0]
-        blocks.append("/ip address\n" +
-                      f"add address={loopback_ip} interface=loop0 comment=loop0\n" +
-                      f"add address={pub['router_ip']}/{pub['prefix']} interface=public-bridge comment=\"PUBLIC(S)\"\n" +
-                      f"add address={private_base}.1/24 interface=nat-bridge comment=\"PRIVATES\"\n")
-        # DNS
-        blocks.append(f"/ip dns\nset max-udp-packet-size=512 servers={dns1},{dns2}\n")
-        # Route via BH
-        blocks.append(f"/ip route\nadd distance=250 gateway={bh['first_host']}\n")
-        # DHCP
-        blocks.append("/ip pool\n" +
-                      f"add name=public ranges=\"{pub['pool_start']}-{pub['pool_end']}\"\n" +
-                      f"add name=private ranges=\"{private_base}.10-{private_base}.254\"\n")
-        blocks.append("/ip dhcp-server\n" +
-                      f"add address-pool=public disabled=no interface=public-bridge lease-time=1h name=public-server use-radius=no authoritative=yes\n" +
-                      f"add address-pool=private disabled=no interface=nat-bridge lease-time=1h name=nat-server use-radius=no authoritative=yes\n")
-        blocks.append("/ip dhcp-server network\n" +
-                      f"add address={public_cidr} dns-server={dns1},{dns2} comment=\"PUBLIC(S)\" gateway={pub['router_ip']} netmask={pub['prefix']}\n" +
-                      f"add address={private_base}.0/24 dns-server={dns1},{dns2} comment=PRIVATES gateway={private_base}.1 netmask=24\n")
-        # SNMP
-        blocks.append("/snmp community\nset [ find default=yes ] read-access=no\nadd name=FBZ1yYdphf addresses=::/0\n")
-        loc = f" location=\"{coords}\"" if coords else ""
-        blocks.append(f"/snmp\nset enabled=yes trap-community=FBZ1yYdphf src-address={loopback_ip.split('/')[0]}{loc}\n")
-        # NAT
-        blocks.append("/ip firewall nat\n" +
-                      f"add action=src-nat chain=srcnat packet-mark=SMTP to-addresses={loopback_ip.split('/')[0]}\n" +
-                      f"add action=src-nat chain=srcnat packet-mark=NTP to-addresses={loopback_ip.split('/')[0]}\n" +
-                      f"add action=src-nat chain=srcnat src-address={private_base}.0/24 to-addresses={pub['router_ip']}\n")
-        # Address-lists (ACS examples)
-        blocks.append("/ip firewall address-list\n" +
-                      "add address=67.219.119.0/24 list=ACS\n" +
-                      "add address=142.147.121.0/24 list=ACS\n")
-        # Filter (ACS allow)
-        blocks.append("/ip firewall filter\nadd action=accept chain=input comment=\"ACS RULE\" src-address-list=ACS\n")
-        # Queue tree
+        
+        # IP Addresses (with proper network calculation)
+        ip_block = "/ip address\n"
+        ip_block += f"add address={loopback_ip_clean} comment=loop0 interface=loop0 network={loopback_ip_clean}\n"
+        
+        # Public IP - use exact IP provided by user, calculate network
+        pub_router_ip = pub_router_ip_exact  # Use exact user-provided IP
+        pub_network = pub['network']
+        ip_block += f"add address={pub_router_ip}/{pub['prefix']} comment=\"PUBLIC(S)\" interface=public-bridge network={pub_network}\n"
+        
+        # Private IP - use provided or calculate
+        private_base = ''  # Initialize for use in firewall NAT later
+        if private_cidr and private_gateway:
+            ip_block += f"add address={private_gateway}/{private_parts[1]} comment=PRIVATES interface=nat-bridge network={private_network}\n"
+            # Extract base for firewall NAT
+            private_base = private_network.rsplit('.', 1)[0] if '.' in private_network else private_network.rsplit('/', 1)[0].rsplit('.', 1)[0]
+        else:
+            # Fallback to calculated private
+            private_base = pub['first_host'].rsplit('.', 1)[0]
+            ip_block += f"add address={private_base}.1/24 comment=PRIVATES interface=nat-bridge network={private_base}.0\n"
+        
+        # Backhaul IP address - use exact IP provided by user
+        bh_router_ip = bh_router_ip_exact  # Use exact user-provided IP
+        bh_network = bh['network']
+        ip_block += f"add address={bh_router_ip}/{bh['prefix']} comment={identity} interface={uplink_if} network={bh_network}\n"
+        blocks.append(ip_block)
+        
+        # IP Pool
+        pool_block = "/ip pool\n"
+        # Public pool - use provided range or calculate
+        # For /30: pool_start and pool_end are the same (customer IP only, excluding gateway)
+        if pub.get('pool_start') and pub.get('pool_end'):
+            if pub['pool_start'] == pub['pool_end']:
+                # Single IP pool (e.g., /30 networks)
+                pool_block += f"add name=public ranges={pub['pool_start']}\n"
+            else:
+                # Range pool
+                pool_block += f"add name=public ranges={pub['pool_start']}-{pub['pool_end']}\n"
+        else:
+            pool_block += f"add name=public ranges={pub['router_ip']}\n"
+        # Private pool
+        if private_ip_range:
+            pool_block += f"add name=private ranges={private_ip_range}\n"
+        else:
+            private_base = pub['first_host'].rsplit('.', 1)[0]
+            pool_block += f"add name=private ranges={private_base}.10-{private_base}.254\n"
+        blocks.append(pool_block)
+        
+        # Queue Tree
         blocks.append("/queue tree\n" +
                       f"add max-limit=200M name=UPLOAD parent={uplink_if}\n" +
                       "add max-limit=200M name=DOWNLOAD-PUB parent=public-bridge\n" +
@@ -2378,15 +2684,92 @@ def gen_enterprise_non_mpls():
                       "add name=VOIP-UP packet-mark=VOIP parent=UPLOAD priority=1\n" +
                       "add name=VOIP-DOWN-PUB packet-mark=VOIP parent=DOWNLOAD-PUB priority=1\n" +
                       "add name=VOIP-DOWN-NAT packet-mark=VOIP parent=DOWNLOAD-NAT priority=1\n" +
-                      "add name=ALL-DOWN-PUB packet-mark=ALL parent=DOWNLOAD-PUB priority=8\n" +
-                      "add name=ALL-DOWN-NAT packet-mark=ALL parent=DOWNLOAD-NAT priority=8\n" +
-                      "add name=ALL-UP packet-mark=ALL parent=UPLOAD priority=8\n")
-        # Services & logging
+                      "add name=ALL-DOWN-PUB packet-mark=ALL parent=DOWNLOAD-PUB\n" +
+                      "add name=ALL-DOWN-NAT packet-mark=ALL parent=DOWNLOAD-NAT\n" +
+                      "add name=ALL-UP packet-mark=ALL parent=UPLOAD\n")
+        
+        # IP Neighbor Discovery (tab-specific, not compliance)
+        if standard_blocks.get('ip_neighbor_discovery'):
+            blocks.append(standard_blocks['ip_neighbor_discovery'])
+        
+        # DHCP Server (tab-specific configuration)
+        blocks.append("/ip dhcp-server\n" +
+                      f"add address-pool=public interface=public-bridge lease-time=1h name=public-server\n" +
+                      f"add address-pool=private interface=nat-bridge lease-time=1h name=nat-server\n")
+        
+        # DHCP Server Network (tab-specific configuration)
+        dhcp_net_block = "/ip dhcp-server network\n"
+        # Public DHCP network
+        pub_gateway = pub_router_ip
+        dhcp_net_block += f"add address={pub_network}/{pub['prefix']} dns-server={dns1},{dns2} gateway={pub_gateway}\n"
+        # Private DHCP network
+        if private_cidr and private_gateway:
+            dhcp_net_block += f"add address={private_network}/{private_parts[1]} comment=PRIVATES dns-server={dns1},{dns2} gateway={private_gateway} netmask={private_parts[1]}\n"
+        else:
+            private_base = pub['first_host'].rsplit('.', 1)[0]
+            dhcp_net_block += f"add address={private_base}.0/24 comment=PRIVATES dns-server={dns1},{dns2} gateway={private_base}.1 netmask=24\n"
+        blocks.append(dhcp_net_block)
+        
+        # Firewall NAT (tab-specific rules - SMTP, NTP, private NAT)
+        # NOTE: Compliance will add additional NAT rules, but these are tab-specific
+        blocks.append("/ip firewall nat\n" +
+                      f"add action=src-nat chain=srcnat packet-mark=SMTP to-addresses={loopback_ip_clean}\n" +
+                      f"add action=src-nat chain=srcnat packet-mark=NTP to-addresses={loopback_ip_clean}\n" +
+                      f"add action=src-nat chain=srcnat src-address={private_base}.0/24 to-addresses={pub_router_ip}\n")
+        
+        # Firewall Service Port (tab-specific)
         blocks.append("/ip firewall service-port\nset sip disabled=yes\n")
-        blocks.append("/system logging action\nset 0 memory-lines=100\nset 1 disk-lines-per-file=10000\n" +
-                      f"add name=syslog remote=142.147.116.215 src-address={loopback_ip.split('/')[0]} target=remote\n")
+        
+        # IP Route (tab-specific configuration)
+        # For /29 or /30, gateway is usually first host (network + 1)
+        bh_gateway = bh.get('router_ip', bh['first_host'])
+        # If backhaul IP is provided, use that as gateway
+        if 'gateway_ip' in data and data['gateway_ip']:
+            bh_gateway = data['gateway_ip'].split('/')[0] if '/' in data['gateway_ip'] else data['gateway_ip']
+        blocks.append(f"/ip route\nadd disabled=no distance=1 dst-address=0.0.0.0/0 gateway={bh_gateway} routing-table=main scope=30 suppress-hw-offload=no target-scope=10\n")
+        
+        # SNMP (tab-specific - location and basic settings)
+        # NOTE: Compliance will add SNMP community and additional settings
+        loc = f" location=\"{coords}\"" if coords else ""
+        blocks.append(f"/snmp\nset enabled=yes src-address={loopback_ip_clean} trap-community={snmp_community}{loc}\n")
+        
+        # NOTE: Compliance script will handle:
+        # - /ip firewall address-list (all lists)
+        # - /ip firewall filter (all input/forward rules)
+        # - /ip firewall raw (all raw rules)
+        # - /ip dns (DNS servers)
+        # - /ip service (all service settings)
+        # - /system logging action and /system logging (logging configuration)
+        # - /user group (all user groups)
+        # - /user aaa (RADIUS settings)
+        # - /system clock and /system ntp client (time/NTP)
+        # - /system routerboard settings (auto-upgrade)
+        # - Additional firewall NAT rules (unauth proxy, SSH redirect)
+        # - Firewall mangle rules
+        # - DHCP options
+        # - RADIUS configuration
+        # - LDP filters
 
         cfg = "\n\n".join(blocks)
+        
+        # ========================================
+        # RFC-09-10-25 COMPLIANCE ENFORCEMENT
+        # ========================================
+        if HAS_COMPLIANCE:
+            try:
+                print("[COMPLIANCE] Adding RFC-09-10-25 compliance to new configuration...")
+                compliance_blocks = get_all_compliance_blocks(loopback_ip)
+                cfg = inject_compliance_blocks(cfg, compliance_blocks)
+                
+                # Validate compliance
+                compliance_validation = validate_compliance(cfg)
+                if not compliance_validation['compliant']:
+                    print(f"[COMPLIANCE WARNING] {len(compliance_validation['missing_items'])} compliance items missing")
+                else:
+                    print("[COMPLIANCE] ✅ Configuration is compliant")
+            except Exception as e:
+                print(f"[COMPLIANCE ERROR] Failed to add compliance: {e}")
+        
         return jsonify({'success': True, 'config': cfg, 'device': device, 'version': target_version})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
@@ -2403,6 +2786,57 @@ def get_syntax_rules(target_version):
 - BGP: Use /routing bgp connection (not /routing bgp peer)
 - MOST SYNTAX STAYS THE SAME - only change if broken"""
     return "Keep syntax as-is"
+
+def inject_compliance_blocks(config: str, compliance_blocks: dict) -> str:
+    """
+    Intelligently inject compliance blocks into a RouterOS configuration.
+    Checks if compliance was already applied to avoid duplicates.
+    
+    IMPORTANT: Compliance blocks use RouterOS 'rem' commands to remove existing entries
+    and then re-add them with compliance standards. If compliance section already exists,
+    we skip to avoid duplication.
+    
+    Args:
+        config: Existing RouterOS configuration
+        compliance_blocks: Dictionary of compliance blocks from get_all_compliance_blocks()
+        
+    Returns:
+        Updated configuration with compliance blocks (only if not already present)
+    """
+    # Check if config is from a frontend-only tab (Tarana, 6GHz) that shouldn't get compliance
+    config_lower = config.lower()
+    is_tarana_config = ('tarana' in config_lower or 'sector' in config_lower or 'alpha' in config_lower or 'beta' in config_lower or 'gamma' in config_lower)
+    is_6ghz_config = ('6ghz' in config_lower or '6ghz switch' in config_lower or 'vlan3000' in config_lower or 'vlan4000' in config_lower)
+    
+    if is_tarana_config or is_6ghz_config:
+        print("[COMPLIANCE] Skipping compliance injection for frontend-only tab (Tarana/6GHz - production ready)")
+        return config
+    
+    # Check if compliance section already exists (to avoid double-injection)
+    # Look for the compliance header comment in the last 3000 characters (where it would be appended)
+    if "# RFC-09-10-25 COMPLIANCE STANDARDS" in config or "RFC-09-10-25 COMPLIANCE STANDARDS" in config[-3000:]:
+        print("[COMPLIANCE] Compliance section already exists, skipping duplicate injection")
+        return config
+    
+    # Append compliance blocks at the end (they use 'rem' commands to handle existing entries)
+    compliance_section = "\n\n# ========================================\n# RFC-09-10-25 COMPLIANCE STANDARDS\n# ========================================\n# These blocks ensure NextLink policy compliance\n# They use 'rem' commands to remove existing entries and re-add with compliance standards\n# ========================================\n\n"
+    
+    # Add compliance blocks in order
+    compliance_order = [
+        'ip_services', 'dns', 'firewall_address_lists', 
+        'firewall_filter_input', 'firewall_raw', 'firewall_forward',
+        'firewall_nat', 'firewall_mangle', 'clock_ntp', 'snmp',
+        'system_settings', 'vpls_edge', 'logging', 'user_aaa',
+        'user_groups', 'dhcp_options', 'radius', 'ldp_filters'
+    ]
+    
+    for key in compliance_order:
+        if key in compliance_blocks:
+            compliance_section += f"# {key.upper().replace('_', ' ')}\n"
+            compliance_section += compliance_blocks[key]
+            compliance_section += "\n\n"
+    
+    return config.rstrip() + "\n" + compliance_section
 
 def validate_translation(source, translated):
     """Validation focused on real config IPs (ignore prompts, comments, scripts).
@@ -2454,6 +2888,127 @@ def validate_translation(source, translated):
     }
 
 # ========================================
+# ENDPOINT 5: Tarana Config Generation & Validation
+# ========================================
+
+@app.route('/api/gen-tarana-config', methods=['POST'])
+def gen_tarana_config():
+    """
+    Generates and validates Tarana sector configuration with AI-powered network calculation
+    """
+    try:
+        data = request.get_json(force=True)
+        raw_config = data.get('config', '')
+        device = data.get('device', 'ccr2004')
+        routeros_version = data.get('routeros_version', '7.19.4')
+        
+        if not raw_config:
+            return jsonify({'error': 'No configuration provided'}), 400
+        
+        # Extract UNICORNMGMT CIDR from config to validate network calculation
+        unicorn_cidr_match = re.search(r'address=(\d+\.\d+\.\d+\.\d+/\d+).*comment=UNICORNMGMT', raw_config)
+        if unicorn_cidr_match:
+            unicorn_cidr = unicorn_cidr_match.group(1)
+            
+            # Calculate network address using Nextlink convention: network = IP - 1
+            try:
+                import ipaddress
+                # Parse the CIDR - extract IP and prefix
+                cidr_parts = unicorn_cidr.split('/')
+                user_ip = cidr_parts[0]
+                prefix_len = int(cidr_parts[1]) if len(cidr_parts) > 1 else 29
+                
+                # Nextlink convention: Network = Gateway IP - 1
+                # Example: Gateway 10.246.21.64 → Network 10.246.21.63
+                ip_obj = ipaddress.IPv4Address(user_ip)
+                network_obj = ipaddress.IPv4Address(int(ip_obj) - 1)
+                network_addr = str(network_obj)
+                
+                print(f"[TARANA] User IP (Gateway): {user_ip}, Prefix: /{prefix_len}")
+                print(f"[TARANA] Calculated Network (IP-1): {network_addr}/{prefix_len}")
+                
+                # Fix network address in config - replace both the IP address line and OSPF line
+                # First, fix /ip address line - preserve user's IP but fix network parameter
+                raw_config = re.sub(
+                    r'(add address=)(\d+\.\d+\.\d+\.\d+)(/\d+ comment=UNICORNMGMT interface=UNICORNMGMT network=)(\d+\.\d+\.\d+\.\d+)',
+                    rf'\1\2/{prefix_len}\3{network_addr}',
+                    raw_config
+                )
+                
+                # Fix OSPF networks parameter to use calculated network address
+                raw_config = re.sub(
+                    r'(networks=)(\d+\.\d+\.\d+\.\d+/\d+)',
+                    rf'\1{network_addr}/{prefix_len}',
+                    raw_config
+                )
+                
+                print(f"[TARANA] Fixed network address: {network_addr}/{prefix_len}")
+            except Exception as e:
+                print(f"[TARANA] Network calculation error: {e}")
+        
+        # Use AI to validate and enhance the configuration
+        training_context = build_training_context()
+        system_prompt = f"""You are a Nextlink NOC MikroTik RouterOS configuration expert specializing in Tarana sector configurations.
+
+Your task:
+1. **CRITICAL**: Fix network address calculations using proper CIDR subnet mathematics
+2. Ensure proper RouterOS v{routeros_version} syntax
+3. Verify all bridge port assignments are correct
+4. Check VLAN naming consistency
+5. Ensure proper formatting and spacing
+6. Validate IP addresses and network calculations
+
+**CRITICAL NETWORK CALCULATION RULES (NEXTLINK CONVENTION):**
+- **Nextlink Convention**: Network = Gateway IP - 1
+- Example: Gateway IP 10.246.21.64/29 → Network = 10.246.21.63
+- The address parameter keeps the user's IP (gateway)
+- The network parameter is always IP - 1
+- OSPF networks parameter MUST use (IP - 1)/prefix, not the gateway IP
+- This is a Nextlink-specific convention for UNICORNMGMT networks
+
+**VERIFICATION:**
+- Check /ip address lines: network= parameter must be the calculated network address
+- Check /routing ospf interface-template: networks= parameter must be network_address/prefix (not IP_address/prefix)
+
+Return ONLY the corrected RouterOS configuration with proper network addresses calculated. NO explanations, NO markdown code blocks, just pure RouterOS commands."""
+        
+        if training_context:
+            system_prompt += "\n\n" + training_context
+        
+        user_prompt = f"""Validate and correct this Tarana sector configuration for {device.upper()} running RouterOS {routeros_version}:
+
+{raw_config}
+
+Return the corrected configuration with proper network calculations and formatting."""
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        try:
+            corrected_config = call_ai(messages, max_tokens=4000, task_type='validation')
+            # Clean up any markdown formatting
+            corrected_config = corrected_config.replace('```routeros', '').replace('```', '').strip()
+            
+            # Fallback to original if AI fails
+            if not corrected_config or len(corrected_config) < 100:
+                corrected_config = raw_config
+        except Exception as e:
+            print(f"[TARANA AI] Error: {e} - Using corrected network calculation")
+            corrected_config = raw_config
+        
+        return jsonify({
+            'success': True,
+            'config': corrected_config,
+            'device': device,
+            'version': routeros_version
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ========================================
 # HEALTH CHECK
 # ========================================
 
@@ -2482,6 +3037,241 @@ def health():
 # RUN SERVER
 # ========================================
 
+# ========================================
+# ENDPOINT 6: Completed Configs Storage
+# ========================================
+
+CONFIGS_DB_PATH = Path("completed_configs.db")
+
+def init_configs_db():
+    """Initialize completed configs database"""
+    conn = sqlite3.connect(CONFIGS_DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS completed_configs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            config_type TEXT NOT NULL,
+            device_name TEXT,
+            device_type TEXT,
+            customer_code TEXT,
+            loopback_ip TEXT,
+            routeros_version TEXT,
+            config_content TEXT NOT NULL,
+            port_mapping TEXT,
+            metadata TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            created_by TEXT
+        )
+    ''')
+    
+    # Create indexes for faster searching
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_config_type ON completed_configs(config_type)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_customer_code ON completed_configs(customer_code)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON completed_configs(created_at)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_device_type ON completed_configs(device_type)')
+    
+    conn.commit()
+    conn.close()
+    print(f"[CONFIGS] Database initialized: {CONFIGS_DB_PATH}")
+
+def extract_port_mapping(config_content):
+    """Extract port mapping information from config"""
+    port_mapping = {}
+    
+    # Extract interface ethernet settings
+    ethernet_pattern = r'/interface ethernet\s+set\s+\[.*?default-name=([^\]]+)\].*?comment=([^\s\n]+)'
+    ethernet_matches = re.findall(ethernet_pattern, config_content, re.MULTILINE | re.DOTALL)
+    for port, comment in ethernet_matches:
+        port_mapping[port.strip()] = {
+            'comment': comment.strip(),
+            'type': 'ethernet'
+        }
+    
+    # Extract IP addresses with interfaces
+    ip_pattern = r'/ip address\s+add\s+address=([^\s]+)\s+interface=([^\s\n]+)'
+    ip_matches = re.findall(ip_pattern, config_content, re.MULTILINE)
+    for ip, interface in ip_matches:
+        if interface not in port_mapping:
+            port_mapping[interface] = {}
+        port_mapping[interface]['ip_address'] = ip.strip()
+    
+    # Extract bridge ports
+    bridge_pattern = r'/interface bridge port\s+add\s+bridge=([^\s]+)\s+interface=([^\s\n]+)'
+    bridge_matches = re.findall(bridge_pattern, config_content, re.MULTILINE)
+    for bridge, interface in bridge_matches:
+        if interface not in port_mapping:
+            port_mapping[interface] = {}
+        if 'bridges' not in port_mapping[interface]:
+            port_mapping[interface]['bridges'] = []
+        port_mapping[interface]['bridges'].append(bridge.strip())
+    
+    return port_mapping
+
+@app.route('/api/save-completed-config', methods=['POST'])
+def save_completed_config():
+    """Save a completed configuration to the database"""
+    try:
+        init_configs_db()
+        data = request.get_json(force=True)
+        
+        config_type = data.get('config_type', 'unknown')  # 'tower', 'enterprise', 'mpls-enterprise'
+        device_name = data.get('device_name', '')
+        device_type = data.get('device_type', '')
+        customer_code = data.get('customer_code', '')
+        loopback_ip = data.get('loopback_ip', '')
+        routeros_version = data.get('routeros_version', '')
+        config_content = data.get('config_content', '')
+        
+        if not config_content:
+            return jsonify({'error': 'No configuration content provided'}), 400
+        
+        # Extract port mapping
+        port_mapping = extract_port_mapping(config_content)
+        port_mapping_json = json.dumps(port_mapping) if port_mapping else None
+        
+        # Store metadata
+        metadata = {
+            'site_name': data.get('site_name', ''),
+            'router_id': data.get('router_id', ''),
+            'lan_bridge_ip': data.get('lan_bridge_ip', ''),
+            'ospf_area': data.get('ospf_area', ''),
+            'bgp_peers': data.get('bgp_peers', []),
+            'uplinks': data.get('uplinks', [])
+        }
+        metadata_json = json.dumps(metadata)
+        
+        # Get current time in Central Standard Time (CST/CDT)
+        if HAS_PYTZ:
+            cst_now = datetime.now(CST)
+        else:
+            # Fallback: calculate CST offset manually (UTC-6 for CST, UTC-5 for CDT)
+            utc_now = datetime.utcnow()
+            # Simple approximation: March-November is CDT (UTC-5), rest is CST (UTC-6)
+            month = utc_now.month
+            is_dst = 3 <= month <= 10  # Approximate DST period
+            offset_hours = -5 if is_dst else -6
+            from datetime import timedelta
+            cst_now = utc_now + timedelta(hours=offset_hours)
+        
+        cst_timestamp = cst_now.strftime('%Y-%m-%d %H:%M:%S')
+        
+        conn = sqlite3.connect(CONFIGS_DB_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO completed_configs 
+            (config_type, device_name, device_type, customer_code, loopback_ip, routeros_version, 
+             config_content, port_mapping, metadata, created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (config_type, device_name, device_type, customer_code, loopback_ip, routeros_version,
+              config_content, port_mapping_json, metadata_json, data.get('created_by', 'user'), cst_timestamp))
+        
+        config_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'config_id': config_id,
+            'message': 'Configuration saved successfully'
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to save config: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/get-completed-configs', methods=['GET'])
+def get_completed_configs():
+    """Get all completed configurations with optional filtering"""
+    try:
+        init_configs_db()
+        
+        search_term = request.args.get('search', '').strip()
+        year_filter = request.args.get('year', '').strip()
+        type_filter = request.args.get('type', '').strip()
+        
+        conn = sqlite3.connect(CONFIGS_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        query = 'SELECT * FROM completed_configs WHERE 1=1'
+        params = []
+        
+        if type_filter:
+            query += ' AND config_type = ?'
+            params.append(type_filter)
+        
+        if year_filter:
+            query += ' AND strftime("%Y", created_at) = ?'
+            params.append(year_filter)
+        
+        if search_term:
+            query += ' AND (device_name LIKE ? OR customer_code LIKE ? OR device_type LIKE ? OR loopback_ip LIKE ? OR config_content LIKE ?)'
+            search_pattern = f'%{search_term}%'
+            params.extend([search_pattern] * 5)
+        
+        query += ' ORDER BY created_at DESC'
+        
+        cursor.execute(query, params)
+        configs = [dict(row) for row in cursor.fetchall()]
+        
+        # Get unique years
+        cursor.execute('SELECT DISTINCT strftime("%Y", created_at) as year FROM completed_configs ORDER BY year DESC')
+        years = [row[0] for row in cursor.fetchall() if row[0]]
+        
+        conn.close()
+        
+        return jsonify({
+            'configs': configs,
+            'years': years
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to get configs: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/get-completed-config/<int:config_id>', methods=['GET'])
+def get_completed_config(config_id):
+    """Get a specific completed configuration by ID"""
+    try:
+        init_configs_db()
+        
+        conn = sqlite3.connect(CONFIGS_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM completed_configs WHERE id = ?', (config_id,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if not row:
+            return jsonify({'error': 'Configuration not found'}), 404
+        
+        config = dict(row)
+        
+        # Parse JSON fields
+        if config.get('port_mapping'):
+            try:
+                config['port_mapping'] = json.loads(config['port_mapping'])
+            except:
+                config['port_mapping'] = {}
+        
+        if config.get('metadata'):
+            try:
+                config['metadata'] = json.loads(config['metadata'])
+            except:
+                config['metadata'] = {}
+        
+        return jsonify(config)
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to get config: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# Initialize database on startup
+init_configs_db()
+
 if __name__ == '__main__':
     print("\n" + "="*50)
     print("NOC Config Maker - AI Backend Server")
@@ -2501,9 +3291,17 @@ if __name__ == '__main__':
     print("  POST /api/validate-config     - Validate RouterOS config")
     print("  POST /api/suggest-config      - Get AI suggestions")
     print("  POST /api/translate-config    - Translate between versions")
+    print("  POST /api/apply-compliance    - Apply RFC-09-10-25 compliance standards")
     print("  POST /api/explain-config      - Explain config sections")
     print("  POST /api/autofill-from-export - Parse exported config")
     print("  GET  /api/health              - Health check")
+    
+    if HAS_COMPLIANCE:
+        print("\n[COMPLIANCE] ✅ RFC-09-10-25 compliance enforcement is ENABLED")
+        print("            All configs (Non-MPLS, MPLS, Upgrades) will include compliance standards")
+    else:
+        print("\n[WARN] ⚠️  RFC-09-10-25 compliance enforcement is DISABLED")
+        print("       (nextlink_compliance_reference.py not found)")
     print("\nStarting server on http://localhost:5000")
     print("="*50 + "\n")
     

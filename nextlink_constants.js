@@ -2,13 +2,80 @@
  * Nextlink Configuration Constants
  * Based on Nextscape Navigator standards
  * Include this in NOC-configMaker.html
+ * 
+ * IMPORTANT: All infrastructure IPs and secrets should be configured here.
+ * These are defaults - in production, load from environment variables or config file.
  */
 
-// Nextlink DNS Servers
+// Nextlink DNS Servers (configurable - defaults provided)
 const NEXTLINK_DNS = {
-    primary: '8.8.8.8',
-    secondary: '8.8.4.4',
-    note: 'Google DNS or internal caching resolvers'
+    primary: '8.8.8.8',  // Configure via environment or override
+    secondary: '8.8.4.4',  // Configure via environment or override
+    note: 'Configure DNS servers based on your network requirements'
+};
+
+// Infrastructure Services (configurable - DO NOT hardcode production values)
+const NEXTLINK_INFRASTRUCTURE = {
+    // DNS Servers (for DHCP and router configs) - RFC-09-10-25 Compliance
+    // Default: NextLink compliance DNS servers (142.147.112.3, 142.147.112.19)
+    dnsServers: {
+        primary: '142.147.112.3',  // NextLink compliance DNS primary
+        secondary: '142.147.112.19',  // NextLink compliance DNS secondary
+        // Override these via environment/config: NEXTLINK_DNS_PRIMARY, NEXTLINK_DNS_SECONDARY
+        getList: function() { 
+            return `${this.primary},${this.secondary}`; 
+        }
+    },
+    
+    // Syslog Server - RFC-09-10-25 Compliance
+    syslogServer: '142.147.116.215',  // NextLink compliance syslog server (configure via environment: NEXTLINK_SYSLOG_SERVER to override)
+    
+    // NTP Servers (always include defaults, can add custom)
+    ntpServers: {
+        default: ['52.128.59.240', '52.128.59.241'],  // Default NTP pool servers (always included)
+        custom: ''  // Optional: Add custom NTP server (e.g., 'ntp-pool.yourdomain.com')
+    },
+    
+    // RADIUS Servers (configure via environment)
+    radiusServers: {
+        dhcp: [],  // Array of {address: 'IP', secret: 'SECRET'}
+        login: []  // Array of {address: 'IP', secret: 'SECRET', comment: 'NAME'}
+    },
+    
+    // Backup/FTP Configuration (configure via environment - NEVER hardcode passwords)
+    backup: {
+        enabled: false,  // Set to true only if backup is configured
+        ftpHost: '',  // Configure via environment: NEXTLINK_BACKUP_FTP_HOST
+        ftpUser: '',  // Configure via environment: NEXTLINK_BACKUP_FTP_USER
+        ftpPassword: '',  // Configure via environment: NEXTLINK_BACKUP_FTP_PASSWORD
+        ftpPath: 'backups'  // Configure via environment: NEXTLINK_BACKUP_FTP_PATH
+    },
+    
+    // Email Alerts (configure via environment)
+    emailAlerts: {
+        enabled: false,  // Set to true only if email alerts are configured
+        recipient: '',  // Configure via environment: NEXTLINK_EMAIL_ALERT_RECIPIENT
+        from: ''  // Configure via environment: NEXTLINK_EMAIL_ALERT_FROM
+    },
+    
+    // MPLS/VPLS Configuration
+    mpls: {
+        vplsPeer: '10.254.247.3',  // Default BNG1 peer (configure via environment: NEXTLINK_VPLS_PEER)
+        vplsStaticId: 2245  // Default VPLS ID (configurable)
+    },
+    
+    // SNMP Configuration
+    snmp: {
+        community: 'CHANGE_ME',  // MUST be changed in production
+        trapCommunity: 'CHANGE_ME',  // MUST be changed in production
+        contact: 'noc@configmaker.local'  // SNMP contact email (configure for production)
+    },
+    
+    // Shared Keys (MUST be configured per deployment)
+    sharedKeys: {
+        ospfBgpMd5: 'CHANGE_ME',  // MUST be changed from default
+        default: 'CHANGE_ME'  // Default shared key (MUST be changed)
+    }
 };
 
 // Nextlink SNMP Communities (should be customized per deployment)

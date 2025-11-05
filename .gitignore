@@ -41,6 +41,7 @@ Thumbs.db
 
 # Project specific
 chat_history.db
+completed_configs.db
 *.log
 temp/
 cache/
@@ -49,6 +50,9 @@ cache/
 .env
 .secret
 api_keys.txt
+.webui_secret_key
+*.secret
+*_secret_key
 
 # Large files
 *.zip
