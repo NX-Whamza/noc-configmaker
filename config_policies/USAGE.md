@@ -1,175 +1,55 @@
-# Config Policy Usage Guide
+﻿# Config Policy Usage Guide
 
 ## Overview
 
-The config policy system allows the LLM backend to generate RouterOS configurations based on structured policies. This ensures consistency, accuracy, and eliminates manual errors.
+The policy system lets the backend/LLM generate RouterOS configurations by combining structured Markdown policies with compliance references. Each policy describes required inputs, mapping rules, and validation expectations so the generator can produce consistent, audit-ready configs.
 
-## Unified Policy Structure
+## Policy Layout
 
 ```
 config_policies/
-├── README.md                    # Main documentation
-├── USAGE.md                     # This file
-├── nextlink/                    # NextLink policies
-│   └── nextlink-internet-policy.md
-├── lipan-sw/                    # LIPAN-SW policies
-│   └── lipan-sw-config-policy.md
-├── compliance/                  # Compliance references
-│   └── README.md
-└── examples/                    # Generated example configs
-    └── LIPAN-CONFIG-POLICY-CN-1.rsc
+├── README.md (directory reference)
+├── USAGE.md (this guide)
+├── nextlink/
+│   ├── texas-in-statepolicy.md              # Texas non-MPLS towers
+│   ├── illinois-out-of-state-mpls-config-policy.md  # Illinois MPLS aggregation
+│   ├── kansas-out-of-state-mpls-config-policy.md    # Kansas MPLS aggregation
+│   └── nextlink-internet-policy.md           # Global standards & port roles
+├── compliance/
+│   └── README.md                            # Notes on compliance script & references
+└── examples/                                # Sanitized RouterOS exports for context
 ```
 
-## Using Policies in Backend
+## Using Policies in the Backend
 
-### 1. Load Policies (Automatic on Startup)
+1. **Loading:** Policies are auto-loaded on startup. After editing, run `POST /api/reload-config-policies` to refresh them.
+2. **Discovery:** Use `GET /api/get-config-policies` to list available keys (e.g., `nextlink-texas-in-statepolicy`).
+3. **Retrieval:** Use `GET /api/get-config-policy/<key>` to fetch a single policy or `GET /api/get-config-policy-bundle` to merge policy + compliance references.
+4. **Prompting:** Feed the retrieved policy content into the LLM system prompt (alongside compliance blocks) before requesting generation or upgrades.
 
-The backend automatically loads all policies from `config_policies/` on startup. You'll see:
+## Selecting the Right Policy
+
+- **Texas towers (non-MPLS):** `nextlink-texas-in-statepolicy`
+- **Illinois MPLS aggregation:** `nextlink-illinois-out-of-state-mpls-config-policy`
+- **Kansas MPLS aggregation:** `nextlink-kansas-out-of-state-mpls-config-policy`
+- **Global standards:** Always include `nextlink-internet-policy` as a reference for port roles, naming, and security posture.
+
+## Compliance Integration
+
+- The Python module `nextlink_compliance_reference.py` encapsulates the RFC-09-10-25 compliance script. Use the policy bundle endpoint to automatically add these blocks to prompts.
+- The compliance script enforces service hardening, firewall ACLs, NAT/RAW order, SNMP/NTP settings, logging, and MPLS LDP filters. The backend should compare generated configs with these standards and insert missing sections.
+
+## Example Prompt Flow (Pseudo-code)
 
 ```
-[POLICIES] Loading configuration policies from: config_policies
-[POLICIES] Loaded: lipan-sw from lipan-sw-config-policy.md
-[POLICIES] Loaded 1 policies: lipan-sw
+policy_bundle = GET /api/get-config-policy-bundle?keys=nextlink-texas-in-statepolicy&include=compliance
+system_prompt = "You are a RouterOS assistant..." + policy_bundle.content
+user_prompt   = JSON payload with site inputs
+LLM call      = { "messages": [ {"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt} ] }
 ```
 
-### 2. Access Policies via API
+## Version Control Reminders
 
-**List all policies:**
-```bash
-GET http://localhost:5000/api/get-config-policies
-```
-
-**Get specific policy:**
-```bash
-GET http://localhost:5000/api/get-config-policy/lipan-sw
-```
-
-**Reload policies (after editing):**
-```bash
-POST http://localhost:5000/api/reload-config-policies
-```
-
-### 3. Use Policy in LLM Prompts
-
-When generating configurations, include the policy in your system prompt:
-
-```python
-# Load policy
-policy = CONFIG_POLICIES.get('lipan-sw', {})
-policy_content = policy.get('content', '')
-
-# Build system prompt
-system_prompt = f"""
-You are a RouterOS configuration generator. Follow this policy exactly:
-
-{policy_content}
-
-Generate a configuration based on the provided site-specific inputs.
-"""
-
-# Provide site-specific inputs
-user_prompt = f"""
-Generate a RouterOS 7.x configuration with these parameters:
-
-{json.dumps(site_params, indent=2)}
-"""
-```
-
-## Example: Generating LIPAN-SW Config
-
-### Input Schema
-
-```json
-{
-  "device_name": "RTR-MT2004-AR1.TX-CONFIG-POLICY-CN-1",
-  "time_zone": "America/Chicago",
-  "loopback": { "ip": "10.1.1.1" },
-  "cpe_scope": {
-    "cidr": "10.10.10.0/24",
-    "pool_range": "10.10.10.50-10.10.10.254"
-  },
-  "unauth_scope": {
-    "cidr": "10.100.10.0/24",
-    "pool_range": "10.100.10.2-10.100.10.254"
-  },
-  "cgnat_private_scope": {
-    "cidr": "100.64.0.0/22",
-    "pool_range": "100.64.0.3-100.64.3.254"
-  },
-  "cgnat_public_ip": "132.147.147.255",
-  "bridge3000_ips": [
-    { "label": "BRIDGE3000 MGMT", "cidr": "10.30.30.1/28" }
-  ],
-  "dhcp_dns_servers": ["4.2.2.2", "8.8.8.8"],
-  "radius_servers": [
-    { "address": "142.147.112.8", "secret": "Nl22021234" },
-    { "address": "142.147.112.20", "secret": "Nl22021234" }
-  ],
-  "tower_links": [
-    {
-      "interface": "sfp-sfpplus4",
-      "name": "TX-NEXTTOWER-CN-1",
-      "cidr": "10.20.20.0/29",
-      "local_ip": "10.20.20.1"
-    },
-    {
-      "interface": "sfp-sfpplus5",
-      "name": "TX-NEXTTOWER-CN-3",
-      "cidr": "10.5.5.0/29",
-      "local_ip": "10.5.5.4"
-    }
-  ]
-}
-```
-
-### Expected Output
-
-The LLM will generate a complete RouterOS configuration (.rsc file) with:
-- All loopback IP references (10+ places) correctly set
-- All scopes properly configured (CPE, Unauth, CGNAT)
-- Tower links with correct IP allocation
-- DHCP pools and networks matching CIDR ranges
-- OSPF templates for all networks
-- Firewall address lists properly configured
-- RADIUS servers using loopback as source
-
-## Adding New Policies
-
-1. Create policy directory: `config_policies/your-policy-name/`
-2. Create policy file: `your-policy-name-config-policy.md`
-3. Follow the structure of `lipan-sw-config-policy.md`:
-   - Purpose
-   - Required Input Schema
-   - Parameter Usage Map
-   - Baseline Structure Preservation
-   - Output Expectations
-   - Validation Checklist
-   - Example Usage
-4. Restart backend or call `/api/reload-config-policies`
-
-## Policy Best Practices
-
-1. **Be Specific**: Clearly define where each parameter appears
-2. **Be Complete**: List ALL locations where loopback IP is used
-3. **Include Validation**: Provide checklist for LLM to verify output
-4. **Provide Examples**: Show exact input/output format
-5. **Document Dependencies**: Explain relationships between parameters
-
-## Troubleshooting
-
-**Policy not loading?**
-- Check file naming: `{policy-name}-config-policy.md`
-- Verify directory structure matches expected format
-- Check backend logs for loading errors
-
-**Policy not being used?**
-- Verify policy is loaded: `GET /api/get-config-policies`
-- Check policy name matches what you're requesting
-- Ensure policy content is included in LLM prompt
-
-**Generated config has errors?**
-- Review validation checklist in policy
-- Verify all required inputs are provided
-- Check loopback IP appears in all required locations
-- Validate CIDR calculations (gateway, network, pool ranges)
-
+- Policy Markdown files should be reviewed alongside any RouterOS change.
+- Keep example exports updated when major policy revisions occur; they provide valuable training/test data.
+- Document new state/role policies by adding them to `nextlink/` and referencing them in this guide.

@@ -1,314 +1,66 @@
-# 🚀 NOC Config Maker - AI-Powered RouterOS Configuration Tool
-
-## 🎯 Overview
-An intelligent configuration generator for MikroTik RouterOS devices with AI-powered validation, translation, and chat assistance. Built specifically for Nextlink Internet with comprehensive RouterOS v6/v7 support and enterprise-grade features.
-
-## ✨ Key Features
-
-### 🤖 **AI-Powered Configuration**
-- **Smart Config Generation** - AI creates RouterOS configs from minimal input
-- **Auto-Validation** - Validates configurations before deployment
-- **Version Translation** - Converts RouterOS v6 to v7 syntax automatically
-- **AI Suggestions** - Intelligent recommendations for optimization
-- **Smart Model Selection** - Automatically chooses the best AI model for each task
-
-### 💬 **Chat Memory System**
-- **Persistent Memory** - Remembers all conversations across sessions
-- **User Context** - Learns your preferences and working style
-- **Session Management** - Multiple users with individual chat histories
-- **Export Capability** - Save chat history as JSON
-
-### 🏢 **Nextlink Enterprise Features**
-- **Non-MPLS Enterprise** - Simplified configs for enterprise customers
-- **Tower MikroTik** - Specialized tower configurations
-- **MPLS/VPLS** - Advanced MPLS configurations with proper syntax
-- **Upgrade Existing** - Migrate existing configs to newer versions
-- **Standardized Port Assignments** - Consistent port usage across all devices
-
-### 🔧 **Technical Capabilities**
-- **RouterOS v6→v7 Migration** - Automated syntax conversion
-- **OSPF/BGP Translation** - Protocol-specific upgrades with correct templates
-- **Firewall Rules** - Dynamic firewall generation
-- **IP Management** - CIDR parsing and DHCP pools
-- **SNMP/DNS/NTP** - Standard network services
-- **Hardware Support** - CCR2004, CCR1036, and other MikroTik devices
-
-## 🚀 Quick Start
-
-### **Option 1: Local Development**
-```bash
-# Clone the repository
-git clone https://github.com/Wally0517/noc-configmaker.git
-cd noc-configmaker
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Start the backend
-start_backend.bat
-
-# Open the tool
-# Navigate to http://localhost:5000/chat for AI chat
-# Or use the HTML tool directly
-```
-
-### **Option 2: Dedicated AI Server**
-```bash
-# On your dedicated server PC
-deploy_ai_server.bat
-
-# On your client machine
-client_setup.bat
-```
-
-### **Option 3: Ollama Local Setup**
-```bash
-# Install Ollama and models
-install_phi3.bat
-
-# Start Ollama server
-start_ollama_server.bat
-
-# Start backend with Ollama
-start_backend.bat
-```
-
-## 📁 Project Structure
-
-```
-noc-configmaker/
-├── api_server.py              # Flask backend with AI integration
-├── NOC-configMaker.html      # Main configuration tool UI
-├── requirements.txt          # Python dependencies
-├── start_backend.bat         # Local development startup
-├── start_webui.bat          # Open WebUI integration
-├── deploy_ai_server.bat     # Dedicated server deployment
-├── client_setup.bat         # Client configuration
-├── ros-migration-trainer-v3/ # AI training data
-│   ├── mikrotik_BGP.txt
-│   ├── mikrotik_OSPF.txt
-│   ├── mikrotik_RouterOS.txt
-│   └── ... (more training files)
-├── NEXTLINK_INTERNET_POLICY.md # Comprehensive policy document
-├── chat_history.db          # SQLite chat database
-└── docs/                   # Documentation
-```
-
-## 🤖 AI Models Supported
-
-- **phi3:mini** - Fast, reliable for most tasks (default)
-- **qwen2.5-coder:7b** - Excellent for complex translations
-- **llama3.2:3b** - Quick tasks and simple chat
-
-## 🔌 API Endpoints
-
-### **Configuration Generation**
-- `POST /api/validate-config` - Validate RouterOS config
-- `POST /api/suggest-config` - Get AI suggestions
-- `POST /api/translate-config` - Translate between versions
-- `POST /api/autofill-from-export` - Parse exported config
-
-### **Chat & Memory**
-- `POST /api/chat` - Chat with AI (with memory)
-- `GET /api/chat/history/{session_id}` - Get chat history
-- `GET /api/chat/context/{session_id}` - Get user context
-- `POST /api/chat/context/{session_id}` - Update user context
-- `GET /api/chat/export/{session_id}` - Export chat history
-
-### **OpenAI-Compatible**
-- `GET /v1/models` - List available models
-- `POST /v1/chat/completions` - OpenAI-compatible chat
-
-## 🎯 Usage Examples
-
-### **Generate Enterprise Configuration**
-```javascript
-fetch('/api/gen-enterprise-non-mpls', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
-        device: 'CCR2004',
-        version: '7.15',
-        customer: 'Acme Corp',
-        loopback: '10.0.0.1',
-        public_ip: '203.0.113.1',
-        backhaul_ip: '192.168.1.0/24'
-    })
-})
-```
-
-### **Chat with Memory**
-```javascript
-fetch('/api/chat', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
-        message: "Help me configure OSPF",
-        session_id: "user123"
-    })
-})
-```
-
-### **Translate RouterOS v6 to v7**
-```javascript
-fetch('/api/translate-config', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
-        config: "/routing ospf area add area-id=0.0.0.0",
-        target_version: "7"
-    })
-})
-```
-
-## 🔧 Configuration
-
-### **Environment Variables**
-```bash
-AI_PROVIDER=ollama                    # AI provider (ollama/openai)
-OLLAMA_MODEL=phi3:mini               # Default Ollama model
-ROS_TRAINING_DIR=./ros-migration-trainer-v3  # Training data directory
-```
-
-### **Open WebUI Integration**
-1. Install Open WebUI: `start_webui.bat`
-2. Configure provider: OpenAI (custom)
-3. Base URL: `http://localhost:5000/v1`
-4. API Key: `noc-local`
-5. Model: `noc-local`
-
-## 📊 Training Data
-
-The AI is trained on:
-- **RouterOS Documentation** - Official MikroTik docs
-- **Nextlink Standards** - Company-specific conventions
-- **Migration Rules** - v6→v7 syntax mappings
-- **Best Practices** - Network engineering standards
-- **Live Router Configurations** - Real-world examples
-
-## 🏢 Nextlink Internet Policy
-
-The project includes a comprehensive policy document (`NEXTLINK_INTERNET_POLICY.md`) covering:
-
-- **Standardized Port Assignments** - Consistent port usage across CCR2004 and CCR1036
-- **RouterOS Version Compatibility** - v6 and v7 syntax differences
-- **MPLS and Non-MPLS Configurations** - Complete examples
-- **Security Best Practices** - IP address sanitization and security guidelines
-- **Migration Guidelines** - Step-by-step RouterOS version upgrades
-
-## 🚀 Deployment Options
-
-### **Local Development**
-- Single machine setup
-- All services on localhost
-- Perfect for testing and development
-
-### **Dedicated AI Server**
-- Separate PC for AI workloads
-- Accessible from anywhere
-- Better performance for large configs
-- Centralized chat history
-
-### **Ollama Local**
-- Completely offline operation
-- No API costs
-- Fast local processing
-- Privacy-focused
-
-## 🛠️ Setup Scripts
-
-- `start_backend.bat` - Start the Flask backend
-- `start_webui.bat` - Start Open WebUI
-- `deploy_ai_server.bat` - Deploy on dedicated server
-- `client_setup.bat` - Configure client machine
-- `install_phi3.bat` - Install Ollama and phi3 model
-- `start_ollama_server.bat` - Start Ollama service
-
-## 🧪 Testing
-
-### **Test Backend Health**
-```bash
-curl http://localhost:5000/api/health
-```
-
-### **Test Config Validation**
-```bash
-curl -X POST http://localhost:5000/api/validate-config \
-  -H "Content-Type: application/json" \
-  -d '{
-    "config": "/system identity\nset name=TestRouter",
-    "type": "tower"
-  }'
-```
-
-### **Test Chat Functionality**
-```bash
-curl -X POST http://localhost:5000/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{
-    "message": "Help me configure OSPF",
-    "session_id": "test123"
-  }'
-```
-
-## 🔧 Troubleshooting
-
-### **Common Issues**
-
-**"AI Backend offline"**
-- Run: `start_backend.bat`
-- Check if Python server is running on port 5000
-
-**"Connection timeout"**
-- First translation takes longer (loading model)
-- Wait 30 seconds and try again
-- Model stays loaded for 5 minutes
-
-**"Cannot connect to Ollama"**
-- Ollama service stopped
-- Run: `start_ollama_server.bat`
-
-**"API quota exceeded"**
-- Add credits to OpenAI account
-- Or switch to Ollama for free operation
-
-### **Performance Tips**
-
-- **First translation**: 15-30 seconds (model loading)
-- **Subsequent translations**: 5-10 seconds
-- **Model size**: 4.7GB RAM when active
-- **Cost**: $0.00 with Ollama (completely free)
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## 📝 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## 🆘 Support
-
-- **Documentation**: Check the project files and policy document
-- **Issues**: Create a GitHub issue
-- **Chat**: Use the built-in AI chat for help
-- **Training Data**: All MikroTik documentation is included
-
-## 🎯 Roadmap
-
-- [ ] Enhanced web-based configuration interface
-- [ ] Multi-tenant support
-- [ ] Advanced analytics and reporting
-- [ ] Integration with network monitoring tools
-- [ ] Automated testing framework
-- [ ] Real-time configuration validation
-
----
-
-**Built with ❤️ for Network Engineers at Nextlink Internet**
-
-*This tool is specifically designed for Nextlink Internet's network operations, with comprehensive RouterOS support, standardized configurations, and AI-powered assistance for efficient network management.*
+NOC Config Maker - AI-Powered RouterOS Configuration Tool
+
+Overview
+- Generates MikroTik RouterOS configs with AI, validates and translates (ROS6 ↔ ROS7), and provides a chat assistant with memory. Built for Nextlink with enterprise features.
+
+Key Features
+- AI config generation, validation, translation
+- Chat with memory and user context
+- Nextlink enterprise: Non‑MPLS, Tarana, MPLS/VPLS
+- Standardized port assignments and policy enforcement
+- Smart model selection (Ollama/OpenAI)
+
+Quick Start
+- Windows terminal
+  - pip install -r requirements.txt
+  - start_backend_services.bat
+- Backend: http://localhost:5000
+- Web UI: http://localhost:8000/NOC-configMaker.html
+
+Ollama Local (optional)
+- install_phi3.bat
+- start_backend_services.bat
+
+Project Structure
+- api_server.py               Flask backend with AI
+- NOC-configMaker.html        Main UI
+- serve_html.py               Secure static server
+- start_backend_services.bat  Unified startup (Ollama + API + UI)
+- config_policies/            All policy markdowns
+- docs/                       Consolidated docs
+
+Core API Endpoints
+- POST /api/validate-config      Validate config
+- POST /api/suggest-config       Suggest values for partials
+- POST /api/translate-config     Translate v6↔v7
+- POST /api/autofill-from-export Parse exported config
+- POST /api/chat                 Chat with memory
+- GET  /api/get-config-policies  List policies
+- GET  /api/get-config-policy/{name} Get a policy
+- POST /api/reload-config-policies Reload policies
+
+Examples
+- Generate Enterprise (Non‑MPLS)
+  fetch('/api/gen-enterprise-non-mpls', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ device:'CCR2004', target_version:'7.19.4', loopback_ip:'10.0.0.1/32', public_cidr:'203.0.113.1/30', bh_cidr:'192.0.2.9/30' }) })
+
+- Chat
+  fetch('/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ message:'Help me configure OSPF', session_id:'user123' }) })
+
+- Translate v6 → v7
+  fetch('/api/translate-config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ source_config:'/routing ospf area add area-id=0.0.0.0', target_device:'CCR2004', target_version:'7.19.4' }) })
+
+Configuration
+- Environment
+  - AI_PROVIDER=ollama | openai
+  - OLLAMA_MODEL=phi3:mini
+  - ROS_TRAINING_DIR=./ros-migration-trainer-v3
+
+Policies
+- All policies live in config_policies/ (auto‑loaded). See config_policies/README.md and config_policies/USAGE.md.
+
+Documentation
+- See docs/index.md for consolidated setup, endpoints, and policy usage.
+
+Testing
+- curl http://localhost:5000/api/health
+- curl -X POST http://localhost:5000/api/validate-config -H "Content-Type: application/json" -d '{"config":"/system identity\nset name=TestRouter","type":"tower"}'

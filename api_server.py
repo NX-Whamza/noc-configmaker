@@ -803,6 +803,120 @@ def build_training_context() -> str:
     return "\n\n".join(parts)
 
 # ========================================
+# CONFIG NORMALIZATION / DEDUP
+# ========================================
+
+def normalize_config(config_text: str) -> str:
+    """Normalize RouterOS config: strip markdown fences, deduplicate lines per section,
+    and output sections in a stable order for consistency."""
+    if not isinstance(config_text, str):
+        return config_text
+    txt = config_text.replace('```routeros', '').replace('```', '').replace('\r', '\n')
+    lines = [ln.strip() for ln in txt.split('\n') if ln.strip()]
+
+    # Section ordering for readability
+    order = [
+        '/system identity',
+        '/queue type',
+        '/interface bridge',
+        '/interface ethernet',
+        '/interface vlan',
+        '/interface bridge port',
+        '/ip address',
+        '/ip pool',
+        '/ip dhcp-server',
+        '/routing ospf',
+        '/routing bgp',
+        '/mpls',
+        '/interface vpls',
+        '/snmp',
+        '/ip service',
+        '/ip firewall address-list',
+        '/ip firewall filter',
+        '/ip firewall nat',
+        '/ip firewall mangle',
+        '/system logging',
+        '/system ntp',
+    ]
+
+    # Bucket lines by nearest section header
+    buckets = {}
+    current = None
+    for ln in lines:
+        if ln.startswith('/'):
+            current = ln.split(' ', 2)[0] + ('' if ' ' not in ln else ' ' + ln.split(' ', 2)[1])
+            # normalize known multi-word headers
+            if ln.startswith('/ip firewall address-list'):
+                current = '/ip firewall address-list'
+            elif ln.startswith('/ip firewall filter'):
+                current = '/ip firewall filter'
+            elif ln.startswith('/ip firewall nat'):
+                current = '/ip firewall nat'
+            elif ln.startswith('/ip firewall mangle'):
+                current = '/ip firewall mangle'
+            elif ln.startswith('/routing ospf'):
+                current = '/routing ospf'
+            elif ln.startswith('/routing bgp'):
+                current = '/routing bgp'
+            elif ln.startswith('/interface bridge port'):
+                current = '/interface bridge port'
+            elif ln.startswith('/interface bridge'):
+                current = '/interface bridge'
+            elif ln.startswith('/interface ethernet'):
+                current = '/interface ethernet'
+            elif ln.startswith('/interface vlan'):
+                current = '/interface vlan'
+            elif ln.startswith('/interface vpls'):
+                current = '/interface vpls'
+            elif ln.startswith('/system identity'):
+                current = '/system identity'
+            elif ln.startswith('/system logging'):
+                current = '/system logging'
+            elif ln.startswith('/system ntp'):
+                current = '/system ntp'
+            elif ln.startswith('/ip address'):
+                current = '/ip address'
+            elif ln.startswith('/ip pool'):
+                current = '/ip pool'
+            elif ln.startswith('/ip dhcp-server'):
+                current = '/ip dhcp-server'
+            elif ln.startswith('/ip service'):
+                current = '/ip service'
+            elif ln.startswith('/snmp'):
+                current = '/snmp'
+            buckets.setdefault(current, [])
+            buckets[current].append(ln)
+        else:
+            if current is None:
+                current = '_preamble'
+            buckets.setdefault(current, [])
+            buckets[current].append(ln)
+
+    # Deduplicate while preserving order within each bucket
+    def dedup(seq):
+        seen = set()
+        out = []
+        for s in seq:
+            key = s
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(s)
+        return out
+
+    parts = []
+    for sect in order:
+        if sect in buckets:
+            parts.extend(dedup(buckets[sect]))
+            parts.append('')
+    # Append any remaining buckets not in order list
+    for sect, content in buckets.items():
+        if sect not in order:
+            parts.extend(dedup(content))
+            parts.append('')
+    return '\n'.join([p for p in parts]).strip() + '\n'
+
+# ========================================
 # ENDPOINT 1: AI Config Validation
 # ========================================
 
@@ -2994,6 +3108,8 @@ def gen_enterprise_non_mpls():
             except Exception as e:
                 print(f"[COMPLIANCE ERROR] Failed to add compliance: {e}")
         
+        # Normalize and deduplicate configuration before returning
+        cfg = normalize_config(cfg)
         return jsonify({'success': True, 'config': cfg, 'device': device, 'version': target_version})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
@@ -3269,6 +3385,8 @@ Return the corrected configuration with proper network calculations and formatti
             print(f"[TARANA AI] Error: {e} - Using corrected network calculation")
             corrected_config = raw_config
         
+        # Normalize and deduplicate before returning
+        corrected_config = normalize_config(corrected_config)
         return jsonify({
             'success': True,
             'config': corrected_config,
@@ -3338,6 +3456,35 @@ def get_config_policy(policy_name):
             })
         else:
             return jsonify({'error': f'Policy "{policy_name}" not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/get-config-policy-bundle', methods=['GET'])
+def get_config_policy_bundle():
+    """Return merged policy text for selected keys and optional references.
+    Query params:
+      keys: comma-separated policy keys (as listed by /api/get-config-policies)
+      include: comma-separated extras: compliance,enterprise
+    """
+    try:
+        keys_param = request.args.get('keys', '').strip()
+        include_param = request.args.get('include', '').strip().lower()
+        keys = [k.strip() for k in keys_param.split(',') if k.strip()] if keys_param else []
+        includes = set([i.strip() for i in include_param.split(',') if i.strip()]) if include_param else set()
+
+        parts = []
+        for k in keys:
+            p = CONFIG_POLICIES.get(k)
+            if p and p.get('content'):
+                parts.append(f"# POLICY: {k}\n\n{p['content'].strip()}\n")
+
+        if 'compliance' in includes and 'compliance-reference' in CONFIG_POLICIES:
+            parts.append(f"# REFERENCE: compliance\n\n{CONFIG_POLICIES['compliance-reference']['content'].strip()}\n")
+        if 'enterprise' in includes and 'enterprise-reference' in CONFIG_POLICIES:
+            parts.append(f"# REFERENCE: enterprise\n\n{CONFIG_POLICIES['enterprise-reference']['content'].strip()}\n")
+
+        merged = "\n\n".join(parts).strip()
+        return jsonify({'success': True, 'keys': keys, 'include': list(includes), 'content': merged})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

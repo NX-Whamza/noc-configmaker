@@ -1,159 +1,51 @@
-# Configuration Policy Directory
+﻿# Configuration Policy Directory
 
-This directory contains **ALL** configuration policies, standards, and references for the NOC Config Maker backend. The backend automatically loads all policies from this directory structure.
+This directory contains **all** configuration policies, standards, and references for the NOC Config Maker backend. The backend automatically loads every Markdown file in this tree and exposes them through the policy APIs.
 
 ## Directory Structure
 
 ```
 config_policies/
 ├── README.md (this file)
-├── USAGE.md (usage guide)
+├── USAGE.md (policy usage guide)
 ├── nextlink/
-│   └── nextlink-internet-policy.md (NextLink Internet Policy)
-├── lipan-sw/
-│   └── lipan-sw-config-policy.md (LIPAN-SW configuration policy)
+│   ├── texas-in-statepolicy.md (Texas non-MPLS towers)
+│   ├── illinois-out-of-state-mpls-config-policy.md (Illinois MPLS aggregation)
+│   ├── kansas-out-of-state-mpls-config-policy.md (Kansas MPLS aggregation)
+│   └── nextlink-internet-policy.md (global standards)
 ├── compliance/
-│   └── README.md (compliance reference documentation)
+│   └── README.md (compliance references, RFC-09-10-25 script notes)
 └── examples/
-    └── (generated example configs)
+    ├── TX-LIPAN-CONFIG-POLICY-CN-1.rsc
+    ├── IL-HUMBOLDT-NE-1-CONFIG-POLICY.rsc
+    └── KS-BENTON-CONFIG-POLICY.rsc
 ```
 
 ## Policy Categories
 
-### 1. NextLink Policies (`nextlink/`)
-- **nextlink-internet-policy.md**: Complete NextLink router configuration standards
-  - Port assignment policies
-  - RouterOS version compatibility
-  - MPLS vs Non-MPLS configurations
-  - Firewall standards
-  - User management standards
-  - Monitoring & logging
+### Nextlink Policies (`nextlink/`)
+- **texas-in-statepolicy.md** – Texas non-MPLS tower baseline driven by the LIPAN template.
+- **illinois-out-of-state-mpls-config-policy.md** – Illinois MPLS aggregation routers (bridge9990 + VPLS domains).
+- **kansas-out-of-state-mpls-config-policy.md** – Kansas MPLS aggregation routers with vendor bridges 600/800.
+- **nextlink-internet-policy.md** – Global standards for port roles, naming, MPLS vs non-MPLS expectations, security.
 
-### 2. LIPAN-SW Policies (`lipan-sw/`)
-- **lipan-sw-config-policy.md**: RouterOS 7.x LIPAN-SW baseline configuration
-  - Input schema for site-specific configs
-  - Loopback IP usage (10+ locations)
-  - CPE, Unauth, CGNAT scopes
-  - Tower link configurations
-  - DHCP and RADIUS setup
+### Compliance References (`compliance/`)
+- Python modules in the repository (`nextlink_compliance_reference.py`, `nextlink_enterprise_reference.py`, `nextlink_standards.py`) provide reusable blocks and constants; these are automatically available alongside the Markdown policies.
 
-### 3. Compliance References (`compliance/`)
-- **Python Modules** (automatically loaded):
-  - `nextlink_compliance_reference.py` - RFC-09-10-25 compliance blocks
-  - `nextlink_enterprise_reference.py` - Standard enterprise blocks
-  - `nextlink_standards.py` - Standards and constants
+### Examples (`examples/`)
+- Contains sanitized RouterOS exports used to derive the policies. Helpful for context and comparison but not loaded by the policy service.
 
 ## Backend Integration
 
 The backend (`api_server.py`) automatically:
-1. **Loads all policies** on startup (recursively finds all .md files)
-2. **Loads compliance references** from Python modules
-3. **Provides API access** to all policies
-4. **Organizes by category** for easy filtering
+1. Loads all Markdown policies on startup.
+2. Loads compliance/reference modules.
+3. Makes policies queryable via `/api/get-config-policies` and `/api/get-config-policy/<name>`.
+4. Supports bundling policies plus compliance blocks via `/api/get-config-policy-bundle`.
 
-## API Endpoints
+## Usage Summary
 
-### List All Policies
-```bash
-GET /api/get-config-policies
-```
-
-### Get Specific Policy
-```bash
-GET /api/get-config-policy/{policy-name}
-```
-
-Examples:
-- `GET /api/get-config-policy/nextlink-internet-policy`
-- `GET /api/get-config-policy/lipan-sw-config-policy`
-- `GET /api/get-config-policy/compliance-reference`
-
-### Reload Policies
-```bash
-POST /api/reload-config-policies
-```
-
-## Policy Loading Rules
-
-The backend finds policies by:
-1. **Recursively scanning** `config_policies/` for all `.md` files
-2. **Organizing by category** (subdirectory name)
-3. **Creating unique keys** as `category-policy-name`
-4. **Loading Python modules** for compliance/enterprise references
-
-**Exclusions:**
-- `README.md` and `USAGE.md` in root directory
-- `examples/` directory
-- `__pycache__/` directories
-
-## Policy Naming Convention
-
-Policies can be named:
-- `{policy-name}.md`
-- `{policy-name}-policy.md`
-- `{policy-name}-config-policy.md`
-
-All will be found and loaded. The category is determined by the subdirectory.
-
-## Using Policies in LLM Prompts
-
-When generating configurations, include relevant policies:
-
-```python
-# Load all relevant policies
-nextlink_policy = CONFIG_POLICIES.get('nextlink-internet-policy', {})
-lipan_policy = CONFIG_POLICIES.get('lipan-sw-config-policy', {})
-compliance_ref = CONFIG_POLICIES.get('compliance-reference', {})
-
-# Build comprehensive system prompt
-system_prompt = f"""
-You are a RouterOS configuration generator. Follow these policies:
-
-1. NEXTLINK INTERNET POLICY:
-{nextlink_policy.get('content', '')}
-
-2. LIPAN-SW CONFIGURATION POLICY:
-{lipan_policy.get('content', '')}
-
-3. COMPLIANCE REFERENCE:
-{compliance_ref.get('content', '')}
-
-Generate a configuration that follows ALL these policies.
-"""
-```
-
-## Adding New Policies
-
-1. Create category directory: `config_policies/your-category/`
-2. Add policy file: `your-category/your-policy.md`
-3. Restart backend or call `/api/reload-config-policies`
-4. Policy will be automatically loaded with key: `your-category-your-policy`
-
-## Policy Categories Explained
-
-- **nextlink/**: NextLink-specific standards and conventions
-- **lipan-sw/**: LIPAN-SW baseline configuration templates
-- **compliance/**: RFC-09-10-25 compliance standards and references
-- **examples/**: Generated example configurations (reference only)
-
-## Consistency Guarantee
-
-By centralizing all policies in this directory:
-- ✅ Backend automatically finds all policies
-- ✅ No policies are missed
-- ✅ Consistent structure across all policies
-- ✅ Easy to add new policies
-- ✅ Easy to update existing policies
-- ✅ All policies accessible via API
-
-## Version Control
-
-All policies should be:
-- Version controlled in Git
-- Documented with version numbers
-- Updated when standards change
-- Reviewed before deployment
-
----
-
-**This unified policy system ensures the LLM backend has access to ALL configuration standards and references, guaranteeing consistency across all generated configurations.**
+- Call `GET /api/get-config-policies` to discover available policy keys.
+- Call `GET /api/get-config-policy/<name>` to retrieve a specific Markdown policy.
+- Call `POST /api/reload-config-policies` after editing Markdown files to refresh the in-memory cache.
+- See `USAGE.md` for detailed examples on wiring policies into prompts and the LLM backend.
