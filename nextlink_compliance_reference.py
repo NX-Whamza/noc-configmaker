@@ -288,16 +288,37 @@ set [find where address !~ "^10\\\\."] dhcp-option-set=optset
 # COMPLIANCE: RADIUS (for DHCP)
 # ========================================
 # Note: RADIUS servers use loopback IP as source
+# SECURITY: RADIUS secret is loaded from environment variable to protect proprietary information
 def get_compliance_radius(loopback_ip):
-    """Generate compliance RADIUS configuration with dynamic source IP"""
+    """Generate compliance RADIUS configuration with dynamic source IP
+    
+    SECURITY: RADIUS secret is loaded from environment variable to protect proprietary information.
+    If not set, returns configuration with placeholder that must be configured manually.
+    """
+    import os
+    import warnings
+    
+    # Load RADIUS secret from environment variable (NEVER hardcode)
+    radius_secret = os.getenv('NEXTLINK_RADIUS_SECRET', '').strip()
+    
+    if not radius_secret:
+        # Graceful degradation: return placeholder instead of crashing
+        # This allows the system to work even if RADIUS secret isn't set yet
+        warnings.warn(
+            "NEXTLINK_RADIUS_SECRET not set. RADIUS configuration will use placeholder. "
+            "Set it via: export NEXTLINK_RADIUS_SECRET=your_secret",
+            UserWarning
+        )
+        radius_secret = 'CHANGE_ME_RADIUS_SECRET'  # Placeholder that must be replaced
+    
     loop_ip_clean = loopback_ip.split('/')[0] if '/' in loopback_ip else loopback_ip
     return f"""
 /radius
 rem [find]
 
 /radius
-add address=142.147.112.2 secret=Nl22021234 service=dhcp src-address={loop_ip_clean} timeout=5s
-add address=142.147.112.18 secret=Nl22021234 service=dhcp src-address={loop_ip_clean} timeout=5s
+add address=142.147.112.2 secret={radius_secret} service=dhcp src-address={loop_ip_clean} timeout=5s
+add address=142.147.112.18 secret={radius_secret} service=dhcp src-address={loop_ip_clean} timeout=5s
 """
 
 # ========================================

@@ -1088,7 +1088,7 @@
             <!-- ENTERPRISE CONFIG TAB -->
             <div class="content-pane" id="enterprise-pane">
                 <div class="container">
-                    <div class="enterprise-testing-banner">⚠️ TESTING CONSISTENCY AND FUNCTIONALITY - Non-MPLS Enterprise Config</div>
+                    <div class="enterprise-testing-banner">✅ PRODUCTION READY - Non-MPLS Enterprise Configuration - Nextlink Policy Compliant</div>
                     <h1>🏢 Non-MPLS Enterprise Configuration Generator</h1>
                     <p style="text-align: center; color: var(--text-color);">Nextlink-compliant enterprise customer configuration with standardized port assignments and simplified IP routing (no MPLS/BGP/OSPF).</p>
                     <p style="text-align: center; color: var(--text-color-secondary); font-size: 14px; margin-top: 10px;">📋 <a href="javascript:void(0);" onclick="togglePolicyReference();" style="color: #FF9800; text-decoration: underline;">View Policy Reference</a> for port assignments and configuration details.</p>
@@ -1169,6 +1169,12 @@
                                 <label for="ent_longitude">Site Longitude:</label>
                                 <input type="text" id="ent_longitude" placeholder="-97.087951">
                             </div>
+                        </div>
+                        
+                        <div style="margin-top: 10px;">
+                            <label for="ent_uplinkComment">Uplink Comment/Location (e.g., TX-LAGRANGE-FC-1):</label>
+                            <input type="text" id="ent_uplinkComment" placeholder="TX-LAGRANGE-FC-1" style="width: 100%;">
+                            <small style="color: var(--text-color); opacity: 0.7;">This comment will be used for backhaul interface and IP address</small>
                         </div>
                     </div>
                     
@@ -5210,6 +5216,43 @@
                 const targetDevice = (document.getElementById('upgradeTargetDevice')||{}).value || 'device';
                 const targetVersion = (document.getElementById('upgradeTargetVersion')||{}).value || '7.x';
                 const ts = new Date().toISOString().split('T')[0];
+                
+                // Extract metadata from config for saving
+                let deviceName = '';
+                let loopbackIp = '';
+                
+                // Try to extract device name from system identity
+                const nameMatch = config.match(/set\s+name=([^\s\n]+)/);
+                if (nameMatch) {
+                    deviceName = nameMatch[1];
+                } else {
+                    deviceName = `upgraded-${targetDevice}`;
+                }
+                
+                // Try to extract loopback IP
+                const loopbackMatch = config.match(/interface=loop0[^\n]*address=(\d+\.\d+\.\d+\.\d+)/);
+                if (loopbackMatch) {
+                    loopbackIp = loopbackMatch[1];
+                } else {
+                    // Try router-id as fallback
+                    const routerIdMatch = config.match(/router-id=(\d+\.\d+\.\d+\.\d+)/);
+                    if (routerIdMatch) {
+                        loopbackIp = routerIdMatch[1];
+                    }
+                }
+                
+                // Get source device info if available (from uploaded file)
+                const uploadedFileName = document.getElementById('fileName')?.textContent || '';
+                let sourceDevice = 'unknown';
+                if (uploadedFileName) {
+                    // Try to extract device from filename
+                    const deviceMatch = uploadedFileName.match(/(ccr\d+|rb\d+|mt\d+|mtrb\d+)/i);
+                    if (deviceMatch) {
+                        sourceDevice = deviceMatch[1].toLowerCase();
+                    }
+                }
+                
+                // Download the file
                 const blob = new Blob([config.replace(/\r?\n/g, '\n')], { type: 'text/plain;charset=utf-8' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -5218,6 +5261,34 @@
                 document.body.appendChild(a);
                 a.click();
                 setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 0);
+                
+                // Save to completed configs database
+                if (typeof saveCompletedConfig === 'function') {
+                    const configData = {
+                        config_type: 'upgrade',
+                        device_name: deviceName || `upgraded-${targetDevice}`,
+                        device_type: targetDevice,
+                        customer_code: '',
+                        loopback_ip: loopbackIp,
+                        routeros_version: targetVersion,
+                        config_content: config,
+                        created_by: 'user'
+                    };
+                    
+                    // Extract additional metadata
+                    const metadata = {
+                        source_device: sourceDevice,
+                        target_device: targetDevice,
+                        source_version: 'unknown', // Could extract from original config if available
+                        target_version: targetVersion,
+                        upgrade_timestamp: new Date().toISOString()
+                    };
+                    configData.metadata = metadata;
+                    
+                    saveCompletedConfig(configData);
+                } else {
+                    console.warn('[UPGRADE] saveCompletedConfig function not available');
+                }
             }
             
             function downloadConfig() {
@@ -5867,9 +5938,9 @@
             let report = 'Firewall Rules Verification:\n\n';
             let allMatch = true;
             
-            // Test generation
+            // Test generation (using placeholder - actual secret should come from environment/config)
             let testConfig = '';
-            testConfig = addRFCComplianceBaseline(testConfig, '10.0.0.1', 'FBZ1yYdphf', 'Nl22021234', false, '10.100.0.0/22', '100.64.0.0/10', '10.200.0.0/22');
+            testConfig = addRFCComplianceBaseline(testConfig, '10.0.0.1', 'FBZ1yYdphf', 'PLACEHOLDER_SECRET', false, '10.100.0.0/22', '100.64.0.0/10', '10.200.0.0/22');
             
             // Check Input Chain
             const inputSection = testConfig.split('# FIREWALL INPUT CHAIN')[1];
@@ -7427,6 +7498,7 @@
                 const lat = (document.getElementById('ent_latitude') || {}).value || '';
                 const lon = (document.getElementById('ent_longitude') || {}).value || '';
                 const coords = (lat && lon) ? (lat + ', ' + lon) : undefined;
+                const uplinkComment = (document.getElementById('ent_uplinkComment') || {}).value || '';
 
                 const effectiveBh = backhaulIP || simpleBh || bhCidr;
                 if (!loopback || !publicCidr || !effectiveBh) {
@@ -7460,6 +7532,7 @@
                     uplink_interface: uplinkIf,
                     identity,
                     coords,
+                    uplink_comment: uplinkComment,  // Uplink comment/location for backhaul
                     private_cidr: privateIP,  // e.g., 192.168.88.1/24
                     private_pool: privatePool  // e.g., 192.168.88.10-192.168.88.254
                 };
@@ -8867,38 +8940,59 @@
                 config += `/routing ospf interface-template\n`;
                 config += `add area=backbone-v2 auth-id=1 comment="${label}" cost=10 disabled=no networks=${backhaulNetworkCidr} priority=1\n`;
                 
-                // Show initial config
+                // Show status and validate BEFORE displaying config
+                const warnBox = document.getElementById('ent_feeding_warn');
                 const out = document.getElementById('ent_feeding_output');
-                if (out) {
-                    out.value = config;
-                    out.style.opacity = '1';
+                
+                // Show "Generating..." status
+                if (warnBox) {
+                    warnBox.innerHTML = '<div style="color: #FF9800; font-weight: bold;">🔄 Configuration generated, validating with AI backend...</div>';
                 }
                 
-                // Send to AI backend for validation and enhancement (non-blocking - config already displayed)
-                (async () => {
-                    try {
-                        const warnBox = document.getElementById('ent_feeding_warn');
-                        if (warnBox) {
-                            warnBox.innerHTML = '<div style="color: #FF9800; font-weight: bold;">🔄 Validating configuration with AI backend...</div>';
-                        }
-                        
-                        const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
-                        
-                        const response = await fetch(`${AI_API_BASE}/validate-config`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ 
-                                config: config, 
-                                type: 'enterprise-feeding' 
-                            }),
-                            signal: controller.signal
-                        });
-                        
-                        clearTimeout(timeoutId);
-                        
-                        if (response.ok) {
-                            const validation = await response.json();
+                // Clear output initially
+                if (out) {
+                    out.value = '';
+                    out.style.opacity = '0.5';
+                }
+                
+                // Validate BEFORE showing config (like Non-MPLS Enterprise)
+                if (typeof AI_API_BASE === 'undefined') {
+                    console.error('AI_API_BASE not defined');
+                    // Show config anyway if backend unavailable
+                    if (out) {
+                        out.value = config;
+                        out.style.opacity = '1';
+                    }
+                    if (warnBox) {
+                        warnBox.innerHTML = '<div style="color: #6c757d; font-style: italic;">ℹ️ Configuration generated. AI validation skipped (API base not configured).</div>';
+                    }
+                    return;
+                }
+                
+                // Validate config with AI backend
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout for AI validation (AI can be slow)
+                
+                fetch(`${AI_API_BASE}/validate-config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        config: config, 
+                        type: 'enterprise-feeding' 
+                    }),
+                    signal: controller.signal
+                })
+                .then(function(response) {
+                    clearTimeout(timeoutId);
+                    
+                    if (response.ok) {
+                        return response.json().then(function(validation) {
+                            // Show config after validation
+                            if (out) {
+                                out.value = config;
+                                out.style.opacity = '1';
+                            }
+                            
                             if (validation && validation.validation && validation.validation.issues && validation.validation.issues.length > 0) {
                                 if (warnBox) {
                                     warnBox.innerHTML = '<div style="color: #FF9800; font-weight: bold;">⚠️ Configuration validated with warnings. Review before deployment.</div>';
@@ -8908,26 +9002,53 @@
                                     warnBox.innerHTML = '<div style="color: #4CAF50; font-weight: bold;">✅ Configuration validated successfully by AI backend!</div>';
                                 }
                             }
-                        } else {
-                            // Handle 500 or other errors gracefully
-                            console.warn('AI validation returned status:', response.status);
-                            if (warnBox) {
-                                warnBox.innerHTML = '<div style="color: #6c757d; font-style: italic;">ℹ️ Configuration generated successfully. AI validation temporarily unavailable.</div>';
+                        });
+                    } else {
+                        // Show config anyway if validation fails
+                        if (out) {
+                            out.value = config;
+                            out.style.opacity = '1';
+                        }
+                        
+                        const errorText = response.text().catch(() => '');
+                        console.warn('AI validation returned status:', response.status);
+                        if (warnBox) {
+                            if (response.status === 404) {
+                                warnBox.innerHTML = '<div style="color: #6c757d; font-style: italic;">ℹ️ Configuration generated. AI validation endpoint not found (backend may need update).</div>';
+                            } else if (response.status >= 500) {
+                                warnBox.innerHTML = '<div style="color: #6c757d; font-style: italic;">ℹ️ Configuration generated. AI validation temporarily unavailable (server error).</div>';
+                            } else {
+                                warnBox.innerHTML = '<div style="color: #6c757d; font-style: italic;">ℹ️ Configuration generated. AI validation returned error (status: ' + response.status + ').</div>';
                             }
                         }
-                    } catch (aiError) {
-                        // AI backend unavailable, timeout, or error - config already displayed
-                        if (aiError.name === 'AbortError') {
-                            console.warn('AI validation timeout');
-                        } else {
-                            console.warn('AI validation unavailable:', aiError);
-                        }
-                        const warnBox = document.getElementById('ent_feeding_warn');
+                    }
+                })
+                .catch(function(aiError) {
+                    clearTimeout(timeoutId);
+                    
+                    // Show config even if validation fails
+                    if (out) {
+                        out.value = config;
+                        out.style.opacity = '1';
+                    }
+                    
+                    if (aiError.name === 'AbortError') {
+                        console.warn('AI validation timeout after 30 seconds');
                         if (warnBox) {
-                            warnBox.innerHTML = '<div style="color: #6c757d; font-style: italic;">ℹ️ Configuration generated successfully. AI validation skipped (backend unavailable).</div>';
+                            warnBox.innerHTML = '<div style="color: #6c757d; font-style: italic;">ℹ️ Configuration generated. AI validation timeout (Ollama may be processing - check backend console).</div>';
+                        }
+                    } else if (aiError.message && (aiError.message.includes('Failed to fetch') || aiError.message.includes('NetworkError'))) {
+                        console.warn('AI validation network error:', aiError);
+                        if (warnBox) {
+                            warnBox.innerHTML = '<div style="color: #6c757d; font-style: italic;">ℹ️ Configuration generated. AI validation skipped (cannot reach backend - check if api_server.py is running on port 5000).</div>';
+                        }
+                    } else {
+                        console.warn('AI validation error:', aiError);
+                        if (warnBox) {
+                            warnBox.innerHTML = '<div style="color: #6c757d; font-style: italic;">ℹ️ Configuration generated. AI validation error: ' + (aiError.message || 'Unknown error') + '</div>';
                         }
                     }
-                })();
+                });
                 
             } catch (error) {
                 alert('Error generating configuration: ' + error.message);
@@ -9621,7 +9742,15 @@
             }
 
             // Download translated config from Upgrade section
+            // NOTE: This function is shadowed by the main downloadUpgradeOutput() at line 5211
+            // The main function handles saving to completed configs. This duplicate is kept for compatibility
+            // but should ideally call window.downloadUpgradeOutput() instead
             function downloadUpgradeOutput() {
+                // Delegate to the main function if it exists
+                if (window.downloadUpgradeOutput && window.downloadUpgradeOutput !== arguments.callee) {
+                    return window.downloadUpgradeOutput();
+                }
+                // Fallback implementation (should not be reached if main function is bound)
                 const ta = document.getElementById('upgradeOutput');
                 const text = ta ? ta.value : '';
                 if (!text) { alert('No configuration to download!'); return; }

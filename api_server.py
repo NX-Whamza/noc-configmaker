@@ -136,13 +136,157 @@ def load_training_rules(directory: str) -> dict:
 TRAINING_RULES = load_training_rules(TRAINING_DIR)
 
 # ========================================
+# CONFIG POLICY LOADER
+# ========================================
+CONFIG_POLICIES_DIR = Path("config_policies")
+CONFIG_POLICIES = {}
+
+def load_config_policies(directory: Path = None) -> dict:
+    """
+    Load ALL configuration policies from directory structure recursively.
+    Finds all .md policy files in config_policies/ and organizes them by category.
+    
+    Structure:
+    - config_policies/{category}/{policy-name}.md
+    - config_policies/{category}/{policy-name}-policy.md
+    - config_policies/{category}/{policy-name}-config-policy.md
+    
+    Also loads compliance references from Python modules.
+    """
+    policies = {}
+    if directory is None:
+        directory = CONFIG_POLICIES_DIR
+    
+    if not directory.exists():
+        print(f"[POLICIES] Directory not found: {directory}")
+        return policies
+    
+    print(f"[POLICIES] Loading ALL configuration policies from: {directory}")
+    
+    # Recursively find all .md files (excluding README.md and USAGE.md in root)
+    exclude_names = {'README.md', 'USAGE.md', 'readme.md', 'usage.md'}
+    exclude_dirs = {'examples', '__pycache__', '.git'}
+    
+    for md_file in directory.rglob("*.md"):
+        # Skip excluded files
+        if md_file.name in exclude_names and md_file.parent == directory:
+            continue
+        
+        # Skip excluded directories
+        if any(excluded in md_file.parts for excluded in exclude_dirs):
+            continue
+        
+        try:
+            # Create policy key from path: category-policy-name
+            # e.g., "nextlink/nextlink-internet-policy.md" -> "nextlink-internet-policy"
+            relative_path = md_file.relative_to(directory)
+            category = relative_path.parts[0] if len(relative_path.parts) > 1 else 'root'
+            policy_name_no_ext = md_file.stem
+            
+            # Create unique key: category-policy-name
+            policy_key = f"{category}-{policy_name_no_ext}" if category != 'root' else policy_name_no_ext
+            
+            # Read policy content
+            policy_content = md_file.read_text(encoding='utf-8', errors='ignore')
+            
+            policies[policy_key] = {
+                'name': policy_key,
+                'category': category,
+                'filename': md_file.name,
+                'content': policy_content,
+                'path': str(md_file),
+                'relative_path': str(relative_path)
+            }
+            
+            print(f"[POLICIES] Loaded: {policy_key} from {relative_path}")
+            
+        except Exception as e:
+            print(f"[POLICIES] Error loading {md_file}: {e}")
+    
+    # Also load compliance references from Python modules
+    try:
+        if HAS_COMPLIANCE:
+            from nextlink_compliance_reference import get_all_compliance_blocks
+            compliance_blocks = get_all_compliance_blocks()
+            if compliance_blocks:
+                policies['compliance-reference'] = {
+                    'name': 'compliance-reference',
+                    'category': 'compliance',
+                    'filename': 'nextlink_compliance_reference.py',
+                    'content': f"# NextLink Compliance Reference (RFC-09-10-25)\n\nThis is the compliance reference module content.\n\n```python\n# Compliance blocks are available via get_all_compliance_blocks()\n```\n\n**Note:** This reference is loaded from the Python module `nextlink_compliance_reference.py`.",
+                    'path': 'nextlink_compliance_reference.py',
+                    'relative_path': 'nextlink_compliance_reference.py',
+                    'type': 'python_module'
+                }
+                print(f"[POLICIES] Loaded compliance reference from Python module")
+    except Exception as e:
+        print(f"[POLICIES] Could not load compliance reference: {e}")
+    
+    # Load enterprise reference if available
+    try:
+        if HAS_REFERENCE:
+            from nextlink_enterprise_reference import get_all_standard_blocks
+            policies['enterprise-reference'] = {
+                'name': 'enterprise-reference',
+                'category': 'reference',
+                'filename': 'nextlink_enterprise_reference.py',
+                'content': "# NextLink Enterprise Reference\n\nThis is the enterprise reference module containing standard configuration blocks.\n\n**Note:** This reference is loaded from the Python module `nextlink_enterprise_reference.py`.",
+                'path': 'nextlink_enterprise_reference.py',
+                'relative_path': 'nextlink_enterprise_reference.py',
+                'type': 'python_module'
+            }
+            print(f"[POLICIES] Loaded enterprise reference from Python module")
+    except Exception as e:
+        print(f"[POLICIES] Could not load enterprise reference: {e}")
+    
+    print(f"[POLICIES] ✅ Loaded {len(policies)} total policies/references")
+    print(f"[POLICIES] Categories: {', '.join(sorted(set(p.get('category', 'unknown') for p in policies.values())))}")
+    return policies
+
+# Load policies on startup
+CONFIG_POLICIES = load_config_policies()
+
+# ========================================
 # CHAT HISTORY & MEMORY SYSTEM
 # ========================================
-CHAT_DB_PATH = Path("chat_history.db")
+# SECURITY: Database files in secure directory (not accessible via HTTP)
+import os
+import shutil
+
+SECURE_DATA_DIR = Path("secure_data")
+SECURE_DATA_DIR.mkdir(exist_ok=True)
+# Set restrictive permissions (Unix-like systems)
+try:
+    os.chmod(SECURE_DATA_DIR, 0o700)  # Only owner can access
+except:
+    pass  # Windows doesn't support chmod
+
+CHAT_DB_PATH = SECURE_DATA_DIR / "chat_history.db"
+
+# Migration: Move existing databases from root to secure directory
+def migrate_databases():
+    """Migrate existing database files from root to secure_data directory"""
+    old_chat_db = Path("chat_history.db")
+    old_configs_db = Path("completed_configs.db")
+    
+    if old_chat_db.exists() and not CHAT_DB_PATH.exists():
+        print(f"[MIGRATION] Moving {old_chat_db} to {CHAT_DB_PATH}")
+        shutil.move(str(old_chat_db), str(CHAT_DB_PATH))
+        print(f"[MIGRATION] ✓ Chat history database migrated")
+    
+    if old_configs_db.exists():
+        new_configs_db = SECURE_DATA_DIR / "completed_configs.db"
+        if not new_configs_db.exists():
+            print(f"[MIGRATION] Moving {old_configs_db} to {new_configs_db}")
+            shutil.move(str(old_configs_db), str(new_configs_db))
+            print(f"[MIGRATION] ✓ Configs database migrated")
+
+# Run migration on import
+migrate_databases()
 
 def init_chat_db():
-    """Initialize chat history database"""
-    conn = sqlite3.connect(CHAT_DB_PATH)
+    """Initialize chat history database in secure location"""
+    conn = sqlite3.connect(str(CHAT_DB_PATH))
     cursor = conn.cursor()
     
     # Create conversations table
@@ -174,7 +318,7 @@ def init_chat_db():
 
 def save_chat_message(session_id, user_message, ai_response, model_used, task_type):
     """Save chat message to database"""
-    conn = sqlite3.connect(CHAT_DB_PATH)
+    conn = sqlite3.connect(str(CHAT_DB_PATH))
     cursor = conn.cursor()
     
     cursor.execute('''
@@ -187,7 +331,7 @@ def save_chat_message(session_id, user_message, ai_response, model_used, task_ty
 
 def get_chat_history(session_id, limit=10):
     """Get recent chat history for context"""
-    conn = sqlite3.connect(CHAT_DB_PATH)
+    conn = sqlite3.connect(str(CHAT_DB_PATH))
     cursor = conn.cursor()
     
     cursor.execute('''
@@ -205,7 +349,7 @@ def get_chat_history(session_id, limit=10):
 
 def get_user_context(session_id):
     """Get user's context and preferences"""
-    conn = sqlite3.connect(CHAT_DB_PATH)
+    conn = sqlite3.connect(str(CHAT_DB_PATH))
     cursor = conn.cursor()
     
     cursor.execute('''
@@ -227,7 +371,7 @@ def get_user_context(session_id):
 
 def update_user_context(session_id, preferred_model=None, context_memory=None):
     """Update user preferences and context"""
-    conn = sqlite3.connect(CHAT_DB_PATH)
+    conn = sqlite3.connect(str(CHAT_DB_PATH))
     cursor = conn.cursor()
     
     cursor.execute('''
@@ -668,12 +812,15 @@ def validate_config():
     Validates a RouterOS config for syntax errors, missing fields, RFC compliance
     """
     try:
+        print(f"[VALIDATE] Validation request received for type: {request.json.get('type', 'unknown')}")
         data = request.json
         config = data.get('config', '')
         config_type = data.get('type', 'tower')  # tower, enterprise, mpls
         
         if not config:
             return jsonify({'error': 'No configuration provided'}), 400
+        
+        print(f"[VALIDATE] Config size: {len(config)} characters, calling AI...")
 
         # Build Nextlink-specific context
         nextlink_context = f"""
@@ -735,25 +882,32 @@ Provide validation results in JSON format."""
             {"role": "user", "content": user_prompt}
         ]
 
+        print(f"[VALIDATE] Calling AI for validation (this may take 10-30 seconds)...")
         result = call_ai(messages, max_tokens=2000, task_type='validation')
+        print(f"[VALIDATE] AI response received, parsing...")
         
         # Parse JSON response
         try:
             validation_result = json.loads(result)
         except:
             # Fallback if AI doesn't return pure JSON
+            print(f"[VALIDATE] AI response not in JSON format, using fallback")
             validation_result = {
                 "valid": True,
                 "issues": [],
                 "summary": result
             }
 
+        print(f"[VALIDATE] Validation complete, returning results")
         return jsonify({
             'success': True,
             'validation': validation_result
         })
 
     except Exception as e:
+        print(f"[VALIDATE ERROR] {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 # ========================================
@@ -892,66 +1046,7 @@ def translate_config():
         if not all([source_config, target_device, target_version]):
             return jsonify({'error': 'Missing required fields'}), 400
         
-        # SMART DETECT: Only skip AI if SAME device type AND same major version
-        is_source_v7 = ('interface-template' in source_config or 
-                       'default-v2' in source_config or
-                       'ros7' in source_config.lower())
-        is_source_v6 = ('routing ospf interface' in source_config and 
-                       'routing ospf instance' not in source_config)
-        is_target_v7 = target_version.startswith('7.')
-        
-        # Check if device types are similar (both CCR series)
-        source_device_type = 'ccr' if 'ccr' in source_config.lower() else 'other'
-        target_device_type = 'ccr' if 'ccr' in target_device.lower() else 'other'
-        same_device_family = source_device_type == target_device_type
-        
-        if is_source_v7 and is_target_v7 and same_device_family:
-            print(f"[FAST MODE] Same device family, same major version - minimal processing")
-            # Just return source with device name update if needed
-            translated = source_config
-            validation = validate_translation(source_config, translated)
-            return jsonify({
-                'success': True,
-                'translated_config': translated,
-                'validation': validation,
-                'fast_mode': True,
-                'message': 'Config already compatible - no changes needed'
-            })
-        elif is_source_v6 and is_target_v7:
-            print(f"[AI MODE] v6 to v7 conversion needed - using AI")
-        else:
-            print(f"[AI MODE] Device change detected: {source_device_type} -> {target_device_type}, using AI")
-
-        # Build Nextlink migration context
-        migration_notes = ""
-        if '7.' in target_version:
-            migration_notes = f"""
-NEXTLINK-SPECIFIC MIGRATION NOTES (6.x → 7.x):
-
-OSPF Changes:
-- Old: {NEXTLINK_MIGRATION_6X_TO_7X['ospf']['old']}
-- New: {NEXTLINK_MIGRATION_6X_TO_7X['ospf']['new']}
-- Note: {NEXTLINK_MIGRATION_6X_TO_7X['ospf']['change']}
-
-BGP Changes:
-- Old: {NEXTLINK_MIGRATION_6X_TO_7X['bgp']['old']}
-- New: {NEXTLINK_MIGRATION_6X_TO_7X['bgp']['new']}
-- Note: {NEXTLINK_MIGRATION_6X_TO_7X['bgp']['change']}
-
-Bridge VLAN:
-- {NEXTLINK_MIGRATION_6X_TO_7X['bridge_vlan']['change']}
-- MANDATORY: {NEXTLINK_MIGRATION_6X_TO_7X['bridge_vlan']['mandatory']}
-
-Interface Naming:
-- {NEXTLINK_MIGRATION_6X_TO_7X['interface_naming']['change']}
-- {NEXTLINK_MIGRATION_6X_TO_7X['interface_naming']['note']}
-
-Port Roles:
-- {NEXTLINK_MIGRATION_6X_TO_7X['port_roles']['change']}
-- {NEXTLINK_MIGRATION_6X_TO_7X['port_roles']['note']}
-"""
-
-        # INTELLIGENT ROUTEROS SYNTAX DETECTION AND LEARNING
+        # Define helper functions FIRST before using them
         def detect_routeros_syntax(config):
             """Intelligently detect RouterOS version and syntax patterns from config"""
             syntax_info = {
@@ -1030,7 +1125,9 @@ Port Roles:
             }
             
             # Detect model from config - check more specific patterns first
-            if 'CCR2216' in config or 'sfp28-' in config:
+            # CCR2216: Has sfp28-1 through sfp28-12 (12 sfp28 ports), NO sfp-sfpplus ports
+            # CCR2004: Has sfp-sfpplus1-12, plus sfp28-1, sfp28-2 (only 2 sfp28 ports)
+            if 'CCR2216' in config or 'MT2216' in config or (config.count('sfp28-') > 3 and 'sfp28-3' in config and 'sfp-sfpplus' not in config):
                 device_info['model'] = 'CCR2216-1G-12XS-2XQ'
                 device_info['type'] = 'ccr2216'
                 device_info['ports'] = ['ether1', 'sfp28-1', 'sfp28-2', 'sfp28-3', 'sfp28-4', 'sfp28-5', 'sfp28-6', 'sfp28-7', 'sfp28-8', 'sfp28-9', 'sfp28-10', 'sfp28-11', 'sfp28-12']
@@ -1042,7 +1139,9 @@ Port Roles:
                 device_info['model'] = 'CCR1036-12G-4S'
                 device_info['type'] = 'ccr1036'
                 device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp1', 'sfp2', 'sfp3', 'sfp4']
-            elif 'CCR2004' in config or 'sfp-sfpplus' in config:
+            elif 'CCR2004' in config or 'MT2004' in config or ('sfp-sfpplus' in config and 'sfp28-' not in config.replace('sfp28-1', '').replace('sfp28-2', '')):
+                # CCR2004 uses sfp-sfpplus1-12, and has sfp28-1, sfp28-2
+                # Check that we have sfp-sfpplus but NOT many sfp28 ports (CCR2216 has sfp28-1 through sfp28-12)
                 device_info['model'] = 'CCR2004-1G-12S+2XS'
                 device_info['type'] = 'ccr2004'
                 device_info['ports'] = ['ether1', 'sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4', 'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8', 'sfp-sfpplus9', 'sfp-sfpplus10', 'sfp-sfpplus11', 'sfp-sfpplus12', 'sfp28-1', 'sfp28-2']
@@ -1080,28 +1179,43 @@ Port Roles:
                     # CCR2216: use only SFP28 ports for access; QSFP28 not used in our workflow
                     'ports': ['ether1', 'sfp28-1', 'sfp28-2', 'sfp28-3', 'sfp28-4', 'sfp28-5', 'sfp28-6', 'sfp28-7', 'sfp28-8', 'sfp28-9', 'sfp28-10', 'sfp28-11', 'sfp28-12'],
                     'management': 'ether1',
-                    'description': '1 Gigabit + 12 SFP28 + 8 QSFP28 (CCR2216)'
+                    'description': '1 Gigabit + 12 SFP28 + 2 QSFP28 (CCR2216)'
+                },
+                'ccr1036': {
+                    'model': 'CCR1036-12G-4S',
+                    'type': 'ccr1036',
+                    'ports': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp1', 'sfp2', 'sfp3', 'sfp4'],
+                    'management': 'ether1',
+                    'description': '12x Gigabit + 4x SFP (CCR1036)'
                 },
                 'ccr2116': {
                     'model': 'CCR2116-12G-4S+',
                     'type': 'ccr2116',
                     'ports': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4'],
                     'management': 'ether1',
-                    'description': '12x GE + 4x SFP+ (CCR2116)'
+                    'description': '12x Gigabit + 4x SFP+ (CCR2116)'
                 },
                 'rb5009': {
                     'model': 'RB5009UG+S+',
                     'type': 'rb5009',
                     'ports': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'sfp-sfpplus1'],
                     'management': 'ether1',
-                    'description': '10 Gigabit + 1 SFP+'
+                    'description': '10x Gigabit + 1x SFP+ (RB5009)'
+                },
+                'rb1009': {
+                    'model': 'RB1009UG+S+',
+                    'type': 'rb1009',
+                    'ports': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'sfp-sfpplus1'],
+                    'management': 'ether1',
+                    'description': '9x Gigabit + 1x SFP+ (RB1009)'
                 }
             }
             
             key = (target_device or '').lower().strip()
             if key in device_database:
                 return device_database[key]
-            # Fuzzy fallback by model substring
+            
+            # Fallback detection
             if '1072' in key:
                 return device_database['ccr1072']
             if '2216' in key:
@@ -1112,7 +1226,83 @@ Port Roles:
                 return device_database['ccr2004']
             if '5009' in key:
                 return device_database['rb5009']
-            return device_database['ccr2004']
+            
+            # Default fallback
+            return device_database.get('ccr2004', {
+                'model': 'unknown',
+                'type': 'unknown',
+                'ports': ['ether1'],
+                'management': 'ether1',
+                'description': 'Unknown device'
+            })
+        
+        # SMART DETECT: Only skip AI if SAME EXACT device model AND same major version
+        # CRITICAL: Device changes (e.g., CCR2004 → CCR2216) require AI translation for proper port mapping
+        is_source_v7 = ('interface-template' in source_config or 
+                       'default-v2' in source_config or
+                       'ros7' in source_config.lower())
+        is_source_v6 = ('routing ospf interface' in source_config and 
+                       'routing ospf instance' not in source_config)
+        is_target_v7 = target_version.startswith('7.')
+        
+        # Detect source device model more precisely
+        source_device_info = detect_source_device(source_config)
+        target_device_info = get_target_device_info(target_device)
+        
+        # Only skip AI if SAME EXACT device model (not just same family)
+        same_exact_device = (source_device_info['model'] != 'unknown' and 
+                             source_device_info['model'] == target_device_info['model'])
+        
+        if is_source_v7 and is_target_v7 and same_exact_device:
+            print(f"[FAST MODE] Same exact device ({source_device_info['model']}), same major version - minimal processing")
+            # Just return source with device name update if needed
+            translated = source_config
+            validation = validate_translation(source_config, translated)
+            return jsonify({
+                'success': True,
+                'translated_config': translated,
+                'validation': validation,
+                'fast_mode': True,
+                'message': 'Config already compatible - no changes needed'
+            })
+        elif is_source_v7 and is_target_v7 and not same_exact_device:
+            print(f"[AI MODE] Device change detected: {source_device_info['model']} → {target_device_info['model']} (both ROS7, but hardware differs - need port mapping)")
+        elif is_source_v6 and is_target_v7:
+            print(f"[AI MODE] v6 to v7 conversion needed - using AI")
+        else:
+            print(f"[AI MODE] Device change detected: {source_device_info['model']} → {target_device_info['model']}, using AI")
+
+        # Build Nextlink migration context
+        migration_notes = ""
+        if '7.' in target_version:
+            migration_notes = f"""
+NEXTLINK-SPECIFIC MIGRATION NOTES (6.x → 7.x):
+
+OSPF Changes:
+- Old: {NEXTLINK_MIGRATION_6X_TO_7X['ospf']['old']}
+- New: {NEXTLINK_MIGRATION_6X_TO_7X['ospf']['new']}
+- Note: {NEXTLINK_MIGRATION_6X_TO_7X['ospf']['change']}
+
+BGP Changes:
+- Old: {NEXTLINK_MIGRATION_6X_TO_7X['bgp']['old']}
+- New: {NEXTLINK_MIGRATION_6X_TO_7X['bgp']['new']}
+- Note: {NEXTLINK_MIGRATION_6X_TO_7X['bgp']['change']}
+
+Bridge VLAN:
+- {NEXTLINK_MIGRATION_6X_TO_7X['bridge_vlan']['change']}
+- MANDATORY: {NEXTLINK_MIGRATION_6X_TO_7X['bridge_vlan']['mandatory']}
+
+Interface Naming:
+- {NEXTLINK_MIGRATION_6X_TO_7X['interface_naming']['change']}
+- {NEXTLINK_MIGRATION_6X_TO_7X['interface_naming']['note']}
+
+Port Roles:
+- {NEXTLINK_MIGRATION_6X_TO_7X['port_roles']['change']}
+- {NEXTLINK_MIGRATION_6X_TO_7X['port_roles']['note']}
+"""
+
+        # INTELLIGENT ROUTEROS SYNTAX DETECTION AND LEARNING
+        # (Functions already defined above, no need to redefine)
 
         def extract_loopback_ip(config_text):
             """Extract loopback IP (interface=loop0) without mask if present; fallback to router-id."""
@@ -1886,57 +2076,7 @@ Port Roles:
             return text
 
         # INTELLIGENT DETECTION AND ANALYSIS
-        print(f"[INTELLIGENT ANALYSIS] Analyzing source config...")
-        source_syntax_info = detect_routeros_syntax(source_config)
-        source_device_info = detect_source_device(source_config)
-        target_device_info = get_target_device_info(target_device)
-        target_syntax_info = get_target_syntax(target_version)
-        
-        print(f"[DETECTED] Source: {source_syntax_info['version']} on {source_device_info['model']}")
-        print(f"[TARGET] Converting to: {target_version} on {target_device_info['model']}")
-        print(f"[SYNTAX] BGP: {source_syntax_info['bgp_syntax']} → {target_syntax_info['bgp_peer']}")
-        print(f"[SYNTAX] OSPF: {source_syntax_info['ospf_syntax']} → {target_syntax_info['ospf_interface']}")
-        
-        # BYPASS AI FOR LARGE CONFIGS (prevent timeouts)
-        config_size = len(source_config.split('\n'))
-        config_size_mb = len(source_config.encode('utf-8')) / (1024 * 1024)
-        
-        print(f"[CONFIG SIZE] Lines: {config_size}, Size: {config_size_mb:.2f}MB")
-        
-        # For very large configs, skip AI entirely
-        if config_size > 800 or config_size_mb > 2.0:  # Lowered threshold for better performance
-            print(f"[BYPASS AI] Large config ({config_size} lines, {config_size_mb:.2f}MB) - using intelligent translation only")
-            translated = apply_intelligent_translation(source_config, source_device_info, source_syntax_info, target_syntax_info, target_device_info, target_version)
-            validation = validate_translation(source_config, translated)
-            return jsonify({
-                'success': True,
-                'translated_config': translated,
-                'validation': validation,
-                'bypass_ai': True,
-                'message': f'Large config ({config_size} lines, {config_size_mb:.2f}MB) - used intelligent translation for speed'
-            })
-        
-        # If both are v7, skip AI entirely for speed and determinism; do intelligent translation only
-        if is_source_v7 and is_target_v7:
-            translated_fast = apply_intelligent_translation(
-                source_config,
-                detect_source_device(source_config),
-                detect_routeros_syntax(source_config),
-                get_target_syntax(target_version),
-                get_target_device_info(target_device),
-                target_version
-            )
-            translated_fast = postprocess_to_v7(translated_fast, target_version)
-            validation_fast = validate_translation(source_config, translated_fast)
-            return jsonify({
-                'success': True,
-                'translated_config': translated_fast,
-                'validation': validation_fast,
-                'fast_mode': True,
-                'message': 'ROS7→ROS7 path optimized: AI skipped; performed deterministic translation and interface mapping.'
-            })
-
-        # INTELLIGENT DYNAMIC TRANSLATION FUNCTION
+        # Define apply_intelligent_translation BEFORE using it
         def apply_intelligent_translation(config, source_device_info, source_syntax_info, target_syntax_info, target_device_info, target_version):
             translated = config
             print(f"[TRANSLATION] Starting intelligent translation...")
@@ -1950,20 +2090,17 @@ Port Roles:
                 translated = translated.replace(old_model_short, new_model_short)
                 
                 # Update system identity: switch model digits in identity to target device digits
-                # Examples:
-                #  - RTR-MTRB-5009.NX-XXXX → RTR-MTRB-2004.NX-XXXX
-                #  - RTR-CCR1036-FOO       → RTR-CCR2004-FOO
                 target_digits_match = re.search(r"(\d{3,4})", target_device_info['model'])
                 target_digits = target_digits_match.group(1) if target_digits_match else None
                 if target_digits:
                     # Specific patterns first
                     translated = re.sub(r"(?m)^(set\s+name=RTR\-MTRB\-)(\d{3,4})(\S*)$",
-                                        rf"\\1{target_digits}\\3", translated)
+                                        rf"\1{target_digits}\3", translated)
                     translated = re.sub(r"(?m)^(set\s+name=RTR\-CCR)(\d{3,4})(\S*)$",
-                                        rf"\\1{target_digits}\\3", translated)
+                                        rf"\1{target_digits}\3", translated)
                     # Generic fallback: any RTR-<segment>-<digits>
                     translated = re.sub(r"(?m)^(set\s+name=RTR\-[A-Za-z0-9]+\-)(\d{3,4})(\S*)$",
-                                        rf"\\1{target_digits}\\3", translated)
+                                        rf"\1{target_digits}\3", translated)
                 # Legacy replacement if identity is in the form RTR-<MODEL>-<...>
                 identity_pattern = f"RTR-{old_model_short}-"
                 if identity_pattern in translated:
@@ -2015,7 +2152,6 @@ Port Roles:
                 tgt_idx = 0
                 for src in used:
                     # Skip management port mapping unless target device has only 1 ethernet port (like CCR2004, CCR2216)
-                    # For devices with only 1 ethernet (mgmt), we may need to map ether1 data usage to first SFP port
                     should_skip_mgmt = (src == mgmt_port and len([p for p in target_ports if p.startswith('ether')]) > 1)
                     if should_skip_mgmt:
                         continue
@@ -2029,7 +2165,6 @@ Port Roles:
                     dst = mapping[src]
                     text = re.sub(rf"\b{re.escape(src)}\b", dst, text)
                 # Port name normalization: convert legacy port names to target device port format
-                # This handles cases where source config uses different port naming conventions
                 target_port_prefix = None
                 if any(p.startswith('sfp28-') for p in target_seq):
                     target_port_prefix = 'sfp28'
@@ -2059,7 +2194,6 @@ Port Roles:
                 print(f"[INTERFACE] Dynamic mapping using target ports: {', '.join(target_ports)}")
                 translated = map_interfaces_dynamically(translated, target_ports, mgmt_port, target_device_info.get('type',''))
                 # For devices with only 1 ethernet port (mgmt only), map remaining ether ports to available SFP ports
-                # This applies to CCR2004, CCR2216, and other single-ethernet devices
                 ethernet_ports = [p for p in target_ports if p.startswith('ether')]
                 if len(ethernet_ports) == 1:  # Only management ethernet
                     # Find available SFP ports in target device
@@ -2068,12 +2202,6 @@ Port Roles:
                         # Replace any remaining ether{2+} occurrences with next available SFP port
                         non_mgmt_ethers = re.findall(r"\bether([2-9]|1[0-9])\b", translated)
                         if non_mgmt_ethers:
-                            # Get already-used SFP ports from config
-                            used_sfp = []
-                            for sfp_port in sfp_ports:
-                                port_num = re.search(r'\d+', sfp_port)
-                                if port_num:
-                                    used_sfp.append(int(port_num.group()))
                             # Find available SFP port numbers
                             available_sfp = [p for p in sfp_ports if any(re.search(rf'\b{p}\b', translated))]
                             remaining_sfp = [p for p in sfp_ports if p not in available_sfp]
@@ -2099,8 +2227,6 @@ Port Roles:
                                         rf"\1{first_data_port}\2", translated)
 
             # 5b. OSPF strict normalization (ROS6 → ROS7)
-            # - Convert '/routing ospf interface add' and '/routing ospf network add' to '/routing ospf interface-template add'
-            # - Ensure 'interfaces=' plural, map 'authentication' to 'auth', 'authentication-key' to 'auth-key'
             def normalize_ospf_line(l: str) -> str:
                 l = l.replace('/routing ospf interface add', '/routing ospf interface-template add')
                 l = l.replace('/routing ospf network add', '/routing ospf interface-template add')
@@ -2165,6 +2291,64 @@ Port Roles:
             print(f"[TRANSLATION] Intelligent translation completed")
             return translated
 
+        print(f"[INTELLIGENT ANALYSIS] Analyzing source config...")
+        source_syntax_info = detect_routeros_syntax(source_config)
+        source_device_info = detect_source_device(source_config)
+        target_device_info = get_target_device_info(target_device)
+        target_syntax_info = get_target_syntax(target_version)
+        
+        print(f"[DETECTED] Source: {source_syntax_info['version']} on {source_device_info['model']}")
+        print(f"[TARGET] Converting to: {target_version} on {target_device_info['model']}")
+        print(f"[SYNTAX] BGP: {source_syntax_info['bgp_syntax']} → {target_syntax_info['bgp_peer']}")
+        print(f"[SYNTAX] OSPF: {source_syntax_info['ospf_syntax']} → {target_syntax_info['ospf_interface']}")
+        
+        # BYPASS AI FOR LARGE CONFIGS (prevent timeouts)
+        config_size = len(source_config.split('\n'))
+        config_size_mb = len(source_config.encode('utf-8')) / (1024 * 1024)
+        
+        print(f"[CONFIG SIZE] Lines: {config_size}, Size: {config_size_mb:.2f}MB")
+        
+        # For very large configs, skip AI entirely
+        if config_size > 800 or config_size_mb > 2.0:  # Lowered threshold for better performance
+            print(f"[BYPASS AI] Large config ({config_size} lines, {config_size_mb:.2f}MB) - using intelligent translation only")
+            translated = apply_intelligent_translation(source_config, source_device_info, source_syntax_info, target_syntax_info, target_device_info, target_version)
+            validation = validate_translation(source_config, translated)
+            return jsonify({
+                'success': True,
+                'translated_config': translated,
+                'validation': validation,
+                'bypass_ai': True,
+                'message': f'Large config ({config_size} lines, {config_size_mb:.2f}MB) - used intelligent translation for speed'
+            })
+        
+        # If both are v7 AND same exact device, skip AI for speed
+        # BUT if device changed, we MUST use AI to properly map interfaces (e.g., sfp-sfpplus → sfp28)
+        if is_source_v7 and is_target_v7 and same_exact_device:
+            print(f"[FAST MODE] Same device, ROS7→ROS7 - using intelligent translation only (no AI needed)")
+            translated_fast = apply_intelligent_translation(
+                source_config,
+                source_device_info,
+                detect_routeros_syntax(source_config),
+                get_target_syntax(target_version),
+                target_device_info,
+                target_version
+            )
+            translated_fast = postprocess_to_v7(translated_fast, target_version)
+            validation_fast = validate_translation(source_config, translated_fast)
+            return jsonify({
+                'success': True,
+                'translated_config': translated_fast,
+                'validation': validation_fast,
+                'fast_mode': True,
+                'message': 'ROS7→ROS7, same device - optimized translation (no AI needed)'
+            })
+        elif is_source_v7 and is_target_v7 and not same_exact_device:
+            print(f"[AI MODE] Device change: {source_device_info['model']} → {target_device_info['model']} (ROS7→ROS7 but hardware differs - using AI for proper port mapping)")
+            # Continue to AI translation below
+
+        # INTELLIGENT DYNAMIC TRANSLATION FUNCTION
+        # (Function already defined above, no need to redefine)
+
         training_context = build_training_context()
         compliance_note = ""
         if HAS_COMPLIANCE:
@@ -2179,25 +2363,44 @@ MANDATORY COMPLIANCE (RFC-09-10-25):
         
         system_prompt = f"""You are a RouterOS config translator with deep knowledge of RouterOS syntax differences.
 
-CRITICAL RULES:
-1. COPY EVERY SINGLE LINE from source config
-2. Apply RouterOS {source_syntax_info['version']} → {target_version} syntax changes
-3. Update device model to {target_device_info['model']}
-4. Map interfaces to {target_device.upper()} hardware
-5. PRESERVE all IP addresses, firewall rules, users, passwords
-6. DO NOT remove, modify, or summarize ANY lines
+CRITICAL PRESERVATION RULES (MANDATORY - NO EXCEPTIONS):
+1. COPY EVERY SINGLE LINE from source config - DO NOT SKIP ANY LINES
+2. PRESERVE ALL IP ADDRESSES EXACTLY as provided - DO NOT MODIFY OR REMOVE
+3. PRESERVE ALL PASSWORDS, SECRETS, AND AUTHENTICATION KEYS EXACTLY
+4. PRESERVE ALL USER ACCOUNTS, GROUPS, AND PERMISSIONS EXACTLY
+5. PRESERVE ALL FIREWALL RULES, NAT RULES, MANGLE RULES EXACTLY
+6. PRESERVE ALL VLAN IDs, BRIDGE NAMES, INTERFACE NAMES (except hardware port mapping)
+7. PRESERVE ALL ROUTING PROTOCOL CONFIGURATIONS (areas, AS numbers, router IDs, network statements)
+8. PRESERVE ALL COMMENTS AND DOCUMENTATION
+9. DO NOT REMOVE, MODIFY, OR SUMMARIZE ANY LINES - COPY EVERYTHING
+10. DO NOT CHANGE VALUES - ONLY CHANGE SYNTAX/COMMAND STRUCTURE
+
+TRANSLATION SCOPE (ONLY THESE CHANGES ALLOWED):
+- Apply RouterOS {source_syntax_info['version']} → {target_version} syntax changes ONLY
+- Update device model references to {target_device_info['model']}
+- Map hardware interfaces to {target_device.upper()} ports (sfp-sfpplus1 → appropriate port)
+- Update command syntax (e.g., /routing bgp peer → /routing bgp connection)
+- Update parameter names (e.g., update-source → update.source)
+
+FORBIDDEN ACTIONS (NEVER DO THESE):
+- DO NOT remove any configuration lines
+- DO NOT modify IP addresses, passwords, or secrets
+- DO NOT change VLAN IDs or network addresses
+- DO NOT summarize or combine multiple rules
+- DO NOT remove comments or documentation
 {compliance_note}
 SYNTAX CHANGES NEEDED:
 - BGP: {source_syntax_info['bgp_syntax']} → {target_syntax_info['bgp_peer']}
 - OSPF: {source_syntax_info['ospf_syntax']} → {target_syntax_info['ospf_interface']}
 - Parameters: {target_syntax_info['bgp_params']}
 
-HARDWARE CHANGES:
+HARDWARE CHANGES (INTERFACE MAPPING ONLY):
 - Model: {target_device_info['model']}
 - Ports: {', '.join(target_device_info['ports'])}
 - Management: {target_device_info['management']}
+- Map source device ports to target device ports (e.g., sfp-sfpplus1 → sfp28-1 if needed)
 
-COPY EVERYTHING ELSE EXACTLY."""
+REMEMBER: Your job is SYNTAX TRANSLATION ONLY. Preserve ALL data values exactly."""
 
         if training_context:
             system_prompt += "\n\n" + training_context
@@ -2240,9 +2443,24 @@ Output (copy every line, update device model to {target_device.upper()}):"""
         # Validate translation
         validation = validate_translation(source_config, translated)
         
-        # If too many IPs lost, use intelligent fallback
+        # If important information is lost, use intelligent fallback
+        should_fallback = False
+        fallback_reason = []
+        
         if validation.get('missing_ips', []) and len(validation['missing_ips']) > 50:
-            print(f"[INTELLIGENT FALLBACK] Too many IPs lost ({len(validation['missing_ips'])}), using intelligent translation")
+            should_fallback = True
+            fallback_reason.append(f"Too many IPs lost ({len(validation['missing_ips'])})")
+        
+        if validation.get('missing_secrets', []) and len(validation['missing_secrets']) > 0:
+            should_fallback = True
+            fallback_reason.append(f"Missing secrets ({len(validation['missing_secrets'])})")
+        
+        if validation.get('missing_users', []) and len(validation['missing_users']) > 0:
+            should_fallback = True
+            fallback_reason.append(f"Missing users ({len(validation['missing_users'])})")
+        
+        if should_fallback:
+            print(f"[INTELLIGENT FALLBACK] Information loss detected: {', '.join(fallback_reason)} - using intelligent translation")
             translated = apply_intelligent_translation(source_config, source_device_info, source_syntax_info, target_syntax_info, target_device_info, target_version)
             translated = postprocess_to_v7(translated, target_version)
             validation = validate_translation(source_config, translated)
@@ -2558,6 +2776,7 @@ def gen_enterprise_non_mpls():
         syslog_ip = data.get('syslog_ip')
         coords = data.get('coords')
         identity = data.get('identity', f"RTR-{device}.AUTO-GEN")
+        uplink_comment = data.get('uplink_comment', '').strip()  # Uplink comment/location for backhaul
 
         pub = _cidr_details_gen(public_cidr)
         bh = _cidr_details_gen(bh_cidr)
@@ -2617,11 +2836,15 @@ def gen_enterprise_non_mpls():
         ethernet_block = f"/interface ethernet\n"
         ethernet_block += f"set [ find default-name={public_port} ] comment=\"CX HANDOFF\"\n"
         ethernet_block += f"set [ find default-name={nat_port} ] comment=NAT\n"
-        # Add speed for uplink interface if it's an SFP port
+        # Add uplink interface comment - Use uplink comment if provided, otherwise use identity
+        uplink_comment_value = uplink_comment if uplink_comment else identity
         if uplink_if.startswith('sfp'):
             # Determine speed based on RouterOS version
             speed = get_speed_syntax(target_version)
-            ethernet_block += f"set [ find default-name={uplink_if} ] auto-negotiation=no comment={identity} speed={speed}\n"
+            ethernet_block += f"set [ find default-name={uplink_if} ] auto-negotiation=no comment={uplink_comment_value} speed={speed}\n"
+        else:
+            # Non-SFP port - still add comment
+            ethernet_block += f"set [ find default-name={uplink_if} ] comment={uplink_comment_value}\n"
         blocks.append(ethernet_block)
         
         # Interface Bridge Port
@@ -2650,9 +2873,10 @@ def gen_enterprise_non_mpls():
             ip_block += f"add address={private_base}.1/24 comment=PRIVATES interface=nat-bridge network={private_base}.0\n"
         
         # Backhaul IP address - use exact IP provided by user
+        # Use uplink comment if provided, otherwise use identity
         bh_router_ip = bh_router_ip_exact  # Use exact user-provided IP
         bh_network = bh['network']
-        ip_block += f"add address={bh_router_ip}/{bh['prefix']} comment={identity} interface={uplink_if} network={bh_network}\n"
+        ip_block += f"add address={bh_router_ip}/{bh['prefix']} comment={uplink_comment_value} interface={uplink_if} network={bh_network}\n"
         blocks.append(ip_block)
         
         # IP Pool
@@ -2839,7 +3063,8 @@ def inject_compliance_blocks(config: str, compliance_blocks: dict) -> str:
     return config.rstrip() + "\n" + compliance_section
 
 def validate_translation(source, translated):
-    """Validation focused on real config IPs (ignore prompts, comments, scripts).
+    """Comprehensive validation to ensure all important information is preserved.
+    Validates IP addresses, passwords, users, firewall rules, and routing configs.
     Normalizes /32 to bare IP to avoid false negatives on ROS7 fields like remote.address.
     """
 
@@ -2877,15 +3102,61 @@ def validate_translation(source, translated):
 
     source_ips = extract_ips(source)
     translated_ips = extract_ips(translated)
-
     missing_ips = source_ips - translated_ips
-
-    return {
-        "valid": len(missing_ips) == 0,
+    
+    # Additional validation: Check for preserved passwords/secrets
+    def extract_secrets(text: str) -> set:
+        # Extract password=, secret=, auth-key= values (but not the actual values for security)
+        secrets = set(re.findall(r'\b(password|secret|auth-key|auth-id)=[^\s]+', text, re.IGNORECASE))
+        return secrets
+    
+    source_secrets = extract_secrets(source)
+    translated_secrets = extract_secrets(translated)
+    missing_secrets = source_secrets - translated_secrets
+    
+    # Check for preserved user accounts
+    def extract_users(text: str) -> set:
+        users = set(re.findall(r'/user\s+(?:add|set)\s+name=([^\s]+)', text, re.IGNORECASE))
+        return users
+    
+    source_users = extract_users(source)
+    translated_users = extract_users(translated)
+    missing_users = source_users - translated_users
+    
+    # Check firewall rule count preservation
+    source_fw_rules = len(re.findall(r'/ip firewall\s+(?:filter|nat|mangle|raw)\s+(?:add|set)', source, re.IGNORECASE))
+    translated_fw_rules = len(re.findall(r'/ip firewall\s+(?:filter|nat|mangle|raw)\s+(?:add|set)', translated, re.IGNORECASE))
+    
+    is_valid = len(missing_ips) == 0 and len(missing_secrets) == 0 and len(missing_users) == 0
+    
+    validation_result = {
+        "valid": is_valid,
         "source_ip_count": len(source_ips),
         "translated_ip_count": len(translated_ips),
-        "missing_ips": sorted(list(missing_ips))
+        "missing_ips": sorted(list(missing_ips)),
+        "source_secret_count": len(source_secrets),
+        "translated_secret_count": len(translated_secrets),
+        "missing_secrets": sorted(list(missing_secrets)),
+        "source_user_count": len(source_users),
+        "translated_user_count": len(translated_users),
+        "missing_users": sorted(list(missing_users)),
+        "source_firewall_rules": source_fw_rules,
+        "translated_firewall_rules": translated_fw_rules,
+        "firewall_rules_preserved": translated_fw_rules >= source_fw_rules * 0.95  # Allow 5% tolerance for consolidation
     }
+    
+    if not is_valid:
+        print(f"[VALIDATION WARNING] Missing information detected:")
+        if missing_ips:
+            print(f"  - Missing IPs: {len(missing_ips)}")
+        if missing_secrets:
+            print(f"  - Missing secrets: {len(missing_secrets)}")
+        if missing_users:
+            print(f"  - Missing users: {len(missing_users)}")
+        if not validation_result["firewall_rules_preserved"]:
+            print(f"  - Firewall rules: {source_fw_rules} → {translated_fw_rules}")
+    
+    return validation_result
 
 # ========================================
 # ENDPOINT 5: Tarana Config Generation & Validation
@@ -3012,6 +3283,78 @@ Return the corrected configuration with proper network calculations and formatti
 # HEALTH CHECK
 # ========================================
 
+@app.route('/api/get-config-policies', methods=['GET'])
+def get_config_policies():
+    """Get list of available configuration policies with optional category filtering"""
+    try:
+        # Reload policies if requested
+        if request.args.get('reload') == 'true':
+            global CONFIG_POLICIES
+            CONFIG_POLICIES = load_config_policies()
+        
+        # Filter by category if requested
+        category_filter = request.args.get('category')
+        
+        policies_list = []
+        for policy_name, policy_data in CONFIG_POLICIES.items():
+            # Skip if category filter doesn't match
+            if category_filter and policy_data.get('category') != category_filter:
+                continue
+            
+            policies_list.append({
+                'name': policy_name,
+                'category': policy_data.get('category', 'unknown'),
+                'filename': policy_data.get('filename', ''),
+                'path': policy_data.get('path', ''),
+                'relative_path': policy_data.get('relative_path', ''),
+                'type': policy_data.get('type', 'markdown'),
+                'description': policy_data.get('content', '')[:300] + '...' if len(policy_data.get('content', '')) > 300 else policy_data.get('content', '')
+            })
+        
+        # Get unique categories
+        categories = sorted(set(p.get('category', 'unknown') for p in CONFIG_POLICIES.values()))
+        
+        return jsonify({
+            'success': True,
+            'policies': policies_list,
+            'count': len(policies_list),
+            'total_policies': len(CONFIG_POLICIES),
+            'categories': categories,
+            'filtered_by': category_filter if category_filter else None
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/get-config-policy/<policy_name>', methods=['GET'])
+def get_config_policy(policy_name):
+    """Get a specific configuration policy by name"""
+    try:
+        if policy_name in CONFIG_POLICIES:
+            return jsonify({
+                'success': True,
+                'policy_name': policy_name,
+                'content': CONFIG_POLICIES[policy_name]['content'],
+                'path': CONFIG_POLICIES[policy_name].get('path', '')
+            })
+        else:
+            return jsonify({'error': f'Policy "{policy_name}" not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/reload-config-policies', methods=['POST'])
+def reload_config_policies():
+    """Reload configuration policies from disk"""
+    try:
+        global CONFIG_POLICIES
+        CONFIG_POLICIES = load_config_policies()
+        return jsonify({
+            'success': True,
+            'message': f'Reloaded {len(CONFIG_POLICIES)} policies',
+            'policies': list(CONFIG_POLICIES.keys())
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/health', methods=['GET'])
 def health():
     """Check if API server is running and configured"""
@@ -3041,11 +3384,11 @@ def health():
 # ENDPOINT 6: Completed Configs Storage
 # ========================================
 
-CONFIGS_DB_PATH = Path("completed_configs.db")
+CONFIGS_DB_PATH = SECURE_DATA_DIR / "completed_configs.db"
 
 def init_configs_db():
-    """Initialize completed configs database"""
-    conn = sqlite3.connect(CONFIGS_DB_PATH)
+    """Initialize completed configs database in secure location"""
+    conn = sqlite3.connect(str(CONFIGS_DB_PATH))
     cursor = conn.cursor()
     
     cursor.execute('''
@@ -3156,7 +3499,7 @@ def save_completed_config():
         
         cst_timestamp = cst_now.strftime('%Y-%m-%d %H:%M:%S')
         
-        conn = sqlite3.connect(CONFIGS_DB_PATH)
+        conn = sqlite3.connect(str(CONFIGS_DB_PATH))
         cursor = conn.cursor()
         
         cursor.execute('''
@@ -3191,7 +3534,7 @@ def get_completed_configs():
         year_filter = request.args.get('year', '').strip()
         type_filter = request.args.get('type', '').strip()
         
-        conn = sqlite3.connect(CONFIGS_DB_PATH)
+        conn = sqlite3.connect(str(CONFIGS_DB_PATH))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
@@ -3237,7 +3580,7 @@ def get_completed_config(config_id):
     try:
         init_configs_db()
         
-        conn = sqlite3.connect(CONFIGS_DB_PATH)
+        conn = sqlite3.connect(str(CONFIGS_DB_PATH))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
@@ -3294,6 +3637,9 @@ if __name__ == '__main__':
     print("  POST /api/apply-compliance    - Apply RFC-09-10-25 compliance standards")
     print("  POST /api/explain-config      - Explain config sections")
     print("  POST /api/autofill-from-export - Parse exported config")
+    print("  GET  /api/get-config-policies - List available config policies")
+    print("  GET  /api/get-config-policy/<name> - Get specific policy")
+    print("  POST /api/reload-config-policies - Reload policies from disk")
     print("  GET  /api/health              - Health check")
     
     if HAS_COMPLIANCE:

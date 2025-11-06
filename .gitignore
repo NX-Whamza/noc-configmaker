@@ -42,6 +42,7 @@ Thumbs.db
 # Project specific
 chat_history.db
 completed_configs.db
+secure_data/
 *.log
 temp/
 cache/
