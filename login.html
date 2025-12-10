@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NOC Config Maker - Sign In</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            background: #2a2a2a;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            width: 100%;
+            max-width: 420px;
+            padding: 40px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .logo-section {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .logo {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 20px;
+            background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            box-shadow: 0 4px 20px rgba(230, 126, 34, 0.3);
+        }
+
+        .logo::before {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background:
+                linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.1) 50%, transparent 70%),
+                radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.2) 0%, transparent 50%);
+            border-radius: 16px;
+        }
+
+        .logo-icon {
+            font-size: 42px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            z-index: 1;
+        }
+
+        .logo-text {
+            font-size: 24px;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: 1px;
+            margin-top: 10px;
+        }
+
+        .logo-subtitle {
+            font-size: 12px;
+            color: #bbb;
+            margin-top: 5px;
+            font-weight: 400;
+        }
+
+        .login-title {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #fff;
+        }
+
+        .login-subtitle {
+            font-size: 14px;
+            color: #bbb;
+            margin-bottom: 30px;
+        }
+
+        .sso-button {
+            width: 100%;
+            padding: 14px 20px;
+            background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(230, 126, 34, 0.3);
+        }
+
+        .sso-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(230, 126, 34, 0.4);
+        }
+
+        .sso-button:active {
+            transform: translateY(0);
+        }
+
+        .sso-button .ms-icon {
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 2px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            color: #e67e22;
+        }
+
+        .divider {
+            text-align: center;
+            margin: 25px 0;
+            position: relative;
+            color: #888;
+            font-size: 13px;
+        }
+
+        .divider::before,
+        .divider::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            width: 40%;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .divider::before {
+            left: 0;
+        }
+
+        .divider::after {
+            right: 0;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: #ddd;
+            margin-bottom: 8px;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px 16px;
+            background: #1a1a1a;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: #fff;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #e67e22;
+            box-shadow: 0 0 0 3px rgba(230, 126, 34, 0.1);
+        }
+
+        .form-input::placeholder {
+            color: #666;
+        }
+
+        .login-button {
+            width: 100%;
+            padding: 14px 20px;
+            background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+            box-shadow: 0 4px 15px rgba(230, 126, 34, 0.3);
+        }
+
+        .login-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(230, 126, 34, 0.4);
+        }
+
+        .login-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .error-message {
+            background: rgba(220, 53, 69, 0.1);
+            border: 1px solid rgba(220, 53, 69, 0.3);
+            color: #ff6b6b;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
+        }
+
+        .forgot-password {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 13px;
+        }
+
+        .forgot-password a {
+            color: #e67e22;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+
+        .forgot-password a:hover {
+            color: #d35400;
+            text-decoration: underline;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="login-container">
+        <div class="logo-section">
+            <div class="logo">
+                <div class="logo-icon">⚡</div>
+            </div>
+            <div class="logo-text">NOC CONFIG MAKER</div>
+            <div class="logo-subtitle">Network Operations Center Tool</div>
+        </div>
+
+        <h1 class="login-title">Sign in</h1>
+        <p class="login-subtitle">Enter your credentials to access the NOC Config Maker</p>
+
+        <div id="errorMessage" class="error-message"></div>
+
+        <button id="ssoButton" class="sso-button" onclick="signInWithMicrosoft()">
+            <div class="ms-icon">M</div>
+            Continue with Single Sign-On
+        </button>
+
+        <div class="divider">Prefer your credentials? Use the form below.</div>
+
+        <form id="loginForm" onsubmit="handleEmailLogin(event)">
+            <div class="form-group">
+                <label class="form-label" for="email">Email</label>
+                <input type="email" id="email" class="form-input" placeholder="user@team.nxlink.com"
+                    pattern=".*@team\.nxlink\.com" title="Only @team.nxlink.com email addresses are allowed" required
+                    autocomplete="email">
+                <small style="display: block; margin-top: 6px; color: #888; font-size: 12px;">
+                    Only @team.nxlink.com email addresses are allowed
+                </small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="password">Password</label>
+                <input type="password" id="password" class="form-input" placeholder="Enter your password" required
+                    autocomplete="current-password">
+            </div>
+
+            <button type="submit" id="loginButton" class="login-button">
+                Log in
+            </button>
+        </form>
+
+        <div class="forgot-password">
+            <a href="#" onclick="showForgotPassword(); return false;">Forgot your password?</a>
+        </div>
+    </div>
+
+    <script>
+        // Microsoft SSO Configuration
+        const MSAL_CONFIG = {
+            auth: {
+                clientId: 'YOUR_AZURE_AD_CLIENT_ID', // Replace with your Azure AD App Client ID
+                authority: 'https://login.microsoftonline.com/common', // or your tenant ID
+                redirectUri: window.location.origin + '/auth/callback'
+            },
+            cache: {
+                cacheLocation: 'localStorage',
+                storeAuthStateInCookie: false
+            }
+        };
+
+        // Check if user is already logged in
+        window.addEventListener('DOMContentLoaded', function () {
+            const token = localStorage.getItem('auth_token');
+            const user = localStorage.getItem('user_info');
+
+            if (token && user) {
+                // User is already logged in, redirect to main app
+                window.location.href = 'NOC-configMaker.html';
+            }
+        });
+
+        // Microsoft SSO Sign In
+        async function signInWithMicrosoft() {
+            const button = document.getElementById('ssoButton');
+            const originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<div class="loading"></div> Signing in...';
+
+            try {
+                // For now, use a simplified approach - in production, use MSAL.js
+                // This will redirect to Microsoft login
+                // Use relative URL so it works through the launcher proxy
+                const response = await fetch('/api/auth/microsoft', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.authUrl) {
+                        window.location.href = data.authUrl;
+                    } else {
+                        throw new Error('No auth URL received');
+                    }
+                } else {
+                    throw new Error('SSO authentication failed');
+                }
+            } catch (error) {
+                console.error('SSO Error:', error);
+                showError('Microsoft SSO is not configured. Please use email/password login or contact your administrator.');
+                button.disabled = false;
+                button.innerHTML = originalText;
+            }
+        }
+
+        // Email/Password Login
+        async function handleEmailLogin(event) {
+            event.preventDefault();
+
+            const email = document.getElementById('email').value.trim().toLowerCase();
+            const password = document.getElementById('password').value;
+            const button = document.getElementById('loginButton');
+            const originalText = button.innerHTML;
+
+            // Client-side domain validation
+            if (!email.endsWith('@team.nxlink.com')) {
+                showError('Only @team.nxlink.com email addresses are allowed. Please use your company email (e.g., user@team.nxlink.com)');
+                return;
+            }
+
+            button.disabled = true;
+            button.innerHTML = '<div class="loading"></div> Signing in...';
+            hideError();
+
+            try {
+                // Use relative URL so it works through the launcher proxy
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                // Check if response is JSON before parsing
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    throw new Error(`Server returned ${response.status}: ${text.substring(0, 100)}`);
+                }
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    // Store auth token and user info
+                    localStorage.setItem('auth_token', data.token);
+                    localStorage.setItem('user_info', JSON.stringify(data.user));
+
+                    // Check if password change is required
+                    if (data.requiresPasswordChange) {
+                        // Redirect to password change page
+                        window.location.href = 'change-password.html?firstLogin=true';
+                    } else {
+                        // Redirect to main app
+                        window.location.href = 'NOC-configMaker.html';
+                    }
+                } else {
+                    throw new Error(data.error || 'Login failed');
+                }
+            } catch (error) {
+                console.error('Login Error:', error);
+                // Check if it's a backend connection error
+                let errorMessage = error.message || 'Invalid email or password. Please try again.';
+                if (error.message && (error.message.includes('502') || error.message.includes('503') || error.message.includes('504'))) {
+                    errorMessage = 'Backend server is not ready. Please wait a moment and try again, or restart the application.';
+                } else if (error.message && error.message.includes('Failed to fetch')) {
+                    errorMessage = 'Cannot connect to server. Please make sure the application is running properly.';
+                }
+                showError(errorMessage);
+                button.disabled = false;
+                button.innerHTML = originalText;
+            }
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = message;
+            errorDiv.classList.add('show');
+        }
+
+        function hideError() {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.classList.remove('show');
+        }
+
+        function showForgotPassword() {
+            // Redirect to password reset page
+            window.location.href = 'forgot-password.html';
+        }
+    </script>
+</body>
+
+</html>

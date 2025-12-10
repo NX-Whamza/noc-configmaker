@@ -1,0 +1,27 @@
+[Unit]
+Description=NOC Config Maker Backend Service
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=whamza
+Group=whamza
+WorkingDirectory=/home/whamza/noc-configmaker
+Environment="PATH=/home/whamza/noc-configmaker/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/home/whamza/noc-configmaker/venv/bin/python3 /home/whamza/noc-configmaker/api_server.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/whamza/noc-configmaker/secure_data
+
+[Install]
+WantedBy=multi-user.target
