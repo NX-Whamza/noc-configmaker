@@ -3,7 +3,7 @@
 > **Intelligent Network Configuration Generator for Nextlink Internet**  
 > Automate MikroTik RouterOS configurations with AI-powered validation and compliance checking
 
-[![Testing consistency](https://img.shields.io/badge/status-production%20ready-brightgreen)]()
+[![Testing consistency](https://img.shields.io/badge/status-Testing%20consistency-brightgreen)]()
 [![Version](https://img.shields.io/badge/version-2.0-blue)]()
 [![License](https://img.shields.io/badge/license-proprietary-red)]()
 
