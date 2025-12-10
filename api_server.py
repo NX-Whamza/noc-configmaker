@@ -7,15 +7,17 @@ Secure OpenAI API integration for RouterOS config generation and validation
 
 import sys
 import io
-import shutil
 # Fix Windows console encoding for Unicode - but only if not already wrapped
+# In PyInstaller, stdout/stderr might already be wrapped, so check first
 if sys.platform == 'win32':
     try:
+        # Only wrap if not already a TextIOWrapper
         if not isinstance(sys.stdout, io.TextIOWrapper):
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
         if not isinstance(sys.stderr, io.TextIOWrapper):
             sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
     except (AttributeError, ValueError):
+        # If wrapping fails (e.g., in PyInstaller), just continue
         pass
 
 from flask import Flask, request, jsonify, send_file, send_from_directory
@@ -25,38 +27,42 @@ import re
 import ipaddress
 import json
 import requests
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 import sqlite3
 import hashlib
 import secrets
 from functools import wraps
-from pathlib import Path
 
-# JWT support
+# JWT support (optional - install with: pip install PyJWT)
 try:
     import jwt
     HAS_JWT = True
 except ImportError:
     HAS_JWT = False
     print("[WARNING] PyJWT not installed. Install with: pip install PyJWT")
-
-# TIMEZONE HANDLING (Fixed)
+    print("[WARNING] Authentication will use simple token system instead.")
 try:
     import pytz
     CST = pytz.timezone('America/Chicago')
     HAS_PYTZ = True
 except ImportError:
     HAS_PYTZ = False
-    # Fallback: Fixed UTC-6 offset for CST (ignoring DST complexity for stability if pytz is missing)
-    CST = timezone(timedelta(hours=-6))
+    # Fallback: CST is UTC-6, CDT is UTC-5 (daylight saving)
+    CST = None
 
 def get_cst_now():
     """Get current time in CST/CDT timezone (America/Chicago)"""
-    if HAS_PYTZ:
+    if HAS_PYTZ and CST:
         return datetime.now(CST)
     else:
-        # Robust fallback using fixed offset
-        return datetime.now(timezone.utc).astimezone(CST)
+        # Fallback: calculate CST offset manually
+        utc_now = datetime.utcnow()
+        # Simple approximation: March-November is CDT (UTC-5), rest is CST (UTC-6)
+        month = utc_now.month
+        is_dst = 3 <= month <= 10  # Approximate DST period (March-October)
+        offset_hours = -5 if is_dst else -6
+        from datetime import timedelta
+        return utc_now + timedelta(hours=offset_hours)
 
 def get_cst_timestamp():
     """Get current timestamp in CST/CDT as ISO format string"""
@@ -65,13 +71,8 @@ def get_cst_timestamp():
 def get_cst_datetime_string():
     """Get current datetime in CST/CDT as formatted string (YYYY-MM-DD HH:MM:SS)"""
     return get_cst_now().strftime('%Y-%m-%d %H:%M:%S')
-
-# Safe print function
-def safe_print(*args, **kwargs):
-    try:
-        print(*args, **kwargs, flush=True)
-    except (IOError, ValueError, OSError):
-        pass
+    import time
+from pathlib import Path
 # Import NextLink standards (for migration rules, error detection, etc.)
 from nextlink_standards import (
     NEXTLINK_COMMON_ERRORS,
@@ -106,6 +107,533 @@ def safe_print(*args, **kwargs):
     except (IOError, ValueError, OSError):
         # If stdout is closed or unavailable, silently skip
         pass
+
+# ========================================
+# ROUTERBOARD INTERFACE DATABASE
+# ========================================
+# Comprehensive database of all RouterBoard models with accurate interface layouts
+# Updated: 2024-12-09 - Covers CCR, CRS, and RB series
+
+ROUTERBOARD_INTERFACES = {
+    # CCR1036 Series
+    'CCR1036-12G-4S': {
+        'model': 'CCR1036-12G-4S',
+        'series': 'CCR1036',
+        'cpu': 'Tilera Tile-Gx36',
+        'ports': {
+            'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6',
+                           'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12'],
+            'sfp_1g': ['sfp1', 'sfp2', 'sfp3', 'sfp4']
+        },
+        'total_ports': 16,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Management',
+            'ether2-3': 'Uplinks',
+            'ether4-12': 'Customer/Sector connections',
+            'sfp1-4': 'Fiber uplinks or long-distance'
+        }
+    },
+    
+    # CCR2004 Series
+    'CCR2004-1G-12S+2XS': {
+        'model': 'CCR2004-1G-12S+2XS',
+        'series': 'CCR2004',
+        'cpu': 'Annapurna Labs Alpine v2',
+        'ports': {
+            'ethernet_1g': ['ether1'],
+            'sfp_plus_10g': ['sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4',
+                            'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8',
+                            'sfp-sfpplus9', 'sfp-sfpplus10', 'sfp-sfpplus11', 'sfp-sfpplus12'],
+            'sfp28_25g': ['sfp28-1', 'sfp28-2']
+        },
+        'total_ports': 15,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Management',
+            'sfp-sfpplus1-2': 'Uplinks (10G)',
+            'sfp-sfpplus3-12': 'Customer/Sector connections (10G)',
+            'sfp28-1-2': 'High-speed uplinks (25G)'
+        }
+    },
+    
+    'CCR2004-16G-2S+': {
+        'model': 'CCR2004-16G-2S+',
+        'series': 'CCR2004',
+        'cpu': 'Annapurna Labs Alpine v2',
+        'ports': {
+            'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6',
+                           'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12',
+                           'ether13', 'ether14', 'ether15', 'ether16'],
+            'sfp_plus_10g': ['sfp-sfpplus1', 'sfp-sfpplus2']
+        },
+        'total_ports': 18,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Management',
+            'ether2-16': 'Customer connections',
+            'sfp-sfpplus1-2': 'Uplinks (10G)'
+        }
+    },
+    
+    # CCR2116 Series
+    'CCR2116-12G-4S+': {
+        'model': 'CCR2116-12G-4S+',
+        'series': 'CCR2116',
+        'cpu': 'Annapurna Labs Alpine v2',
+        'ports': {
+            'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6',
+                           'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12'],
+            'sfp_plus_10g': ['sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4']
+        },
+        'total_ports': 16,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Management',
+            'ether2-12': 'Customer connections',
+            'sfp-sfpplus1-4': 'Uplinks or high-speed connections (10G)'
+        }
+    },
+    
+    # CCR2216 Series
+    'CCR2216-1G-12XS-2XQ': {
+        'model': 'CCR2216-1G-12XS-2XQ',
+        'series': 'CCR2216',
+        'cpu': 'Annapurna Labs Alpine v3',
+        'ports': {
+            'ethernet_1g': ['ether1'],
+            'sfp28_25g': ['sfp28-1', 'sfp28-2', 'sfp28-3', 'sfp28-4', 'sfp28-5', 'sfp28-6',
+                         'sfp28-7', 'sfp28-8', 'sfp28-9', 'sfp28-10', 'sfp28-11', 'sfp28-12'],
+            'qsfp28_100g': ['qsfpplus1-1', 'qsfpplus2-1']
+        },
+        'total_ports': 15,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Management',
+            'sfp28-1-12': 'High-speed customer/sector connections (25G)',
+            'qsfpplus1-1, qsfpplus2-1': 'Ultra high-speed uplinks (100G)'
+        }
+    },
+    
+    # CRS Series (Switches)
+    'CRS326-24G-2S+': {
+        'model': 'CRS326-24G-2S+',
+        'series': 'CRS326',
+        'cpu': 'Marvell-98DX3236',
+        'ports': {
+            'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6',
+                           'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12',
+                           'ether13', 'ether14', 'ether15', 'ether16', 'ether17', 'ether18',
+                           'ether19', 'ether20', 'ether21', 'ether22', 'ether23', 'ether24'],
+            'sfp_plus_10g': ['sfp-sfpplus1', 'sfp-sfpplus2']
+        },
+        'total_ports': 26,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Management',
+            'ether2-24': 'Access ports',
+            'sfp-sfpplus1-2': 'Uplinks (10G)'
+        }
+    },
+    
+    'CRS354-48G-4S+2Q+': {
+        'model': 'CRS354-48G-4S+2Q+',
+        'series': 'CRS354',
+        'cpu': 'Marvell-98DX3257',
+        'ports': {
+            'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6',
+                           'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12',
+                           'ether13', 'ether14', 'ether15', 'ether16', 'ether17', 'ether18',
+                           'ether19', 'ether20', 'ether21', 'ether22', 'ether23', 'ether24',
+                           'ether25', 'ether26', 'ether27', 'ether28', 'ether29', 'ether30',
+                           'ether31', 'ether32', 'ether33', 'ether34', 'ether35', 'ether36',
+                           'ether37', 'ether38', 'ether39', 'ether40', 'ether41', 'ether42',
+                           'ether43', 'ether44', 'ether45', 'ether46', 'ether47', 'ether48'],
+            'sfp_plus_10g': ['sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4'],
+            'qsfp28_40g': ['qsfpplus1-1', 'qsfpplus2-1']
+        },
+        'total_ports': 54,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Management',
+            'ether2-48': 'Access ports',
+            'sfp-sfpplus1-4': 'Uplinks (10G)',
+            'qsfpplus1-1, qsfpplus2-1': 'High-speed uplinks (40G)'
+        }
+    },
+    
+    # RB Series (Small/Legacy)
+    'RB5009UG+S+': {
+        'model': 'RB5009UG+S+IN',
+        'series': 'RB5009',
+        'cpu': 'Marvell 88F7040',
+        'ports': {
+            'ethernet_2_5g': ['ether1'],
+            'ethernet_1g': ['ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8'],
+            'sfp_plus_10g': ['sfp-sfpplus1']
+        },
+        'total_ports': 9,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Uplink (2.5G)',
+            'ether2-8': 'LAN/Downlinks',
+            'sfp-sfpplus1': 'Fiber Uplink (10G)'
+        }
+    },
+
+    'RB1009UG+S+': {
+        'model': 'RB1009-7G-1C-1S+',
+        'series': 'RB1009',
+        'cpu': 'Tilera Tile-Gx9',
+        'ports': {
+            'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7'],
+            'combo_1g': ['combo1'],
+            'sfp_plus_10g': ['sfp-sfpplus1']
+        },
+        'total_ports': 9,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Uplink',
+            'ether2-7': 'LAN',
+            'sfp-sfpplus1': 'Fiber Uplink'
+        }
+    },
+
+    'RB2011UiAS-2HnD-IN': {
+        'model': 'RB2011UiAS-2HnD',
+        'series': 'RB2011',
+        'cpu': 'Atheros AR9344',
+        'ports': {
+            'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5'],
+            'ethernet_100m': ['ether6', 'ether7', 'ether8', 'ether9', 'ether10'],
+            'sfp_1g': ['sfp1']
+        },
+        'total_ports': 11,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Uplink (Gigabit)',
+            'ether2-5': 'LAN (Gigabit)',
+            'ether6-10': 'LAN (100M)',
+            'sfp1': 'Fiber Uplink'
+        }
+    }
+}
+
+# ========================================
+# INTELLIGENT INTERFACE MIGRATION LOGIC
+# ========================================
+
+def get_interface_type(interface_name):
+    """Determine the type of interface from its name"""
+    if interface_name.startswith('ether'):
+        return 'ethernet_1g'
+    elif interface_name.startswith('sfp-sfpplus'):
+        return 'sfp_plus_10g'
+    elif interface_name.startswith('sfp28'):
+        return 'sfp28_25g'
+    elif interface_name.startswith('qsfp'):
+        return 'qsfp28_100g'
+    elif interface_name.startswith('sfp'):
+        return 'sfp_1g'
+    elif interface_name.startswith('combo'):
+        return 'ethernet_1g'
+    else:
+        return 'unknown'
+
+def build_interface_migration_map(source_device, target_device):
+    """
+    Intelligently build interface migration map between two devices
+    
+    Rules:
+    1. ether1 ALWAYS stays ether1 (management port)
+    2. Map interfaces by type preference (SFP→SFP+, Ethernet→Ethernet)
+    3. Use first available ports of matching type
+    4. If no matching type, use next best alternative
+    5. Preserve logical groupings (uplinks together, sectors together)
+    """
+    if source_device not in ROUTERBOARD_INTERFACES or target_device not in ROUTERBOARD_INTERFACES:
+        return None
+    
+    source = ROUTERBOARD_INTERFACES[source_device]
+    target = ROUTERBOARD_INTERFACES[target_device]
+    
+    migration_map = {}
+    target_used_ports = set()
+    
+    # Rule 1: Management port always stays ether1
+    migration_map['ether1'] = 'ether1'
+    target_used_ports.add('ether1')
+    
+    # Get all source interfaces (excluding ether1)
+    source_interfaces = []
+    for port_type, ports in source['ports'].items():
+        for port in ports:
+            if port != 'ether1':
+                source_interfaces.append((port, port_type))
+    
+    # Sort source interfaces to maintain logical order
+    # Priority: uplinks first (ether2-3, sfp1-2), then others
+    def interface_priority(item):
+        port, port_type = item
+        # Extract number from interface name
+        import re
+        match = re.search(r'(\d+)$', port)
+        num = int(match.group(1)) if match else 999
+        
+        # Uplinks (ether2-3, sfp1-2) get highest priority
+        if 'ether' in port and num in [2, 3]:
+            return (0, num)
+        elif 'sfp' in port and num in [1, 2]:
+            return (1, num)
+        else:
+            return (2, num)
+    
+    source_interfaces.sort(key=interface_priority)
+    
+    # Map each source interface to best available target
+    for source_port, source_type in source_interfaces:
+        target_port = find_best_target_port(
+            source_port, source_type, target, target_used_ports
+        )
+        if target_port:
+            migration_map[source_port] = target_port
+            target_used_ports.add(target_port)
+    
+    return migration_map
+
+def find_best_target_port(source_port, source_type, target_device, used_ports):
+    """
+    Find the best available target port for a source port
+    
+    Preference order:
+    1. Same type (ethernet→ethernet, sfp→sfp+)
+    2. Upgrade type (sfp_1g→sfp_plus_10g, ethernet_1g→sfp_plus_10g)
+    3. Any available port
+    """
+    target_ports = target_device['ports']
+    
+    # Type preference mapping (in order of preference)
+    type_preferences = {
+        'ethernet_1g': ['ethernet_1g', 'sfp_plus_10g', 'sfp28_25g'],
+        'sfp_1g': ['sfp_plus_10g', 'sfp28_25g', 'ethernet_1g'],
+        'sfp_plus_10g': ['sfp_plus_10g', 'sfp28_25g', 'qsfp28_100g'],
+        'sfp28_25g': ['sfp28_25g', 'qsfp28_100g', 'sfp_plus_10g']
+    }
+    
+    preferences = type_preferences.get(source_type, [source_type])
+    
+    # Try each preference in order
+    for preferred_type in preferences:
+        if preferred_type in target_ports:
+            for port in target_ports[preferred_type]:
+                if port not in used_ports:
+                    return port
+    
+    # Fallback: use any available port
+    for port_type, ports in target_ports.items():
+        for port in ports:
+            if port not in used_ports:
+                return port
+    
+    return None
+
+def apply_intelligent_translation(source_config, source_device_info, source_syntax_info, target_syntax_info, target_device_info, target_version):
+    """
+    Apply intelligent rule-based translation (Fallback logic)
+    Used when AI is disabled or fails validation.
+    """
+    safe_print(f"[INTELLIGENT TRANSLATION] Starting rule-based migration from {source_device_info.get('model', 'unknown')} to {target_device_info.get('model', 'unknown')}...")
+
+    # 1. Build comprehensive interface map
+    # We use the source/target models from the info dicts
+    # If exact model match fails, we try to detect best fit
+    source_model = source_device_info.get('type') or source_device_info.get('model')
+    target_model = target_device_info.get('type') or target_device_info.get('model')
+    
+    # Ensure keys exist in ROUTERBOARD_INTERFACES
+    # If not, try to map 'rb5009' -> 'RB5009UG+S+' etc.
+    # (The keys in ROUTERBOARD_INTERFACES are now full names like 'RB5009UG+S+')
+    # But validation logic earlier uses detection which returns full names.
+    
+    safe_print(f"[MAPPING] Building interface map for {source_model} -> {target_model}")
+    interface_map = build_interface_migration_map(source_model, target_model)
+    
+    if not interface_map:
+        safe_print(f"[WARNING] Could not build interface map. Using identity mapping.")
+        interface_map = {'ether1': 'ether1'}  # Fallback
+
+    # 2. Apply interface migration (renaming ports in config)
+    migrated_config = migrate_interface_config(source_config, interface_map)
+
+    # 3. Apply Syntax Conversion (ROS6 -> ROS7) if needed
+    if str(target_version).startswith('7'):
+        safe_print("[SYNTAX] Applying ROS6 -> ROS7 syntax usage...")
+        migrated_config = apply_ros6_to_ros7_syntax(migrated_config)
+
+    # 4. Standardize BGP/OSPF if not fully covered by simple replacement
+    # (apply_ros6_to_ros7_syntax covers basic paths, but we might need more)
+    # Ensure 'routing bgp connection' is used
+    if '/routing bgp peer' in migrated_config and str(target_version).startswith('7'):
+         migrated_config = migrated_config.replace('/routing bgp peer', '/routing bgp connection')
+
+    return migrated_config
+
+def migrate_interface_config(config_text, interface_map):
+    """
+    Migrate all interface-related configuration
+    
+    This includes:
+    - Interface names in all contexts
+    - IP addresses
+    - OSPF interface assignments
+    - BGP peer bindings
+    - Firewall rules
+    - Bridge ports
+    - VLAN assignments
+    - Any other interface references
+    """
+    migrated_config = config_text
+    
+    # Sort by length (longest first) to avoid partial replacements
+    # e.g., replace "ether10" before "ether1"
+    sorted_interfaces = sorted(interface_map.items(), key=lambda x: len(x[0]), reverse=True)
+    
+    for old_interface, new_interface in sorted_interfaces:
+        # Use word boundaries to avoid partial matches
+        import re
+        
+        # Pattern matches interface name with word boundaries
+        # This ensures we don't replace "ether1" in "ether10"
+        pattern = r'\b' + re.escape(old_interface) + r'\b'
+        migrated_config = re.sub(pattern, new_interface, migrated_config)
+    
+    return migrated_config
+
+def detect_device_from_config(config_text):
+    """
+    Detect device model from configuration content
+    
+    Looks for:
+    1. System identity comments
+    2. Interface names and patterns
+    3. Board name in comments
+    """
+    import re
+    
+    # Try to find explicit device model mentions
+    for model in ROUTERBOARD_INTERFACES.keys():
+        if model in config_text:
+            return model
+    
+    # Detect by interface pattern
+    # CCR2004-1G-12S+2XS has sfp-sfpplus1-12 and sfp28-1-2
+    if 'sfp-sfpplus12' in config_text and 'sfp28-' in config_text:
+        return 'CCR2004-1G-12S+2XS'
+    
+    # CCR2004-16G-2S+ has ether1-16 and sfp-sfpplus1-2
+    if 'ether16' in config_text and 'sfp-sfpplus2' in config_text and 'sfp-sfpplus3' not in config_text:
+        return 'CCR2004-16G-2S+'
+    
+    # CCR1036-12G-4S has ether1-12 and sfp1-4
+    if 'ether12' in config_text and 'sfp4' in config_text and 'sfp-sfpplus' not in config_text:
+        return 'CCR1036-12G-4S'
+    
+    # CCR2116-12G-4S+ has ether1-12 and sfp-sfpplus1-4
+    if 'ether12' in config_text and 'sfp-sfpplus4' in config_text and 'sfp-sfpplus5' not in config_text:
+        return 'CCR2116-12G-4S+'
+    
+    # CCR2216 has sfp28-1 through sfp28-12
+    if 'sfp28-12' in config_text:
+        return 'CCR2216-1G-12XS-2XQ'
+    
+    return None
+
+def detect_routeros_version(config_text):
+    """
+    Detect RouterOS version from configuration syntax
+    
+    ROS7 indicators:
+    - Slash-separated commands (/interface/bridge)
+    - sfp-sfpplus naming
+    - New speed syntax (10G-baseSR-LR)
+    
+    ROS6 indicators:
+    - Space-separated commands (/interface bridge)
+    - Old speed syntax (10G-baseSR)
+    - ether1-master syntax
+    """
+    ros7_indicators = [
+        '/interface/bridge',
+        '/ip/address',
+        '/routing/ospf',
+        'sfp-sfpplus',
+        '10G-baseSR-LR',
+        'sfp28-'
+    ]
+    
+    ros6_indicators = [
+        '/interface bridge',
+        '/ip address',
+        '/routing ospf',
+        '10G-baseSR',
+        'ether1-master'
+    ]
+    
+    ros7_count = sum(1 for indicator in ros7_indicators if indicator in config_text)
+    ros6_count = sum(1 for indicator in ros6_indicators if indicator in config_text)
+    
+    if ros7_count > ros6_count:
+        return 7
+    elif ros6_count > 0:
+        return 6
+    else:
+        return None
+
+def apply_ros6_to_ros7_syntax(config_text):
+    """
+    Convert RouterOS 6 syntax to RouterOS 7
+    
+    Changes:
+    - Command paths (space → slash)
+    - Speed syntax
+    - Interface naming conventions
+    """
+    import re
+    
+    # Command structure changes
+    syntax_changes = [
+        (r'/interface bridge', '/interface/bridge'),
+        (r'/interface ethernet', '/interface/ethernet'),
+        (r'/interface vlan', '/interface/vlan'),
+        (r'/interface bonding', '/interface/bonding'),
+        (r'/ip address', '/ip/address'),
+        (r'/ip route', '/ip/route'),
+        (r'/ip firewall', '/ip/firewall'),
+        (r'/ip service', '/ip/service'),
+        (r'/routing ospf', '/routing/ospf'),
+        (r'/routing bgp', '/routing/bgp'),
+        (r'/routing filter', '/routing/filter'),
+        (r'/system identity', '/system/identity'),
+        (r'/system clock', '/system/clock'),
+        (r'/system ntp', '/system/ntp'),
+    ]
+    
+    migrated = config_text
+    for old_syntax, new_syntax in syntax_changes:
+        migrated = migrated.replace(old_syntax, new_syntax)
+    
+    # Speed syntax changes
+    speed_changes = [
+        ('10G-baseSR', '10G-baseSR-LR'),
+        ('1G-baseT', '1000M-baseTX'),
+        ('100M-baseT', '100M-baseTX'),
+    ]
+    
+    for old_speed, new_speed in speed_changes:
+        migrated = migrated.replace(old_speed, new_speed)
+    
+    return migrated
+
 
 # ========================================
 # AI PROVIDER CONFIGURATION (Early definition for model selection)
@@ -2171,6 +2699,14 @@ def translate_config():
                 device_info['model'] = 'RB5009UG+S+'
                 device_info['type'] = 'rb5009'
                 device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'sfp-sfpplus1']
+            elif 'RB1009' in config:
+                device_info['model'] = 'RB1009UG+S+'
+                device_info['type'] = 'rb1009'
+                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'sfp-sfpplus1']
+            elif 'RB2011' in config:
+                device_info['model'] = 'RB2011UiAS-2HnD-IN'
+                device_info['type'] = 'rb2011'
+                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'sfp1']
             
             return device_info
         
@@ -2223,10 +2759,18 @@ def translate_config():
                 'rb1009': {
                     'model': 'RB1009UG+S+',
                     'type': 'rb1009',
-                    'ports': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'sfp-sfpplus1'],
+                    'ports': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'sfp-sfpplus1'],
                     'management': 'ether1',
                     'description': '9x Gigabit + 1x SFP+ (RB1009)'
+                },
+                'rb2011': {
+                    'model': 'RB2011UiAS-2HnD-IN',
+                    'type': 'rb2011',
+                    'ports': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'sfp1'],
+                    'management': 'ether1',
+                    'description': '5x Gigabit + 5x 100M + 1x SFP (RB2011)'
                 }
+
             }
             
             key = (target_device or '').lower().strip()
@@ -6271,74 +6815,182 @@ def health():
     })
 
 # ========================================
+# FEEDBACK DATABASE INITIALIZATION
+# ========================================
+
+def init_feedback_db():
+    """Initialize feedback database with proper schema"""
+    try:
+        secure_dir = ensure_secure_data_dir()
+        feedback_db_path = secure_dir / "feedback.db"
+        
+        conn = sqlite3.connect(str(feedback_db_path))
+        cursor = conn.cursor()
+        
+        # Create feedback table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                feedback_type TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                category TEXT,
+                experience TEXT,
+                details TEXT,
+                name TEXT,
+                email TEXT,
+                status TEXT DEFAULT 'new',
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        
+        safe_print(f"[FEEDBACK] Database initialized at {feedback_db_path}")
+        return True
+    except Exception as e:
+        safe_print(f"[FEEDBACK ERROR] Failed to initialize database: {e}")
+        return False
+
+# ========================================
 # ENDPOINT: Feedback Submission (Email)
 # ========================================
 
-@app.route('/api/admin/feedback', methods=['GET'])
-@require_auth
-def get_feedback():
-    """Get all feedback (admin only)"""
+@app.route('/api/feedback', methods=['POST'])
+def submit_feedback():
+    """Submit feedback/bug report/feature request via email"""
     try:
-        # Check if user is admin
-        if not is_admin_user():
-            return jsonify({'error': 'Admin access required'}), 403
+        data = request.json
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
         
+        # Extract form data
+        feedback_type = data.get('type', 'feedback').capitalize()
+        subject = data.get('subject', 'No subject')
+        category = data.get('category', 'Not specified')
+        experience = data.get('experience', 'Not rated')
+        details = data.get('details', 'No details provided')
+        name = data.get('name', 'Anonymous')
+        timestamp = data.get('timestamp', get_cst_timestamp())
+        
+        # Format email body
+        email_body = f"""
+NOC Config Maker - {feedback_type}
+
+From: {name}
+Type: {feedback_type}
+Category: {category}
+Experience Rating: {experience}/5 stars
+Submitted: {timestamp}
+
+Subject: {subject}
+
+Details:
+{details}
+
+---
+This feedback was automatically submitted via NOC Config Maker.
+"""
+        
+        # Send email using smtplib
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        
+        # Email configuration from environment variables
+        # Default to Office 365 SMTP with Walihlah's account so feedback works out-of-the-box
+        smtp_server = os.getenv('SMTP_SERVER', 'smtp.office365.com')
+        smtp_port = int(os.getenv('SMTP_PORT', '587'))
+        # Hard-coded safe defaults for local EXE usage (can be overridden with env vars)
+        default_username = 'whamza@team.nxlink.com'
+        default_password = 'Omolayo@2016$'
+        smtp_username = os.getenv('SMTP_USERNAME', os.getenv('NXLINK_EMAIL_USER', default_username))
+        smtp_password = os.getenv('SMTP_PASSWORD', os.getenv('NXLINK_EMAIL_PASS', default_password))
+        from_email = os.getenv('FEEDBACK_FROM_EMAIL', default_username)
+        to_email = os.getenv('FEEDBACK_TO_EMAIL', default_username)
+        cc_email = os.getenv('FEEDBACK_CC_EMAIL', '')
+        
+        # Create message
+        message = MIMEMultipart()
+        message["From"] = f"NOC Config Maker <{from_email}>"
+        message["To"] = to_email
+        message["Cc"] = cc_email
+        message["Subject"] = f"[NOC ConfigMaker] {feedback_type}: {subject}"
+        
+        # Add body
+        message.attach(MIMEText(email_body, "plain"))
+        
+        # Save feedback to database
         init_feedback_db()
         FEEDBACK_DB_PATH = SECURE_DATA_DIR / "feedback.db"
         conn = sqlite3.connect(str(FEEDBACK_DB_PATH))
-        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        # Get filter parameters
-        status_filter = request.args.get('status', 'all')
-        type_filter = request.args.get('type', 'all')
-        limit = int(request.args.get('limit', 100))
-        offset = int(request.args.get('offset', 0))
+        email = data.get('email', '')
+        cursor.execute('''
+            INSERT INTO feedback (feedback_type, subject, category, experience, details, name, email)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (feedback_type, subject, category, experience, details, name, email))
         
-        query = 'SELECT * FROM feedback WHERE 1=1'
-        params = []
-        
-        # Case-insensitive status filter
-        if status_filter != 'all':
-            query += ' AND LOWER(status) = LOWER(?)'
-            params.append(status_filter)
-        
-        # Case-insensitive type filter
-        if type_filter != 'all':
-            query += ' AND LOWER(feedback_type) = LOWER(?)'
-            params.append(type_filter)
-        
-        query += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?'
-        params.extend([limit, offset])
-        
-        cursor.execute(query, params)
-        feedback_list = [dict(row) for row in cursor.fetchall()]
-        
-        # Get total count
-        count_query = 'SELECT COUNT(*) FROM feedback WHERE 1=1'
-        count_params = []
-        if status_filter != 'all':
-            count_query += ' AND LOWER(status) = LOWER(?)'
-            count_params.append(status_filter)
-        if type_filter != 'all':
-            count_query += ' AND LOWER(feedback_type) = LOWER(?)'
-            count_params.append(type_filter)
-        
-        cursor.execute(count_query, count_params)
-        total_count = cursor.fetchone()[0]
-        
+        feedback_id = cursor.lastrowid
+        conn.commit()
         conn.close()
+        
+        safe_print(f"[FEEDBACK] Saved to database (ID: {feedback_id}) from {name}: {subject}")
+        
+        # Save feedback to file as backup (always)
+        secure_dir = ensure_secure_data_dir()
+        feedback_file = secure_dir / "feedback_log.txt"
+        
+        with open(feedback_file, 'a', encoding='utf-8') as f:
+            f.write(f"\n{'='*80}\n")
+            f.write(email_body)
+            f.write(f"\n{'='*80}\n")
+        
+        safe_print(f"[FEEDBACK] Received {feedback_type} from {name}: {subject}")
+        
+        # Send email if SMTP credentials are configured
+        email_sent = False
+        email_error = None
+        
+        if smtp_username and smtp_password:
+            try:
+                safe_print(f"[EMAIL] Sending feedback to {to_email} via {smtp_server}:{smtp_port}")
+                server = smtplib.SMTP(smtp_server, smtp_port)
+                server.starttls()
+                server.login(smtp_username, smtp_password)
+                
+                # Send to both TO and CC
+                recipients = [to_email]
+                if cc_email:
+                    recipients.append(cc_email)
+                
+                server.sendmail(from_email, recipients, message.as_string())
+                server.quit()
+                email_sent = True
+                safe_print(f"[EMAIL] Successfully sent feedback email to {to_email}")
+            except Exception as e:
+                email_error = str(e)
+                safe_print(f"[EMAIL ERROR] Failed to send: {e}")
+                safe_print(f"[EMAIL] Feedback still saved to file: {feedback_file}")
+        else:
+            safe_print("[EMAIL] SMTP credentials not configured - feedback logged to file only")
+            safe_print(f"[EMAIL] Feedback saved to: {feedback_file}")
+            safe_print("[EMAIL] To enable email: Set SMTP_USERNAME and SMTP_PASSWORD environment variables")
+            safe_print("[EMAIL] Or set NXLINK_EMAIL_USER and NXLINK_EMAIL_PASS for Nextlink email")
         
         return jsonify({
             'success': True,
-            'feedback': feedback_list,
-            'total': total_count,
-            'limit': limit,
-            'offset': offset
+            'message': 'Feedback received and logged successfully' + (' - Email sent!' if email_sent else ''),
+            'logged_to_file': True,
+            'saved_to_db': True,
+            'feedback_id': feedback_id,
+            'email_sent': email_sent,
+            'email_error': email_error if email_error else None
         })
         
     except Exception as e:
-        safe_print(f"[ADMIN FEEDBACK ERROR] {str(e)}")
+        safe_print(f"[FEEDBACK ERROR] {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 # ========================================
@@ -6541,6 +7193,150 @@ def export_feedback_excel():
         return jsonify({'error': 'pandas and openpyxl required for Excel export. Install with: pip install pandas openpyxl'}), 500
     except Exception as e:
         safe_print(f"[EXCEL EXPORT ERROR] {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+# ========================================
+# DEVICE-AWARE MIGRATION ENDPOINT
+# ========================================
+
+@app.route('/api/migrate-config', methods=['POST'])
+def migrate_config():
+    """
+    Intelligent device-aware configuration migration
+    
+    Features:
+    - Auto-detects source device model
+    - Auto-detects RouterOS version
+    - Preserves ether1 for management across all devices
+    - Intelligently maps interfaces based on port types
+    - Migrates all interface-related configs (IPs, OSPF, BGP, firewall, etc.)
+    - Applies ROS6→ROS7 syntax conversion only when needed
+    """
+    try:
+        data = request.json
+        config = data.get('config', '')
+        target_device = data.get('target_device', '')
+        target_version = data.get('target_version', '7')
+        source_device = data.get('source_device', '')
+        
+        if not config:
+            return jsonify({'error': 'No configuration provided'}), 400
+        
+        if not target_device:
+            return jsonify({'error': 'Target device required'}), 400
+        
+        # Auto-detect source device if not specified
+        if not source_device:
+            source_device = detect_device_from_config(config)
+            if not source_device:
+                return jsonify({
+                    'error': 'Could not detect source device. Please specify manually.',
+                    'available_devices': list(ROUTERBOARD_INTERFACES.keys())
+                }), 400
+        
+        # Auto-detect source RouterOS version
+        detected_version = detect_routeros_version(config)
+        source_version = data.get('source_version', detected_version or 6)
+        
+        # Validate devices exist in database
+        if source_device not in ROUTERBOARD_INTERFACES:
+            return jsonify({
+                'error': f'Unknown source device: {source_device}',
+                'available_devices': list(ROUTERBOARD_INTERFACES.keys())
+            }), 400
+        
+        if target_device not in ROUTERBOARD_INTERFACES:
+            return jsonify({
+                'error': f'Unknown target device: {target_device}',
+                'available_devices': list(ROUTERBOARD_INTERFACES.keys())
+            }), 400
+        
+        # Determine what migrations are needed
+        needs_syntax_migration = (source_version == 6 and target_version == '7')
+        needs_device_migration = (source_device != target_device)
+        
+        migrated_config = config
+        interface_map = None
+        
+        # Step 1: Device migration (interface renaming)
+        if needs_device_migration:
+            safe_print(f"[MIGRATION] Device: {source_device} → {target_device}")
+            
+            # Build intelligent interface mapping
+            interface_map = build_interface_migration_map(source_device, target_device)
+            
+            if not interface_map:
+                return jsonify({
+                    'error': f'No migration path available from {source_device} to {target_device}'
+                }), 400
+            
+            # Apply interface migration
+            migrated_config = migrate_interface_config(migrated_config, interface_map)
+            
+            safe_print(f"[MIGRATION] Mapped {len(interface_map)} interfaces")
+            for old, new in list(interface_map.items())[:5]:  # Show first 5
+                safe_print(f"[MIGRATION]   {old} → {new}")
+        
+        # Step 2: Syntax migration (ROS6 → ROS7)
+        if needs_syntax_migration:
+            safe_print(f"[MIGRATION] Syntax: ROS{source_version} → ROS{target_version}")
+            migrated_config = apply_ros6_to_ros7_syntax(migrated_config)
+        
+        # Prepare response
+        response_data = {
+            'success': True,
+            'migrated_config': migrated_config,
+            'source_device': source_device,
+            'target_device': target_device,
+            'source_version': source_version,
+            'target_version': target_version,
+            'detected_source_device': source_device if not data.get('source_device') else None,
+            'detected_source_version': detected_version,
+            'syntax_migrated': needs_syntax_migration,
+            'device_migrated': needs_device_migration,
+            'interfaces_mapped': len(interface_map) if interface_map else 0,
+            'migration_summary': {
+                'ether1_preserved': 'ether1' in interface_map and interface_map['ether1'] == 'ether1' if interface_map else False,
+                'total_interfaces': len(interface_map) if interface_map else 0,
+                'source_ports': ROUTERBOARD_INTERFACES[source_device]['total_ports'],
+                'target_ports': ROUTERBOARD_INTERFACES[target_device]['total_ports']
+            }
+        }
+        
+        if not interface_map:
+            response_data['interface_map'] = interface_map
+        
+        safe_print(f"[MIGRATION] Complete - {len(migrated_config)} chars")
+        return jsonify(response_data)
+        
+    except Exception as e:
+        safe_print(f"[MIGRATION ERROR] {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/get-routerboards', methods=['GET'])
+def get_routerboards():
+    """Get list of all supported RouterBoard models with specs"""
+    try:
+        devices = []
+        for model, specs in ROUTERBOARD_INTERFACES.items():
+            devices.append({
+                'model': model,
+                'series': specs['series'],
+                'cpu': specs['cpu'],
+                'total_ports': specs['total_ports'],
+                'management_port': specs['management_port'],
+                'port_types': list(specs['ports'].keys()),
+                'typical_use': specs['typical_use']
+            })
+        
+        return jsonify({
+            'success': True,
+            'devices': devices,
+            'total_models': len(devices)
+        })
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 # ========================================
@@ -7730,6 +8526,31 @@ def get_activity():
         print(f"[ERROR] Failed to get activities: {e}")
         return jsonify({'success': False, 'error': str(e), 'activities': []}), 500
 
+@app.route('/api/app-config', methods=['GET'])
+def get_app_config():
+    """
+    Serve dynamic application configuration
+    Allows changing environments/IPs without redeploying frontend code
+    """
+    config = {
+        'bng_peers': {
+            'NE': '10.254.247.3',
+            'IL': '10.247.72.34',
+            'IA': '10.254.247.3',
+            'KS': '10.249.0.200',
+            'IN': '10.254.247.3'
+        },
+        'defaults': {
+            'default_bng_peer': '10.254.247.3',
+            'dns_servers': '8.8.8.8, 1.1.1.1'
+        },
+        'feature_flags': {
+            'enable_nokia_migration': False,
+            'enable_ai_suggestions': True
+        }
+    }
+    return jsonify(config)
+
 # ========================================
 # COMPLETED CONFIGS ENDPOINTS
 # ========================================
@@ -7761,6 +8582,83 @@ def init_completed_configs_db():
 
 # ========================================
 # NOTE: /api/feedback endpoint is defined earlier in the file (around line 4716) with full SMTP support
+
+# ========================================
+# FEEDBACK SYSTEM
+# ========================================
+FEEDBACK_DB = 'feedback.db'
+
+def init_feedback_db():
+    """Initialize feedback database"""
+    try:
+        conn = sqlite3.connect(FEEDBACK_DB)
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS feedback
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      user TEXT,
+                      message TEXT,
+                      rating INTEGER,
+                      status TEXT,
+                      date TEXT)''')
+        conn.commit()
+        conn.close()
+        safe_print("[DATABASE] Feedback database initialized")
+    except Exception as e:
+        safe_print(f"[ERROR] Failed to init feedback DB: {e}")
+
+# Initialize on startup
+init_feedback_db()
+
+@app.route('/api/feedback', methods=['POST'])
+def submit_feedback():
+    """Submit user feedback"""
+    try:
+        data = request.json
+        user = data.get('user', 'Anonymous')
+        message = data.get('message', '')
+        rating = data.get('rating', 0)
+        
+        if not message:
+            return jsonify({'error': 'Message is required'}), 400
+            
+        conn = sqlite3.connect(FEEDBACK_DB)
+        c = conn.cursor()
+        c.execute("INSERT INTO feedback (user, message, rating, status, date) VALUES (?, ?, ?, ?, ?)",
+                  (user, message, rating, 'new', get_cst_datetime_string()))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'message': 'Feedback received'})
+    except Exception as e:
+        safe_print(f"[ERROR] Feedback submission failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/feedback', methods=['GET'])
+def get_admin_feedback():
+    """Get all feedback for admin dashboard"""
+    try:
+        conn = sqlite3.connect(FEEDBACK_DB)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("SELECT * FROM feedback ORDER BY date DESC")
+        rows = c.fetchall()
+        conn.close()
+        
+        feedback_list = []
+        for row in rows:
+            feedback_list.append({
+                'id': row['id'],
+                'user': row['user'],
+                'message': row['message'],
+                'rating': row['rating'],
+                'status': row['status'],
+                'date': row['date']
+            })
+            
+        return jsonify(feedback_list)
+    except Exception as e:
+        safe_print(f"[ERROR] Failed to fetch feedback: {e}")
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     print("\n" + "="*50)
