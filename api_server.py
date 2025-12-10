@@ -7,17 +7,15 @@ Secure OpenAI API integration for RouterOS config generation and validation
 
 import sys
 import io
+import shutil
 # Fix Windows console encoding for Unicode - but only if not already wrapped
-# In PyInstaller, stdout/stderr might already be wrapped, so check first
 if sys.platform == 'win32':
     try:
-        # Only wrap if not already a TextIOWrapper
         if not isinstance(sys.stdout, io.TextIOWrapper):
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
         if not isinstance(sys.stderr, io.TextIOWrapper):
             sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
     except (AttributeError, ValueError):
-        # If wrapping fails (e.g., in PyInstaller), just continue
         pass
 
 from flask import Flask, request, jsonify, send_file, send_from_directory
@@ -27,42 +25,38 @@ import re
 import ipaddress
 import json
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import sqlite3
 import hashlib
 import secrets
 from functools import wraps
+from pathlib import Path
 
-# JWT support (optional - install with: pip install PyJWT)
+# JWT support
 try:
     import jwt
     HAS_JWT = True
 except ImportError:
     HAS_JWT = False
     print("[WARNING] PyJWT not installed. Install with: pip install PyJWT")
-    print("[WARNING] Authentication will use simple token system instead.")
+
+# TIMEZONE HANDLING (Fixed)
 try:
     import pytz
     CST = pytz.timezone('America/Chicago')
     HAS_PYTZ = True
 except ImportError:
     HAS_PYTZ = False
-    # Fallback: CST is UTC-6, CDT is UTC-5 (daylight saving)
-    CST = None
+    # Fallback: Fixed UTC-6 offset for CST (ignoring DST complexity for stability if pytz is missing)
+    CST = timezone(timedelta(hours=-6))
 
 def get_cst_now():
     """Get current time in CST/CDT timezone (America/Chicago)"""
-    if HAS_PYTZ and CST:
+    if HAS_PYTZ:
         return datetime.now(CST)
     else:
-        # Fallback: calculate CST offset manually
-        utc_now = datetime.utcnow()
-        # Simple approximation: March-November is CDT (UTC-5), rest is CST (UTC-6)
-        month = utc_now.month
-        is_dst = 3 <= month <= 10  # Approximate DST period (March-October)
-        offset_hours = -5 if is_dst else -6
-        from datetime import timedelta
-        return utc_now + timedelta(hours=offset_hours)
+        # Robust fallback using fixed offset
+        return datetime.now(timezone.utc).astimezone(CST)
 
 def get_cst_timestamp():
     """Get current timestamp in CST/CDT as ISO format string"""
@@ -71,8 +65,13 @@ def get_cst_timestamp():
 def get_cst_datetime_string():
     """Get current datetime in CST/CDT as formatted string (YYYY-MM-DD HH:MM:SS)"""
     return get_cst_now().strftime('%Y-%m-%d %H:%M:%S')
-    import time
-from pathlib import Path
+
+# Safe print function
+def safe_print(*args, **kwargs):
+    try:
+        print(*args, **kwargs, flush=True)
+    except (IOError, ValueError, OSError):
+        pass
 # Import NextLink standards (for migration rules, error detection, etc.)
 from nextlink_standards import (
     NEXTLINK_COMMON_ERRORS,
@@ -6275,141 +6274,71 @@ def health():
 # ENDPOINT: Feedback Submission (Email)
 # ========================================
 
-@app.route('/api/feedback', methods=['POST'])
-def submit_feedback():
-    """Submit feedback/bug report/feature request via email"""
+@app.route('/api/admin/feedback', methods=['GET'])
+@require_auth
+def get_feedback():
+    """Get all feedback (admin only)"""
     try:
-        data = request.json
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
+        # Check if user is admin
+        if not is_admin_user():
+            return jsonify({'error': 'Admin access required'}), 403
         
-        # Extract form data
-        feedback_type = data.get('type', 'feedback').capitalize()
-        subject = data.get('subject', 'No subject')
-        category = data.get('category', 'Not specified')
-        experience = data.get('experience', 'Not rated')
-        details = data.get('details', 'No details provided')
-        name = data.get('name', 'Anonymous')
-        timestamp = data.get('timestamp', get_cst_timestamp())
-        
-        # Format email body
-        email_body = f"""
-NOC Config Maker - {feedback_type}
-
-From: {name}
-Type: {feedback_type}
-Category: {category}
-Experience Rating: {experience}/5 stars
-Submitted: {timestamp}
-
-Subject: {subject}
-
-Details:
-{details}
-
----
-This feedback was automatically submitted via NOC Config Maker.
-"""
-        
-        # Send email using smtplib
-        import smtplib
-        from email.mime.text import MIMEText
-        from email.mime.multipart import MIMEMultipart
-        
-        # Email configuration from environment variables
-        # Default to Office 365 SMTP with Walihlah's account so feedback works out-of-the-box
-        smtp_server = os.getenv('SMTP_SERVER', 'smtp.office365.com')
-        smtp_port = int(os.getenv('SMTP_PORT', '587'))
-        # Hard-coded safe defaults for local EXE usage (can be overridden with env vars)
-        default_username = 'whamza@team.nxlink.com'
-        default_password = 'Omolayo@2016$'
-        smtp_username = os.getenv('SMTP_USERNAME', os.getenv('NXLINK_EMAIL_USER', default_username))
-        smtp_password = os.getenv('SMTP_PASSWORD', os.getenv('NXLINK_EMAIL_PASS', default_password))
-        from_email = os.getenv('FEEDBACK_FROM_EMAIL', default_username)
-        to_email = os.getenv('FEEDBACK_TO_EMAIL', default_username)
-        cc_email = os.getenv('FEEDBACK_CC_EMAIL', '')
-        
-        # Create message
-        message = MIMEMultipart()
-        message["From"] = f"NOC Config Maker <{from_email}>"
-        message["To"] = to_email
-        message["Cc"] = cc_email
-        message["Subject"] = f"[NOC ConfigMaker] {feedback_type}: {subject}"
-        
-        # Add body
-        message.attach(MIMEText(email_body, "plain"))
-        
-        # Save feedback to database
         init_feedback_db()
         FEEDBACK_DB_PATH = SECURE_DATA_DIR / "feedback.db"
         conn = sqlite3.connect(str(FEEDBACK_DB_PATH))
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        email = data.get('email', '')
-        cursor.execute('''
-            INSERT INTO feedback (feedback_type, subject, category, experience, details, name, email)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (feedback_type, subject, category, experience, details, name, email))
+        # Get filter parameters
+        status_filter = request.args.get('status', 'all')
+        type_filter = request.args.get('type', 'all')
+        limit = int(request.args.get('limit', 100))
+        offset = int(request.args.get('offset', 0))
         
-        feedback_id = cursor.lastrowid
-        conn.commit()
+        query = 'SELECT * FROM feedback WHERE 1=1'
+        params = []
+        
+        # Case-insensitive status filter
+        if status_filter != 'all':
+            query += ' AND LOWER(status) = LOWER(?)'
+            params.append(status_filter)
+        
+        # Case-insensitive type filter
+        if type_filter != 'all':
+            query += ' AND LOWER(feedback_type) = LOWER(?)'
+            params.append(type_filter)
+        
+        query += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?'
+        params.extend([limit, offset])
+        
+        cursor.execute(query, params)
+        feedback_list = [dict(row) for row in cursor.fetchall()]
+        
+        # Get total count
+        count_query = 'SELECT COUNT(*) FROM feedback WHERE 1=1'
+        count_params = []
+        if status_filter != 'all':
+            count_query += ' AND LOWER(status) = LOWER(?)'
+            count_params.append(status_filter)
+        if type_filter != 'all':
+            count_query += ' AND LOWER(feedback_type) = LOWER(?)'
+            count_params.append(type_filter)
+        
+        cursor.execute(count_query, count_params)
+        total_count = cursor.fetchone()[0]
+        
         conn.close()
-        
-        safe_print(f"[FEEDBACK] Saved to database (ID: {feedback_id}) from {name}: {subject}")
-        
-        # Save feedback to file as backup (always)
-        secure_dir = ensure_secure_data_dir()
-        feedback_file = secure_dir / "feedback_log.txt"
-        
-        with open(feedback_file, 'a', encoding='utf-8') as f:
-            f.write(f"\n{'='*80}\n")
-            f.write(email_body)
-            f.write(f"\n{'='*80}\n")
-        
-        safe_print(f"[FEEDBACK] Received {feedback_type} from {name}: {subject}")
-        
-        # Send email if SMTP credentials are configured
-        email_sent = False
-        email_error = None
-        
-        if smtp_username and smtp_password:
-            try:
-                safe_print(f"[EMAIL] Sending feedback to {to_email} via {smtp_server}:{smtp_port}")
-                server = smtplib.SMTP(smtp_server, smtp_port)
-                server.starttls()
-                server.login(smtp_username, smtp_password)
-                
-                # Send to both TO and CC
-                recipients = [to_email]
-                if cc_email:
-                    recipients.append(cc_email)
-                
-                server.sendmail(from_email, recipients, message.as_string())
-                server.quit()
-                email_sent = True
-                safe_print(f"[EMAIL] Successfully sent feedback email to {to_email}")
-            except Exception as e:
-                email_error = str(e)
-                safe_print(f"[EMAIL ERROR] Failed to send: {e}")
-                safe_print(f"[EMAIL] Feedback still saved to file: {feedback_file}")
-        else:
-            safe_print("[EMAIL] SMTP credentials not configured - feedback logged to file only")
-            safe_print(f"[EMAIL] Feedback saved to: {feedback_file}")
-            safe_print("[EMAIL] To enable email: Set SMTP_USERNAME and SMTP_PASSWORD environment variables")
-            safe_print("[EMAIL] Or set NXLINK_EMAIL_USER and NXLINK_EMAIL_PASS for Nextlink email")
         
         return jsonify({
             'success': True,
-            'message': 'Feedback received and logged successfully' + (' - Email sent!' if email_sent else ''),
-            'logged_to_file': True,
-            'saved_to_db': True,
-            'feedback_id': feedback_id,
-            'email_sent': email_sent,
-            'email_error': email_error if email_error else None
+            'feedback': feedback_list,
+            'total': total_count,
+            'limit': limit,
+            'offset': offset
         })
         
     except Exception as e:
-        safe_print(f"[FEEDBACK ERROR] {str(e)}")
+        safe_print(f"[ADMIN FEEDBACK ERROR] {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 # ========================================
