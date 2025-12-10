@@ -109,6 +109,434 @@ def safe_print(*args, **kwargs):
         pass
 
 # ========================================
+# ROUTERBOARD INTERFACE DATABASE
+# ========================================
+# Comprehensive database of all RouterBoard models with accurate interface layouts
+# Updated: 2024-12-09 - Covers CCR, CRS, and RB series
+
+ROUTERBOARD_INTERFACES = {
+    # CCR1036 Series
+    'CCR1036-12G-4S': {
+        'model': 'CCR1036-12G-4S',
+        'series': 'CCR1036',
+        'cpu': 'Tilera Tile-Gx36',
+        'ports': {
+            'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6',
+                           'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12'],
+            'sfp_1g': ['sfp1', 'sfp2', 'sfp3', 'sfp4']
+        },
+        'total_ports': 16,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Management',
+            'ether2-3': 'Uplinks',
+            'ether4-12': 'Customer/Sector connections',
+            'sfp1-4': 'Fiber uplinks or long-distance'
+        }
+    },
+    
+    # CCR2004 Series
+    'CCR2004-1G-12S+2XS': {
+        'model': 'CCR2004-1G-12S+2XS',
+        'series': 'CCR2004',
+        'cpu': 'Annapurna Labs Alpine v2',
+        'ports': {
+            'ethernet_1g': ['ether1'],
+            'sfp_plus_10g': ['sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4',
+                            'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8',
+                            'sfp-sfpplus9', 'sfp-sfpplus10', 'sfp-sfpplus11', 'sfp-sfpplus12'],
+            'sfp28_25g': ['sfp28-1', 'sfp28-2']
+        },
+        'total_ports': 15,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Management',
+            'sfp-sfpplus1-2': 'Uplinks (10G)',
+            'sfp-sfpplus3-12': 'Customer/Sector connections (10G)',
+            'sfp28-1-2': 'High-speed uplinks (25G)'
+        }
+    },
+    
+    'CCR2004-16G-2S+': {
+        'model': 'CCR2004-16G-2S+',
+        'series': 'CCR2004',
+        'cpu': 'Annapurna Labs Alpine v2',
+        'ports': {
+            'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6',
+                           'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12',
+                           'ether13', 'ether14', 'ether15', 'ether16'],
+            'sfp_plus_10g': ['sfp-sfpplus1', 'sfp-sfpplus2']
+        },
+        'total_ports': 18,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Management',
+            'ether2-16': 'Customer connections',
+            'sfp-sfpplus1-2': 'Uplinks (10G)'
+        }
+    },
+    
+    # CCR2116 Series
+    'CCR2116-12G-4S+': {
+        'model': 'CCR2116-12G-4S+',
+        'series': 'CCR2116',
+        'cpu': 'Annapurna Labs Alpine v2',
+        'ports': {
+            'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6',
+                           'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12'],
+            'sfp_plus_10g': ['sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4']
+        },
+        'total_ports': 16,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Management',
+            'ether2-12': 'Customer connections',
+            'sfp-sfpplus1-4': 'Uplinks or high-speed connections (10G)'
+        }
+    },
+    
+    # CCR2216 Series
+    'CCR2216-1G-12XS-2XQ': {
+        'model': 'CCR2216-1G-12XS-2XQ',
+        'series': 'CCR2216',
+        'cpu': 'Annapurna Labs Alpine v3',
+        'ports': {
+            'ethernet_1g': ['ether1'],
+            'sfp28_25g': ['sfp28-1', 'sfp28-2', 'sfp28-3', 'sfp28-4', 'sfp28-5', 'sfp28-6',
+                         'sfp28-7', 'sfp28-8', 'sfp28-9', 'sfp28-10', 'sfp28-11', 'sfp28-12'],
+            'qsfp28_100g': ['qsfpplus1-1', 'qsfpplus2-1']
+        },
+        'total_ports': 15,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Management',
+            'sfp28-1-12': 'High-speed customer/sector connections (25G)',
+            'qsfpplus1-1, qsfpplus2-1': 'Ultra high-speed uplinks (100G)'
+        }
+    },
+    
+    # CRS Series (Switches)
+    'CRS326-24G-2S+': {
+        'model': 'CRS326-24G-2S+',
+        'series': 'CRS326',
+        'cpu': 'Marvell-98DX3236',
+        'ports': {
+            'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6',
+                           'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12',
+                           'ether13', 'ether14', 'ether15', 'ether16', 'ether17', 'ether18',
+                           'ether19', 'ether20', 'ether21', 'ether22', 'ether23', 'ether24'],
+            'sfp_plus_10g': ['sfp-sfpplus1', 'sfp-sfpplus2']
+        },
+        'total_ports': 26,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Management',
+            'ether2-24': 'Access ports',
+            'sfp-sfpplus1-2': 'Uplinks (10G)'
+        }
+    },
+    
+    'CRS354-48G-4S+2Q+': {
+        'model': 'CRS354-48G-4S+2Q+',
+        'series': 'CRS354',
+        'cpu': 'Marvell-98DX3257',
+        'ports': {
+            'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6',
+                           'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12',
+                           'ether13', 'ether14', 'ether15', 'ether16', 'ether17', 'ether18',
+                           'ether19', 'ether20', 'ether21', 'ether22', 'ether23', 'ether24',
+                           'ether25', 'ether26', 'ether27', 'ether28', 'ether29', 'ether30',
+                           'ether31', 'ether32', 'ether33', 'ether34', 'ether35', 'ether36',
+                           'ether37', 'ether38', 'ether39', 'ether40', 'ether41', 'ether42',
+                           'ether43', 'ether44', 'ether45', 'ether46', 'ether47', 'ether48'],
+            'sfp_plus_10g': ['sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4'],
+            'qsfp28_40g': ['qsfpplus1-1', 'qsfpplus2-1']
+        },
+        'total_ports': 54,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Management',
+            'ether2-48': 'Access ports',
+            'sfp-sfpplus1-4': 'Uplinks (10G)',
+            'qsfpplus1-1, qsfpplus2-1': 'High-speed uplinks (40G)'
+        }
+    }
+}
+
+# ========================================
+# INTELLIGENT INTERFACE MIGRATION LOGIC
+# ========================================
+
+def get_interface_type(interface_name):
+    """Determine the type of interface from its name"""
+    if interface_name.startswith('ether'):
+        return 'ethernet_1g'
+    elif interface_name.startswith('sfp-sfpplus'):
+        return 'sfp_plus_10g'
+    elif interface_name.startswith('sfp28'):
+        return 'sfp28_25g'
+    elif interface_name.startswith('qsfp'):
+        return 'qsfp28_100g'
+    elif interface_name.startswith('sfp'):
+        return 'sfp_1g'
+    else:
+        return 'unknown'
+
+def build_interface_migration_map(source_device, target_device):
+    """
+    Intelligently build interface migration map between two devices
+    
+    Rules:
+    1. ether1 ALWAYS stays ether1 (management port)
+    2. Map interfaces by type preference (SFP→SFP+, Ethernet→Ethernet)
+    3. Use first available ports of matching type
+    4. If no matching type, use next best alternative
+    5. Preserve logical groupings (uplinks together, sectors together)
+    """
+    if source_device not in ROUTERBOARD_INTERFACES or target_device not in ROUTERBOARD_INTERFACES:
+        return None
+    
+    source = ROUTERBOARD_INTERFACES[source_device]
+    target = ROUTERBOARD_INTERFACES[target_device]
+    
+    migration_map = {}
+    target_used_ports = set()
+    
+    # Rule 1: Management port always stays ether1
+    migration_map['ether1'] = 'ether1'
+    target_used_ports.add('ether1')
+    
+    # Get all source interfaces (excluding ether1)
+    source_interfaces = []
+    for port_type, ports in source['ports'].items():
+        for port in ports:
+            if port != 'ether1':
+                source_interfaces.append((port, port_type))
+    
+    # Sort source interfaces to maintain logical order
+    # Priority: uplinks first (ether2-3, sfp1-2), then others
+    def interface_priority(item):
+        port, port_type = item
+        # Extract number from interface name
+        import re
+        match = re.search(r'(\d+)$', port)
+        num = int(match.group(1)) if match else 999
+        
+        # Uplinks (ether2-3, sfp1-2) get highest priority
+        if 'ether' in port and num in [2, 3]:
+            return (0, num)
+        elif 'sfp' in port and num in [1, 2]:
+            return (1, num)
+        else:
+            return (2, num)
+    
+    source_interfaces.sort(key=interface_priority)
+    
+    # Map each source interface to best available target
+    for source_port, source_type in source_interfaces:
+        target_port = find_best_target_port(
+            source_port, source_type, target, target_used_ports
+        )
+        if target_port:
+            migration_map[source_port] = target_port
+            target_used_ports.add(target_port)
+    
+    return migration_map
+
+def find_best_target_port(source_port, source_type, target_device, used_ports):
+    """
+    Find the best available target port for a source port
+    
+    Preference order:
+    1. Same type (ethernet→ethernet, sfp→sfp+)
+    2. Upgrade type (sfp_1g→sfp_plus_10g, ethernet_1g→sfp_plus_10g)
+    3. Any available port
+    """
+    target_ports = target_device['ports']
+    
+    # Type preference mapping (in order of preference)
+    type_preferences = {
+        'ethernet_1g': ['ethernet_1g', 'sfp_plus_10g', 'sfp28_25g'],
+        'sfp_1g': ['sfp_plus_10g', 'sfp28_25g', 'ethernet_1g'],
+        'sfp_plus_10g': ['sfp_plus_10g', 'sfp28_25g', 'qsfp28_100g'],
+        'sfp28_25g': ['sfp28_25g', 'qsfp28_100g', 'sfp_plus_10g']
+    }
+    
+    preferences = type_preferences.get(source_type, [source_type])
+    
+    # Try each preference in order
+    for preferred_type in preferences:
+        if preferred_type in target_ports:
+            for port in target_ports[preferred_type]:
+                if port not in used_ports:
+                    return port
+    
+    # Fallback: use any available port
+    for port_type, ports in target_ports.items():
+        for port in ports:
+            if port not in used_ports:
+                return port
+    
+    return None
+
+def migrate_interface_config(config_text, interface_map):
+    """
+    Migrate all interface-related configuration
+    
+    This includes:
+    - Interface names in all contexts
+    - IP addresses
+    - OSPF interface assignments
+    - BGP peer bindings
+    - Firewall rules
+    - Bridge ports
+    - VLAN assignments
+    - Any other interface references
+    """
+    migrated_config = config_text
+    
+    # Sort by length (longest first) to avoid partial replacements
+    # e.g., replace "ether10" before "ether1"
+    sorted_interfaces = sorted(interface_map.items(), key=lambda x: len(x[0]), reverse=True)
+    
+    for old_interface, new_interface in sorted_interfaces:
+        # Use word boundaries to avoid partial matches
+        import re
+        
+        # Pattern matches interface name with word boundaries
+        # This ensures we don't replace "ether1" in "ether10"
+        pattern = r'\b' + re.escape(old_interface) + r'\b'
+        migrated_config = re.sub(pattern, new_interface, migrated_config)
+    
+    return migrated_config
+
+def detect_device_from_config(config_text):
+    """
+    Detect device model from configuration content
+    
+    Looks for:
+    1. System identity comments
+    2. Interface names and patterns
+    3. Board name in comments
+    """
+    import re
+    
+    # Try to find explicit device model mentions
+    for model in ROUTERBOARD_INTERFACES.keys():
+        if model in config_text:
+            return model
+    
+    # Detect by interface pattern
+    # CCR2004-1G-12S+2XS has sfp-sfpplus1-12 and sfp28-1-2
+    if 'sfp-sfpplus12' in config_text and 'sfp28-' in config_text:
+        return 'CCR2004-1G-12S+2XS'
+    
+    # CCR2004-16G-2S+ has ether1-16 and sfp-sfpplus1-2
+    if 'ether16' in config_text and 'sfp-sfpplus2' in config_text and 'sfp-sfpplus3' not in config_text:
+        return 'CCR2004-16G-2S+'
+    
+    # CCR1036-12G-4S has ether1-12 and sfp1-4
+    if 'ether12' in config_text and 'sfp4' in config_text and 'sfp-sfpplus' not in config_text:
+        return 'CCR1036-12G-4S'
+    
+    # CCR2116-12G-4S+ has ether1-12 and sfp-sfpplus1-4
+    if 'ether12' in config_text and 'sfp-sfpplus4' in config_text and 'sfp-sfpplus5' not in config_text:
+        return 'CCR2116-12G-4S+'
+    
+    # CCR2216 has sfp28-1 through sfp28-12
+    if 'sfp28-12' in config_text:
+        return 'CCR2216-1G-12XS-2XQ'
+    
+    return None
+
+def detect_routeros_version(config_text):
+    """
+    Detect RouterOS version from configuration syntax
+    
+    ROS7 indicators:
+    - Slash-separated commands (/interface/bridge)
+    - sfp-sfpplus naming
+    - New speed syntax (10G-baseSR-LR)
+    
+    ROS6 indicators:
+    - Space-separated commands (/interface bridge)
+    - Old speed syntax (10G-baseSR)
+    - ether1-master syntax
+    """
+    ros7_indicators = [
+        '/interface/bridge',
+        '/ip/address',
+        '/routing/ospf',
+        'sfp-sfpplus',
+        '10G-baseSR-LR',
+        'sfp28-'
+    ]
+    
+    ros6_indicators = [
+        '/interface bridge',
+        '/ip address',
+        '/routing ospf',
+        '10G-baseSR',
+        'ether1-master'
+    ]
+    
+    ros7_count = sum(1 for indicator in ros7_indicators if indicator in config_text)
+    ros6_count = sum(1 for indicator in ros6_indicators if indicator in config_text)
+    
+    if ros7_count > ros6_count:
+        return 7
+    elif ros6_count > 0:
+        return 6
+    else:
+        return None
+
+def apply_ros6_to_ros7_syntax(config_text):
+    """
+    Convert RouterOS 6 syntax to RouterOS 7
+    
+    Changes:
+    - Command paths (space → slash)
+    - Speed syntax
+    - Interface naming conventions
+    """
+    import re
+    
+    # Command structure changes
+    syntax_changes = [
+        (r'/interface bridge', '/interface/bridge'),
+        (r'/interface ethernet', '/interface/ethernet'),
+        (r'/interface vlan', '/interface/vlan'),
+        (r'/interface bonding', '/interface/bonding'),
+        (r'/ip address', '/ip/address'),
+        (r'/ip route', '/ip/route'),
+        (r'/ip firewall', '/ip/firewall'),
+        (r'/ip service', '/ip/service'),
+        (r'/routing ospf', '/routing/ospf'),
+        (r'/routing bgp', '/routing/bgp'),
+        (r'/routing filter', '/routing/filter'),
+        (r'/system identity', '/system/identity'),
+        (r'/system clock', '/system/clock'),
+        (r'/system ntp', '/system/ntp'),
+    ]
+    
+    migrated = config_text
+    for old_syntax, new_syntax in syntax_changes:
+        migrated = migrated.replace(old_syntax, new_syntax)
+    
+    # Speed syntax changes
+    speed_changes = [
+        ('10G-baseSR', '10G-baseSR-LR'),
+        ('1G-baseT', '1000M-baseTX'),
+        ('100M-baseT', '100M-baseTX'),
+    ]
+    
+    for old_speed, new_speed in speed_changes:
+        migrated = migrated.replace(old_speed, new_speed)
+    
+    return migrated
+
+
+# ========================================
 # AI PROVIDER CONFIGURATION (Early definition for model selection)
 # ========================================
 # Supports: 'ollama' (free, local) or 'openai' (paid, cloud)
@@ -6272,6 +6700,44 @@ def health():
     })
 
 # ========================================
+# FEEDBACK DATABASE INITIALIZATION
+# ========================================
+
+def init_feedback_db():
+    """Initialize feedback database with proper schema"""
+    try:
+        secure_dir = ensure_secure_data_dir()
+        feedback_db_path = secure_dir / "feedback.db"
+        
+        conn = sqlite3.connect(str(feedback_db_path))
+        cursor = conn.cursor()
+        
+        # Create feedback table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                feedback_type TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                category TEXT,
+                experience TEXT,
+                details TEXT,
+                name TEXT,
+                email TEXT,
+                status TEXT DEFAULT 'new',
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        
+        safe_print(f"[FEEDBACK] Database initialized at {feedback_db_path}")
+        return True
+    except Exception as e:
+        safe_print(f"[FEEDBACK ERROR] Failed to initialize database: {e}")
+        return False
+
+# ========================================
 # ENDPOINT: Feedback Submission (Email)
 # ========================================
 
@@ -6612,6 +7078,150 @@ def export_feedback_excel():
         return jsonify({'error': 'pandas and openpyxl required for Excel export. Install with: pip install pandas openpyxl'}), 500
     except Exception as e:
         safe_print(f"[EXCEL EXPORT ERROR] {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+# ========================================
+# DEVICE-AWARE MIGRATION ENDPOINT
+# ========================================
+
+@app.route('/api/migrate-config', methods=['POST'])
+def migrate_config():
+    """
+    Intelligent device-aware configuration migration
+    
+    Features:
+    - Auto-detects source device model
+    - Auto-detects RouterOS version
+    - Preserves ether1 for management across all devices
+    - Intelligently maps interfaces based on port types
+    - Migrates all interface-related configs (IPs, OSPF, BGP, firewall, etc.)
+    - Applies ROS6→ROS7 syntax conversion only when needed
+    """
+    try:
+        data = request.json
+        config = data.get('config', '')
+        target_device = data.get('target_device', '')
+        target_version = data.get('target_version', '7')
+        source_device = data.get('source_device', '')
+        
+        if not config:
+            return jsonify({'error': 'No configuration provided'}), 400
+        
+        if not target_device:
+            return jsonify({'error': 'Target device required'}), 400
+        
+        # Auto-detect source device if not specified
+        if not source_device:
+            source_device = detect_device_from_config(config)
+            if not source_device:
+                return jsonify({
+                    'error': 'Could not detect source device. Please specify manually.',
+                    'available_devices': list(ROUTERBOARD_INTERFACES.keys())
+                }), 400
+        
+        # Auto-detect source RouterOS version
+        detected_version = detect_routeros_version(config)
+        source_version = data.get('source_version', detected_version or 6)
+        
+        # Validate devices exist in database
+        if source_device not in ROUTERBOARD_INTERFACES:
+            return jsonify({
+                'error': f'Unknown source device: {source_device}',
+                'available_devices': list(ROUTERBOARD_INTERFACES.keys())
+            }), 400
+        
+        if target_device not in ROUTERBOARD_INTERFACES:
+            return jsonify({
+                'error': f'Unknown target device: {target_device}',
+                'available_devices': list(ROUTERBOARD_INTERFACES.keys())
+            }), 400
+        
+        # Determine what migrations are needed
+        needs_syntax_migration = (source_version == 6 and target_version == '7')
+        needs_device_migration = (source_device != target_device)
+        
+        migrated_config = config
+        interface_map = None
+        
+        # Step 1: Device migration (interface renaming)
+        if needs_device_migration:
+            safe_print(f"[MIGRATION] Device: {source_device} → {target_device}")
+            
+            # Build intelligent interface mapping
+            interface_map = build_interface_migration_map(source_device, target_device)
+            
+            if not interface_map:
+                return jsonify({
+                    'error': f'No migration path available from {source_device} to {target_device}'
+                }), 400
+            
+            # Apply interface migration
+            migrated_config = migrate_interface_config(migrated_config, interface_map)
+            
+            safe_print(f"[MIGRATION] Mapped {len(interface_map)} interfaces")
+            for old, new in list(interface_map.items())[:5]:  # Show first 5
+                safe_print(f"[MIGRATION]   {old} → {new}")
+        
+        # Step 2: Syntax migration (ROS6 → ROS7)
+        if needs_syntax_migration:
+            safe_print(f"[MIGRATION] Syntax: ROS{source_version} → ROS{target_version}")
+            migrated_config = apply_ros6_to_ros7_syntax(migrated_config)
+        
+        # Prepare response
+        response_data = {
+            'success': True,
+            'migrated_config': migrated_config,
+            'source_device': source_device,
+            'target_device': target_device,
+            'source_version': source_version,
+            'target_version': target_version,
+            'detected_source_device': source_device if not data.get('source_device') else None,
+            'detected_source_version': detected_version,
+            'syntax_migrated': needs_syntax_migration,
+            'device_migrated': needs_device_migration,
+            'interfaces_mapped': len(interface_map) if interface_map else 0,
+            'migration_summary': {
+                'ether1_preserved': 'ether1' in interface_map and interface_map['ether1'] == 'ether1' if interface_map else False,
+                'total_interfaces': len(interface_map) if interface_map else 0,
+                'source_ports': ROUTERBOARD_INTERFACES[source_device]['total_ports'],
+                'target_ports': ROUTERBOARD_INTERFACES[target_device]['total_ports']
+            }
+        }
+        
+        if not interface_map:
+            response_data['interface_map'] = interface_map
+        
+        safe_print(f"[MIGRATION] Complete - {len(migrated_config)} chars")
+        return jsonify(response_data)
+        
+    except Exception as e:
+        safe_print(f"[MIGRATION ERROR] {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/get-routerboards', methods=['GET'])
+def get_routerboards():
+    """Get list of all supported RouterBoard models with specs"""
+    try:
+        devices = []
+        for model, specs in ROUTERBOARD_INTERFACES.items():
+            devices.append({
+                'model': model,
+                'series': specs['series'],
+                'cpu': specs['cpu'],
+                'total_ports': specs['total_ports'],
+                'management_port': specs['management_port'],
+                'port_types': list(specs['ports'].keys()),
+                'typical_use': specs['typical_use']
+            })
+        
+        return jsonify({
+            'success': True,
+            'devices': devices,
+            'total_models': len(devices)
+        })
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 # ========================================
@@ -7828,7 +8438,107 @@ def init_completed_configs_db():
     conn.close()
     print(f"[COMPLETED CONFIGS] Database initialized at {db_path}")
 
-# NOTE: /api/save-completed-config and /api/get-completed-configs are defined earlier in the file (around line 5241)
+@app.route('/api/save-completed-config', methods=['POST'])
+def save_completed_config():
+    """Save a completed configuration to history with CST timestamp"""
+    try:
+        data = request.json
+        config_type = data.get('configType', 'unknown')
+        device_name = data.get('deviceName', 'unknown')
+        device_type = data.get('deviceType', 'unknown')
+        customer_code = data.get('customerCode', '')
+        loopback_ip = data.get('loopbackIp', '')
+        routeros_version = data.get('routerosVersion', '')
+        config_content = data.get('configContent', '')
+        site_name = data.get('siteName', '')
+        
+        secure_dir = 'secure_data'
+        if not os.path.exists(secure_dir):
+            os.makedirs(secure_dir)
+            
+        db_path = os.path.join(secure_dir, 'completed_configs.db')
+        
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        
+        # USE CST TIMESTAMP EXPLICITLY
+        cst_time = get_cst_datetime_string()
+        
+        # Check if table exists (just in case)
+        c.execute('''CREATE TABLE IF NOT EXISTS configs
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      config_type TEXT,
+                      device_name TEXT,
+                      device_type TEXT,
+                      customer_code TEXT,
+                      loopback_ip TEXT,
+                      routeros_version TEXT,
+                      config_content TEXT,
+                      site_name TEXT,
+                      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+        
+        c.execute('''INSERT INTO configs 
+                     (config_type, device_name, device_type, customer_code, 
+                      loopback_ip, routeros_version, config_content, site_name, timestamp)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                  (config_type, device_name, device_type, customer_code, 
+                   loopback_ip, routeros_version, config_content, site_name, cst_time))
+        
+        conn.commit()
+        conn.close()
+        print(f"[COMPLETED CONFIGS] Saved config for {device_name} at {cst_time}")
+        
+        return jsonify({'success': True, 'timestamp': cst_time})
+    except Exception as e:
+        print(f"[ERROR] Failed to save config: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/get-completed-configs', methods=['GET'])
+def get_completed_configs():
+    """Get completed configuration history"""
+    try:
+        secure_dir = 'secure_data'
+        db_path = os.path.join(secure_dir, 'completed_configs.db')
+        
+        if not os.path.exists(db_path):
+            return jsonify([])
+            
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        
+        # Check if table exists
+        cursor = c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='configs'")
+        if not cursor.fetchone():
+            return jsonify([])
+            
+        c.execute("SELECT * FROM configs ORDER BY id DESC LIMIT 50")
+        rows = c.fetchall()
+        
+        configs = []
+        for row in rows:
+            # Handle potential missing columns if schema changed
+            try:
+                configs.append({
+                    'id': row['id'],
+                    'configType': row['config_type'],
+                    'deviceName': row['device_name'],
+                    'deviceType': row['device_type'],
+                    'customerCode': row['customer_code'],
+                    'loopbackIp': row['loopback_ip'],
+                    'routerosVersion': row['routeros_version'],
+                    'configContent': row['config_content'],
+                    'siteName': row['site_name'],
+                    'timestamp': row['timestamp'] # Should be CST string for new entries
+                })
+            except Exception as e:
+                print(f"[WARN] Error reading row {row['id']}: {e}")
+        
+        conn.close()
+        return jsonify(configs)
+    except Exception as e:
+        print(f"[ERROR] Failed to get completed configs: {e}")
+        return jsonify({'error': str(e)}), 500
 
 # ========================================
 # NOTE: /api/feedback endpoint is defined earlier in the file (around line 4716) with full SMTP support
@@ -7883,3 +8593,83 @@ if __name__ == '__main__':
     
     # Run Flask server - 0.0.0.0 allows access from network
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+# ========================================
+# FEEDBACK SYSTEM (Backend Implementation)
+# ========================================
+
+def init_feedback_db():
+    """Initialize feedback database"""
+    try:
+        conn = sqlite3.connect('feedback.db')
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS feedback (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user TEXT,
+                        message TEXT,
+                        rating INTEGER,
+                        status TEXT DEFAULT 'pending',
+                        timestamp TEXT  -- Stored as CST string
+                    )''')
+        conn.commit()
+        conn.close()
+        print("[FEEDBACK] Database initialized")
+    except Exception as e:
+        print(f"[FEEDBACK ERROR] Failed to init DB: {e}")
+
+# Initialize critical databases
+init_feedback_db()
+init_completed_configs_db()
+
+@app.route('/api/feedback', methods=['POST'])
+def submit_feedback():
+    """Submit user feedback"""
+    try:
+        data = request.json
+        user = data.get('user', 'Anonymous')
+        message = data.get('message', '')
+        rating = data.get('rating', 0)
+        
+        if not message:
+            return jsonify({'success': False, 'error': 'Message required'}), 400
+
+        conn = sqlite3.connect('feedback.db')
+        c = conn.cursor()
+        c.execute("INSERT INTO feedback (user, message, rating, timestamp) VALUES (?, ?, ?, ?)", 
+                  (user, message, rating, get_cst_datetime_string()))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/admin/feedback', methods=['GET'])
+def get_feedback():
+    """Get all feedback (Admin)"""
+    try:
+        conn = sqlite3.connect('feedback.db')
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("SELECT * FROM feedback ORDER BY timestamp DESC")
+        rows = c.fetchall()
+        
+        feedback = []
+        for row in rows:
+            feedback.append({
+                'id': row['id'],
+                'user': row['user'],
+                'message': row['message'],
+                'rating': row['rating'],
+                'status': row['status'],
+                'date': row['timestamp']
+            })
+        conn.close()
+        
+        return jsonify(feedback)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    # Use debug=False for production
+    app.run(host='0.0.0.0', port=port, debug=False)

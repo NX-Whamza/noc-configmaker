@@ -25,6 +25,23 @@ else
     exit 1
 fi
 
+# 1.5. Check for EXISTING SSL setup (Prevent accidental downgrade)
+DOMAIN="noc-configmaker.nxlink.com"
+CERT_DIR="/etc/letsencrypt/live/${DOMAIN}"
+if [ -d "$CERT_DIR" ]; then
+    echo -e "${RED}[CRITICAL WARNING] SSL Certificates Detected for ${DOMAIN}!${NC}"
+    echo -e "${YELLOW}Running this script will DISABLE HTTPS and revert to insecure HTTP.${NC}"
+    echo -e "${YELLOW}To fix Nginx while PRESERVING HTTPS, run:${NC}"
+    echo -e "${GREEN}   bash configure_nginx_domain.sh${NC}"
+    echo ""
+    read -p "Are you sure you want to DESTROY HTTPS support? (y/N) " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${RED}Aborted to protect HTTPS config.${NC}"
+        exit 1
+    fi
+fi
+
 # 2. Remove default config
 echo -e "${YELLOW}[2] Removing default Nginx config...${NC}"
 sudo rm -f /etc/nginx/sites-enabled/default
