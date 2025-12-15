@@ -4,7 +4,7 @@
 > **Intelligent Network Configuration Generator for Nextlink Internet**  
 > Automate MikroTik RouterOS configurations with AI-powered validation and compliance checking
 
-[![Production Ready](https://img.shields.io/badge/status-production%20ready-brightgreen)]()
+[![Testing consistency](https://img.shields.io/badge/status-Testing%20consistency-brightgreen)]()
 [![Version](https://img.shields.io/badge/version-2.0-blue)]()
 [![License](https://img.shields.io/badge/license-proprietary-red)]()
 
@@ -379,8 +379,8 @@ DELTA: sfp-sfpplus9, 10G-baseSR-LR, MTU 1500
 
 #### Step 2: Navigate to Migration Tool
 1. Click **NOKIA CONFIG** dropdown
-2. Select **🔄 NOKIA MIGRATION**
-3. Or use the **Migration/Upgrade** tab
+2. Select **🔄 NOKIA MIGRATION** for Migrating to Nokia
+3. Or use the **Migration/Upgrade** tab when you upgrading a Mikrotik router to a new routerboard/ Firmware
 
 #### Step 3: Upload Config
 1. Click **Choose File** button
