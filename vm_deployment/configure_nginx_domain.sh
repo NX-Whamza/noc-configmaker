@@ -10,6 +10,9 @@ EMAIL="whamza@team.nxlink.com"
 WEBROOT="/var/www/html"
 MANUAL_CERT="/etc/nginx/ssl/nxlink-com.pem"
 MANUAL_KEY="/etc/nginx/ssl/nxlink-com.key"
+BACKEND_HEALTH_URL="http://127.0.0.1:5000/api/health"
+LOCAL_HTTP_PROBE=(curl -fsSL --max-time 10 --resolve "${DOMAIN}:80:127.0.0.1")
+LOCAL_HTTPS_PROBE=(curl -fsS --max-time 10 --resolve "${DOMAIN}:443:127.0.0.1" -k)
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -30,6 +33,108 @@ warn() {
 
 error() {
     echo -e "${RED}[ERROR] $*${NC}"
+}
+
+on_error() {
+    error "Script aborted (line $1). Review the log above for details."
+}
+
+trap 'on_error $LINENO' ERR
+
+require_commands() {
+    local missing=()
+    for cmd in bash sudo systemctl nginx curl; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            missing+=("$cmd")
+        fi
+    done
+
+    if ((${#missing[@]} > 0)); then
+        error "Missing required command(s): ${missing[*]}"
+        echo "Install them via apt (sudo apt install ${missing[*]}) and run again."
+        exit 1
+    fi
+}
+
+cleanup_conflicts() {
+    info "Scanning for conflicting nginx configs referencing ${DOMAIN}..."
+    local -a search_paths=()
+    for path in /etc/nginx/sites-enabled /etc/nginx/conf.d; do
+        if sudo test -d "$path"; then
+            search_paths+=("$path")
+        fi
+    done
+
+    if ((${#search_paths[@]} == 0)); then
+        warn "No nginx site directories found; skipping conflict scan."
+        return
+    fi
+
+    local -a conflicts=()
+    if mapfile -t conflicts < <(
+        sudo grep -Rl "$DOMAIN" "${search_paths[@]}" 2>/dev/null | grep -vF "$ENABLED_PATH" || true
+    ); then
+        :
+    fi
+
+    if ((${#conflicts[@]} == 0)); then
+        ok "No conflicting site definitions detected."
+        return
+    fi
+
+    warn "Found ${#conflicts[@]} conflicting file(s). They will be disabled to prevent duplicate server blocks."
+    for path in "${conflicts[@]}"; do
+        if [[ -z "$path" ]]; then
+            continue
+        fi
+
+        if sudo test -L "$path"; then
+            sudo rm -f "$path"
+            info "Removed stale symlink: $path"
+        else
+            local backup="${path}.$(date +%s).bak"
+            sudo mv "$path" "$backup"
+            info "Moved $path -> $backup"
+        fi
+    done
+}
+
+backend_health_check() {
+    info "Pinging backend health endpoint (${BACKEND_HEALTH_URL})..."
+    local tmp_out="/tmp/noc-backend-health.json"
+    local tmp_err="/tmp/noc-backend-health.err"
+    if curl -fsS --max-time 5 -o "$tmp_out" "$BACKEND_HEALTH_URL" 2>"$tmp_err"; then
+        local payload
+        payload=$(cat "$tmp_out")
+        ok "Backend responded: ${payload}"
+    else
+        warn "Backend health check failed. Ensure noc-configmaker.service is running. (See $tmp_err for curl output.)"
+    fi
+}
+
+probe_proxy() {
+    local mode="$1"
+    local -a cmd
+    local url
+
+    if [[ "$mode" == "https" ]]; then
+        cmd=("${LOCAL_HTTPS_PROBE[@]}")
+        url="https://${DOMAIN}/api/health"
+    else
+        cmd=("${LOCAL_HTTP_PROBE[@]}")
+        url="http://${DOMAIN}/api/health"
+    fi
+
+    info "Probing nginx proxy via ${url} ..."
+    local tmp_log="/tmp/noc-proxy-${mode}.log"
+    local tmp_err="/tmp/noc-proxy-${mode}.err"
+    if "${cmd[@]}" -o "$tmp_log" "$url" 2>"$tmp_err"; then
+        local payload
+        payload=$(cat "$tmp_log")
+        ok "Proxy (${mode}) responded: ${payload}"
+    else
+        warn "Proxy check for ${mode^^} failed. Inspect ${tmp_log} and ${tmp_err} for curl output."
+    fi
 }
 
 write_proxy_block() {
@@ -154,6 +259,8 @@ print_header() {
 
 print_header
 
+require_commands
+
 if [ "$EUID" -eq 0 ]; then 
    error "Please do not run as root. This script uses sudo when needed."
    exit 1
@@ -186,11 +293,13 @@ elif [[ -d "$CERT_DIR" ]]; then
     SSL_MODE="ssl"
     CERT_PATH="${CERT_DIR}/fullchain.pem"
     KEY_PATH="${CERT_DIR}/privkey.pem"
-    ok "Let’s Encrypt certificate detected. HTTPS will be enabled."
+    ok "Let's Encrypt certificate detected. HTTPS will be enabled."
 else
     SSL_MODE="http"
     warn "No certificate found yet. Starting with HTTP-only proxy."
 fi
+
+cleanup_conflicts
 
 info "Generating nginx configuration (${SSL_MODE} mode)..."
 if [[ "$SSL_MODE" == "ssl" ]]; then
@@ -262,6 +371,13 @@ if ! sudo systemctl is-active --quiet noc-configmaker; then
 else
     ok "Backend service is running."
 fi
+
+backend_health_check
+
+if [[ "$SSL_MODE" == "ssl" ]]; then
+    probe_proxy "https"
+fi
+probe_proxy "http"
 
 echo ""
 echo "=========================================="

@@ -27,7 +27,11 @@ import re
 import ipaddress
 import json
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    ZoneInfo = None
 import sqlite3
 import hashlib
 import secrets
@@ -43,35 +47,56 @@ except ImportError:
     print("[WARNING] Authentication will use simple token system instead.")
 try:
     import pytz
-    CST = pytz.timezone('America/Chicago')
-    HAS_PYTZ = True
 except ImportError:
-    HAS_PYTZ = False
-    # Fallback: CST is UTC-6, CDT is UTC-5 (daylight saving)
-    CST = None
+    pytz = None
+
+TIMEZONE_NAME = 'America/Chicago'
+
+if ZoneInfo is not None:
+    try:
+        CST_ZONEINFO = ZoneInfo(TIMEZONE_NAME)
+    except Exception:
+        CST_ZONEINFO = None
+else:
+    CST_ZONEINFO = None
+
+if pytz is not None:
+    try:
+        CST_PYTZ = pytz.timezone(TIMEZONE_NAME)
+    except Exception:
+        CST_PYTZ = None
+else:
+    CST_PYTZ = None
+
+
+def _manual_cst_now():
+    """Fallback CST/CDT calculation when zoneinfo/pytz are unavailable."""
+    utc_now = datetime.now(timezone.utc)
+    # Approximate DST window (Mar-Nov). Good enough until tzdata available.
+    is_dst = 3 <= utc_now.month <= 11
+    offset_hours = -5 if is_dst else -6
+    return utc_now + timedelta(hours=offset_hours)
+
 
 def get_cst_now():
-    """Get current time in CST/CDT timezone (America/Chicago)"""
-    if HAS_PYTZ and CST:
-        return datetime.now(CST)
-    else:
-        # Fallback: calculate CST offset manually
-        utc_now = datetime.utcnow()
-        # Simple approximation: March-November is CDT (UTC-5), rest is CST (UTC-6)
-        month = utc_now.month
-        is_dst = 3 <= month <= 10  # Approximate DST period (March-October)
-        offset_hours = -5 if is_dst else -6
-        from datetime import timedelta
-        return utc_now + timedelta(hours=offset_hours)
+    """Get current time in CST/CDT timezone (America/Chicago)."""
+    if CST_ZONEINFO is not None:
+        return datetime.now(timezone.utc).astimezone(CST_ZONEINFO)
+    if CST_PYTZ is not None:
+        return pytz.utc.localize(datetime.utcnow()).astimezone(CST_PYTZ)
+    return _manual_cst_now()
+
 
 def get_cst_timestamp():
-    """Get current timestamp in CST/CDT as ISO format string"""
+    """Get current timestamp in CST/CDT as ISO format string."""
     return get_cst_now().isoformat()
 
+
 def get_cst_datetime_string():
-    """Get current datetime in CST/CDT as formatted string (YYYY-MM-DD HH:MM:SS)"""
+    """Get current datetime in CST/CDT as formatted string (YYYY-MM-DD HH:MM:SS)."""
     return get_cst_now().strftime('%Y-%m-%d %H:%M:%S')
-    import time
+
+
 from pathlib import Path
 # Import NextLink standards (for migration rules, error detection, etc.)
 from nextlink_standards import (
@@ -965,6 +990,8 @@ def ensure_secure_data_dir():
 
 SECURE_DATA_DIR = Path("secure_data")  # Default path, will be created lazily
 CHAT_DB_PATH = None  # Will be set lazily when ensure_chat_db() is called
+CONFIGS_DB_PATH = None
+FEEDBACK_DB_PATH = None
 
 # Migration: Move existing databases from root to secure directory
 def migrate_databases():
@@ -6699,48 +6726,6 @@ def health():
         'message': 'Unified backend (api_server.py) is online and ready'
     })
 
-# ========================================
-# FEEDBACK DATABASE INITIALIZATION
-# ========================================
-
-def init_feedback_db():
-    """Initialize feedback database with proper schema"""
-    try:
-        secure_dir = ensure_secure_data_dir()
-        feedback_db_path = secure_dir / "feedback.db"
-        
-        conn = sqlite3.connect(str(feedback_db_path))
-        cursor = conn.cursor()
-        
-        # Create feedback table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS feedback (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                feedback_type TEXT NOT NULL,
-                subject TEXT NOT NULL,
-                category TEXT,
-                experience TEXT,
-                details TEXT,
-                name TEXT,
-                email TEXT,
-                status TEXT DEFAULT 'new',
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        conn.commit()
-        conn.close()
-        
-        safe_print(f"[FEEDBACK] Database initialized at {feedback_db_path}")
-        return True
-    except Exception as e:
-        safe_print(f"[FEEDBACK ERROR] Failed to initialize database: {e}")
-        return False
-
-# ========================================
-# ENDPOINT: Feedback Submission (Email)
-# ========================================
-
 @app.route('/api/feedback', methods=['POST'])
 def submit_feedback():
     """Submit feedback/bug report/feature request via email"""
@@ -6806,9 +6791,8 @@ This feedback was automatically submitted via NOC Config Maker.
         message.attach(MIMEText(email_body, "plain"))
         
         # Save feedback to database
-        init_feedback_db()
-        FEEDBACK_DB_PATH = SECURE_DATA_DIR / "feedback.db"
-        conn = sqlite3.connect(str(FEEDBACK_DB_PATH))
+        feedback_db = init_feedback_db()
+        conn = sqlite3.connect(str(feedback_db))
         cursor = conn.cursor()
         
         email = data.get('email', '')
@@ -6937,9 +6921,8 @@ def get_feedback():
         if not is_admin_user():
             return jsonify({'error': 'Admin access required'}), 403
         
-        init_feedback_db()
-        FEEDBACK_DB_PATH = SECURE_DATA_DIR / "feedback.db"
-        conn = sqlite3.connect(str(FEEDBACK_DB_PATH))
+        feedback_db = init_feedback_db()
+        conn = sqlite3.connect(str(feedback_db))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
@@ -7005,9 +6988,8 @@ def update_feedback_status(feedback_id):
         new_status = data.get('status', 'new')
         admin_notes = data.get('admin_notes', '')
         
-        init_feedback_db()
-        FEEDBACK_DB_PATH = SECURE_DATA_DIR / "feedback.db"
-        conn = sqlite3.connect(str(FEEDBACK_DB_PATH))
+        feedback_db = init_feedback_db()
+        conn = sqlite3.connect(str(feedback_db))
         cursor = conn.cursor()
         
         cursor.execute('''
@@ -7036,9 +7018,8 @@ def export_feedback_excel():
         import pandas as pd
         from io import BytesIO
         
-        init_feedback_db()
-        FEEDBACK_DB_PATH = SECURE_DATA_DIR / "feedback.db"
-        conn = sqlite3.connect(str(FEEDBACK_DB_PATH))
+        feedback_db = init_feedback_db()
+        conn = sqlite3.connect(str(feedback_db))
         
         # Get all feedback
         df = pd.read_sql_query('''
@@ -7684,13 +7665,14 @@ def handle_activity():
 CONFIGS_DB_PATH = None
 
 def init_feedback_db():
-    """Initialize feedback database in secure location"""
-    global SECURE_DATA_DIR
+    """Initialize feedback database in secure location and return its path."""
+    global SECURE_DATA_DIR, FEEDBACK_DB_PATH
     SECURE_DATA_DIR = ensure_secure_data_dir()
     FEEDBACK_DB_PATH = SECURE_DATA_DIR / "feedback.db"
+
     conn = sqlite3.connect(str(FEEDBACK_DB_PATH))
     cursor = conn.cursor()
-    
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS feedback (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -7706,15 +7688,15 @@ def init_feedback_db():
             admin_notes TEXT
         )
     ''')
-    
-    # Create indexes for faster searching
+
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_feedback_type ON feedback(feedback_type)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_feedback_timestamp ON feedback(timestamp)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status)')
-    
+
     conn.commit()
     conn.close()
-    print(f"[FEEDBACK] Database initialized: {FEEDBACK_DB_PATH}")
+    safe_print(f"[FEEDBACK] Database initialized: {FEEDBACK_DB_PATH}")
+    return FEEDBACK_DB_PATH
 
 def init_configs_db():
     """Initialize completed configs database in secure location"""
@@ -8314,9 +8296,9 @@ def log_activity():
         conn = sqlite3.connect(db_path)
         c = conn.cursor()
         c.execute('''INSERT INTO activities 
-                     (username, activity_type, device, site_name, routeros_version, success)
-                     VALUES (?, ?, ?, ?, ?, ?)''',
-                  (username, activity_type, device, site_name, routeros, success))
+                     (username, activity_type, device, site_name, routeros_version, success, timestamp)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                  (username, activity_type, device, site_name, routeros, success, get_cst_datetime_string()))
         conn.commit()
         conn.close()
         
@@ -8411,144 +8393,24 @@ def get_activity():
         print(f"[ERROR] Failed to get activities: {e}")
         return jsonify({'success': False, 'error': str(e), 'activities': []}), 500
 
-# ========================================
-# COMPLETED CONFIGS ENDPOINTS
-# ========================================
-def init_completed_configs_db():
-    """Initialize completed configs database"""
-    secure_dir = 'secure_data'
-    if not os.path.exists(secure_dir):
-        os.makedirs(secure_dir)
-    
-    db_path = os.path.join(secure_dir, 'completed_configs.db')
-    conn = sqlite3.connect(db_path)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS configs
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  config_type TEXT,
-                  device_name TEXT,
-                  device_type TEXT,
-                  customer_code TEXT,
-                  loopback_ip TEXT,
-                  routeros_version TEXT,
-                  config_content TEXT,
-                  site_name TEXT,
-                  timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
-    conn.commit()
-    conn.close()
-    print(f"[COMPLETED CONFIGS] Database initialized at {db_path}")
 
-@app.route('/api/save-completed-config', methods=['POST'])
-def save_completed_config():
-    """Save a completed configuration to history with CST timestamp"""
-    try:
-        data = request.json
-        config_type = data.get('configType', 'unknown')
-        device_name = data.get('deviceName', 'unknown')
-        device_type = data.get('deviceType', 'unknown')
-        customer_code = data.get('customerCode', '')
-        loopback_ip = data.get('loopbackIp', '')
-        routeros_version = data.get('routerosVersion', '')
-        config_content = data.get('configContent', '')
-        site_name = data.get('siteName', '')
-        
-        secure_dir = 'secure_data'
-        if not os.path.exists(secure_dir):
-            os.makedirs(secure_dir)
-            
-        db_path = os.path.join(secure_dir, 'completed_configs.db')
-        
-        conn = sqlite3.connect(db_path)
-        c = conn.cursor()
-        
-        # USE CST TIMESTAMP EXPLICITLY
-        cst_time = get_cst_datetime_string()
-        
-        # Check if table exists (just in case)
-        c.execute('''CREATE TABLE IF NOT EXISTS configs
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      config_type TEXT,
-                      device_name TEXT,
-                      device_type TEXT,
-                      customer_code TEXT,
-                      loopback_ip TEXT,
-                      routeros_version TEXT,
-                      config_content TEXT,
-                      site_name TEXT,
-                      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
-        
-        c.execute('''INSERT INTO configs 
-                     (config_type, device_name, device_type, customer_code, 
-                      loopback_ip, routeros_version, config_content, site_name, timestamp)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                  (config_type, device_name, device_type, customer_code, 
-                   loopback_ip, routeros_version, config_content, site_name, cst_time))
-        
-        conn.commit()
-        conn.close()
-        print(f"[COMPLETED CONFIGS] Saved config for {device_name} at {cst_time}")
-        
-        return jsonify({'success': True, 'timestamp': cst_time})
-    except Exception as e:
-        print(f"[ERROR] Failed to save config: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+@app.route('/')
+@app.route('/NOC-configMaker.html')
+def serve_html():
+    """Serve the main HTML file for convenience when hitting the Flask port directly."""
+    html_path = Path(__file__).parent / 'NOC-configMaker.html'
+    if html_path.exists():
+        return send_file(str(html_path), mimetype='text/html')
+    return ("NOC-configMaker.html not found. Please ensure the file is in the same "
+            "directory as api_server.py", 404)
 
-@app.route('/api/get-completed-configs', methods=['GET'])
-def get_completed_configs():
-    """Get completed configuration history"""
-    try:
-        secure_dir = 'secure_data'
-        db_path = os.path.join(secure_dir, 'completed_configs.db')
-        
-        if not os.path.exists(db_path):
-            return jsonify([])
-            
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        
-        # Check if table exists
-        cursor = c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='configs'")
-        if not cursor.fetchone():
-            return jsonify([])
-            
-        c.execute("SELECT * FROM configs ORDER BY id DESC LIMIT 50")
-        rows = c.fetchall()
-        
-        configs = []
-        for row in rows:
-            # Handle potential missing columns if schema changed
-            try:
-                configs.append({
-                    'id': row['id'],
-                    'configType': row['config_type'],
-                    'deviceName': row['device_name'],
-                    'deviceType': row['device_type'],
-                    'customerCode': row['customer_code'],
-                    'loopbackIp': row['loopback_ip'],
-                    'routerosVersion': row['routeros_version'],
-                    'configContent': row['config_content'],
-                    'siteName': row['site_name'],
-                    'timestamp': row['timestamp'] # Should be CST string for new entries
-                })
-            except Exception as e:
-                print(f"[WARN] Error reading row {row['id']}: {e}")
-        
-        conn.close()
-        return jsonify(configs)
-    except Exception as e:
-        print(f"[ERROR] Failed to get completed configs: {e}")
-        return jsonify({'error': str(e)}), 500
-
-# ========================================
-# NOTE: /api/feedback endpoint is defined earlier in the file (around line 4716) with full SMTP support
 
 if __name__ == '__main__':
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("NOC Config Maker - AI Backend Server")
-    print("="*50)
+    print("=" * 50)
     print(f"AI Provider: {AI_PROVIDER.upper()}")
-    
+
     if AI_PROVIDER == 'ollama':
         print(f"Ollama Model: {OLLAMA_MODEL}")
         print(f"Ollama URL: {OLLAMA_API_URL}")
@@ -8557,119 +8419,22 @@ if __name__ == '__main__':
         print(f"    Then run: ollama pull {OLLAMA_MODEL}")
     else:
         print(f"OpenAI API Key: {'[CONFIGURED]' if OPENAI_API_KEY else '[MISSING]'}")
-    
+
     print("\nEndpoints:")
-    print("  POST /api/validate-config     - Validate RouterOS config")
-    print("  POST /api/suggest-config      - Get AI suggestions")
-    print("  POST /api/translate-config    - Translate between versions")
-    print("  POST /api/apply-compliance    - Apply RFC-09-10-25 compliance standards")
-    print("  POST /api/explain-config      - Explain config sections")
+    print("  POST /api/validate-config      - Validate RouterOS config")
+    print("  POST /api/suggest-config       - Get AI suggestions")
+    print("  POST /api/translate-config     - Translate configurations")
+    print("  POST /api/apply-compliance     - Apply RFC-09-10-25 standards")
     print("  POST /api/autofill-from-export - Parse exported config")
-    print("  GET  /api/get-config-policies - List available config policies")
-    print("  GET  /api/get-config-policy/<name> - Get specific policy")
-    print("  POST /api/reload-config-policies - Reload policies from disk")
-    print("  GET  /api/health              - Health check")
-    
+    print("  POST /api/explain-config       - Explain config sections")
+    print("  GET  /api/get-config-policies  - List config policies")
+    print("  GET  /api/health               - Health check")
+
     if HAS_COMPLIANCE:
-        print("\n[COMPLIANCE] RFC-09-10-25 compliance enforcement is ENABLED")
-        print("            All configs (Non-MPLS, MPLS, Upgrades) will include compliance standards")
+        print("\n[COMPLIANCE] RFC-09-10-25 enforcement is ENABLED")
     else:
-        print("\n[WARN] RFC-09-10-25 compliance enforcement is DISABLED")
-        print("       (nextlink_compliance_reference.py not found)")
-    # Add route to serve HTML file
-    @app.route('/')
-    @app.route('/NOC-configMaker.html')
-    def serve_html():
-        """Serve the main HTML file"""
-        html_path = Path(__file__).parent / 'NOC-configMaker.html'
-        if html_path.exists():
-            return send_file(str(html_path), mimetype='text/html')
-        else:
-            return "NOC-configMaker.html not found. Please ensure the file is in the same directory as api_server.py", 404
-    
+        print("\n[WARN] RFC-09-10-25 enforcement is DISABLED (reference not found)")
+
     print("\nStarting server on http://0.0.0.0:5000")
-    print("Accessible at: http://192.168.11.118")
-    print("="*50 + "\n")
-    
-    # Run Flask server - 0.0.0.0 allows access from network
+    print("=" * 50 + "\n")
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
-# ========================================
-# FEEDBACK SYSTEM (Backend Implementation)
-# ========================================
-
-def init_feedback_db():
-    """Initialize feedback database"""
-    try:
-        conn = sqlite3.connect('feedback.db')
-        c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS feedback (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user TEXT,
-                        message TEXT,
-                        rating INTEGER,
-                        status TEXT DEFAULT 'pending',
-                        timestamp TEXT  -- Stored as CST string
-                    )''')
-        conn.commit()
-        conn.close()
-        print("[FEEDBACK] Database initialized")
-    except Exception as e:
-        print(f"[FEEDBACK ERROR] Failed to init DB: {e}")
-
-# Initialize critical databases
-init_feedback_db()
-init_completed_configs_db()
-
-@app.route('/api/feedback', methods=['POST'])
-def submit_feedback():
-    """Submit user feedback"""
-    try:
-        data = request.json
-        user = data.get('user', 'Anonymous')
-        message = data.get('message', '')
-        rating = data.get('rating', 0)
-        
-        if not message:
-            return jsonify({'success': False, 'error': 'Message required'}), 400
-
-        conn = sqlite3.connect('feedback.db')
-        c = conn.cursor()
-        c.execute("INSERT INTO feedback (user, message, rating, timestamp) VALUES (?, ?, ?, ?)", 
-                  (user, message, rating, get_cst_datetime_string()))
-        conn.commit()
-        conn.close()
-        
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/admin/feedback', methods=['GET'])
-def get_feedback():
-    """Get all feedback (Admin)"""
-    try:
-        conn = sqlite3.connect('feedback.db')
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        c.execute("SELECT * FROM feedback ORDER BY timestamp DESC")
-        rows = c.fetchall()
-        
-        feedback = []
-        for row in rows:
-            feedback.append({
-                'id': row['id'],
-                'user': row['user'],
-                'message': row['message'],
-                'rating': row['rating'],
-                'status': row['status'],
-                'date': row['timestamp']
-            })
-        conn.close()
-        
-        return jsonify(feedback)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    # Use debug=False for production
-    app.run(host='0.0.0.0', port=port, debug=False)
