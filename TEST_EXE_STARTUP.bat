@@ -124,9 +124,8 @@ echo.
 echo If you DON'T see these:
 echo   1. Check the new console window for errors
 echo   2. Try running: QUICK_START.bat
-echo   3. Or manually: python launcher.py
+echo   3. Or manually: python vm_deployment\\launcher.py
 echo.
 echo ========================================
 pause
-
 

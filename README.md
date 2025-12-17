@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # NOC Config Maker
 
 > **Intelligent Network Configuration Generator for Nextlink Internet**  
@@ -740,7 +739,3 @@ curl http://localhost:5000/api/health
 ---
 
 **Made with ❤️ by the Nextlink NOC Team**
-=======
-# noc-configmaker
-This tool is for generating configs and also Scripts for NOC agents that will help us essentially
->>>>>>> 429ae85f87c8101e34b9ac1b22a6c7f33cca81f9

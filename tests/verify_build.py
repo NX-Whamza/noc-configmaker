@@ -10,7 +10,7 @@ print("Verifying Build Configuration")
 print("=" * 70)
 print()
 
-# Check if api_server.py exists
+# Check if api_server.py exists (root shim + vm_deployment source)
 api_server_path = Path('api_server.py')
 if api_server_path.exists():
     print(f"[OK] api_server.py found: {api_server_path.absolute()}")
@@ -20,20 +20,19 @@ else:
     print(f"  Current directory: {Path.cwd()}")
     sys.exit(1)
 
-# Check if launcher.py exists
-launcher_path = Path('launcher.py')
+launcher_path = Path('vm_deployment') / 'launcher.py'
 if launcher_path.exists():
-    print(f"[OK] launcher.py found: {launcher_path.absolute()}")
-    
-    # Check if launcher.py imports api_server
+    print(f"[OK] vm_deployment/launcher.py found: {launcher_path.absolute()}")
+
+    # Check if launcher imports api_server
     launcher_content = launcher_path.read_text(encoding='utf-8')
     if 'import api_server' in launcher_content:
-        print(f"[OK] launcher.py contains 'import api_server'")
+        print(f"[OK] launcher contains 'import api_server'")
     else:
-        print(f"[ERROR] launcher.py does NOT import api_server!")
+        print(f"[ERROR] launcher does NOT import api_server!")
         sys.exit(1)
 else:
-    print(f"[ERROR] launcher.py NOT FOUND!")
+    print(f"[ERROR] vm_deployment/launcher.py NOT FOUND!")
     sys.exit(1)
 
 # Check spec file
@@ -55,4 +54,3 @@ print("=" * 70)
 print()
 print("If all checks passed, PyInstaller should include api_server.py")
 print("If issues persist, the module may need to be explicitly added")
-

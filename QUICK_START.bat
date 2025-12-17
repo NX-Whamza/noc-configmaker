@@ -11,6 +11,9 @@ echo.
 echo Starting backend and frontend servers...
 echo.
 
+REM Ensure we run from the repo root even if launched from elsewhere
+cd /d "%~dp0"
+
 REM Start backend in new window
 start "NOC Backend" /MIN cmd /c "python api_server.py"
 
@@ -25,7 +28,7 @@ timeout /t 3 /nobreak >nul
 
 REM Open browser
 echo Opening browser...
-start http://localhost:8000/NOC-configMaker.html
+start http://localhost:8000/vm_deployment/NOC-configMaker.html
 
 echo.
 echo ========================================
@@ -33,12 +36,11 @@ echo  Services Started!
 echo ========================================
 echo.
 echo Backend:  http://localhost:5000
-echo Frontend: http://localhost:8000
+echo Frontend: http://localhost:8000/vm_deployment/NOC-configMaker.html
 echo.
 echo KEEP THE SERVER WINDOWS OPEN!
 echo Close this window anytime.
 echo.
 
 pause
-
 

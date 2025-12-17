@@ -21,6 +21,7 @@ if sys.platform == 'win32':
         pass
 
 from flask import Flask, request, jsonify, send_file, send_from_directory
+from flask import make_response, abort
 from flask_cors import CORS
 import os
 import re
@@ -28,6 +29,7 @@ import ipaddress
 import json
 import requests
 from datetime import datetime, timedelta, timezone
+import time
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
@@ -95,6 +97,19 @@ def get_cst_timestamp():
 def get_cst_datetime_string():
     """Get current datetime in CST/CDT as formatted string (YYYY-MM-DD HH:MM:SS)."""
     return get_cst_now().strftime('%Y-%m-%d %H:%M:%S')
+
+
+def get_utc_now():
+    return datetime.now(timezone.utc)
+
+
+def get_utc_timestamp():
+    """Get current timestamp in UTC as ISO string with Z suffix."""
+    return get_utc_now().isoformat().replace('+00:00', 'Z')
+
+
+def get_unix_timestamp():
+    return int(get_utc_now().timestamp())
 
 
 from pathlib import Path
@@ -6728,7 +6743,7 @@ def health():
 
 @app.route('/api/feedback', methods=['POST'])
 def submit_feedback():
-    """Submit feedback/bug report/feature request via email"""
+    """Submit feedback/bug report/feature request (stored for admin review)."""
     try:
         data = request.json
         if not data:
@@ -6741,55 +6756,9 @@ def submit_feedback():
         experience = data.get('experience', 'Not rated')
         details = data.get('details', 'No details provided')
         name = data.get('name', 'Anonymous')
-        timestamp = data.get('timestamp', get_cst_timestamp())
-        
-        # Format email body
-        email_body = f"""
-NOC Config Maker - {feedback_type}
+        # Always timestamp feedback on the server so it is consistent regardless of the user's locale/timezone.
+        timestamp = get_cst_timestamp()
 
-From: {name}
-Type: {feedback_type}
-Category: {category}
-Experience Rating: {experience}/5 stars
-Submitted: {timestamp}
-
-Subject: {subject}
-
-Details:
-{details}
-
----
-This feedback was automatically submitted via NOC Config Maker.
-"""
-        
-        # Send email using smtplib
-        import smtplib
-        from email.mime.text import MIMEText
-        from email.mime.multipart import MIMEMultipart
-        
-        # Email configuration from environment variables
-        # Default to Office 365 SMTP with Walihlah's account so feedback works out-of-the-box
-        smtp_server = os.getenv('SMTP_SERVER', 'smtp.office365.com')
-        smtp_port = int(os.getenv('SMTP_PORT', '587'))
-        # Hard-coded safe defaults for local EXE usage (can be overridden with env vars)
-        default_username = 'whamza@team.nxlink.com'
-        default_password = 'Omolayo@2016$'
-        smtp_username = os.getenv('SMTP_USERNAME', os.getenv('NXLINK_EMAIL_USER', default_username))
-        smtp_password = os.getenv('SMTP_PASSWORD', os.getenv('NXLINK_EMAIL_PASS', default_password))
-        from_email = os.getenv('FEEDBACK_FROM_EMAIL', default_username)
-        to_email = os.getenv('FEEDBACK_TO_EMAIL', default_username)
-        cc_email = os.getenv('FEEDBACK_CC_EMAIL', '')
-        
-        # Create message
-        message = MIMEMultipart()
-        message["From"] = f"NOC Config Maker <{from_email}>"
-        message["To"] = to_email
-        message["Cc"] = cc_email
-        message["Subject"] = f"[NOC ConfigMaker] {feedback_type}: {subject}"
-        
-        # Add body
-        message.attach(MIMEText(email_body, "plain"))
-        
         # Save feedback to database
         feedback_db = init_feedback_db()
         conn = sqlite3.connect(str(feedback_db))
@@ -6797,65 +6766,20 @@ This feedback was automatically submitted via NOC Config Maker.
         
         email = data.get('email', '')
         cursor.execute('''
-            INSERT INTO feedback (feedback_type, subject, category, experience, details, name, email)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (feedback_type, subject, category, experience, details, name, email))
+            INSERT INTO feedback (feedback_type, subject, category, experience, details, name, email, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (feedback_type, subject, category, experience, details, name, email, timestamp))
         
         feedback_id = cursor.lastrowid
         conn.commit()
         conn.close()
         
         safe_print(f"[FEEDBACK] Saved to database (ID: {feedback_id}) from {name}: {subject}")
-        
-        # Save feedback to file as backup (always)
-        secure_dir = ensure_secure_data_dir()
-        feedback_file = secure_dir / "feedback_log.txt"
-        
-        with open(feedback_file, 'a', encoding='utf-8') as f:
-            f.write(f"\n{'='*80}\n")
-            f.write(email_body)
-            f.write(f"\n{'='*80}\n")
-        
-        safe_print(f"[FEEDBACK] Received {feedback_type} from {name}: {subject}")
-        
-        # Send email if SMTP credentials are configured
-        email_sent = False
-        email_error = None
-        
-        if smtp_username and smtp_password:
-            try:
-                safe_print(f"[EMAIL] Sending feedback to {to_email} via {smtp_server}:{smtp_port}")
-                server = smtplib.SMTP(smtp_server, smtp_port)
-                server.starttls()
-                server.login(smtp_username, smtp_password)
-                
-                # Send to both TO and CC
-                recipients = [to_email]
-                if cc_email:
-                    recipients.append(cc_email)
-                
-                server.sendmail(from_email, recipients, message.as_string())
-                server.quit()
-                email_sent = True
-                safe_print(f"[EMAIL] Successfully sent feedback email to {to_email}")
-            except Exception as e:
-                email_error = str(e)
-                safe_print(f"[EMAIL ERROR] Failed to send: {e}")
-                safe_print(f"[EMAIL] Feedback still saved to file: {feedback_file}")
-        else:
-            safe_print("[EMAIL] SMTP credentials not configured - feedback logged to file only")
-            safe_print(f"[EMAIL] Feedback saved to: {feedback_file}")
-            safe_print("[EMAIL] To enable email: Set SMTP_USERNAME and SMTP_PASSWORD environment variables")
-            safe_print("[EMAIL] Or set NXLINK_EMAIL_USER and NXLINK_EMAIL_PASS for Nextlink email")
-        
+
         return jsonify({
             'success': True,
-            'message': 'Feedback received and logged successfully' + (' - Email sent!' if email_sent else ''),
-            'logged_to_file': True,
-            'saved_to_db': True,
+            'message': 'Feedback received and saved',
             'feedback_id': feedback_id,
-            'email_sent': email_sent,
-            'email_error': email_error if email_error else None
         })
         
     except Exception as e:
@@ -8246,7 +8170,24 @@ def init_activity_db():
                   site_name TEXT,
                   routeros_version TEXT,
                   success INTEGER,
-                  timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+                  timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                  timestamp_unix INTEGER)''')
+    conn.commit()
+
+    # Ensure older databases get the new columns/indexes (safe to re-run).
+    try:
+        cols = {row[1] for row in c.execute("PRAGMA table_info(activities)").fetchall()}
+        if 'timestamp_unix' not in cols:
+            c.execute("ALTER TABLE activities ADD COLUMN timestamp_unix INTEGER")
+        if 'timestamp' not in cols:
+            c.execute("ALTER TABLE activities ADD COLUMN timestamp TEXT")
+    except Exception as e:
+        safe_print(f"[ACTIVITY] Column migration skipped: {e}")
+
+    try:
+        c.execute('CREATE INDEX IF NOT EXISTS idx_activity_timestamp_unix ON activities(timestamp_unix)')
+    except Exception:
+        pass
     conn.commit()
     conn.close()
     print(f"[ACTIVITY] Database initialized at {db_path}")
@@ -8295,10 +8236,12 @@ def log_activity():
         db_path = os.path.join(secure_dir, 'activity_log.db')
         conn = sqlite3.connect(db_path)
         c = conn.cursor()
+        ts_unix = get_unix_timestamp()
+        ts_iso = get_utc_timestamp()
         c.execute('''INSERT INTO activities 
-                     (username, activity_type, device, site_name, routeros_version, success, timestamp)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                  (username, activity_type, device, site_name, routeros, success, get_cst_datetime_string()))
+                     (username, activity_type, device, site_name, routeros_version, success, timestamp, timestamp_unix)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                  (username, activity_type, device, site_name, routeros, success, ts_iso, ts_unix))
         conn.commit()
         conn.close()
         
@@ -8334,18 +8277,33 @@ def get_activity():
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
+
+        cols = {row[1] for row in c.execute("PRAGMA table_info(activities)").fetchall()}
+        has_unix = 'timestamp_unix' in cols
         
         if all_activities:
             # Get all activities for log history
-            c.execute('''SELECT * FROM activities 
-                         ORDER BY timestamp DESC 
-                         LIMIT ?''', (limit,))
+            if has_unix:
+                c.execute('''SELECT * FROM activities 
+                             ORDER BY timestamp_unix DESC 
+                             LIMIT ?''', (limit,))
+            else:
+                c.execute('''SELECT * FROM activities 
+                             ORDER BY timestamp DESC 
+                             LIMIT ?''', (limit,))
         else:
             # Get recent activities (last 24 hours)
-            c.execute('''SELECT * FROM activities 
-                         WHERE timestamp >= datetime('now', '-24 hours')
-                         ORDER BY timestamp DESC 
-                         LIMIT ?''', (limit,))
+            if has_unix:
+                cutoff = int(time.time()) - (24 * 60 * 60)
+                c.execute('''SELECT * FROM activities 
+                             WHERE timestamp_unix >= ?
+                             ORDER BY timestamp_unix DESC 
+                             LIMIT ?''', (cutoff, limit))
+            else:
+                c.execute('''SELECT * FROM activities 
+                             WHERE timestamp >= datetime('now', '-24 hours')
+                             ORDER BY timestamp DESC 
+                             LIMIT ?''', (limit,))
         
         rows = c.fetchall()
         conn.close()
@@ -8368,11 +8326,39 @@ def get_activity():
             if device:
                 message += f" ({device})"
             
-            # Format timestamp
-            try:
-                timestamp = datetime.fromisoformat(row['timestamp'].replace('Z', '+00:00'))
-                formatted_time = timestamp.strftime('%m/%d/%Y %I:%M%p')
-            except:
+            # Normalize timestamp to ISO UTC for reliable frontend parsing; also return a CST display string.
+            dt_utc = None
+            ts_unix = row['timestamp_unix'] if has_unix else None
+            if ts_unix:
+                try:
+                    dt_utc = datetime.fromtimestamp(int(ts_unix), tz=timezone.utc)
+                except Exception:
+                    dt_utc = None
+            if dt_utc is None:
+                raw_ts = row['timestamp']
+                try:
+                    dt_utc = datetime.fromisoformat(raw_ts.replace('Z', '+00:00')).astimezone(timezone.utc)
+                except Exception:
+                    try:
+                        naive = datetime.strptime(raw_ts, '%Y-%m-%d %H:%M:%S')
+                        if CST_ZONEINFO is not None:
+                            dt_local = naive.replace(tzinfo=CST_ZONEINFO)
+                        elif CST_PYTZ is not None:
+                            dt_local = CST_PYTZ.localize(naive)
+                        else:
+                            dt_local = naive.replace(tzinfo=timezone(timedelta(hours=-6)))
+                        dt_utc = dt_local.astimezone(timezone.utc)
+                    except Exception:
+                        dt_utc = None
+
+            if dt_utc is not None:
+                timestamp_iso = dt_utc.isoformat().replace('+00:00', 'Z')
+                try:
+                    formatted_time = dt_utc.astimezone(get_cst_now().tzinfo).strftime('%m/%d/%Y %I:%M%p')
+                except Exception:
+                    formatted_time = timestamp_iso
+            else:
+                timestamp_iso = row['timestamp']
                 formatted_time = row['timestamp']
             
             activities.append({
@@ -8383,7 +8369,8 @@ def get_activity():
                 'siteName': row['site_name'],
                 'routeros': row['routeros_version'],
                 'success': bool(row['success']),
-                'timestamp': row['timestamp'],
+                'timestamp': timestamp_iso,
+                'timestamp_unix': int(ts_unix) if ts_unix else None,
                 'formattedTime': formatted_time,
                 'message': message
             })
@@ -8394,15 +8381,53 @@ def get_activity():
         return jsonify({'success': False, 'error': str(e), 'activities': []}), 500
 
 
+UI_DIR = Path(__file__).parent
+
+
+def _send_ui_file(filename: str, mimetype: str = 'text/html'):
+    path = UI_DIR / filename
+    if not path.exists():
+        abort(404)
+    resp = make_response(send_file(str(path), mimetype=mimetype))
+    resp.headers['Cache-Control'] = 'no-store, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
+
+
 @app.route('/')
+@app.route('/app')
+@app.route('/app/')
 @app.route('/NOC-configMaker.html')
-def serve_html():
-    """Serve the main HTML file for convenience when hitting the Flask port directly."""
-    html_path = Path(__file__).parent / 'NOC-configMaker.html'
-    if html_path.exists():
-        return send_file(str(html_path), mimetype='text/html')
-    return ("NOC-configMaker.html not found. Please ensure the file is in the same "
-            "directory as api_server.py", 404)
+def serve_app_html():
+    """Serve the main SPA HTML (and support /app so nginx doesn't need a separate static root)."""
+    return _send_ui_file('NOC-configMaker.html')
+
+
+@app.route('/login')
+@app.route('/login.html')
+def serve_login_html():
+    return _send_ui_file('login.html')
+
+
+@app.route('/change-password')
+@app.route('/change-password.html')
+def serve_change_password_html():
+    return _send_ui_file('change-password.html')
+
+
+@app.route('/<path:path>')
+def serve_ui_catchall(path: str):
+    # Never catch API routes.
+    if path.startswith('api/'):
+        abort(404)
+    # Serve known HTML pages directly.
+    if path.endswith('.html'):
+        name = Path(path).name
+        if name in {'NOC-configMaker.html', 'login.html', 'change-password.html'}:
+            return _send_ui_file(name)
+    # Everything else falls back to the SPA HTML so deep links work.
+    return serve_app_html()
 
 
 if __name__ == '__main__':

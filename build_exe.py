@@ -25,6 +25,7 @@ def install_pyinstaller():
 def build_exe():
     """Build the executable with unified backend"""
     script_dir = Path(__file__).parent
+    vm_dir = script_dir / "vm_deployment"
     
     print("=" * 70)
     print("NOC Config Maker - Unified Backend Builder")
@@ -44,6 +45,12 @@ def build_exe():
         sep = ';'
     else:
         sep = ':'
+
+    def data_arg(src_rel: str, dest_rel: str) -> str:
+        src = vm_dir / src_rel
+        if not src.exists():
+            raise FileNotFoundError(f"Missing build input: {src}")
+        return f"--add-data={src}{sep}{dest_rel}"
     
     # Build PyInstaller command with clean, minimal imports
     cmd = [
@@ -54,13 +61,13 @@ def build_exe():
         "--clean",  # Clean PyInstaller cache before building
         
         # Data files (IMPORTANT: secure_data is NOT bundled - it stays separate for data persistence)
-        f"--add-data=NOC-configMaker.html{sep}.",
-        f"--add-data=login.html{sep}.",
-        f"--add-data=change-password.html{sep}.",
+        data_arg("NOC-configMaker.html", "."),
+        data_arg("login.html", "."),
+        data_arg("change-password.html", "."),
         f"--add-data=config_policies{sep}config_policies",
-        f"--add-data=nextlink_standards.py{sep}.",
-        f"--add-data=nextlink_enterprise_reference.py{sep}.",
-        f"--add-data=nextlink_compliance_reference.py{sep}.",
+        data_arg("nextlink_standards.py", "."),
+        data_arg("nextlink_enterprise_reference.py", "."),
+        data_arg("nextlink_compliance_reference.py", "."),
         # NOTE: secure_data/ folder is intentionally NOT included here
         # This ensures SQLite databases persist across EXE updates
         
@@ -98,7 +105,7 @@ def build_exe():
         "--collect-all=werkzeug",
         
         # Entry point
-        "launcher.py"
+        str(vm_dir / "launcher.py")
     ]
     
     print("Building executable...")
@@ -146,4 +153,3 @@ def build_exe():
 
 if __name__ == '__main__':
     build_exe()
-
