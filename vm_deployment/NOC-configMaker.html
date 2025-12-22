@@ -4837,11 +4837,6 @@
             console.log('[API] 🌐 PRODUCTION/VM MODE - Using origin:', API_BASE);
         }
 
-        // VM convenience: if UI is served on :8000 without a reverse-proxy, use backend on :5000.
-        if (!isLocalDev && window.location.port === '8000') {
-            API_BASE = `${window.location.protocol}//${window.location.hostname}:5000`;
-        }
-
         window.AI_API_BASE = `${API_BASE}/api`;
         const AI_API_BASE = window.AI_API_BASE; // Local alias for backward compatibility
 

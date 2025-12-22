@@ -2,14 +2,17 @@ services:
   backend:
     build: .
     environment:
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-netops@team.nxlink.com}
+      JWT_SECRET: ${JWT_SECRET:-}
+      DEFAULT_PASSWORD: ${DEFAULT_PASSWORD:-NOCConfig2025!}
       AI_PROVIDER: ${AI_PROVIDER:-ollama}
       OLLAMA_API_URL: ${OLLAMA_API_URL:-http://ollama:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-phi3:mini}
       NEXTLINK_DNS_PRIMARY: ${NEXTLINK_DNS_PRIMARY:-142.147.112.3}
       NEXTLINK_DNS_SECONDARY: ${NEXTLINK_DNS_SECONDARY:-142.147.112.19}
       NEXTLINK_RADIUS_SECRET: ${NEXTLINK_RADIUS_SECRET:-CHANGE_ME_RADIUS_SECRET}
-    ports:
-      - "5000:5000"
+      NEXTLINK_SSH_USERNAME: ${NEXTLINK_SSH_USERNAME:-}
+      NEXTLINK_SSH_PASSWORD: ${NEXTLINK_SSH_PASSWORD:-}
     volumes:
       - ./secure_data:/app/secure_data
 
