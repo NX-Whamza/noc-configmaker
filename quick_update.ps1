@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Quick Update Script - Deploy only changed files to VM
+# Quick Update Script - Deploy key files to VM
 # Usage: .\quick_update.ps1
 
 $VM_IP = "192.168.11.118"
@@ -11,52 +11,61 @@ Write-Host "NOC Config Maker - Quick Update" -ForegroundColor Cyan
 Write-Host "================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Step 1: Copy files to vm_deployment folder
-Write-Host "[1/3] Copying files to vm_deployment..." -ForegroundColor Yellow
-Copy-Item -Path "api_server.py" -Destination "vm_deployment\api_server.py" -Force
-Copy-Item -Path "NOC-configMaker.html" -Destination "vm_deployment\NOC-configMaker.html" -Force
-Write-Host "✓ Files copied to vm_deployment" -ForegroundColor Green
+# IMPORTANT:
+# - Source of truth for the VM is `vm_deployment/`
+# - Repo root `api_server.py` is a compatibility shim for local dev; don't deploy it to the VM
 
-# Step 2: SCP files to VM
-Write-Host ""
-Write-Host "[2/3] Uploading to VM ($VM_IP)..." -ForegroundColor Yellow
-Write-Host "Uploading api_server.py..." -ForegroundColor Gray
-scp vm_deployment/api_server.py ${VM_USER}@${VM_IP}:${VM_PATH}/
+Write-Host "[1/2] Uploading files to VM ($VM_IP)..." -ForegroundColor Yellow
 
-Write-Host "Uploading NOC-configMaker.html..." -ForegroundColor Gray
-scp vm_deployment/NOC-configMaker.html ${VM_USER}@${VM_IP}:${VM_PATH}/
+$uploads = @(
+    @{ Local = "vm_deployment/api_server.py"; Remote = "$VM_PATH/api_server.py" },
+    @{ Local = "vm_deployment/NOC-configMaker.html"; Remote = "$VM_PATH/NOC-configMaker.html" },
+    @{ Local = "vm_deployment/login.html"; Remote = "$VM_PATH/login.html" },
+    @{ Local = "vm_deployment/change-password.html"; Remote = "$VM_PATH/change-password.html" },
+    @{ Local = "vm_deployment/nextlink_standards.py"; Remote = "$VM_PATH/nextlink_standards.py" },
+    @{ Local = "vm_deployment/nextlink_enterprise_reference.py"; Remote = "$VM_PATH/nextlink_enterprise_reference.py" },
+    @{ Local = "vm_deployment/nextlink_compliance_reference.py"; Remote = "$VM_PATH/nextlink_compliance_reference.py" },
+    @{ Local = "requirements.txt"; Remote = "$VM_PATH/requirements.txt" }
+)
 
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "✓ Files uploaded successfully" -ForegroundColor Green
-} else {
-    Write-Host "✗ Upload failed - Check VM path and credentials" -ForegroundColor Red
-    Write-Host ""
-    Write-Host "Troubleshooting:" -ForegroundColor Yellow
-    Write-Host "1. Verify VM path exists: ssh ${VM_USER}@${VM_IP} 'ls -la ${VM_PATH}'" -ForegroundColor Gray
-    Write-Host "2. If path doesn't exist, update VM_PATH variable in this script" -ForegroundColor Gray
+foreach ($u in $uploads) {
+    if (-not (Test-Path $u.Local)) {
+        Write-Host "[WARN] Missing local file: $($u.Local)" -ForegroundColor Yellow
+        continue
+    }
+    Write-Host "Uploading $($u.Local) -> $($u.Remote)" -ForegroundColor Gray
+    scp $u.Local "$VM_USER@$VM_IP:$($u.Remote)"
+    if ($LASTEXITCODE -ne 0) { break }
+}
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERROR] Upload failed - Check VM path and credentials" -ForegroundColor Red
+    Write-Host "Verify path: ssh $VM_USER@$VM_IP 'ls -la $VM_PATH'" -ForegroundColor Gray
     exit 1
 }
 
-# Step 3: Restart service on VM
+Write-Host "[OK] Upload complete" -ForegroundColor Green
+
 Write-Host ""
-Write-Host "[3/3] Restarting service on VM..." -ForegroundColor Yellow
-ssh ${VM_USER}@${VM_IP} "cd ${VM_PATH} && sudo systemctl restart noc-configmaker || (pkill -f api_server.py; nohup python3 api_server.py > nohup.out 2>&1 &)"
+Write-Host "[2/2] Restarting service on VM..." -ForegroundColor Yellow
+ssh "$VM_USER@$VM_IP" "cd $VM_PATH && sudo systemctl restart noc-configmaker || (pkill -f api_server.py; nohup python3 api_server.py > nohup.out 2>&1 &)"
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "✓ Service restarted" -ForegroundColor Green
+    Write-Host "[OK] Service restarted" -ForegroundColor Green
 } else {
-    Write-Host "⚠ Could not restart service automatically" -ForegroundColor Yellow
-    Write-Host "Manual restart command:" -ForegroundColor Gray
-    Write-Host "  ssh ${VM_USER}@${VM_IP}" -ForegroundColor Gray
-    Write-Host "  cd ${VM_PATH}" -ForegroundColor Gray
+    Write-Host "[WARN] Could not restart service automatically" -ForegroundColor Yellow
+    Write-Host "Manual restart:" -ForegroundColor Gray
+    Write-Host "  ssh $VM_USER@$VM_IP" -ForegroundColor Gray
+    Write-Host "  cd $VM_PATH" -ForegroundColor Gray
     Write-Host "  sudo systemctl restart noc-configmaker" -ForegroundColor Gray
 }
 
 Write-Host ""
 Write-Host "================================" -ForegroundColor Cyan
-Write-Host "✅ Update Complete!" -ForegroundColor Green
+Write-Host "Update Complete" -ForegroundColor Green
 Write-Host "================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Test the changes:" -ForegroundColor Yellow
-Write-Host "  http://${VM_IP}:5000/app" -ForegroundColor Cyan
+Write-Host "Test:" -ForegroundColor Yellow
+Write-Host "  http://$VM_IP:5000/api/health" -ForegroundColor Cyan
+Write-Host "  http://$VM_IP:8000/NOC-configMaker.html" -ForegroundColor Cyan
 Write-Host ""
