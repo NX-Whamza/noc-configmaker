@@ -9,23 +9,20 @@
 
 ## ✅ Final Fixes Applied
 
-### 1. Email Feedback System (FIXED)
-**Problem**: Email sending was commented out, feedback submissions weren't being received.
+### 1. Feedback System (UPDATED)
+**Problem**: Feedback handling needed to be consistent and secure for VM deployment.
 
 **Solution**:
-- ✅ Uncommented SMTP code in `api_server.py`
-- ✅ Added environment variable configuration
-- ✅ Reads SMTP credentials from `.env` file
-- ✅ Falls back to file logging if SMTP not configured
-- ✅ Clear console messages about email status
-- ✅ Template provided: `ENV_TEMPLATE.txt`
+- Feedback is stored locally in `secure_data/feedback.db`
+- Admin review via the **ADMIN** panel (controlled by `ADMIN_EMAILS`)
+- `.env` template provided: `ENV_TEMPLATE.txt`
 
 **Test**:
 ```bash
-# 1. Create .env file with SMTP credentials
+# 1. (Optional) Set ADMIN_EMAILS in .env
 # 2. Submit feedback via UI
-# 3. Check console for "[EMAIL] Successfully sent feedback email"
-# 4. Check secure_data/feedback_log.txt for backup
+# 3. Log in as an admin user
+# 4. Confirm feedback appears in the Admin panel
 ```
 
 ---
@@ -50,7 +47,7 @@
 ---
 
 ### 3. Security Best Practices (IMPLEMENTED)
-**Problem**: Hardcoded API keys, SMTP credentials, and secrets in code.
+**Problem**: Hardcoded API keys and secrets in code.
 
 **Solution**:
 - ✅ All secrets moved to environment variables
@@ -67,13 +64,13 @@ AI_PROVIDER=ollama
 OLLAMA_API_URL=http://localhost:11434
 OPENAI_API_KEY=sk-...
 
-# Email Configuration
-SMTP_SERVER=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USERNAME=your-email@company.com
-SMTP_PASSWORD=your-app-password
-FEEDBACK_TO_EMAIL=whamza@team.nxlink.com
-FEEDBACK_CC_EMAIL=agibson@team.nxlink.com
+# Admin / Auth
+ADMIN_EMAILS=netops@team.nxlink.com
+# JWT_SECRET=your-secret-here
+
+# SSH defaults (optional; can also be entered in the UI)
+# NEXTLINK_SSH_USERNAME=
+# NEXTLINK_SSH_PASSWORD=
 ```
 
 ---
@@ -148,24 +145,24 @@ TEST_EXE_STARTUP.bat                   # Startup testing script
 - [ ] VM provisioned (2 vCPUs, 4 GB RAM, 20 GB disk)
 - [ ] DNS name assigned (e.g., `config.nxlink.com`)
 - [ ] Firewall ports opened (5000, 8000)
-- [ ] SMTP credentials obtained (for feedback emails)
+- [ ] Admin emails identified (for `ADMIN_EMAILS`)
 
 ### Deployment Steps
 1. [ ] Copy `NOC-ConfigMaker.exe` to VM (e.g., `C:\NOC\`)
 2. [ ] Create `.env` file from `ENV_TEMPLATE.txt`
-3. [ ] Fill in SMTP credentials in `.env`
+3. [ ] (Optional) Set `ADMIN_EMAILS` in `.env`
 4. [ ] Test manual start: Double-click `NOC-ConfigMaker.exe`
 5. [ ] Verify backend starts (console shows "✓ READY")
 6. [ ] Test access from network: `http://vm-ip:8000`
 7. [ ] Install as Windows Service (NSSM)
 8. [ ] Configure reverse proxy (IIS/Nginx) for clean URL
 9. [ ] Update DNS to point to VM
-10. [ ] Test feedback submission (should receive email)
+10. [ ] Test feedback submission (appears in Admin panel)
 
 ### Post-Deployment Validation
 - [ ] Generate Tower Config → Check activity feed updates
 - [ ] Generate Enterprise Config → Check metrics increment
-- [ ] Submit feedback → Check email received
+- [ ] Submit feedback → Check Admin panel shows it
 - [ ] Restart VM → Verify service auto-starts
 - [ ] Access from multiple users → Check live activity
 - [ ] Test all 7 config generators → Verify functionality
@@ -178,43 +175,25 @@ TEST_EXE_STARTUP.bat                   # Startup testing script
 On the VM, in the same directory as `NOC-ConfigMaker.exe`, create a file named `.env`:
 
 ```env
-# Email Configuration (for Feedback)
-SMTP_SERVER=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USERNAME=noc-alerts@nxlink.com
-SMTP_PASSWORD=your-app-password-here
-FEEDBACK_TO_EMAIL=whamza@team.nxlink.com
-FEEDBACK_CC_EMAIL=agibson@team.nxlink.com
-FEEDBACK_FROM_EMAIL=noc-config@nxlink.com
+# Admin / Auth
+ADMIN_EMAILS=netops@team.nxlink.com
+# JWT_SECRET=your-secret-here
 
 # AI Configuration (optional)
 AI_PROVIDER=ollama
 OLLAMA_API_URL=http://localhost:11434
 ```
 
-### Step 2: Verify Configuration
-Start the exe and check console output:
-```
-[EMAIL] SMTP configured - feedback emails will be sent
-```
-
-If you see:
-```
-[EMAIL] SMTP not configured - feedback logged to file only
-```
-Then the `.env` file wasn't loaded or credentials are missing.
-
 ---
 
 ## 🧪 Testing Scenarios
 
-### Scenario 1: Email Feedback
+### Scenario 1: Feedback Submission
 1. Open UI: `http://localhost:8000`
 2. Click **Feedback** button
 3. Fill out form (any type)
 4. Submit
-5. **Expected**: Email received at whamza@team.nxlink.com
-6. **Fallback**: Check `secure_data/feedback_log.txt`
+5. **Expected**: Feedback appears in the **ADMIN** panel (for admin users)
 
 ### Scenario 2: Live Tracking
 1. Open dashboard (Home tab)
@@ -264,7 +243,7 @@ Then the `.env` file wasn't loaded or credentials are missing.
 ## 📞 Support Contacts
 
 **Developer**: Walihlah Hamza  
-**Email**: whamza@team.nxlink.com  
+**Email**: netops@team.nxlink.com  
 
 **NOC Team**: Aaron Gibson  
 **Email**: agibson@team.nxlink.com
@@ -286,7 +265,7 @@ All critical issues resolved. Tool is safe for company VM deployment. No breakin
 ### Core Features Verification
 
 #### Authentication & User Management
-- ✅ Email/Password login (whamza@team.nxlink.com)
+- ✅ Email/Password login (netops@team.nxlink.com)
 - ✅ Microsoft SSO (placeholder - requires Azure AD setup)
 - ✅ Password change on first login
 - ✅ Session management with JWT tokens
@@ -331,7 +310,7 @@ All critical issues resolved. Tool is safe for company VM deployment. No breakin
 ### Testing Scenarios
 
 #### Local Testing
-- [ ] Login with whamza@team.nxlink.com
+- [ ] Login with netops@team.nxlink.com
 - [ ] Admin button appears and stays visible
 - [ ] Admin panel loads feedback
 - [ ] All 7 config generators work

@@ -1,8 +1,8 @@
 # NOC Config Maker - Build & Deploy Script
 # Combines package creation and VM transfer into a single workflow.
 
-$vmUser = "whamza"
-$vmIP = "192.168.11.118"
+$vmUser = if ($env:NOC_VM_USER) { $env:NOC_VM_USER } else { "CHANGE_ME" }
+$vmIP = if ($env:NOC_VM_IP) { $env:NOC_VM_IP } else { "CHANGE_ME" }
 $vmPath = "/home/$vmUser"
 $sshKeyPath = "$env:USERPROFILE\.ssh\id_rsa_noc_vm"
 $sshTarget = "{0}@{1}" -f $vmUser, $vmIP
@@ -72,12 +72,14 @@ foreach ($item in $includeItems) {
 }
 
 $envTemplate = @'
-SMTP_SERVER=smtp.office365.com
-SMTP_PORT=587
-SMTP_USERNAME=whamza@team.nxlink.com
-SMTP_PASSWORD=your-app-password-here
-FEEDBACK_FROM_EMAIL=whamza@team.nxlink.com
-FEEDBACK_TO_EMAIL=whamza@team.nxlink.com
+# Copy to .env (optional). SMTP/email is not used.
+ADMIN_EMAILS=netops@team.nxlink.com
+# JWT_SECRET=your-secret-here
+# AI_PROVIDER=ollama
+# OLLAMA_API_URL=http://127.0.0.1:11434
+# OLLAMA_MODEL=llama3.1:8b
+# NEXTLINK_SSH_USERNAME=
+# NEXTLINK_SSH_PASSWORD=
 '@
 $envTemplate | Out-File -FilePath (Join-Path $tempDir ".env.template") -Encoding UTF8
 

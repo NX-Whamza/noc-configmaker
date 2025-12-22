@@ -289,10 +289,9 @@ This document tracks all updates, improvements, and fixes to the NOC Config Make
 **Build Size**: 85.49 MB
 
 **CRITICAL FIXES FOR COMPANY DEPLOYMENT**:
-- ✅ **Email Feedback System**: Uncommented and fully functional with SMTP env vars
-  - Reads from `.env` file for SMTP credentials
-  - Falls back to file logging if SMTP not configured
-  - Clear console messages about email status
+- ✅ **Feedback System**: Stored locally and visible in the Admin panel
+  - Uses `secure_data/feedback.db`
+  - Controlled by `ADMIN_EMAILS`
   - Template provided: `ENV_TEMPLATE.txt`
   
 - ✅ **Live Progress Tracking**: Fixed auto-refresh (30-second interval)
@@ -304,7 +303,6 @@ This document tracks all updates, improvements, and fixes to the NOC Config Make
 - ✅ **Security Best Practices**:
   - All secrets moved to environment variables (`.env` file)
   - No hardcoded API keys or passwords
-  - SMTP credentials externalized
   - `ENV_TEMPLATE.txt` provided for easy setup
   - Safe for VM deployment (no secret exposure)
   
@@ -477,8 +475,8 @@ The frontend and backend were calling different endpoints! Fixed:
   - Tracks: username, activity_type, device, site_name, routeros_version, success, timestamp
 - **Completed Configs**: `secure_data/completed_configs.db`
   - Stores: Full config with metadata (device, type, customer, loopback, etc.)
-- **Feedback Log**: `secure_data/feedback_log.txt`
-  - All feedback submissions with timestamps
+- **Feedback**: `secure_data/feedback.db`
+  - All feedback submissions with timestamps and status
 
 #### 4. What You'll See
 - **Home Dashboard Live Feed**: Shows real-time activities from all users
@@ -528,8 +526,7 @@ The frontend and backend were calling different endpoints! Fixed:
 - **Modal Form**: Click "FEEDBACK" button in header
 - **Three Types**: Feedback, Feature Request, Bug Report
 - **Form Fields**: Subject, Category, Experience Rating, Details, Name (optional)
-- **Email Integration**: Sends to whamza@team.nxlink.com (CC: agibson@team.nxlink.com)
-- **Backend Logging**: All feedback saved to `secure_data/feedback_log.txt`
+- **Backend Storage**: Feedback is stored locally and visible in the Admin panel
 - **User-Friendly**: Clean form with validation and success message
 
 #### 3. Live Activity Feed
@@ -1254,4 +1251,3 @@ For issues or questions:
 2. Review `README.md` for general documentation
 3. Check `README_EXE.md` for executable-specific issues
 4. Review console output for specific errors
-

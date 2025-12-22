@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [('vm_deployment/NOC-configMaker.html', '.'), ('vm_deployment/login.html', '.'), ('vm_deployment/change-password.html', '.'), ('config_policies', 'config_policies'), ('vm_deployment/nextlink_standards.py', '.'), ('vm_deployment/nextlink_enterprise_reference.py', '.'), ('vm_deployment/nextlink_compliance_reference.py', '.')]
 binaries = []
-hiddenimports = ['flask', 'flask_cors', 'werkzeug', 'werkzeug.serving', 'requests', 'sqlite3', 'smtplib', 'email', 'email.mime', 'email.mime.text', 'email.mime.multipart', 'api_server', 'nextlink_standards', 'nextlink_enterprise_reference', 'nextlink_compliance_reference', 'hashlib', 'secrets', 'base64', 'json', 'jwt', 'jwt.algorithms']
+hiddenimports = ['flask', 'flask_cors', 'werkzeug', 'werkzeug.serving', 'requests', 'sqlite3', 'dotenv', 'api_server', 'nextlink_standards', 'nextlink_enterprise_reference', 'nextlink_compliance_reference', 'hashlib', 'secrets', 'base64', 'json', 'jwt', 'jwt.algorithms']
 tmp_ret = collect_all('flask')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('werkzeug')

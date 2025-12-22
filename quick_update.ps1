@@ -1,10 +1,17 @@
 #!/usr/bin/env pwsh
 # Quick Update Script - Deploy key files to VM
-# Usage: .\quick_update.ps1
+# Usage:
+#   $env:NOC_VM_IP="x.x.x.x"; $env:NOC_VM_USER="ubuntu"; $env:NOC_VM_PATH="/home/ubuntu/vm_deployment"; .\\quick_update.ps1
 
-$VM_IP = "192.168.11.118"
-$VM_USER = "whamza"
-$VM_PATH = "/home/whamza/noc-configmaker"  # Adjust this path if needed
+param(
+    [string]$VM_IP = $env:NOC_VM_IP,
+    [string]$VM_USER = $env:NOC_VM_USER,
+    [string]$VM_PATH = $env:NOC_VM_PATH
+)
+
+if (-not $VM_IP) { throw "Set NOC_VM_IP (or pass -VM_IP)" }
+if (-not $VM_USER) { throw "Set NOC_VM_USER (or pass -VM_USER)" }
+if (-not $VM_PATH) { $VM_PATH = "/home/$VM_USER/vm_deployment" }
 
 Write-Host "================================" -ForegroundColor Cyan
 Write-Host "NOC Config Maker - Quick Update" -ForegroundColor Cyan

@@ -573,15 +573,15 @@ add name=CALLCENTER-WRITE policy=local,telnet,ssh,read,write,test,winbox,sniff,!
 ```routeros
 /user
 add name=root password=CHANGE_ME group=full
-add name=deployment password=oSq!Ul@NAqhc9SL3 group=full
-add name=infra password=q!5*nyMmRvcR*2pa group=full
-add name=ido password=HkMya&yNz@R1gBF& group=full
-add name=sts password=SMYCiam29#pT15hc group=full
-add name=eng password=o5zAt#F0rCHY3%wx group=full
-add name=noc password=FQswz1#k3IWC^XNI group=full
-add name=comeng password=0p0NZdVeTinQ5O@1 group=full
-add name=devops password=iAzvQqe2S#5V4nta group=full
-add name=acq password=d3GYwL!Ci2Nlz4s! group=full
+add name=deployment password=CHANGE_ME group=full
+add name=infra password=CHANGE_ME group=full
+add name=ido password=CHANGE_ME group=full
+add name=sts password=CHANGE_ME group=full
+add name=eng password=CHANGE_ME group=full
+add name=noc password=CHANGE_ME group=full
+add name=comeng password=CHANGE_ME group=full
+add name=devops password=CHANGE_ME group=full
+add name=acq password=CHANGE_ME group=full
 ```
 
 ---

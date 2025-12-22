@@ -249,7 +249,7 @@ See [Deployment Guide](#-deployment) below for complete VM setup instructions.
 #### Essential Security Practices:
 - **Change default password** on first login
 - **Use strong passwords** (minimum 12 characters)
-- **Enable SMTP** for feedback notifications
+- **Review feedback** in the **ADMIN** panel (admin users only)
 - **Review firewall rules** in generated configs
 - **Verify SNMP community strings** are updated
 - **Check shared keys** for VPLS/MPLS tunnels
@@ -591,15 +591,14 @@ tar -xzf noc-configmaker-vm-*.tar.gz
 
 **4. Configure Environment**
 ```bash
-# Create .env file
+# Create .env file (optional)
 cat > .env << EOF
-SMTP_SERVER=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USERNAME=your-email@company.com
-SMTP_PASSWORD=your-app-password
-FEEDBACK_TO_EMAIL=whamza@team.nxlink.com
+ADMIN_EMAILS=netops@team.nxlink.com
 AI_PROVIDER=ollama
 OLLAMA_API_URL=http://localhost:11434
+# OLLAMA_MODEL=llama3.1:8b
+# NEXTLINK_SSH_USERNAME=
+# NEXTLINK_SSH_PASSWORD=
 EOF
 ```
 
@@ -697,20 +696,19 @@ curl http://localhost:5000/api/health
    - 🐛 **Bug Report**: Something isn't working
    - ✨ **Feature Request**: New functionality ideas
 3. Fill out form with details
-4. Submit (automatically emails NOC team if SMTP configured)
+4. Submit (stored in local database; admins can review in the **ADMIN** panel)
 
 ### Contact
 
-- **Developer**: Walihlah Hamza ([whamza@team.nxlink.com](mailto:whamza@team.nxlink.com))
-- **NOC Team**: [agibson@team.nxlink.com](mailto:agibson@team.nxlink.com)
+- **NOC Team**: [netops@team.nxlink.com](mailto:netops@team.nxlink.com)
 
 ### Common Issues
 
 **Issue**: Can't login  
 **Solution**: Default password is `NOCConfig2025!` (not `NOCConfig2024!`)
 
-**Issue**: Feedback not sending emails  
-**Solution**: Check SMTP configuration in `.env` file
+**Issue**: Can’t access Admin panel  
+**Solution**: Ensure your email is in `ADMIN_EMAILS` and you are logged in
 
 **Issue**: AI validation not working  
 **Solution**: Verify Ollama is running or OpenAI API key is set

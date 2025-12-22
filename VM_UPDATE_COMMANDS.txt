@@ -6,18 +6,18 @@ Copy-Item -Path "api_server.py" -Destination "vm_deployment\api_server.py" -Forc
 Copy-Item -Path "NOC-configMaker.html" -Destination "vm_deployment\NOC-configMaker.html" -Force
 
 # Step 2: Upload to VM (run on local machine)
-scp vm_deployment/api_server.py whamza@192.168.11.118:/home/whamza/noc-configmaker/
-scp vm_deployment/NOC-configMaker.html whamza@192.168.11.118:/home/whamza/noc-configmaker/
+scp vm_deployment/api_server.py <user>@<vm-ip>:~/vm_deployment/
+scp vm_deployment/NOC-configMaker.html <user>@<vm-ip>:~/vm_deployment/
 
 # Step 3: Restart service on VM (run on local machine, will prompt for sudo password)
-ssh whamza@192.168.11.118 "cd /home/whamza/noc-configmaker && sudo systemctl restart noc-configmaker"
+ssh <user>@<vm-ip> "cd ~/vm_deployment && sudo systemctl restart noc-configmaker"
 
 # Alternative if systemctl doesn't work - manual restart:
-# ssh whamza@192.168.11.118
-# cd /home/whamza/noc-configmaker
+# ssh <user>@<vm-ip>
+# cd ~/vm_deployment
 # sudo pkill -f api_server.py
 # nohup python3 api_server.py > nohup.out 2>&1 &
 # exit
 
 # Step 4: Test the update
-# Open browser: http://192.168.11.118:5000/app
+# Open browser: http://<vm-ip>:5000/app

@@ -1,21 +1,26 @@
-# NOC Config Maker - Email Configuration
-# Copy this file to .env and fill in your credentials
+# NOC Config Maker - Environment Template
+# Copy this file to `.env` (optional) or set these as system environment variables.
+# SMTP/email is no longer used; feedback is stored in the local database and managed via the Admin panel.
 
-# SMTP Server Settings
-SMTP_SERVER=smtp.office365.com
-SMTP_PORT=587
-
-# Email Credentials
-SMTP_USERNAME=whamza@team.nxlink.com
-SMTP_PASSWORD=your-app-password-here
-
-# Email Addresses
-FEEDBACK_FROM_EMAIL=whamza@team.nxlink.com
-FEEDBACK_TO_EMAIL=whamza@team.nxlink.com
-FEEDBACK_CC_EMAIL=
-
-# Optional: OpenAI API Key (if using OpenAI instead of Ollama)
-# OPENAI_API_KEY=your-key-here
-
-# Optional: JWT Secret (auto-generated if not set)
+# Admin / Auth
+ADMIN_EMAILS=netops@team.nxlink.com
 # JWT_SECRET=your-secret-here
+# DEFAULT_PASSWORD=CHANGE_ME
+
+# AI Provider (optional)
+# AI_PROVIDER=ollama            # ollama | openai | azure
+# OLLAMA_API_URL=http://127.0.0.1:11434
+# OLLAMA_MODEL=llama3.1:8b
+# OPENAI_API_KEY=your-key-here
+# OPENAI_COMPAT_MODEL=gpt-4o-mini
+# AZURE_TENANT_ID=your-tenant-id
+# AZURE_CLIENT_ID=your-client-id
+# AZURE_CLIENT_SECRET=your-client-secret
+
+# RouterOS config defaults (optional)
+# NEXTLINK_DNS_PRIMARY=1.1.1.1
+# NEXTLINK_DNS_SECONDARY=8.8.8.8
+
+# SSH fetch defaults (optional; can also be entered in the UI)
+# NEXTLINK_SSH_USERNAME=
+# NEXTLINK_SSH_PASSWORD=

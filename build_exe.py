@@ -78,11 +78,8 @@ def build_exe():
         "--hidden-import=werkzeug.serving",
         "--hidden-import=requests",
         "--hidden-import=sqlite3",
-        "--hidden-import=smtplib",
-        "--hidden-import=email",
-        "--hidden-import=email.mime",
-        "--hidden-import=email.mime.text",
-        "--hidden-import=email.mime.multipart",
+        "--hidden-import=dotenv",
+        # SMTP/email is no longer used (feedback is stored locally)
         
         # Our modules (unified backend structure)
         "--hidden-import=api_server",

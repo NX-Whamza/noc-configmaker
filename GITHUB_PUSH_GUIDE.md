@@ -62,7 +62,7 @@ git push origin main
 
 **Step 1: Generate SSH Key**
 ```powershell
-ssh-keygen -t ed25519 -C "whamza@team.nxlink.com"
+ssh-keygen -t ed25519 -C "your.name@team.nxlink.com"
 # Press Enter to accept default location
 # Enter passphrase (optional but recommended)
 ```

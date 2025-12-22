@@ -24,6 +24,12 @@ from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask import make_response, abort
 from flask_cors import CORS
 import os
+try:
+    from dotenv import load_dotenv
+    if load_dotenv():
+        print("[ENV] Loaded .env")
+except Exception:
+    pass
 import re
 import ipaddress
 import json
@@ -1193,8 +1199,8 @@ CORS(app)  # Enable CORS for local HTML file access
 def serve_ui():
     # Try to find HTML file in multiple locations
     possible_paths = [
-        Path("/home/whamza/vm_deployment/NOC-configMaker.html"),
-        Path("NOC-configMaker.html"),
+        Path.cwd() / "NOC-configMaker.html",
+        Path.cwd() / "vm_deployment" / "NOC-configMaker.html",
         Path(__file__).parent / "NOC-configMaker.html",
     ]
     
@@ -1211,8 +1217,8 @@ def serve_ui():
 def serve_login():
     # Try to find login.html in multiple locations
     possible_paths = [
-        Path("/home/whamza/vm_deployment/login.html"),
-        Path("login.html"),
+        Path.cwd() / "login.html",
+        Path.cwd() / "vm_deployment" / "login.html",
         Path(__file__).parent / "login.html",
     ]
     
@@ -1229,8 +1235,8 @@ def serve_login():
 def serve_change_password():
     # Try to find change-password.html in multiple locations
     possible_paths = [
-        Path("/home/whamza/vm_deployment/change-password.html"),
-        Path("change-password.html"),
+        Path.cwd() / "change-password.html",
+        Path.cwd() / "vm_deployment" / "change-password.html",
         Path(__file__).parent / "change-password.html",
     ]
     
@@ -1246,8 +1252,8 @@ def serve_change_password():
 def serve_static(filename):
     # Try multiple locations for static files
     possible_dirs = [
-        Path("/home/whamza/vm_deployment/static"),
-        Path("static"),
+        Path.cwd() / "static",
+        Path.cwd() / "vm_deployment" / "static",
         Path(__file__).parent / "static",
     ]
     
@@ -6861,7 +6867,7 @@ def is_admin_user():
             user_email = decoded.get('email', '').lower()
             
             # Admin emails (can be set via environment variable or use default)
-            admin_emails = os.getenv('ADMIN_EMAILS', 'whamza@team.nxlink.com').lower().split(',')
+            admin_emails = os.getenv('ADMIN_EMAILS', 'netops@team.nxlink.com').lower().split(',')
             admin_emails = [e.strip() for e in admin_emails]
             
             return user_email in admin_emails
@@ -7311,7 +7317,7 @@ def auth_login():
         if not validate_email_domain(email):
             return jsonify({
                 'success': False, 
-                'error': 'Only @team.nxlink.com email addresses are allowed. Please use your company email (e.g., whamza@team.nxlink.com)'
+                'error': 'Only @team.nxlink.com email addresses are allowed. Please use your company email (e.g., netops@team.nxlink.com)'
             }), 403
         
         init_users_db()

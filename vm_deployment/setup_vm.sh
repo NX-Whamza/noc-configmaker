@@ -3,11 +3,11 @@
 # This script sets up the NOC Config Maker on Ubuntu 24.04
 # 
 # USAGE:
-#   1. Transfer files to VM: scp -r vm_deployment/* whamza@192.168.11.118:~/
-#   2. SSH into VM: ssh whamza@192.168.11.118
+#   1. Transfer files to VM: scp -r vm_deployment/* <user>@<vm-ip>:~/vm_deployment/
+#   2. SSH into VM: ssh <user>@<vm-ip>
 #   3. Run: cd ~/vm_deployment && bash setup_vm.sh
 #   4. Start: sudo systemctl start noc-configmaker
-#   5. Access: http://192.168.11.118:5000/NOC-configMaker.html
+#   5. Access: http://<vm-ip>:5000/NOC-configMaker.html
 
 set -e  # Exit on error
 
@@ -90,18 +90,19 @@ python3 -c "import flask; import paramiko; import requests; print('✓ Core pack
 
 echo -e "${GREEN}[4/7]${NC} Setting up configuration..."
 
-# Create .env file with email credentials
+# Create .env file (optional; loaded automatically if present)
 if [ ! -f ".env" ]; then
-    echo -e "${GREEN}✓${NC} Creating .env file with email configuration..."
+    echo -e "${GREEN}✓${NC} Creating .env file..."
     cat > .env << EOF
-SMTP_SERVER=smtp.office365.com
-SMTP_PORT=587
-SMTP_USERNAME=whamza@team.nxlink.com
-SMTP_PASSWORD=your-app-password-here
-FEEDBACK_FROM_EMAIL=whamza@team.nxlink.com
-FEEDBACK_TO_EMAIL=whamza@team.nxlink.com
+ADMIN_EMAILS=netops@team.nxlink.com
+# JWT_SECRET=your-secret-here
+# AI_PROVIDER=ollama
+# OLLAMA_API_URL=http://127.0.0.1:11434
+# OLLAMA_MODEL=llama3.1:8b
+# NEXTLINK_SSH_USERNAME=
+# NEXTLINK_SSH_PASSWORD=
 EOF
-    echo -e "${GREEN}✓${NC} .env file created with email credentials"
+    echo -e "${GREEN}✓${NC} .env file created"
 else
     echo -e "${GREEN}✓${NC} .env file already exists"
 fi
@@ -128,7 +129,7 @@ ABS_PATH=$(pwd)
 USER_NAME=$(whoami)
 
 # Update service file with correct paths
-sed "s|/home/whamza/noc-configmaker|$ABS_PATH|g; s|User=whamza|User=$USER_NAME|g" noc-configmaker.service > /tmp/noc-configmaker.service
+sed "s|__INSTALL_DIR__|$ABS_PATH|g; s|__SERVICE_USER__|$USER_NAME|g" noc-configmaker.service > /tmp/noc-configmaker.service
 
 # Copy service file
 sudo cp /tmp/noc-configmaker.service /etc/systemd/system/noc-configmaker.service

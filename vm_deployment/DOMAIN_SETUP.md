@@ -6,7 +6,7 @@ Your domain is pointing to your VM! Now we need to configure Nginx to serve your
 
 **SSH into your VM:**
 ```bash
-ssh whamza@192.168.11.118
+ssh <user>@<vm-ip>
 ```
 
 **Navigate to the deployment directory:**

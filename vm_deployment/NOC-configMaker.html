@@ -4108,7 +4108,7 @@
                             style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 15px; margin-bottom: 15px;">
                             <div>
                                 <label for="logUserFilter">Filter by User:</label>
-                                <input type="text" id="logUserFilter" placeholder="e.g., whamza"
+                                <input type="text" id="logUserFilter" placeholder="e.g., user"
                                     style="width: 100%; padding: 10px;">
                             </div>
                             <div>
@@ -5933,18 +5933,18 @@
                 config += `/tool sniffer set file-limit=10000KiB\n\n`;
 
                 // Users (from example)
-                config += `/user set [find name=admin] password="xGA9KDm9o9"\n`;
+                config += `/user set [find name=admin] password="CHANGE_ME"\n`;
                 config += `/user aaa set use-radius=yes\n`;
                 config += `/user add name="root" password="CHANGE_ME" group=full\n`;
-                config += `/user add name="deployment" password="oSq!Ul@NAqhc9SL3" group=full\n`;
-                config += `/user add name="infra" password="q!5*nyMmRvcR*2pa" group=full\n`;
-                config += `/user add name="ido" password="HkMya&yNz@R1gBF&" group=full\n`;
-                config += `/user add name="sts" password="f%vm2$EU^489944b" group=full\n`;
-                config += `/user add name="eng" password="o5zAt#F0rCHY3%wx" group=full\n`;
-                config += `/user add name="noc" password="FQswz1#k3IWC^XNI" group=full\n`;
-                config += `/user add name="devops" password="iAzvQqe2S#5V4nta" group=full\n`;
-                config += `/user add name="comeng" password="0p0NZdVeTinQ5O@1" group=full\n`;
-                config += `/user add name="acq" password="d3GYwL!Ci2Nlz4s!" group=full\n`;
+                config += `/user add name="deployment" password="CHANGE_ME" group=full\n`;
+                config += `/user add name="infra" password="CHANGE_ME" group=full\n`;
+                config += `/user add name="ido" password="CHANGE_ME" group=full\n`;
+                config += `/user add name="sts" password="CHANGE_ME" group=full\n`;
+                config += `/user add name="eng" password="CHANGE_ME" group=full\n`;
+                config += `/user add name="noc" password="CHANGE_ME" group=full\n`;
+                config += `/user add name="devops" password="CHANGE_ME" group=full\n`;
+                config += `/user add name="comeng" password="CHANGE_ME" group=full\n`;
+                config += `/user add name="acq" password="CHANGE_ME" group=full\n`;
                 config += `/user set [find name=admin] group=read\n`;
 
                 window.updateProgressStep('Configuration generation complete!');
@@ -8278,43 +8278,12 @@
                 navItems.forEach(item => item.classList.remove('active'));
                 dropdownLinks.forEach(link => link.classList.remove('active'));
 
-                // Special handling for admin panel - check access first
+                // Special handling for admin panel - verify access first
                 if (tabId === 'admin-panel') {
                     const isAdmin = await checkAdminAccess();
                     if (!isAdmin) {
-                        // Check if it's a transient error (network issue) vs actual denial
-                        const cachedStatus = localStorage.getItem('admin_status');
-                        const userInfoStr = localStorage.getItem('user_info');
-                        let userEmail = null;
-                        if (userInfoStr) {
-                            try {
-                                const userInfo = JSON.parse(userInfoStr);
-                                userEmail = (userInfo.email || '').toLowerCase();
-                            } catch (e) { }
-                        }
-
-                        // If email is admin or we have cached admin status, allow access anyway
-                        if (userEmail === 'whamza@team.nxlink.com' || cachedStatus === 'true') {
-                            // Allow access - show panel
-                            const targetPane = document.getElementById(tabId + '-pane');
-                            if (targetPane) {
-                                targetPane.classList.add('active');
-                            }
-                            const adminBtn = document.getElementById('adminNavBtn');
-                            if (adminBtn) {
-                                adminBtn.classList.add('active');
-                                adminBtn.style.display = 'inline-block';
-                            }
-                            if (typeof loadAdminFeedback === 'function') {
-                                setTimeout(() => loadAdminFeedback(), 100);
-                            }
-                            return;
-                        } else {
-                            alert('Admin access required. You do not have permission to access this panel.');
-                            // Navigate back to home
-                            navigateToTab('home');
-                            return;
-                        }
+                        alert('Admin access required. You do not have permission to access this panel.');
+                        tabId = 'home';
                     }
                 }
 
@@ -17294,123 +17263,19 @@ Ready for translation!`);
         // Load log history
         // Admin Panel Functions
         async function checkAdminAccess() {
-            try {
-                const token = localStorage.getItem('auth_token');
-                const userInfoStr = localStorage.getItem('user_info');
-                const adminBtn = document.getElementById('adminNavBtn');
+            const adminBtn = document.getElementById('adminNavBtn');
+            const token = localStorage.getItem('auth_token');
 
-                if (!adminBtn) {
-                    console.warn('[ADMIN] Admin button element not found');
-                    return false;
-                }
+            if (!adminBtn) {
+                console.warn('[ADMIN] Admin button element not found');
+                return false;
+            }
 
-                if (!token) {
-                    adminBtn.style.display = 'none';
-                    localStorage.removeItem('admin_status'); // Clear cached status
-                    return false;
-                }
-
-                // Check cached admin status first (persistent across page loads)
-                const cachedAdminStatus = localStorage.getItem('admin_status');
-                let userEmail = null;
-
-                if (userInfoStr) {
-                    try {
-                        const userInfo = JSON.parse(userInfoStr);
-                        userEmail = (userInfo.email || '').toLowerCase();
-
-                        // If email is admin email, always show button immediately
-                        if (userEmail === 'whamza@team.nxlink.com') {
-                            adminBtn.style.display = 'inline-block';
-                            localStorage.setItem('admin_status', 'true');
-                            console.log('[ADMIN] Admin button shown based on email check');
-
-                            // Still verify with backend in background, but don't hide button on failure
-                            verifyAdminWithBackend(token, adminBtn, userEmail);
-                            return true;
-                        }
-                    } catch (e) {
-                        console.warn('[ADMIN] Failed to parse user info:', e);
-                    }
-                }
-
-                // If we have cached admin status and it's true, show button
-                if (cachedAdminStatus === 'true' && userEmail !== 'whamza@team.nxlink.com') {
-                    adminBtn.style.display = 'inline-block';
-                    // Verify in background
-                    verifyAdminWithBackend(token, adminBtn, userEmail);
-                    return true;
-                }
-
-                // Verify with backend
-                const apiBase = (typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api';
-                const response = await fetch(`${apiBase}/admin/feedback?limit=1`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
-
-                if (response.status === 403) {
-                    // Explicitly denied - hide button and clear cache
-                    adminBtn.style.display = 'none';
-                    localStorage.setItem('admin_status', 'false');
-                    console.log('[ADMIN] Backend denied admin access (403)');
-                    return false;
-                } else if (response.ok) {
-                    // Confirmed admin - show button and cache status
-                    adminBtn.style.display = 'inline-block';
-                    localStorage.setItem('admin_status', 'true');
-                    console.log('[ADMIN] Admin access confirmed by backend');
-                    return true;
-                } else {
-                    // Network error or other issue - if we have cached status, keep it
-                    if (cachedAdminStatus === 'true') {
-                        adminBtn.style.display = 'inline-block';
-                        console.log('[ADMIN] Using cached admin status (backend check failed)');
-                        return true;
-                    }
-                    // No cache and backend failed - hide button
-                    adminBtn.style.display = 'none';
-                    console.log('[ADMIN] Backend check failed, no cached status');
-                    return false;
-                }
-            } catch (e) {
-                console.error('[ADMIN] Error checking admin access:', e);
-                const adminBtn = document.getElementById('adminNavBtn');
-                if (!adminBtn) return false;
-
-                // Check cached status on error
-                const cachedAdminStatus = localStorage.getItem('admin_status');
-                if (cachedAdminStatus === 'true') {
-                    adminBtn.style.display = 'inline-block';
-                    console.log('[ADMIN] Using cached admin status (error fallback)');
-                    return true;
-                }
-
-                // Check email as last resort
-                const userInfoStr = localStorage.getItem('user_info');
-                if (userInfoStr) {
-                    try {
-                        const userInfo = JSON.parse(userInfoStr);
-                        const userEmail = (userInfo.email || '').toLowerCase();
-                        if (userEmail === 'whamza@team.nxlink.com') {
-                            adminBtn.style.display = 'inline-block';
-                            localStorage.setItem('admin_status', 'true');
-                            console.log('[ADMIN] Admin button shown based on email (error fallback)');
-                            return true;
-                        }
-                    } catch (parseError) {
-                        // Ignore parse errors
-                    }
-                }
-
+            if (!token) {
                 adminBtn.style.display = 'none';
                 return false;
             }
-        }
 
-        // Background verification function (doesn't hide button on failure)
-        async function verifyAdminWithBackend(token, adminBtn, userEmail) {
             try {
                 const apiBase = (typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api';
                 const response = await fetch(`${apiBase}/admin/feedback?limit=1`, {
@@ -17420,19 +17285,16 @@ Ready for translation!`);
                 });
 
                 if (response.ok) {
-                    localStorage.setItem('admin_status', 'true');
-                    console.log('[ADMIN] Background verification: Admin confirmed');
-                } else if (response.status === 403) {
-                    // Only hide if explicitly denied (not network errors)
-                    if (userEmail !== 'whamza@team.nxlink.com') {
-                        adminBtn.style.display = 'none';
-                        localStorage.setItem('admin_status', 'false');
-                        console.log('[ADMIN] Background verification: Access denied');
-                    }
+                    adminBtn.style.display = 'inline-block';
+                    return true;
                 }
+
+                adminBtn.style.display = 'none';
+                return false;
             } catch (e) {
-                // Ignore background verification errors - don't hide button
-                console.warn('[ADMIN] Background verification failed (non-critical):', e);
+                console.warn('[ADMIN] Admin check failed:', e);
+                adminBtn.style.display = 'none';
+                return false;
             }
         }
 

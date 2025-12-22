@@ -50,7 +50,7 @@ The tool features a modern, dashboard-style interface inspired by professional n
 - **Recent Activity**: Last 10 configurations with timestamps, device info, and RouterOS versions (refreshes every 30 seconds)
 
 **Security & Configuration**:
-- **Email Feedback**: Create `.env` file with SMTP credentials to enable feedback emails
+- **Feedback**: Stored locally and managed via the **ADMIN** panel (admin users only)
 - **API Keys**: All secrets stored in environment variables, never hardcoded
 - **VM Safe**: No system modifications, runs in user space
 - **Smart Tracking**: Automatic history tracking via localStorage (no placeholders)

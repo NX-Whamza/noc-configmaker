@@ -91,8 +91,8 @@ if [ -z "$CERT_FILE" ] || [ -z "$KEY_FILE" ]; then
     echo "  - Private key file (privkey.pem, key.pem, or private.key)"
     echo ""
     echo "You can copy files using SCP from your local machine:"
-    echo "  scp certificate.crt whamza@192.168.11.118:/tmp/"
-    echo "  scp private.key whamza@192.168.11.118:/tmp/"
+    echo "  scp certificate.crt <user>@<vm-ip>:/tmp/"
+    echo "  scp private.key <user>@<vm-ip>:/tmp/"
     echo "  Then on VM: sudo mv /tmp/certificate.crt /etc/nginx/ssl/noc-configmaker/"
     echo "              sudo mv /tmp/private.key /etc/nginx/ssl/noc-configmaker/privkey.pem"
     exit 1
