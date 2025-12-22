@@ -118,7 +118,7 @@ add action=accept chain=input comment="ALLOW LDP" dst-port=646 protocol=udp
 add action=accept chain=input comment="ALLOW MANAGER IP" src-address-list=managerIP
 add action=accept chain=input comment="ALLOW BGP" dst-port=179 protocol=tcp src-address-list=BGP-ALLOW
 add action=accept chain=input comment="ALLOW EOIP" protocol=gre src-address-list=EOIP-ALLOW
-add action=accept chain=input comment="ALLOW SNMP" dst-port=161 protocol=tcp src-address-list=SNMP
+add action=accept chain=input comment="ALLOW SNMP" dst-port=161 protocol=udp src-address-list=SNMP
 add action=drop chain=input comment="DROP INPUT" log=no
 """
 

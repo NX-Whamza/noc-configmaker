@@ -5850,7 +5850,6 @@
                 config += `/ip firewall filter add action=accept chain=input comment="ALLOW IGMP" protocol=igmp\n`;
                 config += `/ip firewall filter add action=accept chain=input comment="ALLOW ICMP" protocol=icmp\n`;
                 config += `/ip firewall filter add action=accept chain=input comment="ALLOW MANAGER IP" src-address-list=managerIP\n`;
-                config += `/ip firewall filter add action=accept chain=input comment="ALLOW SNMP" dst-port=161 protocol=tcp src-address-list=SNMP\n`;
                 config += `/ip firewall filter add action=accept chain=input comment="ALLOW SNMP" dst-port=161 protocol=udp src-address-list=SNMP\n`;
                 config += `/ip firewall filter add action=drop chain=input comment="DROP INPUT"\n\n`;
 
@@ -7230,7 +7229,6 @@
             config += `add action=accept chain=input comment="ALLOW MANAGER IP" src-address-list=managerIP\n`;
             config += `add action=accept chain=input comment="ALLOW BGP" dst-port=179 protocol=tcp src-address-list=BGP-ALLOW\n`;
             config += `add action=accept chain=input comment="ALLOW EOIP" protocol=gre src-address-list=EOIP-ALLOW\n`;
-            config += `add action=accept chain=input comment="ALLOW SNMP" dst-port=161 protocol=tcp src-address-list=SNMP\n`;
             config += `add action=accept chain=input comment="ALLOW SNMP" dst-port=161 protocol=udp src-address-list=SNMP\n`;
             config += `add action=drop chain=input comment="DROP INPUT"\n`;
             config += `add action=accept chain=forward comment="BGP Accept" dst-address=10.0.0.0/8 dst-port=179 protocol=tcp src-address=10.0.0.0/8\n`;
@@ -10673,7 +10671,7 @@
                         'add action=accept chain=input comment="ALLOW MANAGER IP" src-address-list=managerIP',
                         'add action=accept chain=input comment="ALLOW BGP" protocol=tcp dst-port=179 src-address-list=BGP-ALLOW',
                         'add action=accept chain=input comment="ALLOW EOIP" protocol=gre src-address-list=EOIP-ALLOW',
-                        'add action=accept chain=input comment="ALLOW SNMP" dst-port=161 protocol=tcp src-address-list=SNMP',
+                        'add action=accept chain=input comment="ALLOW SNMP" dst-port=161 protocol=udp src-address-list=SNMP',
                         'add action=drop chain=input comment="DROP INPUT" log=no'
                     ],
                     raw: [
@@ -10822,7 +10820,7 @@
                 config += `add action=accept chain=input comment="ALLOW MANAGER IP" src-address-list=managerIP\n`;
                 config += `add action=accept chain=input comment="ALLOW BGP" protocol=tcp dst-port=179 src-address-list=BGP-ALLOW\n`;
                 config += `add action=accept chain=input comment="ALLOW EOIP" protocol=gre src-address-list=EOIP-ALLOW\n`;
-                config += `add action=accept chain=input comment="ALLOW SNMP" dst-port=161 protocol=tcp src-address-list=SNMP\n`;
+                config += `add action=accept chain=input comment="ALLOW SNMP" dst-port=161 protocol=udp src-address-list=SNMP\n`;
                 config += `add action=drop chain=input comment="DROP INPUT" log=no\n\n`;
 
                 // Firewall Raw Chain
@@ -12432,13 +12430,12 @@
                 const privateIP = (document.getElementById('ent_privateIP') || {}).value || '';
                 const privatePool = (document.getElementById('ent_privatePool') || {}).value || '';
 
-                const payload = {
+                    const payload = {
                     device,
                     target_version: version,
                     loopback_ip: loopback,
                     public_cidr: publicCidr,
                     bh_cidr: effectiveBh,
-                    gateway_ip: gatewayIP,
                     public_port: publicPort,
                     nat_port: natPort,
                     uplink_interface: uplinkIf,
@@ -12461,6 +12458,7 @@
                 const suggestPayload = {
                     device: device, target_version: version, loopback_ip: loopback, public_cidr: publicCidr, bh_cidr: effectiveBh
                 };
+                let startedEnterpriseGeneration = false;
 
                 robustFetch(`${AI_API_BASE}/suggest-config`, {
                     method: 'POST',
@@ -12504,10 +12502,28 @@
                     showAIStatus('🔧 Generating configuration with Nextlink policy compliance...', 'info');
 
                     // Stage 2: Generate final config
+                    startedEnterpriseGeneration = true;
                     return robustFetch(`${AI_API_BASE}/gen-enterprise-Non-MPLS`, {
                         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
                     }, 3, 1000);
                 })
+                    .catch(function (err) {
+                        // If AI suggestions fail (e.g., Ollama not running on the VM), continue without them.
+                        if (startedEnterpriseGeneration) throw err;
+                        console.warn('[ENTERPRISE] AI suggestions unavailable; continuing without them:', err);
+                        addProgressLog('warning', 'AI suggestions unavailable; continuing without suggestions');
+                        showAIStatus('ƒsÿ‹,? AI suggestions unavailable; generating config without them...', 'warning');
+
+                        updateProgressStep('Generating configuration with Nextlink policy compliance...');
+                        updateProgressPercent(45);
+                        addProgressLog('info', 'Applying Nextlink standards and policies');
+                        showAIStatus('dY" Generating configuration with Nextlink policy compliance...', 'info');
+
+                        startedEnterpriseGeneration = true;
+                        return robustFetch(`${AI_API_BASE}/gen-enterprise-Non-MPLS`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                        }, 3, 1000);
+                    })
                     .then(function (r) {
                         if (!r.ok) {
                             const statusText = r.status === 500 ? 'Server error' : r.status === 404 ? 'Endpoint not found' : `HTTP ${r.status}`;

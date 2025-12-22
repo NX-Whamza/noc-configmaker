@@ -5248,36 +5248,56 @@ Return JSON with all extractable fields."""
 # ========================================
 
 def _cidr_details_gen(cidr: str) -> dict:
-    net = ipaddress.ip_network(cidr, strict=False)
+    """
+    Return network facts for an interface CIDR.
+
+    Notes:
+    - Users sometimes paste the subnet network address (e.g. `.200/29`). RouterOS cannot
+      assign the network/broadcast address, so we normalize to the first usable host.
+    - DHCP pools are generated as a contiguous range starting *after* the router IP
+      (router_ip+1 .. last_host), matching the UI's "gateway+1" convention.
+    """
+    iface = ipaddress.ip_interface(cidr)
+    net = iface.network
     hosts = list(net.hosts())
+
     first_host = str(hosts[0]) if hosts else str(net.network_address)
     last_host = str(hosts[-1]) if hosts else str(net.broadcast_address)
-    
-    # For /30 networks: only 2 usable IPs (gateway and customer)
-    # The user provides the gateway IP, so pool should be customer IP only (gateway + 1)
-    if net.prefixlen == 30 and len(hosts) >= 2:
-        # Gateway is hosts[0], customer is hosts[1]
-        pool_start = str(hosts[1])  # Customer IP (gateway + 1)
-        pool_end = str(hosts[1])    # Same IP for single-IP pool
-    elif len(hosts) > 3:
-        # For larger networks, exclude gateway (first) and broadcast (last)
-        pool_start = str(hosts[1])
-        pool_end = str(hosts[-2])
-    else:
-        # Fallback: use first_host as pool (shouldn't happen for /30)
-        pool_start = first_host
-        pool_end = last_host
-    
+
+    router_ip_obj = iface.ip
+    # For IPv4 /0-/30 networks, network/broadcast addresses are not usable on interfaces.
+    if isinstance(net, ipaddress.IPv4Network) and net.prefixlen < 31 and hosts:
+        if router_ip_obj == net.network_address or router_ip_obj == net.broadcast_address:
+            router_ip_obj = hosts[0]
+
+    router_ip = str(router_ip_obj)
+
+    pool_start = ''
+    pool_end = ''
+    if hosts:
+        try:
+            idx = hosts.index(router_ip_obj)
+        except ValueError:
+            idx = -1
+        if 0 <= idx < (len(hosts) - 1):
+            pool_start = str(hosts[idx + 1])
+            pool_end = last_host
+
     return {
         'network': str(net.network_address),
         'prefix': net.prefixlen,
-        'router_ip': first_host,
+        'router_ip': router_ip,
         'first_host': first_host,
         'last_host': last_host,
         'pool_start': pool_start,
         'pool_end': pool_end,
         'broadcast': str(net.broadcast_address),
     }
+
+
+def _ros_quote(value: str) -> str:
+    v = (value or "").replace('"', '\\"')
+    return f"\"{v}\""
 
 @app.route('/api/gen-enterprise-non-mpls', methods=['POST'])
 def gen_enterprise_non_mpls():
@@ -5307,10 +5327,6 @@ def gen_enterprise_non_mpls():
         bh = _cidr_details_gen(bh_cidr)
         private_cidr = data.get('private_cidr', '')  # e.g., 192.168.88.1/24
         private_ip_range = data.get('private_pool', '')  # e.g., 192.168.88.10-192.168.88.254
-        
-        # Extract exact router IPs from user-provided CIDRs (use the IP they provided, not calculated first_host)
-        pub_router_ip_exact = public_cidr.split('/')[0]  # Use exact IP from user input
-        bh_router_ip_exact = bh_cidr.split('/')[0]  # Use exact IP from user input
         
         if not syslog_ip:
             syslog_ip = loopback_ip.split('/')[0]
@@ -5363,13 +5379,14 @@ def gen_enterprise_non_mpls():
         ethernet_block += f"set [ find default-name={nat_port} ] comment=NAT\n"
         # Add uplink interface comment - Use uplink comment if provided, otherwise use identity
         uplink_comment_value = uplink_comment if uplink_comment else identity
+        uplink_comment_ros = _ros_quote(uplink_comment_value)
         if uplink_if.startswith('sfp'):
             # Determine speed based on RouterOS version
             speed = get_speed_syntax(target_version)
-            ethernet_block += f"set [ find default-name={uplink_if} ] auto-negotiation=no comment={uplink_comment_value} speed={speed}\n"
+            ethernet_block += f"set [ find default-name={uplink_if} ] auto-negotiation=no comment={uplink_comment_ros} speed={speed}\n"
         else:
             # Non-SFP port - still add comment
-            ethernet_block += f"set [ find default-name={uplink_if} ] comment={uplink_comment_value}\n"
+            ethernet_block += f"set [ find default-name={uplink_if} ] comment={uplink_comment_ros}\n"
         blocks.append(ethernet_block)
         
         # Interface Bridge Port
@@ -5381,8 +5398,8 @@ def gen_enterprise_non_mpls():
         ip_block = "/ip address\n"
         ip_block += f"add address={loopback_ip_clean} comment=loop0 interface=loop0 network={loopback_ip_clean}\n"
         
-        # Public IP - use exact IP provided by user, calculate network
-        pub_router_ip = pub_router_ip_exact  # Use exact user-provided IP
+        # Public IP - normalize network/broadcast to first usable host
+        pub_router_ip = pub['router_ip']
         pub_network = pub['network']
         ip_block += f"add address={pub_router_ip}/{pub['prefix']} comment=\"PUBLIC(S)\" interface=public-bridge network={pub_network}\n"
         
@@ -5397,11 +5414,10 @@ def gen_enterprise_non_mpls():
             private_base = pub['first_host'].rsplit('.', 1)[0]
             ip_block += f"add address={private_base}.1/24 comment=PRIVATES interface=nat-bridge network={private_base}.0\n"
         
-        # Backhaul IP address - use exact IP provided by user
-        # Use uplink comment if provided, otherwise use identity
-        bh_router_ip = bh_router_ip_exact  # Use exact user-provided IP
+        # Backhaul IP address - normalize network/broadcast to first usable host
+        bh_router_ip = bh['router_ip']
         bh_network = bh['network']
-        ip_block += f"add address={bh_router_ip}/{bh['prefix']} comment={uplink_comment_value} interface={uplink_if} network={bh_network}\n"
+        ip_block += f"add address={bh_router_ip}/{bh['prefix']} comment={uplink_comment_ros} interface={uplink_if} network={bh_network}\n"
         blocks.append(ip_block)
         
         # IP Pool
@@ -5476,11 +5492,23 @@ def gen_enterprise_non_mpls():
         blocks.append("/ip firewall service-port\nset sip disabled=yes\n")
         
         # IP Route (tab-specific configuration)
-        # For /29 or /30, gateway is usually first host (network + 1)
-        bh_gateway = bh.get('router_ip', bh['first_host'])
-        # If backhaul IP is provided, use that as gateway
-        if 'gateway_ip' in data and data['gateway_ip']:
-            bh_gateway = data['gateway_ip'].split('/')[0] if '/' in data['gateway_ip'] else data['gateway_ip']
+        # Default route gateway should be a *neighbor* on the backhaul subnet (not the subnet network address).
+        bh_net = ipaddress.ip_interface(bh_cidr).network
+        bh_hosts = list(bh_net.hosts())
+        if bh_hosts:
+            bh_gateway = str(bh_hosts[0]) if str(bh_hosts[0]) != bh_router_ip else (str(bh_hosts[1]) if len(bh_hosts) > 1 else bh_router_ip)
+        else:
+            bh_gateway = bh_router_ip
+
+        # Optional override: accept only a single IP (no CIDR) that isn't the router IP.
+        gw_override = (data.get('gateway_ip') or '').strip()
+        if gw_override and '/' not in gw_override:
+            try:
+                gw_ip = ipaddress.ip_address(gw_override)
+                if gw_ip in bh_net and str(gw_ip) != bh_router_ip:
+                    bh_gateway = str(gw_ip)
+            except ValueError:
+                pass
         blocks.append(f"/ip route\nadd disabled=no distance=1 dst-address=0.0.0.0/0 gateway={bh_gateway} routing-table=main scope=30 suppress-hw-offload=no target-scope=10\n")
         
         # SNMP (tab-specific - location and basic settings)

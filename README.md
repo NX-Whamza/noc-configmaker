@@ -201,6 +201,18 @@ RouterOS Ver Interface Mapping   Syntax Validation   Audit Trail    Verify
 
 See [Deployment Guide](#-deployment) below for complete VM setup instructions.
 
+### Option 4: Docker (Recommended for VM Consistency)
+
+1. **Start containers** (frontend on `:8000`, backend on `:5000`):
+   ```bash
+   docker compose up --build
+   ```
+
+2. **(Optional) Run Ollama in Docker**:
+   ```bash
+   docker compose --profile ollama up --build
+   ```
+
 ---
 
 ## 📋 Best Practices
