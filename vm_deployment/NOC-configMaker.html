@@ -2021,6 +2021,16 @@
                                         </div>
                                     </div>
 
+                                    <div class="form-group" style="margin-bottom: 15px;">
+                                        <label style="font-weight: bold; display: block; margin-bottom: 5px;">SSH Ports
+                                            (optional):</label>
+                                        <input type="text" id="sshPorts" placeholder="22,5022"
+                                            style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-color);">
+                                        <div style="margin-top: 6px; font-size: 12px; color: var(--text-color-secondary);">
+                                            Comma-separated. Default is <code>22</code>, then <code>5022</code>. You can add custom ports.
+                                        </div>
+                                    </div>
+
                                     <div style="margin-bottom: 15px;">
                                         <label style="font-weight: bold; display: block; margin-bottom: 5px;">Export
                                             Command:</label>
@@ -4446,6 +4456,26 @@
                                     <option value="6">RouterOS 6.x</option>
                                 </select>
                             </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                                <div class="form-group" style="margin-bottom: 0;">
+                                    <label for="nokia_ssh_username">SSH Username:</label>
+                                    <input type="text" id="nokia_ssh_username" placeholder="e.g., admin"
+                                        style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-color);">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 0;">
+                                    <label for="nokia_ssh_password">SSH Password:</label>
+                                    <input type="password" id="nokia_ssh_password" placeholder="Enter password"
+                                        style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-color);">
+                                </div>
+                            </div>
+                            <div class="form-group" style="margin-bottom: 12px;">
+                                <label for="nokia_ssh_ports">SSH Ports (optional):</label>
+                                <input type="text" id="nokia_ssh_ports" placeholder="22,5022"
+                                    style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-color);">
+                                <div style="margin-top: 6px; font-size: 12px; color: var(--text-color-secondary);">
+                                    Comma-separated. Default is <code>22</code>, then <code>5022</code>. You can add custom ports.
+                                </div>
+                            </div>
                             <button onclick="fetchMikrotikConfigForNokiaMigration()"
                                 style="background: var(--accent-color); color: white; padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%;">
                                 🔍 Fetch Config via SSH (Port 22, then 5022)
@@ -4777,6 +4807,19 @@
             const isFileProtocol = window.location.protocol === 'file:';
             const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
             const isLocalDev = isFileProtocol || isLocalhost;
+
+            // IMPORTANT: If accessed via http://, nginx often redirects to https:// with a 301/302.
+            // Browsers commonly convert POST -> GET on those redirects, leading to HTTP 405 on API calls.
+            // For the Nxlink domain, force https:// to avoid redirect-method changes.
+            const shouldForceHttps = !isLocalDev &&
+                window.location.protocol === 'http:' &&
+                window.location.hostname.endsWith('nxlink.com');
+            if (shouldForceHttps) {
+                const httpsUrl = `https://${window.location.host}${window.location.pathname}${window.location.search}${window.location.hash}`;
+                window.location.replace(httpsUrl);
+                return;
+            }
+
             const API_BASE = isLocalDev ? 'http://localhost:5000' : window.location.origin;
 
             console.log('[AUTH] API_BASE for authentication:', API_BASE, '(isLocalDev:', isLocalDev, ')');
@@ -4833,7 +4876,8 @@
             console.log('[API] 🏠 LOCAL DEVELOPMENT MODE - Using localhost:5000');
         } else {
             // PRODUCTION/VM MODE: Use the same origin (IP or domain)
-            API_BASE = window.location.origin;
+            const shouldForceHttps = window.location.protocol === 'http:' && window.location.hostname.endsWith('nxlink.com');
+            API_BASE = shouldForceHttps ? `https://${window.location.host}` : window.location.origin;
             console.log('[API] 🌐 PRODUCTION/VM MODE - Using origin:', API_BASE);
         }
 
@@ -15286,6 +15330,28 @@
             return normalized.join('\n');
         }
 
+        function parseSshPorts(raw) {
+            const defaultPorts = [22, 5022];
+            const text = (raw || '').trim();
+            if (!text) return defaultPorts;
+
+            const ports = [];
+            for (const token of text.split(/[\s,]+/)) {
+                const t = token.trim();
+                if (!t) continue;
+                const p = Number.parseInt(t, 10);
+                if (!Number.isFinite(p) || p < 1 || p > 65535) continue;
+                if (!ports.includes(p)) ports.push(p);
+            }
+
+            // Always include defaults as fallback, but keep user order first.
+            for (const p of defaultPorts) {
+                if (!ports.includes(p)) ports.push(p);
+            }
+
+            return ports;
+        }
+
         // Fetch config via SSH with live progress tracking
         async function fetchConfigViaSSH() {
             const deviceIP = document.getElementById('sshDeviceIP').value.trim();
@@ -15293,6 +15359,7 @@
             const exportCommand = document.getElementById('sshExportCommand').value;
             const sshUsername = document.getElementById('sshUsername')?.value?.trim();
             const sshPassword = document.getElementById('sshPassword')?.value || '';
+            const sshPorts = parseSshPorts(document.getElementById('sshPorts')?.value || '');
             const sshStatus = document.getElementById('sshStatus');
             const sshFetchBtn = document.getElementById('sshFetchBtn');
 
@@ -15334,7 +15401,7 @@
             try {
                 updateProgressPercent(20);
                 updateProgressStep('Establishing SSH connection...');
-                addProgressLog('info', 'Trying port 22, then 5022 if needed');
+                addProgressLog('info', `Trying ports: ${sshPorts.join(', ')}`);
 
                 const response = await fetch(`${AI_API_BASE}/fetch-config-ssh`, {
                     method: 'POST',
@@ -15344,7 +15411,8 @@
                         ros_version: rosVersion,
                         command: exportCommand,
                         username: sshUsername,
-                        password: sshPassword
+                        password: sshPassword,
+                        ports: sshPorts
                     })
                 });
 
@@ -17271,6 +17339,11 @@ Ready for translation!`);
                 return false;
             }
 
+            // Show the button for authenticated users; the admin panel will display an access message if unauthorized.
+            adminBtn.style.display = 'inline-block';
+            adminBtn.style.opacity = '0.7';
+            adminBtn.title = 'Admin access required';
+
             try {
                 const apiBase = (typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api';
                 const response = await fetch(`${apiBase}/admin/feedback?limit=1`, {
@@ -17281,14 +17354,26 @@ Ready for translation!`);
 
                 if (response.ok) {
                     adminBtn.style.display = 'inline-block';
+                    adminBtn.style.opacity = '1';
+                    adminBtn.title = '';
                     return true;
                 }
 
-                adminBtn.style.display = 'none';
+                // Keep visible, but mark as restricted.
+                if (response.status === 403) {
+                    adminBtn.style.opacity = '0.7';
+                    adminBtn.title = 'Admin access required';
+                    return false;
+                }
+
+                adminBtn.style.opacity = '0.7';
                 return false;
             } catch (e) {
                 console.warn('[ADMIN] Admin check failed:', e);
-                adminBtn.style.display = 'none';
+                // Keep visible if logged in; backend may be temporarily unavailable.
+                adminBtn.style.display = 'inline-block';
+                adminBtn.style.opacity = '0.7';
+                adminBtn.title = 'Admin check unavailable';
                 return false;
             }
         }
@@ -18174,6 +18259,14 @@ Ready for translation!`);
                 const deviceIP = document.getElementById('nokia_migration_device_ip').value.trim();
                 const rosVersion = document.getElementById('nokia_migration_ros_version').value;
                 const statusDiv = document.getElementById('nokia_migration_ssh_status');
+                const sshUsername = (document.getElementById('nokia_ssh_username')?.value || '').trim() ||
+                    (document.getElementById('sshUsername')?.value || '').trim();
+                const sshPassword = (document.getElementById('nokia_ssh_password')?.value || '') ||
+                    (document.getElementById('sshPassword')?.value || '');
+                const sshPorts = parseSshPorts(
+                    (document.getElementById('nokia_ssh_ports')?.value || '').trim() ||
+                    (document.getElementById('sshPorts')?.value || '').trim()
+                );
 
                 if (!deviceIP) {
                     statusDiv.style.display = 'block';
@@ -18185,13 +18278,23 @@ Ready for translation!`);
                     return;
                 }
 
+                if (!sshUsername || !sshPassword) {
+                    statusDiv.style.display = 'block';
+                    statusDiv.style.background = '#dc3545';
+                    statusDiv.style.color = 'white';
+                    statusDiv.style.padding = '10px';
+                    statusDiv.style.borderRadius = '4px';
+                    statusDiv.textContent = '❌ SSH credentials required. Enter username/password or configure NEXTLINK_SSH_USERNAME and NEXTLINK_SSH_PASSWORD on the server.';
+                    return;
+                }
+
                 try {
                     statusDiv.style.display = 'block';
                     statusDiv.style.background = '#2196F3';
                     statusDiv.style.color = 'white';
                     statusDiv.style.padding = '10px';
                     statusDiv.style.borderRadius = '4px';
-                    statusDiv.textContent = '⏳ Connecting via SSH (trying port 22, then 5022)...';
+                    statusDiv.textContent = `⏳ Connecting via SSH (trying ports: ${sshPorts.join(', ')})...`;
 
                     if (window.showProgressTracker) window.showProgressTracker('Fetching Config for Nokia Migration');
                     if (window.updateProgressStep) window.updateProgressStep('Connecting to device via SSH...');
@@ -18203,7 +18306,10 @@ Ready for translation!`);
                         body: JSON.stringify({
                             host: deviceIP,
                             ros_version: rosVersion,
-                            command: 'export'
+                            command: 'export',
+                            username: sshUsername,
+                            password: sshPassword,
+                            ports: sshPorts
                         })
                     });
 

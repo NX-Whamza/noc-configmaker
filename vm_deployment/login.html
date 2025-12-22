@@ -324,6 +324,20 @@
     </div>
 
     <script>
+        // Avoid POST->GET on nginx 301/302 redirects when accessed via http://
+        (function () {
+            const isFileProtocol = window.location.protocol === 'file:';
+            const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const isLocalDev = isFileProtocol || isLocalhost;
+            const shouldForceHttps = !isLocalDev &&
+                window.location.protocol === 'http:' &&
+                window.location.hostname.endsWith('nxlink.com');
+            if (shouldForceHttps) {
+                const httpsUrl = `https://${window.location.host}${window.location.pathname}${window.location.search}${window.location.hash}`;
+                window.location.replace(httpsUrl);
+            }
+        })();
+
         // Microsoft SSO Configuration
         const MSAL_CONFIG = {
             auth: {

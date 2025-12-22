@@ -2648,6 +2648,10 @@ def translate_config():
                 device_info['model'] = 'RB5009UG+S+'
                 device_info['type'] = 'rb5009'
                 device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'sfp-sfpplus1']
+            elif 'RB2011' in config or 'MT2011' in config or ('ether10' in config and 'sfp1' in config and 'sfp2' not in config and 'sfp-sfpplus' not in config and 'sfp28-' not in config):
+                device_info['model'] = 'RB2011UiAS'
+                device_info['type'] = 'rb2011'
+                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'sfp1']
             
             return device_info
         
@@ -2697,6 +2701,13 @@ def translate_config():
                     'management': 'ether1',
                     'description': '10x Gigabit + 1x SFP+ (RB5009)'
                 },
+                'rb2011': {
+                    'model': 'RB2011UiAS',
+                    'type': 'rb2011',
+                    'ports': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'sfp1'],
+                    'management': 'ether1',
+                    'description': '10x Gigabit + 1x SFP (RB2011)'
+                },
                 'rb1009': {
                     'model': 'RB1009UG+S+',
                     'type': 'rb1009',
@@ -2721,6 +2732,8 @@ def translate_config():
                 return device_database['ccr2004']
             if '5009' in key:
                 return device_database['rb5009']
+            if '2011' in key:
+                return device_database['rb2011']
             
             # Default fallback
             return device_database.get('ccr2004', {
@@ -6136,18 +6149,49 @@ def fetch_config_ssh():
                 'error': 'SSH credentials required. Provide username/password or set NEXTLINK_SSH_USERNAME and NEXTLINK_SSH_PASSWORD on the server.'
             }), 400
         
-        # MikroTik SSH ports: try 22 first, then 5022 as fallback
-        SSH_PORTS = [22, 5022]
-        
-        # Optional: allow user to specify port (if provided, use it first)
-        user_port = data.get('port')
-        if user_port:
-            try:
-                user_port = int(user_port)
-                if user_port in SSH_PORTS:
-                    SSH_PORTS = [user_port] + [p for p in SSH_PORTS if p != user_port]
-            except (ValueError, TypeError):
-                pass  # Ignore invalid port, use default order
+        # MikroTik SSH ports: default try 22 first, then 5022 as fallback.
+        # Allow UI to pass a comma-separated string or list via `ports`, and/or a single `port` override.
+        default_ports = [22, 5022]
+
+        def _parse_ports(value):
+            ports = []
+            if value is None:
+                return ports
+            if isinstance(value, (list, tuple)):
+                tokens = value
+            elif isinstance(value, str):
+                tokens = re.split(r'[\s,]+', value.strip())
+            else:
+                tokens = [value]
+
+            for token in tokens:
+                try:
+                    port = int(str(token).strip())
+                except (ValueError, TypeError):
+                    continue
+                if 1 <= port <= 65535 and port not in ports:
+                    ports.append(port)
+            return ports
+
+        requested_ports = _parse_ports(data.get('ports'))
+        port_override = _parse_ports(data.get('port'))
+
+        SSH_PORTS = requested_ports[:] if requested_ports else []
+
+        # Apply single-port override first if provided (backward compatibility with older clients).
+        if port_override:
+            for p in reversed(port_override):
+                if p in SSH_PORTS:
+                    SSH_PORTS.remove(p)
+                SSH_PORTS.insert(0, p)
+
+        # Ensure standard ports are always available as fallbacks.
+        for p in default_ports:
+            if p not in SSH_PORTS:
+                SSH_PORTS.append(p)
+
+        if not SSH_PORTS:
+            SSH_PORTS = default_ports[:]
         
         # Determine export command based on RouterOS version
         if not command:
@@ -6781,6 +6825,23 @@ def health():
         'timestamp': get_cst_timestamp(),
         'message': 'Unified backend (api_server.py) is online and ready'
     })
+
+@app.route('/api/app-config', methods=['GET'])
+def app_config():
+    """
+    Lightweight runtime configuration consumed by the frontend.
+
+    Keep this endpoint unauthenticated so the UI can load defaults during startup.
+    """
+    bng_peers = {
+        'NE': os.getenv('BNG_PEER_NE', '10.254.247.3'),
+        'IL': os.getenv('BNG_PEER_IL', '10.247.72.34'),
+        'IA': os.getenv('BNG_PEER_IA', '10.254.247.3'),
+        'KS': os.getenv('BNG_PEER_KS', '10.249.0.200'),
+        'IN': os.getenv('BNG_PEER_IN', '10.254.247.3'),
+    }
+    default_bng_peer = os.getenv('BNG_PEER_DEFAULT', '10.254.247.3')
+    return jsonify({'bng_peers': bng_peers, 'default_bng_peer': default_bng_peer})
 
 @app.route('/api/feedback', methods=['POST'])
 def submit_feedback():
@@ -8175,6 +8236,47 @@ def get_completed_config(config_id):
         
     except Exception as e:
         print(f"[ERROR] Failed to get config: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/download-port-map/<int:config_id>', methods=['GET'])
+def download_port_map(config_id):
+    """Download a plain-text port map for a completed configuration."""
+    try:
+        ensure_configs_db()  # Lazy init
+
+        conn = sqlite3.connect(str(CONFIGS_DB_PATH))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, device_name, customer_code, port_mapping FROM completed_configs WHERE id = ?', (config_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            return jsonify({'error': 'Configuration not found'}), 404
+
+        port_mapping = {}
+        if row['port_mapping']:
+            try:
+                port_mapping = json.loads(row['port_mapping'])
+            except Exception:
+                port_mapping = {}
+
+        text = format_port_mapping_text(port_mapping, row['device_name'] or '', row['customer_code'] or '')
+        if not text.strip():
+            text = "No port mapping available for this configuration.\n"
+
+        import io
+        safe_name = (row['device_name'] or row['customer_code'] or f"config-{row['id']}").replace(' ', '_')
+        filename = f"{safe_name}-port-map.txt"
+        return send_file(
+            io.BytesIO(text.encode('utf-8')),
+            mimetype='text/plain; charset=utf-8',
+            as_attachment=True,
+            download_name=filename,
+        )
+
+    except Exception as e:
+        print(f"[ERROR] Failed to download port map: {e}")
         return jsonify({'error': str(e)}), 500
 
 # Lazy initialize configs database - only when first accessed
