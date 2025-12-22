@@ -360,8 +360,8 @@ add advertise=no disabled=no prefix=0.0.0.0/0
 add disabled=no interface=ether5
 add disabled=no interface=ether6
 /radius
-add address=142.147.112.2 secret=Nl22021234 service=dhcp src-address=10.248.0.53 timeout=5s
-add address=142.147.112.18 secret=Nl22021234 service=dhcp src-address=10.248.0.53 timeout=5s
+add address=142.147.112.2 secret=CHANGE_ME_RADIUS_SECRET service=dhcp src-address=10.248.0.53 timeout=5s
+add address=142.147.112.18 secret=CHANGE_ME_RADIUS_SECRET service=dhcp src-address=10.248.0.53 timeout=5s
 /routing bfd configuration
 add disabled=no interfaces=all min-rx=200ms min-tx=200ms multiplier=5
 /routing bgp connection

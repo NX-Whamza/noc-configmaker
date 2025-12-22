@@ -16,7 +16,7 @@ Defines the standard RouterOS configuration pattern for Texas non-MPLS tower rou
 | `cgnat_public_ip` | string | Yes | Public CGNAT address (no mask). | `132.147.147.255` |
 | `bridge3000_ips` | array<object> | Yes | Management bridge entries `{ "label": "MGMT", "cidr": "a.b.c.d/yy" }`. | `[ { "label": "BRIDGE3000 MGMT", "cidr": "10.30.30.1/28" } ]` |
 | `dhcp_dns_servers` | array<string> | Yes | DNS servers applied to DHCP networks. | `["4.2.2.2","8.8.8.8"]` |
-| `radius_servers` | array<object> | Yes | Radius nodes `{ "address": "ip", "secret": "string" }`. | `[ {"address":"142.147.112.8","secret":"Nl22021234"} ]` |
+| `radius_servers` | array<object> | Yes | Radius nodes `{ "address": "ip", "secret": "string" }`. | `[ {"address":"142.147.112.8","secret":"CHANGE_ME_RADIUS_SECRET"} ]` |
 | `tower_links` | array<object> | No | Tower uplinks `{ "interface": "sfp-sfpplus4", "name": "TX-TOWER", "cidr": "a.b.c.d/yy", "local_ip": "x.x.x.x" }`. | `[ {"interface":"sfp-sfpplus4","name":"TX-NEXTTOWER-CN-1","cidr":"10.20.20.0/29","local_ip":"10.20.20.1"} ]` |
 | `additional_dhcp_scopes` | array<object> | No | Extra DHCP scopes matching `cpe_scope` structure. | `[ {"cidr":"10.200.10.0/24","pool_range":"10.200.10.10-10.200.10.200"} ]` |
 | `firewall_overrides` | object | No | Supplemental address-lists or filter rules appended after compliance. | `{ "address_lists": [ {"list":"mgmt-allow","address":"192.0.2.0/24"} ] }` |

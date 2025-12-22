@@ -75,7 +75,7 @@ $envTemplate = @'
 SMTP_SERVER=smtp.office365.com
 SMTP_PORT=587
 SMTP_USERNAME=whamza@team.nxlink.com
-SMTP_PASSWORD=Omolayo@2016
+SMTP_PASSWORD=your-app-password-here
 FEEDBACK_FROM_EMAIL=whamza@team.nxlink.com
 FEEDBACK_TO_EMAIL=whamza@team.nxlink.com
 '@

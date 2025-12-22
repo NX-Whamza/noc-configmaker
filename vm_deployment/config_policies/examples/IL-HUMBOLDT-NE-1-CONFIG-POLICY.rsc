@@ -337,8 +337,8 @@ add advertise=no disabled=no prefix=0.0.0.0/0
 /mpls ldp interface
 add comment=IL-MATTOON-NO-1 disabled=no interface=sfp-sfpplus4
 /radius
-add address=142.147.112.2 secret=Nl22021234 service=dhcp src-address=10.247.13.232 timeout=5s
-add address=142.147.112.18 secret=Nl22021234 service=dhcp src-address=10.247.13.232 timeout=5s
+add address=142.147.112.2 secret=CHANGE_ME_RADIUS_SECRET service=dhcp src-address=10.247.13.232 timeout=5s
+add address=142.147.112.18 secret=CHANGE_ME_RADIUS_SECRET service=dhcp src-address=10.247.13.232 timeout=5s
 /routing ospf interface-template
 add area=area0 cost=10 disabled=no interfaces=loop0 networks=10.247.13.232/32 passive priority=1
 add area=area0 auth=md5 auth-id=1 auth-key=m8M5JwvdYM comment=IL-MATTOON-NO-1 cost=10 disabled=no interfaces=sfp-sfpplus4 networks=10.247.93.72/29 priority=1 type=ptp

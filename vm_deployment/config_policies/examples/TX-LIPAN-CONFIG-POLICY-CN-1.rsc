@@ -344,8 +344,8 @@
 /mpls ldp advertise-filter add advertise=yes disabled=no prefix=10.248.86.0/24
 /mpls ldp advertise-filter add advertise=yes disabled=no prefix=10.248.208.0/22
 /mpls ldp advertise-filter add advertise=no disabled=no prefix=0.0.0.0/0
-/radius add address=142.147.112.8 secret=Nl22021234 service=dhcp src-address=10.1.1.1 timeout=5s
-/radius add address=142.147.112.20 secret=Nl22021234 service=dhcp src-address=10.1.1.1 timeout=5s
+/radius add address=142.147.112.8 secret=CHANGE_ME_RADIUS_SECRET service=dhcp src-address=10.1.1.1 timeout=5s
+/radius add address=142.147.112.20 secret=CHANGE_ME_RADIUS_SECRET service=dhcp src-address=10.1.1.1 timeout=5s
 /routing bgp connection add cisco-vpls-nlri-len-fmt=auto-bits connect=yes listen=yes local.address=10.1.1.1 .role=ibgp multihop=yes name=CR7 remote.address=10.2.0.107 .as=26077 .port=179 tcp-md5-key=m8M5JwvdYM templates=default
 /routing bgp connection add cisco-vpls-nlri-len-fmt=auto-bits connect=yes listen=yes local.address=10.1.1.1 .role=ibgp multihop=yes name=CR8 remote.address=10.2.0.108 .as=26077 .port=179 tcp-md5-key=m8M5JwvdYM templates=default
 /routing filter rule add chain=bgr-a-bgp-in-filter disabled=no rule="if (dst in 0.0.0.0/0 && dst-len == 32 && protocol bgp && bgp-communities includes 26077:86) { set blackhole yes; accept; }"

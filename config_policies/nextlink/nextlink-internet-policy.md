@@ -572,7 +572,7 @@ add name=CALLCENTER-WRITE policy=local,telnet,ssh,read,write,test,winbox,sniff,!
 ### **Standard Users**
 ```routeros
 /user
-add name=root password=K&J2Gxjt3vlmUD#X group=full
+add name=root password=CHANGE_ME group=full
 add name=deployment password=oSq!Ul@NAqhc9SL3 group=full
 add name=infra password=q!5*nyMmRvcR*2pa group=full
 add name=ido password=HkMya&yNz@R1gBF& group=full
