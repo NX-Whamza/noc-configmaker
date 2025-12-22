@@ -94,7 +94,7 @@ echo -e "${GREEN}[4/7]${NC} Setting up configuration..."
 if [ ! -f ".env" ]; then
     echo -e "${GREEN}✓${NC} Creating .env file..."
     cat > .env << EOF
-ADMIN_EMAILS=netops@team.nxlink.com
+ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 # JWT_SECRET=your-secret-here
 # AI_PROVIDER=ollama
 # OLLAMA_API_URL=http://127.0.0.1:11434

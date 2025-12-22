@@ -147,7 +147,7 @@ add action=accept chain=forward connection-state=established,related,untracked
 # ========================================
 # COMPLIANCE: FIREWALL NAT
 # ========================================
-# NOTE: This does NOT use 'rem [find]' to preserve tab-specific NAT rules (SMTP, NTP, private NAT)
+# NOTE: This does NOT use 'rem [find]' to preserve tab-specific NAT rules (NTP, private NAT)
 # These compliance rules are added alongside existing rules
 COMPLIANCE_FIREWALL_NAT = """
 /ip firewall nat

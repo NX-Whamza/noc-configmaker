@@ -65,7 +65,7 @@ OLLAMA_API_URL=http://localhost:11434
 OPENAI_API_KEY=sk-...
 
 # Admin / Auth
-ADMIN_EMAILS=netops@team.nxlink.com
+ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 # JWT_SECRET=your-secret-here
 
 # SSH defaults (optional; can also be entered in the UI)
@@ -176,7 +176,7 @@ On the VM, in the same directory as `NOC-ConfigMaker.exe`, create a file named `
 
 ```env
 # Admin / Auth
-ADMIN_EMAILS=netops@team.nxlink.com
+ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 # JWT_SECRET=your-secret-here
 
 # AI Configuration (optional)

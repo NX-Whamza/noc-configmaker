@@ -24,6 +24,7 @@ from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask import make_response, abort
 from flask_cors import CORS
 import os
+import builtins
 try:
     from dotenv import load_dotenv
     if load_dotenv():
@@ -149,10 +150,24 @@ except ImportError:
 def safe_print(*args, **kwargs):
     """Print with error handling for PyInstaller compatibility"""
     try:
-        print(*args, **kwargs, flush=True)
+        builtins.print(*args, **kwargs, flush=True)
+    except UnicodeEncodeError:
+        try:
+            encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+            msg = " ".join(str(a) for a in args)
+            if hasattr(sys.stdout, "buffer"):
+                sys.stdout.buffer.write(msg.encode(encoding, errors="replace") + b"\n")
+                sys.stdout.flush()
+            else:
+                builtins.print(msg.encode(encoding, errors="replace").decode(encoding, errors="replace"), flush=True)
+        except Exception:
+            pass
     except (IOError, ValueError, OSError):
         # If stdout is closed or unavailable, silently skip
         pass
+
+# Make the module's print resilient on Windows consoles that can't encode certain Unicode characters.
+print = safe_print
 
 # ========================================
 # ROUTERBOARD INTERFACE DATABASE
@@ -3837,11 +3852,18 @@ Port Roles:
                 mapping_required = True
             # Case 3: Both use same port format - no mapping needed (early exit)
             elif source_has_sfp28 and target_has_sfp28:
-                print(f"[INTERFACE MAPPING] Source and target both use sfp28- ports - preserving interface numbers")
-                if source_has_sfp_sfpplus and not target_has_sfp_sfpplus:
-                    for i in range(1, 13):
-                        text = re.sub(rf"\bsfp-sfpplus{i}\b", f"sfp28-{i}", text)
-                return text
+                # Only preserve sfp28 numbering if the target actually supports all referenced sfp28 indices.
+                # Example: CCR2216 (sfp28-1..12) -> CCR2004 (sfp28-1..2 + sfp-sfpplus1..12) MUST map, even though both "have sfp28".
+                source_sfp28_idxs = set(int(n) for n in re.findall(r'\bsfp28-(\d+)\b', text))
+                target_sfp28_idxs = set(int(re.search(r'(\d+)', p).group(1)) for p in target_ports if p.startswith('sfp28-') and re.search(r'(\d+)', p))
+                if source_sfp28_idxs and target_sfp28_idxs and source_sfp28_idxs.issubset(target_sfp28_idxs):
+                    print(f"[INTERFACE MAPPING] Source and target both use sfp28- ports and indices match - preserving interface numbers")
+                    if source_has_sfp_sfpplus and not target_has_sfp_sfpplus:
+                        for i in range(1, 13):
+                            text = re.sub(rf"\bsfp-sfpplus{i}\b", f"sfp28-{i}", text)
+                    return text
+                print(f"[INTERFACE MAPPING] Target sfp28 indices do not cover source usage - mapping REQUIRED")
+                mapping_required = True
             elif source_has_sfp_sfpplus and target_has_sfp_sfpplus and not source_has_sfp28 and not target_has_sfp28:
                 print(f"[INTERFACE MAPPING] Source and target both use sfp-sfpplus ports - preserving interface numbers")
                 return text
@@ -3854,7 +3876,7 @@ Port Roles:
             # If mapping is not required and we haven't returned, continue to check if interfaces need updating
             if not mapping_required:
                 # Check if any source interfaces don't exist in target
-                source_interfaces_in_text = set(re.findall(r'\b(ether\d+|sfp\d+|sfp-sfpplus\d+|sfp28-\d+)\b', text))
+                source_interfaces_in_text = set(re.findall(r'\b(ether\d+|sfp\d+|sfp-sfpplus\d+|sfp28-\d+|qsfp28-\d+-\d+|qsfpplus\d+-\d+)\b', text))
                 target_interface_set = set(target_ports) if target_ports else set()
                 if source_interfaces_in_text and target_interface_set:
                     interfaces_need_mapping = source_interfaces_in_text - target_interface_set
@@ -3928,7 +3950,7 @@ Port Roles:
             # Gather ALL used interface tokens in order of appearance (more comprehensive pattern)
             used = []
             # Match all interface patterns: etherN, sfpN, sfp-sfpplusN, sfp28-N, etc.
-            interface_pattern = r"\b(ether\d+|sfp\d+(?:-\d+)?|sfp-sfpplus\d+|sfp28-\d+|qsfp\d+(?:-\d+)?)\b"
+            interface_pattern = r"\b(ether\d+|sfp\d+(?:-\d+)?|sfp-sfpplus\d+|sfp28-\d+|qsfp28-\d+-\d+|qsfpplus\d+-\d+|qsfp\d+(?:-\d+)?)\b"
             for m in re.finditer(interface_pattern, text):
                 name = m.group(1)
                 if name not in used:
@@ -4041,6 +4063,8 @@ Port Roles:
             # Sort by priority, then by original sort key
             priority_order.sort(key=lambda x: (x[0], interface_sort_key(x[1])))
             sorted_used = [src for _, src in priority_order]
+
+            target_has_qsfp = any(p.startswith('qsfp') for p in (target_ports or []))
             
             for src in sorted_used:
                 # Skip if interface is already in target format (already correct)
@@ -4053,11 +4077,36 @@ Port Roles:
                 if should_skip_mgmt:
                     print(f"[INTERFACE MAPPING] Skipping management port {src} (target has multiple ethernet ports)")
                     continue
-                
+
+                # Don't attempt to map QSFP breakout ports onto non-QSFP targets; strip them later instead.
+                if src.startswith('qsfp') and not target_has_qsfp:
+                    print(f"[INTERFACE MAPPING] Skipping QSFP port {src} (target has no QSFP ports)")
+                    continue
+
                 # Get interface purpose from classification
                 iface_info = interface_info.get(src, {})
                 purpose = iface_info.get('purpose', 'unknown')
                 comment = iface_info.get('comment', '')
+
+                # Preserve numbering when migrating between sfp28-N and sfp-sfpplusN families.
+                # This prevents re-ordering of ports and keeps the config intuitive.
+                m_sfp28 = re.fullmatch(r'sfp28-(\d+)', src)
+                if m_sfp28:
+                    n = int(m_sfp28.group(1))
+                    candidate = f"sfp-sfpplus{n}"
+                    if candidate in target_ports and candidate not in mapping.values():
+                        mapping[src] = candidate
+                        print(f"[INTERFACE MAPPING] {src} → {candidate} (preserve index)")
+                        continue
+
+                m_sfpplus = re.fullmatch(r'sfp-sfpplus(\d+)', src)
+                if m_sfpplus:
+                    n = int(m_sfpplus.group(1))
+                    candidate = f"sfp28-{n}"
+                    if candidate in target_ports and candidate not in mapping.values():
+                        mapping[src] = candidate
+                        print(f"[INTERFACE MAPPING] {src} → {candidate} (preserve index)")
+                        continue
                 
                 # Map based on purpose according to policy
                 if purpose == 'backhaul':
@@ -4171,11 +4220,15 @@ Port Roles:
             
             # Port name normalization: convert legacy port names to target device port format
             target_port_prefix = None
-            if any(p.startswith('sfp28-') for p in target_seq):
-                target_port_prefix = 'sfp28'
-            elif any(p.startswith('sfp-sfpplus') for p in target_seq):
+            # Prefer the dominant port family on the target (CCR2004 should stay sfp-sfpplus, even though it has 2 sfp28 ports).
+            tgt_sfp28 = [p for p in target_seq if p.startswith('sfp28-')]
+            tgt_sfp_sfpplus = [p for p in target_seq if p.startswith('sfp-sfpplus')]
+            tgt_sfp = [p for p in target_seq if p.startswith('sfp') and not p.startswith('sfp28-') and not p.startswith('sfp-sfpplus')]
+            if tgt_sfp_sfpplus and len(tgt_sfp_sfpplus) >= len(tgt_sfp28):
                 target_port_prefix = 'sfp-sfpplus'
-            elif any(p.startswith('sfp') and not p.startswith('sfp-sfpplus') and not p.startswith('sfp28') for p in target_seq):
+            elif tgt_sfp28:
+                target_port_prefix = 'sfp28'
+            elif tgt_sfp:
                 target_port_prefix = 'sfp'
             
             # Convert legacy port names to target device format if needed
@@ -4188,8 +4241,14 @@ Port Roles:
                 if target_port_prefix in ['sfp28', 'sfp-sfpplus']:
                     for i in range(1, 5):
                         old_pattern = rf"\bsfp{i}\b(?!\d)"
-                        new_port = f"{target_port_prefix}-{i}" if target_port_prefix == 'sfp-sfpplus' else f"sfp28-{i}"
+                        new_port = f"sfp-sfpplus{i}" if target_port_prefix == 'sfp-sfpplus' else f"sfp28-{i}"
                         text = re.sub(old_pattern, new_port, text)
+
+            # If target doesn't have QSFP ports, strip qsfp* interface lines (common on CCR2216 exports).
+            # This prevents invalid ports from remaining after a downgrade/migration.
+            target_has_qsfp = any(p.startswith('qsfp') for p in (target_ports or []))
+            if not target_has_qsfp:
+                text = re.sub(r"(?m)^\s*set\s+\[\s*find\s+default-name=qsfp[^\]]+\][^\n]*\n?", "", text)
             
             return text
 
@@ -4293,22 +4352,50 @@ Port Roles:
                     new_model_short,
                     translated
                 )
+
+                # RouterOS export header uses a full model string (e.g., CCR2216-1G-12XS-2XQ).
+                # The generic replacement above can produce invalid hybrids (e.g., CCR2004-1G-12XS-2XQ).
+                # Force the header to the exact target model when we know it.
+                try:
+                    target_model_full = target_device_info.get('model', 'unknown')
+                    if target_model_full and target_model_full != 'unknown':
+                        translated = re.sub(
+                            r'(?m)^#\s*model\s*=.*$',
+                            f"# model ={target_model_full}",
+                            translated
+                        )
+                except Exception:
+                    pass
+
+                # Handle common Nextlink identity format: RTR-MT####-...
+                # Example: RTR-MT2216-AR1 -> RTR-MT2004-AR1
+                if source_digits and target_digits:
+                    translated = re.sub(
+                        rf'(?i)(/system identity\s+set\s+name=["\']?RTR-MT){re.escape(source_digits)}(\b)',
+                        rf'\1{target_digits}\2',
+                        translated
+                    )
+                    translated = re.sub(
+                        rf'(?i)(set\s+name=["\']?RTR-MT){re.escape(source_digits)}(\b)',
+                        rf'\1{target_digits}\2',
+                        translated
+                    )
                 
                 print(f"[IDENTITY] Device identity updated successfully")
             
             # 2. Update RouterOS version header - handle multiple formats
             version_patterns = [
-                r'by RouterOS \d+\.\d+',
-                r'RouterOS \d+\.\d+',
-                r'#.*RouterOS \d+\.\d+',
-                r'#.*by RouterOS \d+\.\d+'
+                r'by RouterOS \d+(?:\.\d+)+',
+                r'RouterOS \d+(?:\.\d+)+',
+                r'#.*RouterOS \d+(?:\.\d+)+',
+                r'#.*by RouterOS \d+(?:\.\d+)+'
             ]
             for pattern in version_patterns:
                 if re.search(pattern, translated, re.IGNORECASE):
                     # Replace with target version, preserving "by" prefix if present
                     translated = re.sub(
                         pattern,
-                        lambda m: m.group(0).replace(re.search(r'\d+\.\d+', m.group(0)).group(0), target_version) if re.search(r'\d+\.\d+', m.group(0)) else f'by RouterOS {target_version}',
+                        lambda m: re.sub(r'\d+(?:\.\d+)+', target_version, m.group(0)) if re.search(r'\d+(?:\.\d+)+', m.group(0)) else f'by RouterOS {target_version}',
                         translated,
                         flags=re.IGNORECASE
                     )
@@ -4318,7 +4405,7 @@ Port Roles:
             if f'RouterOS {target_version}' not in translated and 'RouterOS' in translated:
                 # Try to find and replace any RouterOS version mention
                 translated = re.sub(
-                    r'RouterOS \d+\.\d+',
+                    r'RouterOS \d+(?:\.\d+)+',
                     f'RouterOS {target_version}',
                     translated,
                     count=1
@@ -5058,6 +5145,56 @@ Output (copy every line, update device model to {target_device.upper()}, preserv
                 print(f"[COMPLIANCE ERROR] Failed to apply compliance: {e}")
                 compliance_validation = {'compliant': False, 'error': str(e)}
 
+        # Final safety pass: enforce correct header/model, and ensure system identity isn't lost.
+        def finalize_metadata(config_text: str) -> str:
+            t = config_text or ''
+
+            # Fix RouterOS header version line(s) (avoid 7.19.4.4.2 style hybrids).
+            t = re.sub(r'(?m)^(#.*by RouterOS )\d+(?:\.\d+)+', rf'\g<1>{target_version}', t)
+            t = re.sub(r'(?m)^(#.*RouterOS )\d+(?:\.\d+)+', rf'\g<1>{target_version}', t)
+
+            # Fix export header model line to the exact target model.
+            target_model_full = target_device_info.get('model', 'unknown')
+            if target_model_full and target_model_full != 'unknown':
+                t = re.sub(r'(?m)^#\s*model\s*=.*$', f"# model ={target_model_full}", t)
+
+            # Ensure system identity exists.
+            if '/system identity' not in t:
+                # Try to reuse source identity name (updated to match target digits/model where possible).
+                name = None
+                m = re.search(r'(?ms)^/system identity\s*\n\s*set\s+name=([^\n]+)\s*$', source_config)
+                if m:
+                    name = m.group(1).strip().strip('"').strip("'")
+
+                if not name:
+                    name = f"RTR-{(target_device_info.get('type') or target_device).upper()}-UNKNOWN"
+
+                # Update MT#### identity tokens if present.
+                src_digits = re.search(r'(\d{3,4})', source_device_info.get('model', '') or '')
+                tgt_digits = re.search(r'(\d{3,4})', target_device_info.get('model', '') or '')
+                if src_digits and tgt_digits:
+                    name = re.sub(rf'(?i)\bMT{re.escape(src_digits.group(1))}\b', f"MT{tgt_digits.group(1)}", name)
+
+                # Update CCR#### tokens if present.
+                old_model_short = (source_device_info.get('model', 'unknown').split('-')[0] if source_device_info.get('model') else '').strip()
+                new_model_short = (target_device_info.get('model', 'unknown').split('-')[0] if target_device_info.get('model') else '').strip()
+                if old_model_short and new_model_short and old_model_short != 'unknown' and new_model_short != 'unknown':
+                    name = re.sub(rf'(?i)\b{re.escape(old_model_short)}\b', new_model_short, name)
+
+                identity_block = f"/system identity\nset name={name}\n"
+                marker = '# ========================================\n# RFC-09-10-25 COMPLIANCE STANDARDS'
+                idx = t.find(marker)
+                if idx != -1:
+                    prefix = t[:idx].rstrip() + "\n\n" + identity_block + "\n"
+                    suffix = t[idx:]
+                    t = prefix + suffix.lstrip()
+                else:
+                    t = t.rstrip() + "\n\n" + identity_block
+
+            return t
+
+        translated = finalize_metadata(translated)
+
         return jsonify({
             'success': True,
             'translated_config': translated,
@@ -5501,10 +5638,9 @@ def gen_enterprise_non_mpls():
             dhcp_net_block += f"add address={private_base}.0/24 comment=PRIVATES dns-server={dns1},{dns2} gateway={private_base}.1 netmask=24{private_dhcp_optset}\n"
         blocks.append(dhcp_net_block)
         
-        # Firewall NAT (tab-specific rules - SMTP, NTP, private NAT)
+        # Firewall NAT (tab-specific rules - NTP, private NAT)
         # NOTE: Compliance will add additional NAT rules, but these are tab-specific
         blocks.append("/ip firewall nat\n" +
-                      f"add action=src-nat chain=srcnat packet-mark=SMTP to-addresses={loopback_ip_clean}\n" +
                       f"add action=src-nat chain=srcnat packet-mark=NTP to-addresses={loopback_ip_clean}\n" +
                       f"add action=src-nat chain=srcnat src-address={private_base}.0/24 to-addresses={pub_router_ip}\n")
         

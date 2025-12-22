@@ -2069,8 +2069,8 @@
                                         <label style="font-weight: bold; display: block; margin-bottom: 5px;">Target
                                             Device:</label>
                                         <select id="upgradeTargetDevice" style="width: 100%; padding: 8px;">
-                                            <option value="ccr2004">CCR2004-12G-4S (12 SFP+, 4 Ethernet)</option>
-                                            <option value="ccr1036">CCR1036-12G-4S (12 SFP+, 12 Ethernet)</option>
+                                            <option value="ccr2004">CCR2004-1G-12S+2XS (12 SFP+, 2 SFP28)</option>
+                                            <option value="ccr1036">CCR1036-12G-4S (4 SFP, 12 Ethernet)</option>
                                             <option value="ccr2216">CCR2216 (Legacy)</option>
                                             <option value="ccr2116">CCR2116 (Legacy)</option>
                                             <option value="ccr1072">CCR1072 (Legacy)</option>
@@ -10872,7 +10872,6 @@
                 config += `# FIREWALL MANGLE\n`;
                 config += `/ip firewall mangle\n`;
                 config += `rem [find where dynamic=no]\n`;
-                config += `add action=mark-packet chain=prerouting comment="Mark SMTP packets" dst-address-list=NAT-EXEMPT-DST dst-port=25 new-packet-mark=SMTP passthrough=no protocol=tcp\n`;
                 config += `add action=mark-packet chain=prerouting comment="Mark NTP packets" dst-address-list=NTP dst-port=123 new-packet-mark=NTP passthrough=no protocol=udp\n\n`;
 
                 // Firewall NAT
@@ -10881,7 +10880,6 @@
                 config += `rem [find]\n`;
                 config += `add action=redirect chain=dstnat dst-address-type=local dst-port=5022 protocol=tcp to-ports=22\n`;
                 config += `add action=dst-nat chain=dstnat comment="unauth proxy rule" dst-address-list=!WALLED-GARDEN dst-port=80 protocol=tcp src-address-list=unauth to-addresses=107.178.15.27 to-ports=3128\n`;
-                config += `add action=src-nat chain=srcnat packet-mark=SMTP to-addresses=${routerId}\n`;
                 config += `add action=src-nat chain=srcnat packet-mark=NTP to-addresses=${routerId}\n\n`;
 
                 // System Hardening

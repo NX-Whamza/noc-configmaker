@@ -593,7 +593,7 @@ tar -xzf noc-configmaker-vm-*.tar.gz
 ```bash
 # Create .env file (optional)
 cat > .env << EOF
-ADMIN_EMAILS=netops@team.nxlink.com
+ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 AI_PROVIDER=ollama
 OLLAMA_API_URL=http://localhost:11434
 # OLLAMA_MODEL=llama3.1:8b

@@ -2,7 +2,7 @@ services:
   backend:
     build: .
     environment:
-      ADMIN_EMAILS: ${ADMIN_EMAILS:-netops@team.nxlink.com}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-netops@team.nxlink.com,whamza@team.nxlink.com}
       JWT_SECRET: ${JWT_SECRET:-}
       DEFAULT_PASSWORD: ${DEFAULT_PASSWORD:-NOCConfig2025!}
       AI_PROVIDER: ${AI_PROVIDER:-ollama}

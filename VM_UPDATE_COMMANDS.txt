@@ -1,23 +1,19 @@
-# Quick Update Commands for VM
-# Copy these commands one by one
+# VM Update Commands (Docker deployment)
+# Copy/paste these commands on the VM.
 
-# Step 1: Copy updated files to vm_deployment folder (run on local machine)
-Copy-Item -Path "api_server.py" -Destination "vm_deployment\api_server.py" -Force
-Copy-Item -Path "NOC-configMaker.html" -Destination "vm_deployment\NOC-configMaker.html" -Force
+# 1) Pull latest code
+cd ~/noc-configmaker
+git pull
 
-# Step 2: Upload to VM (run on local machine)
-scp vm_deployment/api_server.py <user>@<vm-ip>:~/vm_deployment/
-scp vm_deployment/NOC-configMaker.html <user>@<vm-ip>:~/vm_deployment/
+# 2) Rebuild + restart containers
+sudo docker compose up -d --build
 
-# Step 3: Restart service on VM (run on local machine, will prompt for sudo password)
-ssh <user>@<vm-ip> "cd ~/vm_deployment && sudo systemctl restart noc-configmaker"
+# 3) Verify containers are healthy
+sudo docker compose ps
+curl -fsS http://127.0.0.1:8000/api/health
 
-# Alternative if systemctl doesn't work - manual restart:
-# ssh <user>@<vm-ip>
-# cd ~/vm_deployment
-# sudo pkill -f api_server.py
-# nohup python3 api_server.py > nohup.out 2>&1 &
-# exit
+# 4) Verify the UI locally from the VM
+curl -I http://127.0.0.1:8000/app
 
-# Step 4: Test the update
-# Open browser: http://<vm-ip>:5000/app
+# 5) If using system nginx for the public domain, reload it after config changes
+# sudo nginx -t && sudo systemctl reload nginx

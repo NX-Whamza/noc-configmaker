@@ -73,7 +73,7 @@ foreach ($item in $includeItems) {
 
 $envTemplate = @'
 # Copy to .env (optional). SMTP/email is not used.
-ADMIN_EMAILS=netops@team.nxlink.com
+ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 # JWT_SECRET=your-secret-here
 # AI_PROVIDER=ollama
 # OLLAMA_API_URL=http://127.0.0.1:11434

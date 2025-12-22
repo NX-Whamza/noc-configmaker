@@ -3,7 +3,7 @@
 # SMTP/email is no longer used; feedback is stored in the local database and managed via the Admin panel.
 
 # Admin / Auth
-ADMIN_EMAILS=netops@team.nxlink.com
+ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 # JWT_SECRET=your-secret-here
 # DEFAULT_PASSWORD=CHANGE_ME
 
