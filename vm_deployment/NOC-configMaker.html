@@ -8636,7 +8636,7 @@
                             } else if (entry.type === 'tower-config') {
                                 icon = '📡';
                                 activityLabel = 'Tower Config';
-                            } else if (entry.type === 'enterprise-config' || entry.type === 'enterprise-Non-MPLS') {
+                            } else if (entry.type === 'enterprise-config' || entry.type === 'enterprise-Non-MPLS' || entry.type === 'enterprise-non-mpls') {
                                 icon = '🏢';
                                 activityLabel = 'Enterprise Config';
                             } else if (entry.type === 'mpls-enterprise-config' || entry.type === 'new-config') {
@@ -12371,7 +12371,7 @@
                 addProgressLog('info', `Customer: ${customerCode || 'Not specified'}`);
 
                 // Show "ongoing" activity immediately
-                showOngoingActivity(`Generating Enterprise Config: ${customerCode || device}`, 'enterprise-Non-MPLS');
+                showOngoingActivity(`Generating Enterprise Config: ${customerCode || device}`, 'enterprise-non-mpls');
 
                 // Use simple BH field in AI mode if present
                 const simpleBh = (document.getElementById('ent_bh_cidr_simple') || {}).value || '';
@@ -12488,7 +12488,7 @@
 
                     // Stage 2: Generate final config
                     startedEnterpriseGeneration = true;
-                    return robustFetch(`${AI_API_BASE}/gen-enterprise-Non-MPLS`, {
+                    return robustFetch(`${AI_API_BASE}/gen-enterprise-non-mpls`, {
                         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
                     }, 3, 1000);
                 })
@@ -12505,7 +12505,7 @@
                         showAIStatus('dY" Generating configuration with Nextlink policy compliance...', 'info');
 
                         startedEnterpriseGeneration = true;
-                        return robustFetch(`${AI_API_BASE}/gen-enterprise-Non-MPLS`, {
+                        return robustFetch(`${AI_API_BASE}/gen-enterprise-non-mpls`, {
                             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
                         }, 3, 1000);
                     })
@@ -12534,7 +12534,7 @@
                         return robustFetch(`${AI_API_BASE}/validate-config`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ config: res.config, type: 'enterprise-Non-MPLS' })
+                            body: JSON.stringify({ config: res.config, type: 'enterprise-non-mpls' })
                         }, 3, 1000).then(function (validationRes) {
                             if (!validationRes.ok) {
                                 console.warn('[VALIDATION] Validation request failed, continuing without validation');
@@ -12581,10 +12581,10 @@
 
                             // Track activity for live feed
                             // Clear ongoing activity and save to history
-                            clearOngoingActivity('enterprise-Non-MPLS');
+                            clearOngoingActivity('enterprise-non-mpls');
 
                             const historyEntry = {
-                                type: 'enterprise-Non-MPLS',
+                                type: 'enterprise-non-mpls',
                                 device: device,
                                 siteName: customerCode || 'Enterprise Config',
                                 routeros: version,
@@ -12606,7 +12606,7 @@
                     })
                     .catch(function (err) {
                         console.error('[ENTERPRISE] Generation error:', err);
-                        clearOngoingActivity('enterprise-Non-MPLS');
+                        clearOngoingActivity('enterprise-non-mpls');
                         const errorMsg = err.message || String(err);
                         addProgressLog('error', 'Generation failed: ' + errorMsg);
                         completeProgressTracker(false);

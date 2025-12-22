@@ -5306,6 +5306,7 @@ def _ros_quote(value: str) -> str:
     return f"\"{v}\""
 
 @app.route('/api/gen-enterprise-non-mpls', methods=['POST'])
+@app.route('/api/gen-enterprise-Non-MPLS', methods=['POST'])  # Legacy UI alias
 def gen_enterprise_non_mpls():
     try:
         data = request.get_json(force=True)
