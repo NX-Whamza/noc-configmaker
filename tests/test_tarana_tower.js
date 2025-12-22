@@ -1,8 +1,16 @@
 const fs = require('fs');
-const jsdom = require('jsdom');
-const { JSDOM } = jsdom;
+const path = require('path');
+let JSDOM;
+try {
+  ({ JSDOM } = require('jsdom'));
+} catch (e) {
+  console.error('Missing dependency: jsdom');
+  console.error('Install (from repo root): npm init -y && npm i jsdom');
+  process.exit(2);
+}
 
-const html = fs.readFileSync('NOC-configMaker.html', 'utf8');
+const htmlPath = path.join(__dirname, '..', 'vm_deployment', 'NOC-configMaker.html');
+const html = fs.readFileSync(htmlPath, 'utf8');
 
 const dom = new JSDOM(html, { runScripts: "dangerously", resources: "usable" });
 // Wait briefly for scripts to initialize

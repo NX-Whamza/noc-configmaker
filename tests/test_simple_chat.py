@@ -1,25 +1,30 @@
 #!/usr/bin/env python3
-import requests
-import json
+from __future__ import annotations
 
-def test_simple_chat():
+import requests
+
+
+def test_simple_chat() -> None:
     url = "http://127.0.0.1:5000/api/chat"
     data = {"message": "Hello, are you working?"}
-    
+
     try:
         response = requests.post(url, json=data, timeout=10)
+        response.raise_for_status()
         result = response.json()
-        
-        if result.get('success'):
-            print("✅ Backend is working!")
-            print("Response:", result.get('reply', 'No reply')[:100] + "...")
+
+        if result.get("success"):
+            reply = result.get("reply", "No reply")
+            print("[OK] Backend chat endpoint responded")
+            print("Response:", (reply[:100] + "...") if len(reply) > 100 else reply)
         else:
-            print("❌ Error:", result.get('error'))
-            
+            print("[ERROR] Error:", result.get("error"))
     except requests.exceptions.Timeout:
-        print("❌ Request timed out - model is too slow")
+        print("[ERROR] Request timed out (model may be slow/unavailable)")
     except Exception as e:
-        print("❌ Request failed:", str(e))
+        print("[ERROR] Request failed:", str(e))
+
 
 if __name__ == "__main__":
     test_simple_chat()
+

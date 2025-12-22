@@ -2005,6 +2005,22 @@
                                         </div>
                                     </div>
 
+                                    <div
+                                        style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                                        <div>
+                                            <label style="font-weight: bold; display: block; margin-bottom: 5px;">SSH
+                                                Username:</label>
+                                            <input type="text" id="sshUsername" placeholder="e.g., admin"
+                                                style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-color);">
+                                        </div>
+                                        <div>
+                                            <label style="font-weight: bold; display: block; margin-bottom: 5px;">SSH
+                                                Password:</label>
+                                            <input type="password" id="sshPassword" placeholder="Enter password"
+                                                style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-color);">
+                                        </div>
+                                    </div>
+
                                     <div style="margin-bottom: 15px;">
                                         <label style="font-weight: bold; display: block; margin-bottom: 5px;">Export
                                             Command:</label>
@@ -4819,6 +4835,11 @@
             // PRODUCTION/VM MODE: Use the same origin (IP or domain)
             API_BASE = window.location.origin;
             console.log('[API] 🌐 PRODUCTION/VM MODE - Using origin:', API_BASE);
+        }
+
+        // VM convenience: if UI is served on :8000 without a reverse-proxy, use backend on :5000.
+        if (!isLocalDev && window.location.port === '8000') {
+            API_BASE = `${window.location.protocol}//${window.location.hostname}:5000`;
         }
 
         window.AI_API_BASE = `${API_BASE}/api`;
@@ -15306,6 +15327,8 @@
             const deviceIP = document.getElementById('sshDeviceIP').value.trim();
             const rosVersion = document.getElementById('sshRouterOSVersion').value;
             const exportCommand = document.getElementById('sshExportCommand').value;
+            const sshUsername = document.getElementById('sshUsername')?.value?.trim();
+            const sshPassword = document.getElementById('sshPassword')?.value || '';
             const sshStatus = document.getElementById('sshStatus');
             const sshFetchBtn = document.getElementById('sshFetchBtn');
 
@@ -15319,6 +15342,11 @@
             const ipPattern = /^(\d{1,3}\.){3}\d{1,3}$/;
             if (!ipPattern.test(deviceIP)) {
                 showUpgradeStatus('Invalid IP address format.', 'error');
+                return;
+            }
+
+            if (!sshUsername || !sshPassword) {
+                showUpgradeStatus('Enter SSH username and password.', 'error');
                 return;
             }
 
@@ -15350,7 +15378,9 @@
                     body: JSON.stringify({
                         host: deviceIP,
                         ros_version: rosVersion,
-                        command: exportCommand
+                        command: exportCommand,
+                        username: sshUsername,
+                        password: sshPassword
                     })
                 });
 

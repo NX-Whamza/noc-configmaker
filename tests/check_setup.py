@@ -1,134 +1,167 @@
 #!/usr/bin/env python3
 """
 NOC Config Maker - Setup Checker
-Validates that everything is configured correctly before running
+Validates that everything is configured correctly before running.
+
+This script is intended to run cleanly on Windows terminals that may not be UTF-8.
 """
 
-import sys
-import os
-import subprocess
+from __future__ import annotations
 
-def check_python_version():
-    """Check if Python version is 3.8+"""
+import os
+import sys
+from pathlib import Path
+
+
+def safe_print(text: str) -> None:
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        print(text.encode("utf-8", "backslashreplace").decode("utf-8"))
+
+
+def check_python_version() -> bool:
     version = sys.version_info
     if version.major < 3 or (version.major == 3 and version.minor < 8):
-        print("❌ Python 3.8+ required (you have {}.{}.{})".format(version.major, version.minor, version.micro))
+        safe_print(f"[ERROR] Python 3.8+ required (you have {version.major}.{version.minor}.{version.micro})")
         return False
-    print("✅ Python {}.{}.{} - OK".format(version.major, version.minor, version.micro))
+    safe_print(f"[OK] Python {version.major}.{version.minor}.{version.micro} - OK")
     return True
 
-def check_pip_packages():
-    """Check if required packages are installed"""
-    required = ['flask', 'flask_cors', 'openai']
-    missing = []
-    
+
+def check_pip_packages() -> bool:
+    required = ["flask", "flask_cors", "requests"]
+    optional = ["openai", "jwt"]
+
+    missing: list[str] = []
     for package in required:
         try:
             __import__(package)
-            print(f"✅ {package} - installed")
+            safe_print(f"[OK] {package} - installed")
         except ImportError:
-            print(f"❌ {package} - NOT installed")
+            safe_print(f"[ERROR] {package} - NOT installed")
             missing.append(package)
-    
+
+    for package in optional:
+        try:
+            __import__(package)
+            safe_print(f"[OK] {package} - installed (optional)")
+        except ImportError:
+            safe_print(f"[WARN] {package} - NOT installed (optional)")
+
     if missing:
-        print(f"\n⚠️  Missing packages: {', '.join(missing)}")
-        print("Run: pip install -r requirements.txt")
+        safe_print(f"\n[ERROR] Missing packages: {', '.join(missing)}")
+        safe_print("Run: pip install -r requirements.txt")
         return False
     return True
 
-def check_api_key():
-    """Check if OpenAI API key is configured"""
-    # Check environment variable
-    api_key = os.getenv('OPENAI_API_KEY', '')
-    
-    if api_key:
-        print(f"✅ OPENAI_API_KEY environment variable set")
-        print(f"   Key preview: {api_key[:15]}...{api_key[-4:]}")
+
+def check_openai_key() -> bool:
+    ai_provider = os.getenv("AI_PROVIDER", "ollama").strip().lower()
+    if ai_provider != "openai":
+        safe_print(f"[OK] AI_PROVIDER={ai_provider} (OpenAI key not required)")
         return True
-    
-    # Check .env file
-    if os.path.exists('.env'):
-        with open('.env', 'r') as f:
-            content = f.read()
-            if 'OPENAI_API_KEY' in content:
-                print("✅ OPENAI_API_KEY found in .env file")
-                return True
-    
-    print("❌ OPENAI_API_KEY not configured")
-    print("\nTo fix:")
-    print("  Option 1: export OPENAI_API_KEY='your-key-here'")
-    print("  Option 2: Create .env file with: OPENAI_API_KEY=your-key-here")
+
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    if api_key:
+        safe_print("[OK] OPENAI_API_KEY environment variable set")
+        safe_print(f"     Key preview: {api_key[:12]}...{api_key[-4:]}")
+        return True
+
+    env_file = Path(".env")
+    if env_file.exists():
+        try:
+            content = env_file.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            content = ""
+        if "OPENAI_API_KEY" in content:
+            safe_print("[OK] OPENAI_API_KEY found in .env file")
+            return True
+
+    safe_print("[ERROR] OPENAI_API_KEY not configured")
+    safe_print("Fix:")
+    safe_print("  - set OPENAI_API_KEY=your-key-here")
+    safe_print("  - or create .env with OPENAI_API_KEY=your-key-here")
     return False
 
-def check_files():
-    """Check if required files exist"""
-    files = [
-        'api_server.py',
-        'NOC-configMaker.html',
-        'requirements.txt'
-    ]
-    
-    all_exist = True
-    for file in files:
-        if os.path.exists(file):
-            print(f"✅ {file} - exists")
-        else:
-            print(f"❌ {file} - NOT FOUND")
-            all_exist = False
-    
-    return all_exist
 
-def test_api_server():
-    """Test if we can start the API server (doesn't actually start it)"""
+def check_files() -> bool:
+    files = [
+        Path("api_server.py"),  # root shim for local dev
+        Path("requirements.txt"),
+        Path("vm_deployment") / "api_server.py",
+        Path("vm_deployment") / "NOC-configMaker.html",
+        Path("vm_deployment") / "login.html",
+        Path("vm_deployment") / "change-password.html",
+    ]
+
+    ok = True
+    for path in files:
+        if path.exists():
+            safe_print(f"[OK] {path.as_posix()} - exists")
+        else:
+            safe_print(f"[ERROR] {path.as_posix()} - NOT FOUND")
+            ok = False
+    return ok
+
+
+def check_backend_source() -> bool:
+    target = Path("vm_deployment") / "api_server.py"
     try:
-        with open('api_server.py', 'r') as f:
-            content = f.read()
-            if 'Flask' in content and 'openai' in content:
-                print("✅ api_server.py looks valid")
-                return True
+        content = target.read_text(encoding="utf-8", errors="ignore")
     except Exception as e:
-        print(f"❌ Error reading api_server.py: {e}")
+        safe_print(f"[ERROR] Unable to read {target.as_posix()}: {e}")
         return False
 
-def main():
-    print("="*60)
-    print("🔍 NOC Config Maker - Setup Checker")
-    print("="*60)
-    print()
-    
+    if "from flask" not in content.lower() and "flask" not in content.lower():
+        safe_print("[ERROR] Backend source does not appear to import Flask")
+        return False
+    if "/api/health" not in content:
+        safe_print("[ERROR] Backend source does not appear to define /api/health")
+        return False
+
+    safe_print("[OK] Backend source looks valid")
+    return True
+
+
+def main() -> int:
+    safe_print("=" * 60)
+    safe_print("NOC Config Maker - Setup Checker")
+    safe_print("=" * 60)
+
     checks = [
         ("Python Version", check_python_version),
         ("Required Packages", check_pip_packages),
-        ("API Key Configuration", check_api_key),
+        ("OpenAI Key (if needed)", check_openai_key),
         ("Required Files", check_files),
-        ("API Server Validation", test_api_server)
+        ("Backend Source Sanity", check_backend_source),
     ]
-    
-    results = []
-    for name, check_func in checks:
-        print(f"\n📋 Checking: {name}")
-        print("-" * 60)
-        results.append(check_func())
-    
-    print("\n" + "="*60)
-    print("📊 SUMMARY")
-    print("="*60)
-    
-    passed = sum(results)
-    total = len(results)
-    
-    if passed == total:
-        print(f"✅ All checks passed ({passed}/{total})")
-        print("\n🚀 You're ready to start!")
-        print("\nNext steps:")
-        print("  1. python api_server.py")
-        print("  2. Open NOC-configMaker.html in browser")
-        return 0
-    else:
-        print(f"⚠️  {total - passed} checks failed ({passed}/{total} passed)")
-        print("\n🔧 Please fix the issues above before continuing.")
-        return 1
 
-if __name__ == '__main__':
-    exit(main())
+    results: list[bool] = []
+    for name, fn in checks:
+        safe_print(f"\n[CHECK] {name}")
+        safe_print("-" * 60)
+        results.append(fn())
+
+    passed = sum(1 for r in results if r)
+    total = len(results)
+
+    safe_print("\n" + "=" * 60)
+    safe_print("SUMMARY")
+    safe_print("=" * 60)
+
+    if passed == total:
+        safe_print(f"[OK] All checks passed ({passed}/{total})")
+        safe_print("Next:")
+        safe_print("  1) python api_server.py")
+        safe_print("  2) python -m http.server 8000")
+        safe_print("  3) Open: http://localhost:8000/vm_deployment/NOC-configMaker.html")
+        return 0
+
+    safe_print(f"[ERROR] {total - passed} checks failed ({passed}/{total} passed)")
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 

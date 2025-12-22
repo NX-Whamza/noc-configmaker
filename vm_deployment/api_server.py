@@ -6095,7 +6095,7 @@ Return the corrected configuration with proper network calculations and formatti
 def fetch_config_ssh():
     """
     SSH into MikroTik device and fetch configuration via export command.
-    Credentials are stored securely in backend (not exposed to frontend).
+    Credentials can be provided in the request body, or via environment variables.
     """
     try:
         import paramiko
@@ -6119,9 +6119,15 @@ def fetch_config_ssh():
         except ValueError:
             return jsonify({'error': 'Invalid IP address format'}), 400
         
-        # Credentials (stored securely in backend)
-        SSH_USERNAME = 'root'
-        SSH_PASSWORD = 'K&J2Gxjt3vlmUD#X'
+        # Credentials
+        # Prefer request-provided credentials (not stored), fallback to env vars.
+        SSH_USERNAME = (data.get('username') or os.getenv('NEXTLINK_SSH_USERNAME', '')).strip()
+        SSH_PASSWORD = (data.get('password') or os.getenv('NEXTLINK_SSH_PASSWORD', '')).strip()
+
+        if not SSH_USERNAME or not SSH_PASSWORD:
+            return jsonify({
+                'error': 'SSH credentials required. Provide username/password or set NEXTLINK_SSH_USERNAME and NEXTLINK_SSH_PASSWORD on the server.'
+            }), 400
         
         # MikroTik SSH ports: try 22 first, then 5022 as fallback
         SSH_PORTS = [22, 5022]
