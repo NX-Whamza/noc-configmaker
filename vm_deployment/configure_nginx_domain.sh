@@ -10,7 +10,8 @@ EMAIL="netops@team.nxlink.com"
 WEBROOT="/var/www/html"
 MANUAL_CERT="/etc/nginx/ssl/nxlink-com.pem"
 MANUAL_KEY="/etc/nginx/ssl/nxlink-com.key"
-BACKEND_HEALTH_URL="http://127.0.0.1:5000/api/health"
+# Docker deployment: the public entrypoint is the nginx "frontend" container exposed on :8000.
+FRONTEND_HEALTH_URL="http://127.0.0.1:8000/api/health"
 LOCAL_HTTP_PROBE=(curl -fsSL --max-time 10 --resolve "${DOMAIN}:80:127.0.0.1")
 LOCAL_HTTPS_PROBE=(curl -fsS --max-time 10 --resolve "${DOMAIN}:443:127.0.0.1" -k)
 
@@ -43,7 +44,7 @@ trap 'on_error $LINENO' ERR
 
 require_commands() {
     local missing=()
-    for cmd in bash sudo systemctl nginx curl; do
+    for cmd in bash sudo systemctl nginx curl docker; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
             missing+=("$cmd")
         fi
@@ -100,15 +101,15 @@ cleanup_conflicts() {
 }
 
 backend_health_check() {
-    info "Pinging backend health endpoint (${BACKEND_HEALTH_URL})..."
-    local tmp_out="/tmp/noc-backend-health.json"
-    local tmp_err="/tmp/noc-backend-health.err"
-    if curl -fsS --max-time 5 -o "$tmp_out" "$BACKEND_HEALTH_URL" 2>"$tmp_err"; then
+    info "Pinging frontend health endpoint (${FRONTEND_HEALTH_URL})..."
+    local tmp_out="/tmp/noc-frontend-health.json"
+    local tmp_err="/tmp/noc-frontend-health.err"
+    if curl -fsS --max-time 5 -o "$tmp_out" "$FRONTEND_HEALTH_URL" 2>"$tmp_err"; then
         local payload
         payload=$(cat "$tmp_out")
-        ok "Backend responded: ${payload}"
+        ok "Frontend proxy responded: ${payload}"
     else
-        warn "Backend health check failed. Ensure noc-configmaker.service is running. (See $tmp_err for curl output.)"
+        warn "Frontend health check failed. Ensure docker containers are running. (See $tmp_err for curl output.)"
     fi
 }
 
@@ -145,7 +146,7 @@ write_proxy_block() {
     send_timeout 300s;
 
     location /api/ {
-        proxy_pass http://127.0.0.1:5000;
+        proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -157,7 +158,7 @@ write_proxy_block() {
     }
 
     location / {
-        proxy_pass http://127.0.0.1:5000;
+        proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -203,7 +204,8 @@ server {
     }
 
     location / {
-        return 301 https://\$host\$request_uri;
+        # 308 preserves method/body (safer than 301/302 for POST requests)
+        return 308 https://\$host\$request_uri;
     }
 }
 
@@ -361,15 +363,12 @@ fi
 
 echo ""
 info "Make sure the backend service is running:"
-echo "  sudo systemctl status noc-configmaker"
+echo "  cd ~/noc-configmaker && sudo docker compose ps"
 
-if ! sudo systemctl is-active --quiet noc-configmaker; then
-    warn "Backend is not running. Starting it..."
-    sudo systemctl start noc-configmaker
-    sleep 2
-    sudo systemctl status noc-configmaker --no-pager -l
+if [[ -d "$HOME/noc-configmaker" ]]; then
+    (cd "$HOME/noc-configmaker" && sudo docker compose ps) || warn "Unable to run docker compose ps (is Docker running?)"
 else
-    ok "Backend service is running."
+    warn "Repo not found at ~/noc-configmaker; skipping docker compose status check."
 fi
 
 backend_health_check

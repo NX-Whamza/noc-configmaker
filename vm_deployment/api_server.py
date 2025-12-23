@@ -6780,31 +6780,31 @@ def migrate_mikrotik_to_nokia():
             def _map_physical_port(src_iface: str):
                 # Best-effort mapping to Nokia port style 1/1/<n>.
                 iface = _clean(src_iface)
-                m = re.fullmatch(r"ether(\\d+)", iface)
+                m = re.fullmatch(r"ether(\d+)", iface)
                 if m:
                     return f"1/1/{m.group(1)}"
-                m = re.fullmatch(r"sfp(\\d+)", iface)
+                m = re.fullmatch(r"sfp(\d+)", iface)
                 if m:
                     return f"1/1/{m.group(1)}"
-                m = re.fullmatch(r"sfp-sfpplus(\\d+)", iface)
+                m = re.fullmatch(r"sfp-sfpplus(\d+)", iface)
                 if m:
                     return f"1/1/{m.group(1)}"
-                m = re.fullmatch(r"sfp28-(\\d+)", iface)
+                m = re.fullmatch(r"sfp28-(\d+)", iface)
                 if m:
                     return f"1/1/{m.group(1)}"
                 return None
 
             def _extract_identity():
-                m = re.search(r"(?ms)^/system identity\\s*\\n\\s*set\\s+name=([^\\n]+)\\s*$", text)
+                m = re.search(r"(?ms)^/system identity\s*\n\s*set\s+name=([^\n]+)\s*$", text)
                 return _clean(m.group(1)) if m else None
 
             def _extract_loopback_ip():
-                m = re.search(r"(?m)^\\s*add\\s+address=(\\d+\\.\\d+\\.\\d+\\.\\d+)(?:/(\\d+))?\\b.*\\binterface=loop0\\b", text)
+                m = re.search(r"(?m)^\s*add\s+address=(\d+\.\d+\.\d+\.\d+)(?:/(\d+))?\b.*\binterface=loop0\b", text)
                 if m:
                     ip = m.group(1)
                     prefix = m.group(2) or "32"
                     return f"{ip}/{prefix}"
-                m = re.search(r"(?m)\\brouter-id=(\\d+\\.\\d+\\.\\d+\\.\\d+)\\b", text)
+                m = re.search(r"(?m)\brouter-id=(\d+\.\d+\.\d+\.\d+)\b", text)
                 if m:
                     return f"{m.group(1)}/32"
                 return None
@@ -6826,14 +6826,14 @@ def migrate_mikrotik_to_nokia():
                     if "address=" not in line or "interface=" not in line:
                         continue
 
-                    addr_m = re.search(r"\\baddress=([^\\s]+)", line)
-                    iface_m = re.search(r"\\binterface=([^\\s]+)", line)
+                    addr_m = re.search(r"\baddress=([^\s]+)", line)
+                    iface_m = re.search(r"\binterface=([^\s]+)", line)
                     if not addr_m or not iface_m:
                         continue
 
                     addr_raw = _clean(addr_m.group(1))
                     iface_raw = _clean(iface_m.group(1))
-                    comment_m = re.search(r"\\bcomment=([^\\s].*?)(?=\\s+\\w+=|\\s*$)", line)
+                    comment_m = re.search(r"\bcomment=([^\s].*?)(?=\s+\w+=|\s*$)", line)
                     comment = _clean(comment_m.group(1)) if comment_m else ""
 
                     if "/" in addr_raw:
@@ -6860,8 +6860,8 @@ def migrate_mikrotik_to_nokia():
                         continue
                     if "dst-address=" not in line or "gateway=" not in line:
                         continue
-                    dst_m = re.search(r"\\bdst-address=([^\\s]+)", line)
-                    gw_m = re.search(r"\\bgateway=([^\\s]+)", line)
+                    dst_m = re.search(r"\bdst-address=([^\s]+)", line)
+                    gw_m = re.search(r"\bgateway=([^\s]+)", line)
                     if not dst_m or not gw_m:
                         continue
                     routes.append({"dst": _clean(dst_m.group(1)), "gw": _clean(gw_m.group(1))})
