@@ -6762,6 +6762,169 @@ def migrate_mikrotik_to_nokia():
         
         if not source_config:
             return jsonify({'error': 'Source configuration is required'}), 400
+
+        def _basic_mikrotik_to_nokia(config_text: str, preserve_all_ips: bool = True) -> str:
+            """
+            Deterministic (non-AI) MikroTik -> Nokia SR OS conversion fallback.
+            Produces a usable starting-point Nokia configuration when AI is unavailable.
+            """
+            text = config_text or ""
+
+            def _clean(value: str) -> str:
+                return (value or "").strip().strip('"').strip("'").strip()
+
+            def _nokia_iface_name(src_iface: str) -> str:
+                # Keep RouterOS names to avoid guessing platform-specific mappings.
+                return _clean(src_iface).replace("\\", "_")
+
+            def _map_physical_port(src_iface: str):
+                # Best-effort mapping to Nokia port style 1/1/<n>.
+                iface = _clean(src_iface)
+                m = re.fullmatch(r"ether(\\d+)", iface)
+                if m:
+                    return f"1/1/{m.group(1)}"
+                m = re.fullmatch(r"sfp(\\d+)", iface)
+                if m:
+                    return f"1/1/{m.group(1)}"
+                m = re.fullmatch(r"sfp-sfpplus(\\d+)", iface)
+                if m:
+                    return f"1/1/{m.group(1)}"
+                m = re.fullmatch(r"sfp28-(\\d+)", iface)
+                if m:
+                    return f"1/1/{m.group(1)}"
+                return None
+
+            def _extract_identity():
+                m = re.search(r"(?ms)^/system identity\\s*\\n\\s*set\\s+name=([^\\n]+)\\s*$", text)
+                return _clean(m.group(1)) if m else None
+
+            def _extract_loopback_ip():
+                m = re.search(r"(?m)^\\s*add\\s+address=(\\d+\\.\\d+\\.\\d+\\.\\d+)(?:/(\\d+))?\\b.*\\binterface=loop0\\b", text)
+                if m:
+                    ip = m.group(1)
+                    prefix = m.group(2) or "32"
+                    return f"{ip}/{prefix}"
+                m = re.search(r"(?m)\\brouter-id=(\\d+\\.\\d+\\.\\d+\\.\\d+)\\b", text)
+                if m:
+                    return f"{m.group(1)}/32"
+                return None
+
+            def _extract_ip_addresses():
+                ip_entries = []
+                in_ip_section = False
+                for raw in text.splitlines():
+                    line = raw.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if line.startswith("/ip address"):
+                        in_ip_section = True
+                        continue
+                    if line.startswith("/") and not line.startswith("/ip address"):
+                        in_ip_section = False
+                    if not in_ip_section and not line.startswith("add "):
+                        continue
+                    if "address=" not in line or "interface=" not in line:
+                        continue
+
+                    addr_m = re.search(r"\\baddress=([^\\s]+)", line)
+                    iface_m = re.search(r"\\binterface=([^\\s]+)", line)
+                    if not addr_m or not iface_m:
+                        continue
+
+                    addr_raw = _clean(addr_m.group(1))
+                    iface_raw = _clean(iface_m.group(1))
+                    comment_m = re.search(r"\\bcomment=([^\\s].*?)(?=\\s+\\w+=|\\s*$)", line)
+                    comment = _clean(comment_m.group(1)) if comment_m else ""
+
+                    if "/" in addr_raw:
+                        ip_prefix = addr_raw
+                    else:
+                        ip_prefix = f"{addr_raw}/32" if iface_raw == "loop0" else f"{addr_raw}/24"
+
+                    ip_entries.append({"interface": iface_raw, "address": ip_prefix, "comment": comment})
+                return ip_entries
+
+            def _extract_static_routes():
+                routes = []
+                in_route_section = False
+                for raw in text.splitlines():
+                    line = raw.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if line.startswith("/ip route"):
+                        in_route_section = True
+                        continue
+                    if line.startswith("/") and not line.startswith("/ip route"):
+                        in_route_section = False
+                    if not in_route_section and not line.startswith("add "):
+                        continue
+                    if "dst-address=" not in line or "gateway=" not in line:
+                        continue
+                    dst_m = re.search(r"\\bdst-address=([^\\s]+)", line)
+                    gw_m = re.search(r"\\bgateway=([^\\s]+)", line)
+                    if not dst_m or not gw_m:
+                        continue
+                    routes.append({"dst": _clean(dst_m.group(1)), "gw": _clean(gw_m.group(1))})
+                return routes
+
+            identity = _extract_identity()
+            loopback = _extract_loopback_ip()
+            ip_entries = _extract_ip_addresses()
+            routes = _extract_static_routes()
+
+            out = []
+            out.append("# ================================================")
+            out.append("# Nokia SR OS configuration (basic conversion)")
+            out.append("# Generated by NOC Config Maker (no AI required)")
+            out.append("# ================================================")
+            out.append("")
+            out.append("# NOTE:")
+            out.append("# - Best-effort syntax conversion when AI is unavailable.")
+            out.append("# - Review port/SAP/service mappings before deployment.")
+            out.append("")
+
+            if identity:
+                out.append(f"# Source identity: {identity}")
+                out.append(f"/configure system name \"{identity}\"")
+                out.append("")
+
+            if loopback:
+                out.append("# LOOPBACK / SYSTEM INTERFACE")
+                out.append(f"/configure router interface \"system\" address {loopback}")
+                out.append("/configure router interface \"system\" no shutdown")
+                out.append("")
+
+            if preserve_all_ips and ip_entries:
+                out.append("# ROUTER INTERFACES (from /ip address)")
+                for entry in ip_entries:
+                    iface = entry.get("interface") or ""
+                    addr = entry.get("address") or ""
+                    if iface == "loop0":
+                        continue
+                    name = _nokia_iface_name(iface)
+                    comment = entry.get("comment") or ""
+                    if comment:
+                        out.append(f"# {comment}")
+                    out.append(f"/configure router interface \"{name}\" address {addr}")
+                    port = _map_physical_port(iface)
+                    if port:
+                        out.append(f"/configure router interface \"{name}\" port {port}")
+                    else:
+                        out.append(f"# TODO: Attach \"{name}\" to the correct port/SAP (source interface={iface})")
+                    out.append(f"/configure router interface \"{name}\" no shutdown")
+                    out.append("")
+
+            if routes:
+                out.append("# STATIC ROUTES (from /ip route)")
+                for route in routes:
+                    out.append(f"/configure router static-route {route['dst']} next-hop {route['gw']}")
+                out.append("")
+
+            out.append("# OSPF/BGP/FIREWALL/SERVICES")
+            out.append("# TODO: Convert routing and policy sections as needed (AI recommended when available).")
+            out.append("")
+
+            return "\n".join(out).rstrip() + "\n"
         
         # Use AI to convert MikroTik config to Nokia syntax
         system_prompt = """You are a network configuration expert specializing in converting MikroTik RouterOS configurations to Nokia SR OS syntax.
@@ -6807,10 +6970,14 @@ Requirements:
             })
         except Exception as ai_error:
             print(f"[MIGRATION] AI conversion failed: {ai_error}")
-            # Fallback: Basic conversion without AI
+            # Fallback: Basic conversion without AI (still returns a usable config).
+            basic = _basic_mikrotik_to_nokia(source_config, preserve_all_ips=preserve_ips)
             return jsonify({
-                'error': f'AI conversion failed. Please ensure Ollama is running and models are available. Error: {str(ai_error)}'
-            }), 500
+                'success': True,
+                'nokia_config': basic,
+                'ai_used': False,
+                'warning': f'AI unavailable; generated a basic conversion instead. Details: {str(ai_error)}'
+            })
         
     except Exception as e:
         print(f"[MIGRATION] Error: {e}")
