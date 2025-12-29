@@ -2467,6 +2467,9 @@ Suggest appropriate values for missing or incomplete fields."""
         })
 
     except Exception as e:
+        safe_print(f"[TRANSLATE CONFIG ERROR] {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 # ========================================
@@ -2549,6 +2552,11 @@ def translate_config():
         source_config = data.get('source_config', '')
         target_device = data.get('target_device', '')
         target_version = data.get('target_version', '')
+        # Behavior flags:
+        # - strict_preserve: preserve source structure/lines; only apply syntax + interface mapping (recommended for Upgrade Existing)
+        # - apply_compliance: optionally append RFC-09-10-25 compliance blocks (additive; may intentionally differ from live configs)
+        strict_preserve = bool(data.get('strict_preserve', True))
+        apply_compliance = bool(data.get('apply_compliance', False))
 
         if not all([source_config, target_device, target_version]):
             return jsonify({'error': 'Missing required fields'}), 400
@@ -3883,7 +3891,42 @@ Port Roles:
                     if interfaces_need_mapping:
                         print(f"[INTERFACE MAPPING] Found {len(interfaces_need_mapping)} interfaces that need mapping: {list(interfaces_need_mapping)[:5]}")
                         mapping_required = True
-            
+
+            # Special-case: CCR2004 <-> CCR2216 (12x sfp-sfpplus1..12 <-> 12x sfp28-1..12).
+            # For Upgrade Existing we prefer stable, index-based mapping (no reshuffling).
+            if mapping_required:
+                src_sfp_sfpplus = [p for p in (source_ports or []) if p.startswith('sfp-sfpplus')]
+                tgt_sfp_sfpplus = [p for p in (target_ports or []) if p.startswith('sfp-sfpplus')]
+                src_sfp28 = [p for p in (source_ports or []) if p.startswith('sfp28-')]
+                tgt_sfp28 = [p for p in (target_ports or []) if p.startswith('sfp28-')]
+
+                def _apply_mapping_everywhere(t: str, mapping: dict) -> str:
+                    # 1) Replace standalone interface tokens (safe: avoids qsfp28-1-1 and sfp28-10 collisions)
+                    for src in sorted(mapping.keys(), key=len, reverse=True):
+                        dst = mapping[src]
+                        t = re.sub(rf"\b{re.escape(src)}\b", dst, t)
+                    # 2) Replace embedded port tokens in common vlan interface naming patterns (e.g., vlan1000sfp-sfpplus1)
+                    for src in sorted(mapping.keys(), key=len, reverse=True):
+                        dst = mapping[src]
+                        t = re.sub(rf"(?m)\b(vlan\d+[-_]?)" + re.escape(src) + r"(?!\d)\b", rf"\1{dst}", t)
+                    return t
+
+                stable_mapping = None
+                if len(src_sfp_sfpplus) >= 12 and len(tgt_sfp28) >= 12:
+                    stable_mapping = {f"sfp-sfpplus{i}": f"sfp28-{i}" for i in range(1, 13)}
+                    print("[INTERFACE MAPPING] Using stable CCR2004->CCR2216 index mapping (sfp-sfpplusN -> sfp28-N)")
+                elif len(src_sfp28) >= 12 and len(tgt_sfp_sfpplus) >= 12:
+                    stable_mapping = {f"sfp28-{i}": f"sfp-sfpplus{i}" for i in range(1, 13)}
+                    print("[INTERFACE MAPPING] Using stable CCR2216->CCR2004 index mapping (sfp28-N -> sfp-sfpplusN)")
+
+                if stable_mapping:
+                    text = _apply_mapping_everywhere(text, stable_mapping)
+                    # Strip qsfp* interface lines if target has no QSFP ports (prevents invalid ports after migration).
+                    target_has_qsfp = any(p.startswith('qsfp') for p in (target_ports or []))
+                    if not target_has_qsfp:
+                        text = re.sub(r"(?m)^\s*set\s+\[\s*find\s+default-name=qsfp[^\]]+\][^\n]*\n?", "", text)
+                    return text
+             
             # STEP 1: Extract interface comments to detect purpose
             interface_info = {}  # {interface_name: {'comment': '', 'purpose': 'unknown'}}
             
@@ -4217,7 +4260,14 @@ Port Roles:
                     # This updates: /interface ethernet set, /ip address interface=, /routing ospf interfaces=, bridge ports, etc.
                     text = re.sub(rf"\b{re.escape(src)}\b", dst, text)
                     print(f"[INTERFACE MAPPING] Applied: {src} → {dst} (all occurrences)")
-            
+             
+            # Also update embedded port tokens in common vlan interface name patterns
+            # (e.g., vlan1000sfp-sfpplus1 -> vlan1000sfp28-1) so references remain consistent.
+            if mapping:
+                for src in sorted(mapping.keys(), key=len, reverse=True):
+                    dst = mapping[src]
+                    text = re.sub(rf"(?m)\b(vlan\d+[-_]?)" + re.escape(src) + r"(?!\d)\b", rf"\1{dst}", text)
+
             # Port name normalization: convert legacy port names to target device port format
             target_port_prefix = None
             # Prefer the dominant port family on the target (CCR2004 should stay sfp-sfpplus, even though it has 2 sfp28 ports).
@@ -4296,7 +4346,7 @@ Port Roles:
 
         # INTELLIGENT DETECTION AND ANALYSIS
         # Define apply_intelligent_translation BEFORE using it
-        def apply_intelligent_translation(config, source_device_info, source_syntax_info, target_syntax_info, target_device_info, target_version):
+        def apply_intelligent_translation(config, source_device_info, source_syntax_info, target_syntax_info, target_device_info, target_version, strict_preserve: bool = True):
             """
             IMPROVED intelligent translation - handles structure preservation + syntax changes.
             Philosophy: Preserve ALL content, fix structure, ensure proper section organization.
@@ -4342,7 +4392,7 @@ Port Roles:
                     # Format 3: Just the digits in the identity (if model name is already correct)
                     translated = re.sub(
                         rf'(?i)(RTR-[A-Z]+-){re.escape(source_digits)}(-)',
-                        rf'\1{target_digits}\2',
+                        rf'\g<1>{target_digits}\g<2>',
                         translated
                     )
                 
@@ -4372,12 +4422,12 @@ Port Roles:
                 if source_digits and target_digits:
                     translated = re.sub(
                         rf'(?i)(/system identity\s+set\s+name=["\']?RTR-MT){re.escape(source_digits)}(\b)',
-                        rf'\1{target_digits}\2',
+                        rf'\g<1>{target_digits}\g<2>',
                         translated
                     )
                     translated = re.sub(
                         rf'(?i)(set\s+name=["\']?RTR-MT){re.escape(source_digits)}(\b)',
-                        rf'\1{target_digits}\2',
+                        rf'\g<1>{target_digits}\g<2>',
                         translated
                     )
                 
@@ -4452,12 +4502,35 @@ Port Roles:
                     )
                     print(f"[SYNTAX] Updated OSPF: interface → interface-template")
                 
-                # OSPF parameter changes (only if not already correct)
-                if 'network=' in translated and 'networks=' not in translated:
-                    translated = re.sub(r'\bnetwork=', 'networks=', translated)
-                if re.search(r'\binterface=([a-zA-Z0-9_-]+)(\s|$)', translated) and 'interfaces=' not in translated:
-                    translated = re.sub(r'\binterface=([a-zA-Z0-9_-]+)(\s)', r'interfaces=\1\2', translated)
-                    translated = re.sub(r'\binterface=([a-zA-Z0-9_-]+)$', r'interfaces=\1', translated, flags=re.MULTILINE)
+                # OSPF parameter changes: ONLY rewrite inside the OSPF interface-template section.
+                # Do NOT touch other sections like /ip address (they use interface= and network=).
+                def _rewrite_ospf_params_in_template_section(t: str) -> str:
+                    out_lines = []
+                    in_it_block = False
+                    for ln in t.splitlines():
+                        stripped = ln.strip()
+                        if stripped == '/routing ospf interface-template':
+                            in_it_block = True
+                            out_lines.append(ln)
+                            continue
+                        if stripped.startswith('/routing ospf interface-template add '):
+                            fixed = re.sub(r'\binterface=', 'interfaces=', ln)
+                            fixed = re.sub(r'\bnetwork=', 'networks=', fixed)
+                            out_lines.append(fixed)
+                            continue
+                        if stripped.startswith('/') and re.match(r'^/[a-z]', stripped) and stripped != '/routing ospf interface-template':
+                            in_it_block = False
+                            out_lines.append(ln)
+                            continue
+                        if in_it_block and stripped.startswith('add '):
+                            fixed = re.sub(r'\binterface=', 'interfaces=', ln)
+                            fixed = re.sub(r'\bnetwork=', 'networks=', fixed)
+                            out_lines.append(fixed)
+                            continue
+                        out_lines.append(ln)
+                    return '\n'.join(out_lines)
+
+                translated = _rewrite_ospf_params_in_template_section(translated)
             
             # 5. Ensure OSPF area section exists and has proper content
             ospf_instance_name = None
@@ -4495,12 +4568,14 @@ Port Roles:
                 print(f"[INTERFACE] Dynamic mapping: {len(source_ports)} source → {len(target_ports)} target ports")
                 translated = map_interfaces_dynamically(translated, source_ports, target_ports, mgmt_port, target_device_info.get('type',''))
             
-            # 7. Minimal postprocessing for RouterOS 7.x syntax
-            if target_version.startswith('7.'):
+            # 7. Postprocessing (non-strict mode only).
+            # Strict mode is intended for "Upgrade Existing": preserve structure and lines exactly.
+            if (not strict_preserve) and target_version.startswith('7.'):
                 translated = postprocess_to_v7(translated, target_version)
             
-            # 8. FINAL CLEANUP: Consolidate sections and remove orphaned lines
-            translated = final_structure_cleanup(translated, ospf_instance_name, ospf_area_name)
+            # 8. FINAL CLEANUP (non-strict mode only) - strict mode skips any line-removal logic.
+            if not strict_preserve:
+                translated = final_structure_cleanup(translated, ospf_instance_name, ospf_area_name)
             
             print(f"[TRANSLATION] Intelligent translation completed")
             return translated
@@ -4592,7 +4667,15 @@ Port Roles:
         # For very large configs, skip AI entirely
         if config_size > 800 or config_size_mb > 2.0:  # Lowered threshold for better performance
             print(f"[BYPASS AI] Large config ({config_size} lines, {config_size_mb:.2f}MB) - using intelligent translation only")
-            translated = apply_intelligent_translation(source_config, source_device_info, source_syntax_info, target_syntax_info, target_device_info, target_version)
+            translated = apply_intelligent_translation(
+                source_config,
+                source_device_info,
+                source_syntax_info,
+                target_syntax_info,
+                target_device_info,
+                target_version,
+                strict_preserve=strict_preserve,
+            )
             validation = validate_translation(source_config, translated)
             return jsonify({
                 'success': True,
@@ -4612,9 +4695,9 @@ Port Roles:
                 detect_routeros_syntax(source_config),
                 get_target_syntax(target_version),
                 target_device_info,
-                target_version
+                target_version,
+                strict_preserve=strict_preserve,
             )
-            translated_fast = postprocess_to_v7(translated_fast, target_version)
             validation_fast = validate_translation(source_config, translated_fast)
             return jsonify({
                 'success': True,
@@ -4803,7 +4886,15 @@ Output (copy every line, update device model to {target_device.upper()}, preserv
         # Force intelligent translation for ALL configs until AI issues are resolved
         safe_print("[EMERGENCY MODE] Bypassing AI - using intelligent translation for reliability")
         safe_print("[REASON] AI translations failing validation - producing broken sections, missing IPs")
-        translated = apply_intelligent_translation(source_config, source_device_info, source_syntax_info, target_syntax_info, target_device_info, target_version)
+        translated = apply_intelligent_translation(
+            source_config,
+            source_device_info,
+            source_syntax_info,
+            target_syntax_info,
+            target_device_info,
+            target_version,
+            strict_preserve=strict_preserve,
+        )
         
         # Original AI path (DISABLED for safety):
         # try:
@@ -4858,89 +4949,81 @@ Output (copy every line, update device model to {target_device.upper()}, preserv
 
         # CRITICAL: Apply comprehensive interface mapping after AI translation
         # This ensures ALL interface references are properly mapped (e.g., CCR1072 → CCR2216)
-        print(f"[POST-AI] Applying comprehensive interface mapping...")
+        # Interface mapping vars used for any preservation/injection steps below.
         source_ports_list = source_device_info.get('ports', [])
         target_ports_list = target_device_info.get('ports', [])
         mgmt_port = target_device_info.get('management', '')
-        
-        # Store interface mapping for later use in IP address preservation
-        interface_mapping_dict = {}
-        if target_ports_list:
-            # Create a temporary config to extract mapping
-            temp_config = translated
-            translated = map_interfaces_dynamically(translated, source_ports_list, target_ports_list, mgmt_port, target_device_info.get('type', ''))
-            # Extract mapping by comparing before/after (simplified - the mapping function logs it)
-            # We'll apply mapping to IP addresses directly
 
-        # Post-process to enforce v7 syntax regardless of AI path
-        translated = postprocess_to_v7(translated, target_version)
-        
-        # FINAL CONSISTENCY CHECK: Ensure BGP connections are in correct block (run after postprocessing)
-        # This catches any BGP connections that might have been missed or placed incorrectly
-        bgp_in_wrong_blocks = []
-        lines_final = translated.splitlines()
-        current_block_final = None
-        for line in lines_final:
-            # Track current block (full path like /routing bfd configuration)
-            if re.match(r'^/(routing|interface|ip|mpls|system)', line):
-                block_match = re.match(r'^/([^\s]+(?:\s+[^\s]+)*)', line)
-                if block_match:
-                    current_block_final = block_match.group(0)
-                else:
-                    current_block_final = line.split()[0] if line.split() else None
-            elif current_block_final and line.strip() and not line.strip().startswith('#'):
-                # Check if this line in any non-BGP block is actually a BGP connection
-                bgp_indicators_final = [
-                    r'\bas=\d+',
-                    r'\bremote\.address=',
-                    r'\bremote\.as=',
-                    r'\btcp\.md5\.key=',
-                    r'\blocal\.address=',
-                    r'\brouter-id=',
-                    r'\btemplates=',
-                    r'\boutput\.network=',
-                    r'\bcisco-vpls',
-                    r'\.role=ibgp',
-                    r'\.role=ebgp'
-                ]
-                bgp_match_count_final = sum(1 for pattern in bgp_indicators_final if re.search(pattern, line, re.IGNORECASE))
-                if bgp_match_count_final >= 3:
-                    # Verify we're NOT in a BGP block
-                    block_lower_final = current_block_final.lower() if current_block_final else ''
-                    if 'bgp connection' not in block_lower_final and 'bgp template' not in block_lower_final:
-                        bgp_in_wrong_blocks.append((line, current_block_final))
-        
-        if bgp_in_wrong_blocks:
-            print(f"[CONSISTENCY CHECK] Found {len(bgp_in_wrong_blocks)} BGP connections in wrong blocks - fixing...")
-            # Remove them from wrong locations and add to correct block
-            bgp_lines_to_add = []
-            for bgp_line, wrong_block in bgp_in_wrong_blocks:
-                print(f"[CONSISTENCY CHECK] Moving BGP from '{wrong_block}' to /routing bgp connection")
-                # Remove the line from wrong location
-                translated = translated.replace(bgp_line + '\n', '')
-                translated = translated.replace('\n' + bgp_line, '')
-                translated = translated.replace(bgp_line, '')
-                # Ensure line starts with 'add '
-                clean_line = bgp_line.strip()
-                if not clean_line.startswith('add '):
-                    clean_line = 'add ' + clean_line.lstrip('add ')
-                bgp_lines_to_add.append(clean_line)
-            
-            # Add all BGP connections to correct block
-            if bgp_lines_to_add:
-                if '/routing bgp connection' in translated:
-                    translated = re.sub(
-                        r'(/routing bgp connection\s*\n)',
-                        r'\1' + '\n'.join(bgp_lines_to_add) + '\n',
-                        translated,
-                        count=1
-                    )
-                else:
-                    # Create block before /routing bgp template
-                    if '/routing bgp template' in translated:
-                        translated = translated.replace('/routing bgp template', '/routing bgp connection\n' + '\n'.join(bgp_lines_to_add) + '\n\n/routing bgp template')
+        # Heavy postprocessing (to repair broken AI output) is non-strict behavior.
+        # "Upgrade Existing" uses strict mode and should preserve the source config as closely as possible.
+        if not strict_preserve:
+            print("[POST-AI] Applying comprehensive interface mapping...")
+            if target_ports_list:
+                translated = map_interfaces_dynamically(
+                    translated, source_ports_list, target_ports_list, mgmt_port, target_device_info.get('type', '')
+                )
+            translated = postprocess_to_v7(translated, target_version)
+
+            # FINAL CONSISTENCY CHECK: Ensure BGP connections are in correct block (run after postprocessing)
+            bgp_in_wrong_blocks = []
+            lines_final = translated.splitlines()
+            current_block_final = None
+            for line in lines_final:
+                if re.match(r'^/(routing|interface|ip|mpls|system)', line):
+                    block_match = re.match(r'^/([^\s]+(?:\s+[^\s]+)*)', line)
+                    if block_match:
+                        current_block_final = block_match.group(0)
                     else:
-                        translated += '\n/routing bgp connection\n' + '\n'.join(bgp_lines_to_add) + '\n'
+                        current_block_final = line.split()[0] if line.split() else None
+                elif current_block_final and line.strip() and not line.strip().startswith('#'):
+                    bgp_indicators_final = [
+                        r'\bas=\d+',
+                        r'\bremote\.address=',
+                        r'\bremote\.as=',
+                        r'\btcp\.md5\.key=',
+                        r'\blocal\.address=',
+                        r'\brouter-id=',
+                        r'\btemplates=',
+                        r'\boutput\.network=',
+                        r'\bcisco-vpls',
+                        r'\.role=ibgp',
+                        r'\.role=ebgp'
+                    ]
+                    bgp_match_count_final = sum(1 for pattern in bgp_indicators_final if re.search(pattern, line, re.IGNORECASE))
+                    if bgp_match_count_final >= 3:
+                        block_lower_final = current_block_final.lower() if current_block_final else ''
+                        if 'bgp connection' not in block_lower_final and 'bgp template' not in block_lower_final:
+                            bgp_in_wrong_blocks.append((line, current_block_final))
+
+            if bgp_in_wrong_blocks:
+                print(f"[CONSISTENCY CHECK] Found {len(bgp_in_wrong_blocks)} BGP connections in wrong blocks - fixing...")
+                bgp_lines_to_add = []
+                for bgp_line, wrong_block in bgp_in_wrong_blocks:
+                    print(f"[CONSISTENCY CHECK] Moving BGP from '{wrong_block}' to /routing bgp connection")
+                    translated = translated.replace(bgp_line + '\n', '')
+                    translated = translated.replace('\n' + bgp_line, '')
+                    translated = translated.replace(bgp_line, '')
+                    clean_line = bgp_line.strip()
+                    if not clean_line.startswith('add '):
+                        clean_line = 'add ' + clean_line.lstrip('add ')
+                    bgp_lines_to_add.append(clean_line)
+
+                if bgp_lines_to_add:
+                    if '/routing bgp connection' in translated:
+                        translated = re.sub(
+                            r'(/routing bgp connection\s*\n)',
+                            r'\1' + '\n'.join(bgp_lines_to_add) + '\n',
+                            translated,
+                            count=1
+                        )
+                    else:
+                        if '/routing bgp template' in translated:
+                            translated = translated.replace(
+                                '/routing bgp template',
+                                '/routing bgp connection\n' + '\n'.join(bgp_lines_to_add) + '\n\n/routing bgp template',
+                            )
+                        else:
+                            translated += '\n/routing bgp connection\n' + '\n'.join(bgp_lines_to_add) + '\n'
         
         # CRITICAL: Ensure ALL IP addresses are preserved - NO IPs can be missing
         print(f"[IP PRESERVATION] Verifying all {len(source_ip_addresses)} IP addresses are preserved...")
@@ -5021,37 +5104,38 @@ Output (copy every line, update device model to {target_device.upper()}, preserv
         else:
             print(f"[IP PRESERVATION] ✓ All {len(source_ip_set)} IP addresses are preserved")
         
-        # CRITICAL: Remove all duplicates before final formatting
-        print("[DEDUPLICATION] Removing duplicate entries from all sections...")
-        translated = remove_duplicate_entries(translated)
-        
-        # FINAL FORMATTING: Ensure proper spacing between all sections for readability
-        # This makes the config easier to read and ensures clear separation
-        print("[FORMATTING] Applying final spacing and formatting...")
-        translated = format_config_spacing(translated)
-        
-        # FINAL CONSISTENCY VERIFICATION: Verify all critical sections exist
-        required_sections = ['/ip address', '/interface ethernet', '/routing']
-        missing_sections = []
-        for section in required_sections:
-            if section not in translated:
-                missing_sections.append(section)
-                print(f"[CONSISTENCY WARNING] Missing required section: {section}")
-        
-        # Verify BGP connections are in correct block (final check)
-        if '/routing bgp connection' in translated:
-            bgp_conn_count = len(re.findall(r"(?m)^/routing bgp connection\s+add\b[^\n]*$", translated))
-            bgp_in_bfd = len(re.findall(r"(?m)^/routing bfd configuration\s+add\b[^\n]*(?:as=|remote\.address=)[^\n]*$", translated))
-            if bgp_in_bfd > 0:
-                print(f"[CONSISTENCY WARNING] Found {bgp_in_bfd} BGP connections still in /routing bfd configuration block")
-        
-        # Verify interface mapping followed policy (check backhauls start at sfp28-4)
-        backhaul_interfaces = re.findall(r"(?m)^/interface ethernet\s+set\s+[^\n]*default-name=(sfp28-[^\]]+)[^\n]*comment=([^\s\n\"]+)[^\n]*$", translated)
-        for iface, comment in backhaul_interfaces:
-            if any(keyword in comment.upper() for keyword in ['TX-', 'KS-', 'IL-', 'BACKHAUL', 'BH']):
-                iface_num = int(re.search(r'(\d+)', iface).group(1)) if re.search(r'(\d+)', iface) else None
-                if iface_num and iface_num < 4:
-                    print(f"[CONSISTENCY WARNING] Backhaul '{comment}' on {iface} - should be sfp28-4+ per policy")
+        # Non-strict postprocessing is intended to repair broken AI output (dedup/orphan fixes/reordering).
+        # In strict mode we avoid any step that might drop or reorder lines.
+        if not strict_preserve:
+            # CRITICAL: Remove all duplicates before final formatting
+            print("[DEDUPLICATION] Removing duplicate entries from all sections...")
+            translated = remove_duplicate_entries(translated)
+            
+            # FINAL FORMATTING: Ensure proper spacing between all sections for readability
+            print("[FORMATTING] Applying final spacing and formatting...")
+            translated = format_config_spacing(translated)
+            
+            # FINAL CONSISTENCY VERIFICATION: Verify all critical sections exist
+            required_sections = ['/ip address', '/interface ethernet', '/routing']
+            missing_sections = []
+            for section in required_sections:
+                if section not in translated:
+                    missing_sections.append(section)
+                    print(f"[CONSISTENCY WARNING] Missing required section: {section}")
+            
+            # Verify BGP connections are in correct block (final check)
+            if '/routing bgp connection' in translated:
+                bgp_in_bfd = len(re.findall(r"(?m)^/routing bfd configuration\s+add\b[^\n]*(?:as=|remote\.address=)[^\n]*$", translated))
+                if bgp_in_bfd > 0:
+                    print(f"[CONSISTENCY WARNING] Found {bgp_in_bfd} BGP connections still in /routing bfd configuration block")
+            
+            # Verify interface mapping followed policy (check backhauls start at sfp28-4)
+            backhaul_interfaces = re.findall(r"(?m)^/interface ethernet\s+set\s+[^\n]*default-name=(sfp28-[^\]]+)[^\n]*comment=([^\s\n\"]+)[^\n]*$", translated)
+            for iface, comment in backhaul_interfaces:
+                if any(keyword in comment.upper() for keyword in ['TX-', 'KS-', 'IL-', 'BACKHAUL', 'BH']):
+                    iface_num = int(re.search(r'(\d+)', iface).group(1)) if re.search(r'(\d+)', iface) else None
+                    if iface_num and iface_num < 4:
+                        print(f"[CONSISTENCY WARNING] Backhaul '{comment}' on {iface} - should be sfp28-4+ per policy")
 
         # Validate translation (existing validation for IPs, secrets, users, firewall)
         validation = validate_translation(source_config, translated)
@@ -5088,8 +5172,15 @@ Output (copy every line, update device model to {target_device.upper()}, preserv
         
         if should_fallback:
             print(f"[INTELLIGENT FALLBACK] Information loss detected: {', '.join(fallback_reason)} - using intelligent translation to preserve all data")
-            translated = apply_intelligent_translation(source_config, source_device_info, source_syntax_info, target_syntax_info, target_device_info, target_version)
-            translated = postprocess_to_v7(translated, target_version)
+            translated = apply_intelligent_translation(
+                source_config,
+                source_device_info,
+                source_syntax_info,
+                target_syntax_info,
+                target_device_info,
+                target_version,
+                strict_preserve=strict_preserve,
+            )
             validation = validate_translation(source_config, translated)
             
             # If still missing IPs after intelligent fallback, log warning but continue
@@ -5100,8 +5191,15 @@ Output (copy every line, update device model to {target_device.upper()}, preserv
         config_size = len(source_config.split('\n'))
         if config_size > 500:  # Large configs
             print(f"[LARGE CONFIG] Detected {config_size} lines - using intelligent translation to prevent timeout")
-            translated = apply_intelligent_translation(source_config, source_device_info, source_syntax_info, target_syntax_info, target_device_info, target_version)
-            translated = postprocess_to_v7(translated, target_version)
+            translated = apply_intelligent_translation(
+                source_config,
+                source_device_info,
+                source_syntax_info,
+                target_syntax_info,
+                target_device_info,
+                target_version,
+                strict_preserve=strict_preserve,
+            )
             validation = validate_translation(source_config, translated)
 
         # ========================================
@@ -5122,10 +5220,10 @@ Output (copy every line, update device model to {target_device.upper()}, preserv
             if source_loopback_match:
                 loopback_ip = source_loopback_match.group(1)
         
-        # Apply compliance if available
+        # Apply compliance only if requested (optional)
         compliance_validation = None
-        if HAS_COMPLIANCE:
-            print("[COMPLIANCE] Enforcing RFC-09-10-25 compliance standards...")
+        if apply_compliance and HAS_COMPLIANCE:
+            print("[COMPLIANCE] Applying RFC-09-10-25 compliance standards (optional)...")
             try:
                 # Get compliance blocks
                 compliance_blocks = get_all_compliance_blocks(loopback_ip or "10.0.0.1/32")
@@ -7243,7 +7341,7 @@ def is_admin_user():
             user_email = decoded.get('email', '').lower()
             
             # Admin emails (can be set via environment variable or use default)
-            admin_emails = os.getenv('ADMIN_EMAILS', 'netops@team.nxlink.com').lower().split(',')
+            admin_emails = os.getenv('ADMIN_EMAILS', 'netops@team.nxlink.com,whamza@team.nxlink.com').lower().split(',')
             admin_emails = [e.strip() for e in admin_emails]
             
             return user_email in admin_emails

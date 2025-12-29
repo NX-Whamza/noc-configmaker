@@ -128,6 +128,78 @@ def main() -> int:
     model = re.search(r"(?m)^#\s*model\s*=(.*)$", translated)
     _assert(model and "CCR2004" in model.group(1), "Translated config header model not updated to CCR2004")
 
+    # Translate (strict): CCR2004 -> CCR2216 must preserve critical sections and map embedded VLAN names.
+    export = (
+        "# 2025-12-29 12:34:47 by RouterOS 7.19.4\n"
+        "# model =CCR2004-1G-12S+2XS\n"
+        "\n"
+        "/interface ethernet\n"
+        "set [ find default-name=sfp-sfpplus7 ] auto-negotiation=no comment=\"ZAYO DF to ALEDO-NO-1\" l2mtu=9212 mtu=9198 speed=10G-baseCR\n"
+        "\n"
+        "/interface vlan\n"
+        "add interface=sfp-sfpplus7 name=vlan1000sfp-sfpplus7 vlan-id=1000\n"
+        "\n"
+        "/ip address\n"
+        "add address=10.4.1.161/30 comment=ALEDO-NO-1 interface=sfp-sfpplus7 network=10.4.1.160\n"
+        "\n"
+        "/routing ospf instance\n"
+        "add disabled=no name=default-v2 router-id=10.4.1.161\n"
+        "/routing ospf area\n"
+        "add disabled=no instance=default-v2 name=backbone-v2\n"
+        "/routing ospf interface-template\n"
+        "add area=backbone-v2 interfaces=sfp-sfpplus7 networks=10.4.1.160/30\n"
+        "\n"
+        "/routing bgp connection\n"
+        "add as=26077 remote.address=10.4.0.1 remote.as=26077 tcp-md5-key=m8M5JwvdYM templates=core\n"
+        "\n"
+        "/routing filter rule\n"
+        "add chain=bgr-a-bgp-in-filter action=accept\n"
+        "\n"
+        "/ip firewall filter\n"
+        "add chain=input action=accept comment=\"ALLOW BGP\" protocol=tcp dst-port=179\n"
+        "\n"
+        "/ip firewall mangle\n"
+        "add action=return chain=CONN-MARK comment=\"BREAK CONN-MARK\"\n"
+        "\n"
+        "/radius\n"
+        "add address=142.147.112.18 secret=RADIUS_SECRET service=login\n"
+        "\n"
+        "/system identity\n"
+        "set name=RTR-MT2004-AR1.CATTLEBARON\n"
+        "\n"
+        "/system scheduler\n"
+        "add interval=1d name=nightly on-event=\"/system script run backup\"\n"
+        "\n"
+        "/system script\n"
+        "add name=backup source=\":log info test\"\n"
+    )
+    r = client.post(
+        "/api/translate-config",
+        data=json.dumps(
+            {
+                "source_config": export,
+                "target_device": "ccr2216",
+                "target_version": "7.19.4",
+                "strict_preserve": True,
+                "apply_compliance": False,
+            }
+        ),
+        content_type="application/json",
+    )
+    _assert(r.status_code == 200, f"/api/translate-config (strict) expected 200, got {r.status_code}")
+    data = r.get_json() or {}
+    _assert(data.get("success") is True, f"/api/translate-config (strict) success=true, got {data!r}")
+    translated = data.get("translated_config") or ""
+    _assert("default-name=sfp28-7" in translated, "Strict translate did not map sfp-sfpplus7 -> sfp28-7 in ethernet tuning")
+    _assert("interface=sfp28-7" in translated, "Strict translate did not map IP address interface to sfp28-7")
+    _assert("vlan1000sfp28-7" in translated, "Strict translate did not rewrite embedded VLAN name vlan1000sfp-sfpplus7 -> vlan1000sfp28-7")
+    _assert("/routing ospf area" in translated and "name=backbone-v2" in translated, "Strict translate lost OSPF area backbone-v2")
+    _assert("/routing bgp connection" in translated and "tcp-md5-key=m8M5JwvdYM" in translated, "Strict translate lost BGP connection or tcp-md5-key")
+    _assert("/ip firewall mangle" in translated and "action=return chain=CONN-MARK" in translated, "Strict translate lost mangle return chain scaffolding")
+    _assert("/radius" in translated and "RADIUS_SECRET" in translated, "Strict translate lost /radius section")
+    _assert("/system scheduler" in translated and "name=nightly" in translated, "Strict translate lost scheduler")
+    _assert("/system script" in translated and "name=backup" in translated, "Strict translate lost scripts")
+
     print("[OK] Smoke tests passed")
     return 0
 

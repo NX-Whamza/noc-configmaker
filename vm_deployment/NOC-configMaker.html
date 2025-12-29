@@ -2071,11 +2071,11 @@
                                         <select id="upgradeTargetDevice" style="width: 100%; padding: 8px;">
                                             <option value="ccr2004">CCR2004-1G-12S+2XS (12 SFP+, 2 SFP28)</option>
                                             <option value="ccr1036">CCR1036-12G-4S (4 SFP, 12 Ethernet)</option>
-                                            <option value="ccr2216">CCR2216 (Legacy)</option>
-                                            <option value="ccr2116">CCR2116 (Legacy)</option>
-                                            <option value="ccr1072">CCR1072 (Legacy)</option>
+                                            <option value="ccr2216">CCR2216</option>
+                                            <option value="ccr2116">CCR2116</option>
+                                            <option value="ccr1072">CCR1072</option>
                                             <option value="rb5009">RB5009 (Small sites)</option>
-                                            <option value="rb2011">RB2011 (Legacy)</option>
+                                            <option value="rb2011">RB2011</option>
                                         </select>
                                     </div>
                                     <div>
@@ -2150,7 +2150,7 @@
                                     onchange="handleConfigTypeChange()">
                                     <option value="in-state">In-State (Full BGP/OSPF)</option>
                                     <option value="out-of-state">Out-of-State (OSPF/MPLS/VPLS)</option>
-                                    <option value="legacy-simple">Legacy Simple Bridge/DHCP</option>
+                                    <option value="legacy-simple">Simple Bridge/DHCP</option>
                                 </select>
                                 <div style="margin-top: 12px; display: flex; align-items: center; gap: 10px;">
                                     <input type="checkbox" id="disableUnusedPorts">
@@ -2202,7 +2202,7 @@
                                 <!-- Hidden: current device is not needed for New Device configs.
                      Kept for backward-compatibility with any JS that still reads it. -->
                                 <div style="display:none;">
-                                    <label for="currentDevice">Current Device (legacy only):</label>
+                                    <label for="currentDevice">Current Device (optional):</label>
                                     <select id="currentDevice">
                                         <option value="">Select Current Device</option>
                                         <option value="rb1009">RB1009 (RouterOS 6.x/7.x)</option>
@@ -2236,25 +2236,25 @@
                                 </div>
                                 <!-- Hidden: current RouterOS version not needed for New Device configs -->
                                 <div style="display:none;">
-                                    <label for="currentRouterOS">Current RouterOS Version (legacy only):</label>
+                                    <label for="currentRouterOS">Current RouterOS Version (pre-7.12 only):</label>
                                     <select id="currentRouterOS">
                                         <option value="">Select Version</option>
-                                        <option value="6.45.2">6.45.2 (Legacy Speed Syntax)</option>
-                                        <option value="6.49.2">6.49.2 (Legacy Speed Syntax)</option>
-                                        <option value="7.11.2">7.11.2 (Legacy Speed Syntax)</option>
-                                        <option value="7.16.2">7.16.2 (New Speed Syntax)</option>
-                                        <option value="7.19.4">7.19.4 (New Speed Syntax)</option>
+                                        <option value="6.45.2">6.45.2 (Pre-7.12 Speed Syntax)</option>
+                                        <option value="6.49.2">6.49.2 (Pre-7.12 Speed Syntax)</option>
+                                        <option value="7.11.2">7.11.2 (Pre-7.12 Speed Syntax)</option>
+                                        <option value="7.16.2">7.16.2 (7.12+ Speed Syntax)</option>
+                                        <option value="7.19.4">7.19.4 (7.12+ Speed Syntax)</option>
                                     </select>
                                 </div>
                                 <div>
                                     <label for="targetRouterOS">Target RouterOS Version:</label>
                                     <select id="targetRouterOS">
                                         <option value="">Select Version</option>
-                                        <option value="6.45.2">6.45.2 (Legacy Speed Syntax)</option>
-                                        <option value="6.49.2">6.49.2 (Legacy Speed Syntax)</option>
-                                        <option value="7.11.2">7.11.2 (Legacy Speed Syntax)</option>
-                                        <option value="7.16.2">7.16.2 (New Speed Syntax)</option>
-                                        <option value="7.19.4">7.19.4 (New Speed Syntax)</option>
+                                        <option value="6.45.2">6.45.2 (Pre-7.12 Speed Syntax)</option>
+                                        <option value="6.49.2">6.49.2 (Pre-7.12 Speed Syntax)</option>
+                                        <option value="7.11.2">7.11.2 (Pre-7.12 Speed Syntax)</option>
+                                        <option value="7.16.2">7.16.2 (7.12+ Speed Syntax)</option>
+                                        <option value="7.19.4">7.19.4 (7.12+ Speed Syntax)</option>
                                     </select>
                                 </div>
                             </div>
@@ -2875,7 +2875,7 @@
                                     <option value="CRS326-24G-2S+">CRS326-24G-2S+ (24 Ethernet, 2 SFP+)</option>
                                     <option value="CRS354-48G-4S+2Q+">CRS354-48G-4S+2Q+ (48 Ethernet, 4 SFP+, 2 QSFP+)
                                     </option>
-                                    <option value="ccr2216">CCR2216 (Legacy)</option>
+                                    <option value="ccr2216">CCR2216</option>
                                 </select>
                             </div>
                             <div>
@@ -2884,15 +2884,15 @@
                                     <option value="">Select RouterOS Version</option>
                                     <option value="7.16.2" selected>7.16.2 (Stable) - Recommended</option>
                                     <option value="7.19.4">7.19.4 (Latest)</option>
-                                    <option value="7.11.2">7.11.2 (Legacy)</option>
-                                    <option value="6.49.2">6.49.2 (Legacy)</option>
+                                    <option value="7.11.2">7.11.2</option>
+                                    <option value="6.49.2">6.49.2</option>
                                 </select>
                             </div>
                         </div>
 
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
                             <div style="display:none;" aria-hidden="true">
-                                <label for="ent_deviceType">Device Type (Legacy):</label>
+                                <label for="ent_deviceType">Device Type:</label>
                                 <select id="ent_deviceType">
                                     <option value="CCR2004">CCR2004</option>
                                     <option value="CCR1036">CCR1036</option>
@@ -3186,8 +3186,8 @@
                                     <option value="rb5009">RB5009</option>
                                     <option value="ccr2216">CCR2216</option>
                                     <option value="ccr1072">CCR1072</option>
-                                    <option value="rb1009">RB1009 (Legacy)</option>
-                                    <option value="rb2011">RB2011 (Legacy)</option>
+                                    <option value="rb1009">RB1009</option>
+                                    <option value="rb2011">RB2011</option>
                                 </select>
                             </div>
                             <div>
@@ -3196,8 +3196,8 @@
                                     <option value="">Select RouterOS Version</option>
                                     <option value="7.16.2" selected>7.16.2 (Recommended)</option>
                                     <option value="7.19.4">7.19.4 (Latest)</option>
-                                    <option value="7.11.2">7.11.2 (Legacy)</option>
-                                    <option value="6.49.2">6.49.2 (Legacy)</option>
+                                    <option value="7.11.2">7.11.2</option>
+                                    <option value="6.49.2">6.49.2</option>
                                 </select>
                             </div>
                         </div>
@@ -3763,7 +3763,7 @@
                                     <label for="tarana_routeros_version">RouterOS Version:</label>
                                     <select id="tarana_routeros_version">
                                         <option value="">Select RouterOS Version</option>
-                                        <option value="7.11.2">7.11.2 (Legacy Speed Syntax)</option>
+                                        <option value="7.11.2">7.11.2 (Pre-7.12 Speed Syntax)</option>
                                         <option value="7.16.2">7.16.2 (New Speed Syntax)</option>
                                         <option value="7.19.4">7.19.4 (New Speed Syntax)</option>
                                     </select>
@@ -3937,19 +3937,19 @@
                                         <option value="ccr1036">CCR1036-12G-4S (12 SFP+, 12 Ethernet) - Recommended
                                         </option>
                                         <option value="rb5009">RB5009 (Small sites)</option>
-                                        <option value="rb1009">RB1009 (Legacy)</option>
-                                        <option value="rb2011">RB2011 (Legacy)</option>
-                                        <option value="ccr1072">CCR1072 (Legacy)</option>
-                                        <option value="ccr2216">CCR2216 (Legacy)</option>
+                                        <option value="rb1009">RB1009</option>
+                                        <option value="rb2011">RB2011</option>
+                                        <option value="ccr1072">CCR1072</option>
+                                        <option value="ccr2216">CCR2216</option>
                                     </select>
                                 </div>
                                 <div>
                                     <label for="ent_feeding_routeros">RouterOS Version:</label>
                                     <select id="ent_feeding_routeros">
                                         <option value="">Select RouterOS Version</option>
-                                        <option value="6.45.2">6.45.2 (Legacy Speed Syntax)</option>
-                                        <option value="6.49.2">6.49.2 (Legacy Speed Syntax)</option>
-                                        <option value="7.11.2">7.11.2 (Legacy Speed Syntax)</option>
+                                        <option value="6.45.2">6.45.2 (Pre-7.12 Speed Syntax)</option>
+                                        <option value="6.49.2">6.49.2 (Pre-7.12 Speed Syntax)</option>
+                                        <option value="7.11.2">7.11.2 (Pre-7.12 Speed Syntax)</option>
                                         <option value="7.16.2">7.16.2 (New Speed Syntax)</option>
                                         <option value="7.19.4">7.19.4 (New Speed Syntax)</option>
                                     </select>
@@ -16393,7 +16393,7 @@ Translate this configuration section to RouterOS ${context.targetVersion} syntax
   Use "/routing bgp template" for common settings
 - SFP ports: Use "sfp-sfpplus#" format (e.g., sfp-sfpplus1, sfp-sfpplus2)`;
             } else if (targetVersion.startsWith('7.')) {
-                return `RouterOS 7.x (Legacy Syntax):
+                return `RouterOS 7.x (Pre-7.12 Syntax):
 - Ethernet speed: Use "speed=1Gbps duplex=full" format
 - OSPF: Use "/routing ospf interface" (v6 syntax)
 - BGP: Use "/routing bgp peer" (v6 syntax)`;
