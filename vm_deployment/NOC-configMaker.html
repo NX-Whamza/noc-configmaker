@@ -5,6 +5,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NOC CONFIG MAKER TOOL</title>
+    <meta name="theme-color" content="#ff7a00">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="manifest" href="assets/site.webmanifest">
 
     <!-- Security: Prevent Source Code Access -->
     <!-- Security Script Removed for Debugging -->
@@ -7227,7 +7230,8 @@
             return config;
         }
 
-        function addFirewallConfiguration(config, enableDHCP, enableMPLS) {
+        function addFirewallConfiguration(config, enableDHCP, enableMPLS, opts = {}) {
+            const listsOnly = opts && opts.listsOnly === true;
             // IP Firewall Address List
             config += `/ip firewall address-list\n`;
             config += `add address=10.0.0.0/8 list=EOIP-ALLOW\n`;
@@ -7271,6 +7275,11 @@
             staticCustomers.forEach(customer => {
                 config += `add address=${customer.range} comment="${customer.comment || customer.name}" list=static-customers\n`;
             });
+
+            if (listsOnly) {
+                config += `\n`;
+                return config;
+            }
 
             // IP Firewall Filter
             config += `/ip firewall filter\n`;
@@ -11342,8 +11351,8 @@
                 });
                 config += `\n`;
 
-                // Add BGP Connections (if MPLS enabled)
-                if (enableMPLS) {
+                // Add BGP Connections (backbone-v2 mode; when MPLS is NOT enabled)
+                if (!enableMPLS) {
                     config += `# BGP CONNECTIONS\n`;
                     config += `/routing bgp connection\n`;
 
@@ -11400,7 +11409,9 @@
                     const bgpPeersJson = document.getElementById('bgpPeers').value.trim();
                     const bgpAS = document.getElementById('bgpAS').value.trim();
                     const configType = document.getElementById('configType').value;
-                    const isSimpleMode = configType === 'legacy-simple';
+                    const isLegacySimple = configType === 'legacy-simple';
+                    const isOutOfState = configType === 'out-of-state';
+                    const isInState = configType === 'in-state';
                     const enableVPLS = document.getElementById('enableVPLS').checked;
                     const enableMPLS = document.getElementById('enableMPLS').checked;
                     const enableDHCP = document.getElementById('enableDHCP').checked;
@@ -11470,7 +11481,7 @@
 
                     // If no VLANs were defined in the UI, auto-add Nextlink tower baseline VLANs (In-State).
                     // This avoids "minimal config" generation and matches real tower defaults (1000/2000/3000/4000).
-                    if (!isSimpleMode && configType === 'in-state' && uniqueVlans.length === 0) {
+                    if (isInState && uniqueVlans.length === 0) {
                         const allPorts = [...(deviceConfig.ports || []), ...(deviceConfig.sfpPorts || [])].filter(p => p && p !== 'ether1');
                         const preferredTrunks = ['sfp-sfpplus2', 'sfp-sfpplus3', 'sfp2', 'sfp3', 'sfp-sfpplus1', 'sfp1'];
                         const trunks = [];
@@ -11507,7 +11518,7 @@
                     portBridgeAssignmentsEarly.forEach(({ bridge }) => bridgesNeeded.add(bridge));
 
                     // Nextlink tower baseline bridges are always present in In-State configs, even if no ports are assigned yet.
-                    if (!isSimpleMode && configType === 'in-state') {
+                    if (isInState) {
                         ['bridge1000', 'bridge2000', 'bridge3000', 'bridge4000'].forEach(b => bridgesNeeded.add(b));
                     }
 
@@ -11534,20 +11545,21 @@
                     let config = generateConfigHeader(siteName, targetDevice, currentDevice, currentRouterOS, targetRouterOS, deviceConfig);
 
                     // Add configuration based on type
-                    if (isSimpleMode) {
-                        // Out-of-state: Simple bridge/DHCP configuration
-                        config = addOutOfStateConfiguration(config, routerId, snmpCommunity, lanBridgeIP, natPublicIPRaw, siteLatitude, siteLongitude);
-                    } else {
+                    if (isInState) {
                         // In-state: Full RFC compliance baseline
                         config = addRFCComplianceBaseline(config, routerId, snmpCommunity, dhcpSecret, enableMPLS, unauthRange, cgnatRange, vlan4000Range);
+                    } else {
+                        // Out-of-state / legacy-simple: Simple bridge/DHCP configuration
+                        config = addOutOfStateConfiguration(config, routerId, snmpCommunity, lanBridgeIP, natPublicIPRaw, siteLatitude, siteLongitude);
                     }
 
-                    updateProgressPercent(30);
-                    updateProgressStep('Configuring interfaces, bridges, and port mappings...');
-                    addProgressLog('info', `Creating ${bridgesNeeded.size} bridges`);
+                    if (isInState) {
+                        updateProgressPercent(30);
+                        updateProgressStep('Configuring interfaces, bridges, and port mappings...');
+                        addProgressLog('info', `Creating ${bridgesNeeded.size} bridges`);
 
                     // 1. Interface Bridge (only create bridges actually referenced/needed)
-                    if (!isSimpleMode) {
+                    if (isInState) {
                         config += `/interface bridge\n`;
                         if (needsLoop) {
                             config += `add fast-forward=no name=loop0\n`;
@@ -11663,7 +11675,7 @@
                     }
 
                     // 3. Interface VLAN (in-state only)
-                    if (!isSimpleMode && uniqueVlans.length) {
+                    if (isInState && uniqueVlans.length) {
                         config += `/interface vlan\n`;
                         uniqueVlans.forEach(v => {
                             const vlanName = `vlan${v.vid}-${v.parent}`;
@@ -11673,7 +11685,7 @@
                     }
 
                     // 4. Interface VPLS (in-state only)
-                    if (!isSimpleMode && enableVPLS) {
+                    if (isInState && enableVPLS) {
                         const vplsRows = Array.from(document.querySelectorAll('#vplsInstances .vpls-item:not(#vplsTemplate)'))
                             .map(item => ({
                                 name: item.querySelector('input[name="vplsName"]')?.value,
@@ -11864,18 +11876,12 @@
                     // 12. IP DNS
                     config += `/ip dns\nset max-udp-packet-size=512 servers=${dnsServers}\n`;
 
-                    // 13. Firewall Configuration (consolidated function call)
-                    config = addFirewallConfiguration(config, enableDHCP, enableMPLS);
+                    // 13. Firewall Configuration
+                    // In-state runs RFC baseline which already owns filter/raw/nat; only add address-lists to keep references valid.
+                    config = addFirewallConfiguration(config, enableDHCP, enableMPLS, isInState ? { listsOnly: true } : {});
+
                     // 14. IP Service
-                    config += `/ip service\n`;
-                    config += `set telnet disabled=yes port=5023\n`;
-                    config += `set ftp disabled=yes port=5021\n`;
-                    config += `set www disabled=yes port=1234\n`;
-                    config += `set ssh port=22\n`;
-                    config += `set api disabled=yes\n`;
-                    config += `set api-ssl disabled=yes\n`;
-                    config += `set www-ssl disabled=yes port=443\n`;
-                    config += `set winbox port=8291 disabled=no\n`;
+                    // Handled by the selected baseline (RFC hardening or out-of-state), so we don't override ports/toggles here.
                     // 15. MPLS Configuration (consolidated function call)
                     config = addMPLSConfiguration(config, enableMPLS, uplinkCount, deviceConfig);
                     updateProgressPercent(60);
@@ -11993,6 +11999,11 @@
                             }
                         });
                     }
+                    } else {
+                        addProgressLog('info', 'Out-of-state/legacy-simple selected: generating baseline-only config');
+                        updateProgressPercent(60);
+                        updateProgressStep('Baseline configuration generated');
+                    }
 
                     // 18. SNMP
                     config += `/snmp\nset enabled=yes src-address=${routerId} trap-community=${snmpCommunity}\n`;
@@ -12032,11 +12043,13 @@
                     // 23. System Watchdog
                     config += `/system watchdog\nset watchdog-timer=yes\n`;
 
-                    // 24. User AAA
-                    config += `/user aaa\nset use-radius=no\n`;
+                    // 24. User AAA (RADIUS login is enabled only when login servers are configured)
+                    const loginRadius = (typeof getRADIUSLoginServers === 'function') ? getRADIUSLoginServers() : [];
+                    const hasLoginRadius = Array.isArray(loginRadius) && loginRadius.some(s => s && s.address && s.secret);
+                    config += `/user aaa\nset use-radius=${hasLoginRadius ? 'yes' : 'no'}\n`;
 
                     // Add dynamic configurations for user-selected features (in-state only)
-                    if (!isSimpleMode) {
+                    if (isInState) {
                         config = addDynamicConfigurations(config, enableTarana, enableSWT, enableVPLS, enableMPLS, enableDHCP, lanBridgeIP, cgnatRange, unauthRange, vlan4000Range, routerId, sharedKey);
                     }
 
@@ -12044,7 +12057,7 @@
                     config = generateDeviceSpecificConfig(config, deviceConfig, targetDevice);
 
                     // Add System Scripts (Backup and Monitoring) - in-state only
-                    if (!isSimpleMode) {
+                    if (isInState) {
                         config += `# SYSTEM SCRIPTS\n`;
                         config += `/system scheduler\n`;
                         config += `add interval=1d name=nightly on-event="/system script run \\"backup\\"\\r\\n    \\n/system script run \\"dhcp-count\\"\\r\\n    \\n" policy=ftp,reboot,read,write,policy,test,password,sniff,sensitive start-date=2013-06-21 start-time=00:00:00\n\n`;
@@ -18503,6 +18516,10 @@ Ready for translation!`);
                     if (data.nokia_config) {
                         document.getElementById('mikrotik_nokia_config_output').value = data.nokia_config;
                         document.getElementById('mikrotik_nokia_output').style.display = 'block';
+                        if (data.warning) {
+                            console.warn('[NOKIA MIGRATION] Warning:', data.warning);
+                            alert(`Note: ${data.warning}`);
+                        }
                         if (window.updateProgressPercent) window.updateProgressPercent(100);
                         if (window.updateProgressStep) window.updateProgressStep('Conversion completed successfully!');
                         if (window.completeProgressTracker) window.completeProgressTracker(true);

@@ -1,0 +1,16 @@
+{
+  "name": "NOC Config Maker",
+  "short_name": "NOC Config",
+  "start_url": "/app",
+  "display": "standalone",
+  "background_color": "#0b0f14",
+  "theme_color": "#ff7a00",
+  "icons": [
+    {
+      "src": "/assets/favicon.svg",
+      "sizes": "256x256",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

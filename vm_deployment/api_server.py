@@ -1696,7 +1696,13 @@ def call_ollama(messages, model=None, temperature=0.1, max_tokens=4000, timeout=
         return response_text
         
     except requests.exceptions.ConnectionError:
-        raise Exception("Cannot connect to Ollama. Make sure Ollama is running. Install from: https://ollama.com/download")
+        raise Exception(
+            "Cannot connect to Ollama. Make sure Ollama is running and reachable. "
+            "If you're running via Docker Compose, start the Ollama service with: "
+            "`docker compose --profile ollama up -d`. "
+            "If you're running Ollama on the host, install from: https://ollama.com/download "
+            "and set OLLAMA_API_URL (default: http://localhost:11434)."
+        )
     except requests.exceptions.Timeout:
         # Automatic fallback to smaller/faster model on timeout
         available_models = get_available_ollama_models()
