@@ -20,6 +20,13 @@ ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 # RouterOS config defaults (optional)
 # NEXTLINK_DNS_PRIMARY=1.1.1.1
 # NEXTLINK_DNS_SECONDARY=8.8.8.8
+# NEXTLINK_SHARED_KEY=CHANGE_ME_SHARED_KEY
+# NEXTLINK_SNMP_CONTACT=netops@team.nxlink.com
+
+# RADIUS defaults (optional; used by /api/infrastructure to autofill the UI)
+# NEXTLINK_RADIUS_SECRET=CHANGE_ME_RADIUS_SECRET
+# NEXTLINK_RADIUS_DHCP_SERVERS=142.147.112.17,142.147.112.18
+# NEXTLINK_RADIUS_LOGIN_SERVERS=142.147.112.17,142.147.112.18
 
 # SSH fetch defaults (optional; can also be entered in the UI)
 # NEXTLINK_SSH_USERNAME=

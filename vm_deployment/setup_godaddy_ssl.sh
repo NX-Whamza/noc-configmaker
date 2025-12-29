@@ -60,7 +60,8 @@ server {
         root /var/www/html;
     }
     
-    return 301 https://$host$request_uri;
+    # 308 preserves method for API POSTs
+    return 308 https://$host$request_uri;
 }
 
 server {

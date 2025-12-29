@@ -6980,12 +6980,23 @@ Requirements:
             })
         
     except Exception as e:
+        # Last-resort fallback: if anything unexpected happens, still return a basic conversion so the
+        # Nokia Migration tab remains usable even when AI/infra dependencies are down.
         print(f"[MIGRATION] Error: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({
-            'error': f'Error converting MikroTik to Nokia: {str(e)}'
-        }), 500
+        try:
+            if 'source_config' in locals() and (source_config or '').strip():
+                basic = _basic_mikrotik_to_nokia(source_config, preserve_all_ips=preserve_ips)
+                return jsonify({
+                    'success': True,
+                    'nokia_config': basic,
+                    'ai_used': False,
+                    'warning': f'Unexpected error; generated a basic conversion instead. Details: {str(e)}'
+                })
+        except Exception as fallback_error:
+            print(f"[MIGRATION] Fallback conversion also failed: {fallback_error}")
+        return jsonify({'error': f'Error converting MikroTik to Nokia: {str(e)}'}), 500
 
 # ========================================
 # HEALTH CHECK
@@ -7226,7 +7237,7 @@ def is_admin_user():
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
         if not token:
             return False
-        
+
         try:
             decoded = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
             user_email = decoded.get('email', '').lower()
@@ -7240,6 +7251,47 @@ def is_admin_user():
             return False
     except:
         return False
+
+@app.route('/api/infrastructure', methods=['GET'])
+@require_auth
+def infrastructure_config():
+    """
+    Authenticated infrastructure defaults for the frontend.
+
+    This endpoint can include operational defaults/secrets (e.g., RADIUS secret) so NOC users
+    don't have to manually paste them into the UI, improving consistency and reducing human error.
+    """
+    def _csv(value: str):
+        return [v.strip() for v in (value or '').split(',') if v.strip()]
+
+    dns_primary = os.getenv('NEXTLINK_DNS_PRIMARY', '142.147.112.3').strip()
+    dns_secondary = os.getenv('NEXTLINK_DNS_SECONDARY', '142.147.112.19').strip()
+    shared_key = os.getenv('NEXTLINK_SHARED_KEY', '').strip()
+
+    radius_secret = os.getenv('NEXTLINK_RADIUS_SECRET', '').strip()
+    radius_dhcp_servers = _csv(os.getenv('NEXTLINK_RADIUS_DHCP_SERVERS', ''))
+    radius_login_servers = _csv(os.getenv('NEXTLINK_RADIUS_LOGIN_SERVERS', ''))
+
+    # If a secret is provided but server lists are not, ship common defaults.
+    if radius_secret and not radius_dhcp_servers and not radius_login_servers:
+        radius_dhcp_servers = ['142.147.112.17', '142.147.112.18']
+        radius_login_servers = ['142.147.112.17', '142.147.112.18']
+
+    return jsonify({
+        'dns_servers': {
+            'primary': dns_primary,
+            'secondary': dns_secondary,
+        },
+        'shared_key': shared_key or None,
+        'snmp': {
+            'contact': os.getenv('NEXTLINK_SNMP_CONTACT', 'netops@team.nxlink.com').strip(),
+        },
+        'radius': {
+            'secret': radius_secret or None,
+            'dhcp_servers': radius_dhcp_servers,
+            'login_servers': radius_login_servers,
+        },
+    })
 
 @app.route('/api/admin/feedback', methods=['GET'])
 @require_auth

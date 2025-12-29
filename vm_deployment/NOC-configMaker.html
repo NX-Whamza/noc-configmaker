@@ -2152,6 +2152,15 @@
                                     <option value="out-of-state">Out-of-State (OSPF/MPLS/VPLS)</option>
                                     <option value="legacy-simple">Legacy Simple Bridge/DHCP</option>
                                 </select>
+                                <div style="margin-top: 12px; display: flex; align-items: center; gap: 10px;">
+                                    <input type="checkbox" id="disableUnusedPorts">
+                                    <label for="disableUnusedPorts" style="margin: 0; cursor: pointer;">
+                                        Disable unused ports (optional)
+                                    </label>
+                                </div>
+                                <div style="margin-top: 6px; font-size: 12px; color: var(--text-color-secondary);">
+                                    Leave unchecked to avoid accidentally disabling live uplinks/backhauls not explicitly configured in the form.
+                                </div>
                                 <div
                                     style="margin-top: 10px; padding: 10px; background: #2a4a2a; border-radius: 5px; font-size: 14px;">
                                     <strong>Note:</strong> Configuration type determines which features are available
@@ -4776,7 +4785,7 @@
             backup: { enabled: false, ftpHost: '', ftpUser: '', ftpPassword: '', ftpPath: 'backups' },
             emailAlerts: { enabled: false, recipient: '', from: '' },
             mpls: { vplsPeer: '10.254.247.3', vplsStaticId: 2245 },
-            snmp: { community: 'CHANGE_ME', trapCommunity: 'CHANGE_ME', contact: 'noc@configmaker.local' },
+            snmp: { community: 'CHANGE_ME', trapCommunity: 'CHANGE_ME', contact: 'netops@team.nxlink.com' },
             sharedKeys: { ospfBgpMd5: 'm8M5JwvdYM', default: 'CHANGE_ME' }
         };
 
@@ -7127,7 +7136,6 @@
 
             // DHCP Options
             config += `/ip dhcp-server option\n`;
-            config += `add code=66 name=voip value="'http://12.239.214.6/configs'"\n`;
             config += `add code=66 name=option66-ata value="'http://ndp1-dal.nxlink.com/cfg/\$MA.cfg'"\n`;
             config += `add code=43 name=opt43 value=0x011768747470733a2f2f7573732e6e786c696e6b2e636f6d2f\n`;
             config += `/ip dhcp-server option sets\n`;
@@ -7200,14 +7208,6 @@
                 // Add dhcp-option-set=optset if address doesn't start with "10."
                 const vlan4000DhcpOptset = vlan4000Net.startsWith('10.') ? '' : ' dhcp-option-set=optset';
                 config += `add address=${vlan4000Range} dns-server=${dnsServers} gateway=${vlan4000Gateway}${vlan4000DhcpOptset}\n`;
-            }
-
-            // Always add the 100. range to DHCP server networks if CGNAT range is configured
-            if (cgnatRange && cgnatRange.includes('/') && cgnatRange.startsWith('100.')) {
-                const [cgnatNet, cgnatCidr] = cgnatRange.split('/');
-                const cgnatGateway = cgnatNet.split('.').map((octet, i) => i === 3 ? '1' : octet).join('.');
-                // 100.x ranges don't start with "10." so always add dhcp-option-set=optset
-                config += `add address=${cgnatNet}/${cgnatCidr} dhcp-option-set=optset dns-server=${dnsServers} gateway=${cgnatGateway} netmask=${cgnatCidr}\n`;
             }
 
             // RADIUS configuration - DHCP only (no login services)
@@ -7305,7 +7305,6 @@
 
             // IP Firewall NAT - Dynamic rules based on user configuration
             config += `/ip firewall nat\n`;
-            config += `add action=redirect chain=dstnat dst-port=5022 protocol=tcp to-ports=22\n`;
 
             // Dynamic src-nat rules based on user IP configuration
             const natPublicIP = document.getElementById('natPublicIP').value.trim();
@@ -7323,18 +7322,18 @@
             if (enableDHCP) {
                 config += `add action=dst-nat chain=dstnat comment="unauth proxy rule" dst-address-list=!WALLED-GARDEN dst-port=80 protocol=tcp src-address-list=unauth to-addresses=107.178.15.27 to-ports=3128\n`;
 
-                // Dynamic dst-nat rules for DHCP ranges
+                // Dynamic src-nat rules for DHCP ranges
                 const cgnatRange = document.getElementById('cgnatRange').value.trim();
                 const unauthRange = document.getElementById('unauthRange').value.trim();
 
                 if (cgnatRange && natPublicIP) {
                     const natIP = natPublicIP.includes('/') ? natPublicIP.split('/')[0] : natPublicIP;
-                    config += `add action=dst-nat chain=dstnat comment="CGNAT to Public" dst-address=${cgnatRange} to-addresses=${natIP}\n`;
+                    config += `add action=src-nat chain=srcnat comment="CGNAT to Public" src-address=${cgnatRange} to-addresses=${natIP}\n`;
                 }
 
                 if (unauthRange && natPublicIP) {
                     const natIP = natPublicIP.includes('/') ? natPublicIP.split('/')[0] : natPublicIP;
-                    config += `add action=dst-nat chain=dstnat comment="Unauth to Public" dst-address=${unauthRange} to-addresses=${natIP}\n`;
+                    config += `add action=src-nat chain=srcnat comment="Unauth to Public" src-address=${unauthRange} to-addresses=${natIP}\n`;
                 }
             }
 
@@ -7398,6 +7397,75 @@
             // Dark mode toggle will be handled in initializeEventHandlers
 
             // DHCP toggle and other event handlers moved to initializeEventHandlers
+
+            // Seed hidden defaults early so validation and generation don't produce blank keys/DNS/community.
+            (function seedHiddenDefaults() {
+                const setIfEmpty = (id, value) => {
+                    const el = document.getElementById(id);
+                    if (!el) return;
+                    const cur = (el.value || '').trim();
+                    if (!cur && value) el.value = value;
+                };
+                const setIfDefault = (id, value) => {
+                    const el = document.getElementById(id);
+                    if (!el) return;
+                    const cur = (el.value || '').trim();
+                    if (!value) return;
+                    if (!cur || cur.toUpperCase() === 'CHANGE_ME') el.value = value;
+                };
+
+                setIfEmpty('sharedKey', getInfrastructureValue('sharedKeys.ospfBgpMd5', 'm8M5JwvdYM') || 'm8M5JwvdYM');
+                setIfEmpty('dnsServers', (typeof getDNSList === 'function' ? getDNSList() : '142.147.112.3,142.147.112.19'));
+
+                const snmpEl = document.getElementById('snmpCommunity');
+                if (snmpEl) {
+                    const cur = (snmpEl.value || '').trim();
+                    if (!cur || cur.toUpperCase() === 'CHANGE_ME') {
+                        const suffix = Math.random().toString(36).slice(2, 10);
+                        snmpEl.value = `NX${suffix}`;
+                    }
+                }
+
+                // Best-effort: fetch authoritative infra defaults from backend (requires auth).
+                // This improves consistency (e.g., RADIUS secret) without forcing humans to type secrets into the UI.
+                (async function loadInfraFromBackend() {
+                    try {
+                        const token = localStorage.getItem('auth_token');
+                        if (!token) return;
+                        const apiBase = (typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api';
+                        const r = await fetch(`${apiBase}/infrastructure`, { headers: { 'Authorization': `Bearer ${token}` } });
+                        if (!r.ok) return;
+                        const data = await r.json();
+
+                        const dns = data?.dns_servers;
+                        if (dns?.primary && dns?.secondary) {
+                            setIfDefault('dnsServers', `${dns.primary},${dns.secondary}`);
+                        }
+                        if (data?.shared_key) {
+                            setIfDefault('sharedKey', data.shared_key);
+                        }
+                        if (data?.snmp?.contact) {
+                            // Keep NEXTLINK_INFRASTRUCTURE in sync so other generators can read it.
+                            if (typeof NEXTLINK_INFRASTRUCTURE !== 'undefined' && NEXTLINK_INFRASTRUCTURE?.snmp) {
+                                NEXTLINK_INFRASTRUCTURE.snmp.contact = data.snmp.contact;
+                            }
+                        }
+
+                        const radiusSecret = data?.radius?.secret;
+                        const dhcpServers = Array.isArray(data?.radius?.dhcp_servers) ? data.radius.dhcp_servers : [];
+                        const loginServers = Array.isArray(data?.radius?.login_servers) ? data.radius.login_servers : [];
+                        if (radiusSecret) {
+                            setIfDefault('dhcpSecret', radiusSecret);
+                            if (typeof NEXTLINK_INFRASTRUCTURE !== 'undefined' && NEXTLINK_INFRASTRUCTURE?.radiusServers) {
+                                NEXTLINK_INFRASTRUCTURE.radiusServers.dhcp = dhcpServers.map(a => ({ address: a, secret: radiusSecret }));
+                                NEXTLINK_INFRASTRUCTURE.radiusServers.login = loginServers.map(a => ({ address: a, secret: radiusSecret, comment: 'RADIUS' }));
+                            }
+                        }
+                    } catch (e) {
+                        // Non-fatal: UI will fall back to local defaults.
+                    }
+                })();
+            })();
 
             function calculateDHCPRanges() {
                 const lanBridgeIP = document.getElementById('lanBridgeIP').value.trim();
@@ -10818,9 +10886,9 @@
                 config += `set www disabled=yes port=1234\n`;
                 config += `set api disabled=yes\n`;
                 config += `set api-ssl disabled=yes\n`;
-                config += `set www-ssl disabled=yes port=443\n`;
+                config += `set www-ssl disabled=no port=443\n`;
                 config += `set winbox port=8291 address="" disabled=no\n`;
-                config += `set ssh port=22 address="" disabled=no\n\n`;
+                config += `set ssh port=5022 address="" disabled=no\n\n`;
 
                 // DNS Configuration
                 config += `# DNS Configuration\n`;
@@ -10878,7 +10946,6 @@
                 config += `# FIREWALL NAT\n`;
                 config += `/ip firewall nat\n`;
                 config += `rem [find]\n`;
-                config += `add action=redirect chain=dstnat dst-address-type=local dst-port=5022 protocol=tcp to-ports=22\n`;
                 config += `add action=dst-nat chain=dstnat comment="unauth proxy rule" dst-address-list=!WALLED-GARDEN dst-port=80 protocol=tcp src-address-list=unauth to-addresses=107.178.15.27 to-ports=3128\n`;
                 config += `add action=src-nat chain=srcnat packet-mark=NTP to-addresses=${routerId}\n\n`;
 
@@ -10891,7 +10958,7 @@
                 config += `/ip firewall connection tracking\n`;
                 config += `set udp-timeout=30s\n`;
                 config += `/ip proxy\n`;
-                config += `set enabled=no\n`;
+                config += `set enabled=yes\n`;
                 config += `/ip firewall service-port\n`;
                 config += `set sip disabled=yes\n\n`;
 
@@ -10930,7 +10997,7 @@
                 // User Management
                 config += `# USER MANAGEMENT\n`;
                 config += `/user aaa\n`;
-                config += `set use-radius=no\n`;
+                config += `set use-radius=yes\n`;
                 config += `/user group\n`;
                 config += `rem [find where name!="full" and name!="read" and name!="write"]\n`;
                 config += `set read policy="local,telnet,read,test,winbox,sniff,ssh,!ftp,!reboot,!write,!policy,!password,!web,!sensitive,!api,!romon,!rest-api"\n\n`;
@@ -10939,7 +11006,6 @@
                 config += `# DHCP OPTIONS\n`;
                 config += `/ip dhcp-server option\n`;
                 config += `rem [find]\n`;
-                config += `add code=66 name=voip value="'http://12.239.214.6/configs'"\n`;
                 config += `add code=66 name=option66-ata value="'http://ndp1-dal.nxlink.com/cfg/\$MA.cfg'"\n`;
                 config += `add code=43 name=opt43 value=0x011768747470733a2f2f7573732e6e786c696e6b2e636f6d2f\n`;
                 config += `/ip dhcp-server option sets\n`;
@@ -10957,6 +11023,16 @@
                     radiusDHCPServers2.forEach(server => {
                         if (server.address && server.secret) {
                             config += `add address=${server.address} secret=${server.secret} service=dhcp src-address=$LoopIP timeout=5s\n`;
+                        }
+                    });
+                    config += `\n`;
+                }
+                const radiusLoginServers2 = getRADIUSLoginServers();
+                if (radiusLoginServers2.length > 0) {
+                    radiusLoginServers2.forEach(server => {
+                        if (server.address && server.secret) {
+                            const comment = server.comment ? ` comment="${server.comment}"` : '';
+                            config += `add address=${server.address} secret=${server.secret} service=login src-address=$LoopIP timeout=5s${comment}\n`;
                         }
                     });
                     config += `\n`;
@@ -11002,7 +11078,8 @@
                 const siteLatitude = document.getElementById('siteLatitude').value.trim();
                 const siteLongitude = document.getElementById('siteLongitude').value.trim();
                 const location = siteLatitude && siteLongitude ? `"${siteLatitude}, ${siteLongitude}"` : '"Unknown Location"';
-                config += `set enabled=yes location=${location} src-address=${routerId} trap-community=${snmpCommunity}\n\n`;
+                const snmpContact = getInfrastructureValue('snmp.contact', 'netops@team.nxlink.com');
+                config += `set contact=${snmpContact} enabled=yes location=${location} src-address=${routerId} trap-community=${snmpCommunity}\n\n`;
 
                 // System Note
                 config += `# SYSTEM NOTE\n`;
@@ -11081,7 +11158,8 @@
                 config += `add name=${snmpCommunity} addresses=::/0\n`;
                 config += `/snmp\n`;
                 const location = siteLatitude && siteLongitude ? `"${siteLatitude}, ${siteLongitude}"` : '"Unknown Location"';
-                config += `set enabled=yes location=${location} trap-community=${snmpCommunity} src-address=${routerId}\n\n`;
+                const snmpContact = getInfrastructureValue('snmp.contact', 'netops@team.nxlink.com');
+                config += `set contact=${snmpContact} enabled=yes location=${location} trap-community=${snmpCommunity} src-address=${routerId}\n\n`;
 
                 // Basic NAT
                 config += `/ip firewall nat\n`;
@@ -11328,10 +11406,29 @@
                     const enableDHCP = document.getElementById('enableDHCP').checked;
                     const enableTarana = document.getElementById('enableTarana').checked;
                     const enableSWT = document.getElementById('enableSWT').checked;
-                    const sharedKey = document.getElementById('sharedKey').value.trim();
-                    const dnsServers = document.getElementById('dnsServers').value.trim();
+                    const disableUnusedPorts = document.getElementById('disableUnusedPorts')?.checked === true;
+
+                    // Hidden fields are auto-managed; still, enforce safe defaults to avoid blank keys/DNS/community.
+                    let sharedKey = document.getElementById('sharedKey').value.trim();
+                    if (!sharedKey) {
+                        sharedKey = getInfrastructureValue('sharedKeys.ospfBgpMd5', 'm8M5JwvdYM') || 'm8M5JwvdYM';
+                        document.getElementById('sharedKey').value = sharedKey;
+                    }
+
+                    let dnsServers = document.getElementById('dnsServers').value.trim();
+                    if (!dnsServers) {
+                        dnsServers = (typeof getDNSList === 'function' ? getDNSList() : '142.147.112.3,142.147.112.19');
+                        document.getElementById('dnsServers').value = dnsServers;
+                    }
+
                     const dhcpSecret = document.getElementById('dhcpSecret').value.trim();
-                    const snmpCommunity = document.getElementById('snmpCommunity').value.trim();
+
+                    let snmpCommunity = document.getElementById('snmpCommunity').value.trim();
+                    if (!snmpCommunity || snmpCommunity.toUpperCase() === 'CHANGE_ME') {
+                        const suffix = Math.random().toString(36).slice(2, 10);
+                        snmpCommunity = `NX${suffix}`;
+                        document.getElementById('snmpCommunity').value = snmpCommunity;
+                    }
                     const natPublicIPRaw = document.getElementById('natPublicIP').value.trim();
                     const siteLatitude = document.getElementById('siteLatitude').value.trim();
                     const siteLongitude = document.getElementById('siteLongitude').value.trim();
@@ -11364,12 +11461,36 @@
 
                     // Deduplicate VLANs with same parent and VID
                     const seen = new Set();
-                    const uniqueVlans = vlanRows.filter(v => {
+                    let uniqueVlans = vlanRows.filter(v => {
                         const key = `${v.parent}|${v.vid}`;
                         if (seen.has(key)) return false;
                         seen.add(key);
                         return true;
                     });
+
+                    // If no VLANs were defined in the UI, auto-add Nextlink tower baseline VLANs (In-State).
+                    // This avoids "minimal config" generation and matches real tower defaults (1000/2000/3000/4000).
+                    if (!isSimpleMode && configType === 'in-state' && uniqueVlans.length === 0) {
+                        const allPorts = [...(deviceConfig.ports || []), ...(deviceConfig.sfpPorts || [])].filter(p => p && p !== 'ether1');
+                        const preferredTrunks = ['sfp-sfpplus2', 'sfp-sfpplus3', 'sfp2', 'sfp3', 'sfp-sfpplus1', 'sfp1'];
+                        const trunks = [];
+                        preferredTrunks.forEach(p => { if (allPorts.includes(p) && !trunks.includes(p)) trunks.push(p); });
+                        allPorts.forEach(p => { if (!trunks.includes(p)) trunks.push(p); });
+                        const trunkPorts = trunks.slice(0, 2);
+
+                        const baseVlans = [
+                            { vid: '1000', bridge: 'bridge1000', comment: 'VLAN1000-DYNAMIC' },
+                            { vid: '2000', bridge: 'bridge2000', comment: 'VLAN2000-STATIC' },
+                            { vid: '3000', bridge: 'bridge3000', comment: 'VLAN3000-INFRA' },
+                            { vid: '4000', bridge: 'bridge4000', comment: 'VLAN4000-CPE' },
+                        ];
+
+                        trunkPorts.forEach(parent => {
+                            baseVlans.forEach(v => uniqueVlans.push({ parent, vid: v.vid, comment: v.comment, bridge: v.bridge }));
+                        });
+
+                        addProgressLog('info', `Auto-added baseline VLANs on trunks: ${trunkPorts.join(', ')}`);
+                    }
                     // Collect direct port→bridge assignments early so we only create needed bridges
                     const portBridgeAssignmentsEarly = Array.from(
                         document.querySelectorAll('#portConfigs .uplink-item:not(#portTemplate)')
@@ -11384,6 +11505,11 @@
                         uniqueVlans.map(v => v.bridge).filter(Boolean)
                     );
                     portBridgeAssignmentsEarly.forEach(({ bridge }) => bridgesNeeded.add(bridge));
+
+                    // Nextlink tower baseline bridges are always present in In-State configs, even if no ports are assigned yet.
+                    if (!isSimpleMode && configType === 'in-state') {
+                        ['bridge1000', 'bridge2000', 'bridge3000', 'bridge4000'].forEach(b => bridgesNeeded.add(b));
+                    }
 
                     // Only add lan-bridge if the LAN Bridge IP is set
                     if (lanBridgeIP) bridgesNeeded.add('lan-bridge');
@@ -11525,16 +11651,15 @@
                             configuredPorts.add(port);
                         });
 
-                        // Automatically disable unused ports for security and power savings
-                        // Use device-specific port lists from DEVICE_CONFIGS
-                        // EXCEPT ether1 which should remain available as management port
-                        const allDevicePorts = [...deviceConfig.ports, ...deviceConfig.sfpPorts];
-
-                        allDevicePorts.forEach(port => {
-                            if (!configuredPorts.has(port) && port !== 'ether1') {
-                                config += `set [ find default-name=${port} ] disabled=yes\n`;
-                            }
-                        });
+                        // Optional: disable unused ports for security/power savings (OFF by default to avoid breaking live parity).
+                        if (disableUnusedPorts) {
+                            const allDevicePorts = [...deviceConfig.ports, ...deviceConfig.sfpPorts];
+                            allDevicePorts.forEach(port => {
+                                if (!configuredPorts.has(port) && port !== 'ether1') {
+                                    config += `set [ find default-name=${port} ] disabled=yes\n`;
+                                }
+                            });
+                        }
                     }
 
                     // 3. Interface VLAN (in-state only)

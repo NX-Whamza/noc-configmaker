@@ -121,8 +121,8 @@ server {
         root /var/www/html;
     }
     
-    # Redirect all HTTP to HTTPS
-    return 301 https://\$host\$request_uri;
+    # Redirect all HTTP to HTTPS (308 preserves method for API POSTs)
+    return 308 https://\$host\$request_uri;
 }
 
 # HTTPS server
