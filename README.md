@@ -203,14 +203,14 @@ See [Deployment Guide](#-deployment) below for complete VM setup instructions.
 
 ### Option 4: Docker (Recommended for VM Consistency)
 
-1. **Start containers** (frontend on `:8000`, backend on `:5000`):
+1. **Start containers** (frontend on `:8000`, backend behind `/api`):
    ```bash
-   docker compose up --build
+   docker compose up -d --build
    ```
 
-2. **(Optional) Run Ollama in Docker**:
+2. **Pull the default Ollama model** (first-time only):
    ```bash
-   docker compose --profile ollama up --build
+   docker compose exec ollama ollama pull phi3:mini
    ```
 
 ---

@@ -32,7 +32,6 @@ services:
 
   ollama:
     image: ollama/ollama:latest
-    profiles: ["ollama"]
     ports:
       - "11434:11434"
     volumes:

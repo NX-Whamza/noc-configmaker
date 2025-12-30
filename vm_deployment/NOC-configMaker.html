@@ -6,8 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NOC CONFIG MAKER TOOL</title>
     <meta name="theme-color" content="#ff7a00">
-    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-    <link rel="manifest" href="assets/site.webmanifest">
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+    <link rel="manifest" href="/assets/site.webmanifest">
 
     <!-- Security: Prevent Source Code Access -->
     <!-- Security Script Removed for Debugging -->
@@ -4663,7 +4663,8 @@
                         </div>
                     </div>
 
-                    <!-- CCR2004 VLAN Policy -->
+                    <!-- (Removed) CCR2004 VLAN Policy (too device-specific) -->
+                    <!--
                     <div style="background: #e3f2fd; border: 2px solid #2196F3; border-radius: 8px; padding: 15px;">
                         <h3 style="color: #1976D2; margin-bottom: 10px; margin-top: 0;">🔗 CCR2004 VLAN Policy</h3>
                         <div style="font-size: 14px;">
@@ -4682,6 +4683,7 @@
                         </div>
                     </div>
 
+                    -->
                     <!-- Tarana BNG1 Policy -->
                     <div style="background: #f3e5f5; border: 2px solid #9C27B0; border-radius: 8px; padding: 15px;">
                         <h3 style="color: #7B1FA2; margin-bottom: 10px; margin-top: 0;">📡 Tarana Policy (BNG1)</h3>
@@ -10056,25 +10058,22 @@
                 let deviceName = '';
                 let loopbackIp = '';
 
-                // Try to extract device name from system identity
-                const nameMatch = config.match(/set\s+name=([^\s\n]+)/);
-                if (nameMatch) {
-                    deviceName = nameMatch[1];
-                } else {
-                    deviceName = `upgraded-${targetDevice}`;
-                }
+                const extractSystemIdentity = (cfg) => {
+                    const text = cfg || '';
+                    const m = text.match(/\/system identity[\s\S]*?\n\s*set\s+name=(\"[^\"]+\"|[^\s\r\n]+)/i);
+                    if (!m) return '';
+                    return String(m[1] || '').trim().replace(/^\"|\"$/g, '');
+                };
+                const extractLoopback = (cfg) => {
+                    const text = cfg || '';
+                    const m = text.match(/(?m)^\s*add\s+address=([0-9.]+)(?:\/[0-9]+)?[^\n]*\binterface=loop0\b/);
+                    if (m) return m[1];
+                    const rid = text.match(/(?m)\brouter-id=(\d+\.\d+\.\d+\.\d+)\b/);
+                    return rid ? rid[1] : '';
+                };
 
-                // Try to extract loopback IP
-                const loopbackMatch = config.match(/interface=loop0[^\n]*address=(\d+\.\d+\.\d+\.\d+)/);
-                if (loopbackMatch) {
-                    loopbackIp = loopbackMatch[1];
-                } else {
-                    // Try router-id as fallback
-                    const routerIdMatch = config.match(/router-id=(\d+\.\d+\.\d+\.\d+)/);
-                    if (routerIdMatch) {
-                        loopbackIp = routerIdMatch[1];
-                    }
-                }
+                deviceName = extractSystemIdentity(config) || `upgraded-${targetDevice}`;
+                loopbackIp = extractLoopback(config);
 
                 // Get source device info if available (from uploaded file)
                 const uploadedFileName = document.getElementById('fileName')?.textContent || '';
@@ -15798,7 +15797,9 @@
                         body: JSON.stringify({
                             source_config: uploadedConfigContent,
                             target_device: targetDevice,
-                            target_version: targetVersion
+                            target_version: targetVersion,
+                            strict_preserve: true,
+                            apply_compliance: false
                         }),
                         signal: controller.signal
                     });
@@ -15955,13 +15956,21 @@
 
                         // Auto-save completed config after successful translation
                         if (typeof saveCompletedConfig === 'function') {
-                            // Extract device name from config or use target device
-                            const deviceNameMatch = data.translated_config.match(/set\s+name=([^\s\n]+)/);
-                            const deviceName = deviceNameMatch ? deviceNameMatch[1] : `migrated-${targetDevice}`;
+                            const extractSystemIdentity = (cfg) => {
+                                const text = cfg || '';
+                                const m = text.match(/\/system identity[\s\S]*?\n\s*set\s+name=(\"[^\"]+\"|[^\s\r\n]+)/i);
+                                if (!m) return '';
+                                return String(m[1] || '').trim().replace(/^\"|\"$/g, '');
+                            };
+                            const extractLoopback = (cfg) => {
+                                const text = cfg || '';
+                                const m = text.match(/(?m)^\s*add\s+address=([0-9.]+)(?:\/[0-9]+)?[^\n]*\binterface=loop0\b/);
+                                return m ? m[1] : '';
+                            };
 
-                            // Extract loopback IP from config
-                            const loopbackMatch = data.translated_config.match(/add\s+address=([0-9.]+(?:\/[0-9]+)?)\s+[^\n]*interface=loop0/);
-                            const loopbackIp = loopbackMatch ? loopbackMatch[1].split('/')[0] : '';
+                            const identityName = extractSystemIdentity(data.translated_config);
+                            const loopbackIp = extractLoopback(data.translated_config);
+                            const deviceName = identityName || (loopbackIp ? `RTR-${targetDevice}-${loopbackIp}` : `migrated-${targetDevice}`);
 
                             const configData = {
                                 config_type: 'migration',

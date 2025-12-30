@@ -1699,7 +1699,7 @@ def call_ollama(messages, model=None, temperature=0.1, max_tokens=4000, timeout=
         raise Exception(
             "Cannot connect to Ollama. Make sure Ollama is running and reachable. "
             "If you're running via Docker Compose, start the Ollama service with: "
-            "`docker compose --profile ollama up -d`. "
+            "`docker compose up -d --build ollama`. "
             "If you're running Ollama on the host, install from: https://ollama.com/download "
             "and set OLLAMA_API_URL (default: http://localhost:11434)."
         )
@@ -4664,6 +4664,30 @@ Port Roles:
         print(f"[SYNTAX] BGP: {source_syntax_info['bgp_syntax']} → {target_syntax_info['bgp_peer']}")
         print(f"[SYNTAX] OSPF: {source_syntax_info['ospf_syntax']} → {target_syntax_info['ospf_interface']}")
         
+        # STRICT-PRESERVE MODE (Upgrade Existing):
+        # Deterministic output; preserve *all* sections/objects and only apply syntax + interface mapping.
+        # This avoids AI-based rewrites that can silently drop critical routing/firewall/RADIUS sections.
+        if strict_preserve:
+            print("[STRICT MODE] strict_preserve=true -> bypassing AI translation and using deterministic translation only")
+            translated = apply_intelligent_translation(
+                source_config,
+                source_device_info,
+                source_syntax_info,
+                target_syntax_info,
+                target_device_info,
+                target_version,
+                strict_preserve=True,
+            )
+            validation = validate_translation(source_config, translated)
+            return jsonify({
+                'success': True,
+                'translated_config': translated,
+                'validation': validation,
+                'bypass_ai': True,
+                'strict_preserve': True,
+                'message': 'Strict-preserve mode: deterministic syntax/interface mapping only (no AI)'
+            })
+
         # BYPASS AI FOR LARGE CONFIGS (prevent timeouts)
         config_size = len(source_config.split('\n'))
         config_size_mb = len(source_config.encode('utf-8')) / (1024 * 1024)
@@ -8219,59 +8243,82 @@ def init_configs_db():
     print(f"[CONFIGS] Database initialized: {CONFIGS_DB_PATH}")
 
 def extract_port_mapping(config_content):
-    """Extract port mapping information from config with IP addresses and backhaul calculations"""
+    """Extract port mapping information from config with IP addresses and backhaul calculations.
+
+    This parser must handle RouterOS tokens with quoted values (including spaces), e.g.:
+      - comment="ZAYO DF to ALEDO-NO-1"
+      - interface="vlan444-IA-MISSOURIVALLEY-SE-3 BBU MGMT"
+    """
     port_mapping = {}
-    
-    # Step 1: Extract all interfaces with their comments (ethernet, SFP, SFP28)
-    # Pattern to match: /interface ethernet set [find default-name=ether7] comment="CX HANDOFF"
-    # Also handle cases without quotes: comment=CX HANDOFF
-    interface_patterns = [
-        # Ethernet interfaces
-        (r'/interface ethernet\s+set\s+\[.*?default-name=([^\]]+)\].*?comment=([^\s\n"]+)"?', 'ethernet'),
-        # SFP28 interfaces
-        (r'/interface\s+sfp28\s+set\s+\[.*?default-name=([^\]]+)\].*?comment=([^\s\n"]+)"?', 'sfp28'),
-        # SFP-SFPPlus interfaces (various formats)
-        (r'/interface\s+sfp-sfpplus\s+set\s+\[.*?default-name=([^\]]+)\].*?comment=([^\s\n"]+)"?', 'sfp'),
-        (r'/interface\s+sfp\s+set\s+\[.*?default-name=([^\]]+)\].*?comment=([^\s\n"]+)"?', 'sfp'),
-        # Also catch interfaces that might be written as sfp-sfpplus1, sfp-sfpplus2, etc.
-        (r'/interface\s+sfp-sfpplus\d+\s+set\s+\[.*?default-name=([^\]]+)\].*?comment=([^\s\n"]+)"?', 'sfp'),
-    ]
-    
-    for pattern, port_type in interface_patterns:
-        matches = re.findall(pattern, config_content, re.MULTILINE | re.DOTALL)
-        for port, comment in matches:
-            port_clean = port.strip()
-            comment_clean = comment.strip().strip('"').strip("'")
-            if port_clean and comment_clean:
-                if port_clean not in port_mapping:
-                    port_mapping[port_clean] = {}
-                port_mapping[port_clean]['comment'] = comment_clean
-                port_mapping[port_clean]['type'] = port_type
-    
-    # Step 2: Extract IP addresses assigned to interfaces
-    # Pattern: /ip address add address=10.247.154.209/29 interface=ether7 comment=TX-MADISONVILLE-SO-1
-    # Also handle multi-line format where comment might be on next line
-    # Try comprehensive pattern that captures comment in various positions
-    ip_patterns = [
-        # Single line: address=... interface=... comment=...
-        r'/ip address\s+add\s+address=([^\s\n]+)\s+interface=([^\s\n]+)(?:\s+comment=([^\s\n"]+))?',
-        # Multi-line: address=... interface=... \n comment=...
-        r'/ip address\s+add\s+address=([^\s\n]+)\s+interface=([^\s\n]+)(?:[^\n]*\n[^\n]*comment=([^\s\n"]+))?',
-        # Alternative: comment might come before interface
-        r'/ip address\s+add\s+address=([^\s\n]+)(?:\s+comment=([^\s\n"]+))?\s+interface=([^\s\n]+)',
-    ]
-    
+
+    def _safe_shlex_split(line: str):
+        import shlex
+        try:
+            return shlex.split(line, posix=True)
+        except Exception:
+            return line.split()
+
+    def _parse_kv(tokens):
+        kv = {}
+        for t in tokens:
+            if '=' in t:
+                k, v = t.split('=', 1)
+                kv[k.strip()] = v.strip()
+        return kv
+
+    def _infer_port_type(name: str) -> str:
+        n = (name or '').strip()
+        if n.startswith('ether'):
+            return 'ethernet'
+        if 'sfp28' in n:
+            return 'sfp28'
+        if 'sfp' in n:
+            return 'sfp'
+        return 'unknown'
+
+    # Step 1: Extract interface comments (primarily from /interface ethernet set [ find default-name=... ])
+    current_section = None
+    for raw in (config_content or '').splitlines():
+        line = raw.strip()
+        if not line or line.startswith('#'):
+            continue
+        if line.startswith('/'):
+            current_section = line
+            continue
+        if current_section == '/interface ethernet' and line.startswith('set '):
+            tokens = _safe_shlex_split(line)
+            kv = _parse_kv(tokens)
+            # Find default-name in tokens (it may appear as default-name=... inside the [ find ... ])
+            default_name = None
+            for t in tokens:
+                if t.startswith('default-name='):
+                    default_name = t.split('=', 1)[1].strip()
+                    break
+            comment = kv.get('comment')
+            if default_name and comment:
+                if default_name not in port_mapping:
+                    port_mapping[default_name] = {}
+                port_mapping[default_name]['comment'] = comment.strip().strip('"').strip("'")
+                port_mapping[default_name]['type'] = _infer_port_type(default_name)
+
+    # Step 2: Extract IP addresses assigned to interfaces from /ip address section
     all_ip_matches = []
-    for pattern in ip_patterns:
-        matches = re.findall(pattern, config_content, re.MULTILINE | re.DOTALL)
-        for match in matches:
-            if len(match) == 3:
-                ip_cidr, interface, comment = match
-                # Handle case where comment and interface are swapped
-                if 'comment=' in interface or interface.startswith('comment'):
-                    # Pattern 3: comment comes before interface
-                    comment, interface = interface, comment
-                all_ip_matches.append((ip_cidr.strip(), interface.strip(), comment.strip() if comment else ''))
+    current_section = None
+    for raw in (config_content or '').splitlines():
+        line = raw.strip()
+        if not line or line.startswith('#'):
+            continue
+        if line.startswith('/'):
+            current_section = line
+            continue
+        if current_section == '/ip address' and line.startswith('add '):
+            tokens = _safe_shlex_split(line)
+            kv = _parse_kv(tokens)
+            ip_cidr = kv.get('address')
+            interface = kv.get('interface')
+            comment = kv.get('comment', '')
+            if ip_cidr and interface:
+                all_ip_matches.append((ip_cidr.strip(), interface.strip(), (comment or '').strip()))
     
     # Remove duplicates
     seen = set()
@@ -8375,8 +8422,22 @@ def extract_port_mapping(config_content):
     
     # Step 5: Extract bridge port assignments to map bridge IPs to physical interfaces
     # Pattern: /interface bridge port add bridge=nat-bridge interface=ether8
-    bridge_port_pattern = r'/interface bridge port\s+add\s+bridge=([^\s\n]+)\s+interface=([^\s\n]+)'
-    bridge_port_matches = re.findall(bridge_port_pattern, config_content, re.MULTILINE)
+    bridge_port_matches = []
+    current_section = None
+    for raw in (config_content or '').splitlines():
+        line = raw.strip()
+        if not line or line.startswith('#'):
+            continue
+        if line.startswith('/'):
+            current_section = line
+            continue
+        if current_section == '/interface bridge port' and line.startswith('add '):
+            tokens = _safe_shlex_split(line)
+            kv = _parse_kv(tokens)
+            br = kv.get('bridge')
+            iface = kv.get('interface')
+            if br and iface:
+                bridge_port_matches.append((br.strip(), iface.strip()))
     
     # Create mapping: bridge_name -> list of member interfaces
     bridge_to_interfaces = {}
@@ -8667,13 +8728,39 @@ def get_completed_config(config_id):
         
         config = dict(row)
         
-        # Parse JSON fields
+        # Parse JSON fields (and re-extract port map if stored map is missing or clearly incomplete)
         port_mapping = {}
         if config.get('port_mapping'):
             try:
                 port_mapping = json.loads(config['port_mapping'])
-            except:
+            except Exception:
                 port_mapping = {}
+
+        def _looks_incomplete(pm: dict, content: str) -> bool:
+            if not isinstance(pm, dict) or not pm:
+                # If config has /ip address entries but no port map, it's incomplete.
+                return bool(re.search(r'(?m)^/ip address\\s*$', content or ''))
+            # If every entry lacks an IP, treat as incomplete.
+            has_any_ip = any(isinstance(v, dict) and v.get('ip_address') for v in pm.values())
+            if not has_any_ip:
+                return bool(re.search(r'(?m)^/ip address\\s*$', content or ''))
+            return False
+
+        if _looks_incomplete(port_mapping, config.get('config_content', '')):
+            try:
+                port_mapping = extract_port_mapping(config.get('config_content', '') or '')
+                # Best-effort: persist refreshed map (does not alter config content/history)
+                try:
+                    conn2 = sqlite3.connect(str(CONFIGS_DB_PATH))
+                    c2 = conn2.cursor()
+                    c2.execute('UPDATE completed_configs SET port_mapping = ? WHERE id = ?', (json.dumps(port_mapping), config_id))
+                    conn2.commit()
+                    conn2.close()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
         config['port_mapping'] = port_mapping
         
         # Add formatted port mapping text
