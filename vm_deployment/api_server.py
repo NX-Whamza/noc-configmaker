@@ -8743,6 +8743,14 @@ def get_completed_config(config_id):
             return jsonify({'error': 'Configuration not found'}), 404
         
         config = dict(row)
+
+        # Always return a prettified config for display/copy/download.
+        # This does not change the stored config/history (DB content is untouched).
+        if config.get('config_content'):
+            try:
+                config['config_content'] = format_config_spacing(config['config_content'])
+            except Exception:
+                pass
         
         # Parse JSON fields (and re-extract port map if stored map is missing or clearly incomplete)
         port_mapping = {}
