@@ -1820,32 +1820,73 @@ def normalize_line_breaks(config_text: str) -> str:
     """Remove RouterOS line continuation characters (backslash) and join broken lines."""
     if not isinstance(config_text, str):
         return config_text
-    
-    lines = config_text.split('\n')
+
+    def _toggle_in_quote(in_quote: bool, text: str) -> bool:
+        escape = False
+        for ch in text:
+            if escape:
+                escape = False
+                continue
+            if ch == '\\':
+                escape = True
+                continue
+            if ch == '"':
+                in_quote = not in_quote
+        return in_quote
+
+    def _join_continuation(left: str, right: str, in_quote: bool) -> str:
+        # RouterOS wraps long lines with a trailing "\" and indents the continuation.
+        # We must avoid inserting spaces when the wrap happens mid-token (e.g., "sensitiv\" + "e").
+        r = right.lstrip()
+        if not left:
+            return r
+        if not r:
+            return left
+
+        last = left[-1]
+        first = r[0]
+
+        # If we are inside a quoted string, do NOT force-add whitespace; preserve what's already in `left`.
+        if in_quote:
+            return left + r
+
+        # If left already ends with whitespace, just concat (continuation indentation removed already).
+        if last.isspace():
+            return left + r
+
+        # Join without space when it looks like a token was split.
+        token_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+        if (last in token_chars) and (first in token_chars):
+            return left + r
+
+        # Join without space when the next segment starts with punctuation that should immediately follow.
+        if first in ",.;:)]}":
+            return left + r
+
+        # Join without space when left ends with '=' (value continuation).
+        if last == '=':
+            return left + r
+
+        return left + ' ' + r
+
+    lines = config_text.replace('\r\n', '\n').replace('\r', '\n').split('\n')
     normalized = []
     i = 0
-    
+    in_quote = False
+
     while i < len(lines):
-        line = lines[i].rstrip()
-        
-        # If line ends with \ (continuation), join with next line
-        if line.endswith('\\') and i + 1 < len(lines):
-            # Remove trailing \ and any trailing whitespace
-            line = line[:-1].rstrip()
-            # Get next line and join
-            next_line = lines[i + 1].lstrip()
-            line = line + ' ' + next_line
+        # Preserve spaces in the middle of a line; only strip trailing newline artifacts.
+        line = lines[i]
+        # Join one or more continuation lines ending in "\".
+        while line.endswith('\\') and i + 1 < len(lines):
+            prefix = line[:-1]  # keep any spaces before the backslash
+            next_line = lines[i + 1]
+            line = _join_continuation(prefix, next_line, in_quote)
             i += 1
-            # Continue checking if the joined line also ends with \
-            while line.endswith('\\') and i + 1 < len(lines):
-                line = line[:-1].rstrip()
-                next_line = lines[i + 1].lstrip()
-                line = line + ' ' + next_line
-                i += 1
-        
-        normalized.append(line)
+        normalized.append(line.rstrip())
+        in_quote = _toggle_in_quote(in_quote, line)
         i += 1
-    
+
     return '\n'.join(normalized)
 
 def normalize_config(config_text: str) -> str:
@@ -2541,7 +2582,16 @@ def format_config_spacing(config_text):
     formatted_lines = []
 
     for raw_line in lines:
-        line = _normalize_kv_spacing_outside_quotes(raw_line.rstrip())
+        line = raw_line.rstrip()
+
+        # Convert "BREAK" separator *rules* into harmless comments to avoid clutter and apply-time side effects.
+        # Example seen in some configs:
+        #   add chain=break comment="--------- BREAK --------- ..."
+        # This is not intended to be an actual firewall/mangle rule; keep as a comment separator.
+        if re.match(r'^\s*add\s+chain=break\b', line) and re.search(r'\bBREAK\b', line, flags=re.IGNORECASE):
+            line = '# ' + ('-' * 64)
+
+        line = _normalize_kv_spacing_outside_quotes(line)
         stripped = line.strip()
         is_section_line = stripped.startswith('/') and stripped != '/'
 
