@@ -2484,65 +2484,81 @@ Suggest appropriate values for missing or incomplete fields."""
 
 def format_config_spacing(config_text):
     """
-    Ensures proper spacing between major configuration sections for better readability.
-    Each major section (/interface, /ip, /routing, /mpls, /system, etc.) should have clear separation.
+    Format RouterOS config for readability without changing semantics.
+
+    Goals:
+    - Deterministic output (same input -> same output)
+    - Add a single blank line before each top-level section line (lines starting with '/')
+    - Normalize obvious key/value spacing (e.g., `foo= bar` -> `foo=bar`) but ONLY outside quoted strings
+    - Trim trailing whitespace
     """
     if not config_text:
         return config_text
-    
-    lines = config_text.split('\n')
+
+    def _normalize_kv_spacing_outside_quotes(line: str) -> str:
+        if not line or '"' not in line:
+            # Only remove whitespace adjacent to '=' (do not touch '==' since it has no whitespace)
+            line = re.sub(r'\s+=', '=', line)
+            line = re.sub(r'=\s+', '=', line)
+            return line
+
+        out_parts = []
+        buf = []
+        in_quote = False
+        escape = False
+
+        def flush_buf(is_quoted: bool):
+            if not buf:
+                return
+            segment = ''.join(buf)
+            if not is_quoted:
+                segment = re.sub(r'\s+=', '=', segment)
+                segment = re.sub(r'=\s+', '=', segment)
+            out_parts.append(segment)
+            buf.clear()
+
+        for ch in line:
+            if escape:
+                buf.append(ch)
+                escape = False
+                continue
+            if ch == '\\':
+                buf.append(ch)
+                escape = True
+                continue
+            if ch == '"':
+                flush_buf(in_quote)
+                out_parts.append('"')
+                in_quote = not in_quote
+                continue
+            buf.append(ch)
+
+        flush_buf(in_quote)
+        return ''.join(out_parts)
+
+    normalized = config_text.replace('\r\n', '\n').replace('\r', '\n')
+    lines = normalized.split('\n')
     formatted_lines = []
-    prev_line_was_section = False
-    
-    # Major section headers that should have spacing before them
-    major_section_patterns = [
-        r'^/interface ',
-        r'^/ip address',
-        r'^/ip firewall',
-        r'^/ip route',
-        r'^/ip dns',
-        r'^/ip service',
-        r'^/ip pool',
-        r'^/ip neighbor',
-        r'^/routing ospf',
-        r'^/routing bgp',
-        r'^/routing bfd',
-        r'^/routing static',
-        r'^/mpls ',
-        r'^/system ',
-        r'^/user ',
-        r'^/snmp ',
-        r'^/radius ',
-        r'^/tool ',
-        r'^/port ',
-        r'^/interface bridge',
-        r'^/interface bonding',
-        r'^/interface vlan',
-        r'^/interface vpls'
-    ]
-    
-    for i, line in enumerate(lines):
-        is_section_header = False
-        for pattern in major_section_patterns:
-            if re.match(pattern, line.strip()):
-                is_section_header = True
-                break
-        
-        if is_section_header:
-            # Add blank line before section header if previous line wasn't empty and wasn't a section
-            if formatted_lines and formatted_lines[-1].strip() and not prev_line_was_section:
-                formatted_lines.append('')
-            formatted_lines.append(line)
-            prev_line_was_section = True
-        else:
-            formatted_lines.append(line)
-            prev_line_was_section = False
-    
-    # Join lines and normalize spacing (max 2 blank lines between sections)
+
+    for raw_line in lines:
+        line = _normalize_kv_spacing_outside_quotes(raw_line.rstrip())
+        stripped = line.strip()
+        is_section_line = stripped.startswith('/') and stripped != '/'
+
+        if is_section_line and formatted_lines and formatted_lines[-1].strip() != '':
+            formatted_lines.append('')
+        formatted_lines.append(line)
+
+    # Remove leading/trailing blank lines and limit to a single blank line between blocks.
+    while formatted_lines and formatted_lines[0].strip() == '':
+        formatted_lines.pop(0)
+    while formatted_lines and formatted_lines[-1].strip() == '':
+        formatted_lines.pop()
+
     result = '\n'.join(formatted_lines)
-    result = re.sub(r'\n{3,}', '\n\n', result)  # Max 2 blank lines
-    
-    return result
+    # At most one blank line between content blocks (i.e., no "\n\n\n").
+    result = re.sub(r'\n{3,}', '\n\n', result)
+    return result + '\n'
 
 # ========================================
 # ENDPOINT 3: AI Config Translation
@@ -5140,11 +5156,7 @@ Output (copy every line, update device model to {target_device.upper()}, preserv
             # CRITICAL: Remove all duplicates before final formatting
             print("[DEDUPLICATION] Removing duplicate entries from all sections...")
             translated = remove_duplicate_entries(translated)
-            
-            # FINAL FORMATTING: Ensure proper spacing between all sections for readability
-            print("[FORMATTING] Applying final spacing and formatting...")
-            translated = format_config_spacing(translated)
-            
+             
             # FINAL CONSISTENCY VERIFICATION: Verify all critical sections exist
             required_sections = ['/ip address', '/interface ethernet', '/routing']
             missing_sections = []
@@ -5166,6 +5178,10 @@ Output (copy every line, update device model to {target_device.upper()}, preserv
                     iface_num = int(re.search(r'(\d+)', iface).group(1)) if re.search(r'(\d+)', iface) else None
                     if iface_num and iface_num < 4:
                         print(f"[CONSISTENCY WARNING] Backhaul '{comment}' on {iface} - should be sfp28-4+ per policy")
+
+        # FINAL FORMATTING (always): spacing + safe kv whitespace normalization for readability.
+        # This is intentionally deterministic and does not reorder or drop any config lines.
+        translated = format_config_spacing(translated)
 
         # Validate translation (existing validation for IPs, secrets, users, firewall)
         validation = validate_translation(source_config, translated)
