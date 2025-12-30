@@ -10066,9 +10066,9 @@
                 };
                 const extractLoopback = (cfg) => {
                     const text = cfg || '';
-                    const m = text.match(/(?m)^\s*add\s+address=([0-9.]+)(?:\/[0-9]+)?[^\n]*\binterface=loop0\b/);
+                    const m = text.match(/^\s*add\s+address=([0-9.]+)(?:\/[0-9]+)?[^\n]*\binterface=loop0\b/m);
                     if (m) return m[1];
-                    const rid = text.match(/(?m)\brouter-id=(\d+\.\d+\.\d+\.\d+)\b/);
+                    const rid = text.match(/\brouter-id=(\d+\.\d+\.\d+\.\d+)\b/m);
                     return rid ? rid[1] : '';
                 };
 
@@ -15964,7 +15964,7 @@
                             };
                             const extractLoopback = (cfg) => {
                                 const text = cfg || '';
-                                const m = text.match(/(?m)^\s*add\s+address=([0-9.]+)(?:\/[0-9]+)?[^\n]*\binterface=loop0\b/);
+                                const m = text.match(/^\s*add\s+address=([0-9.]+)(?:\/[0-9]+)?[^\n]*\binterface=loop0\b/m);
                                 return m ? m[1] : '';
                             };
 
