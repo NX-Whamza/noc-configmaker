@@ -8459,7 +8459,13 @@
             function getUsername() {
                 // Use authenticated user if available
                 if (window.currentUser) {
-                    return window.currentUser.displayName || window.currentUser.email.split('@')[0];
+                    if (window.currentUser.displayName) return window.currentUser.displayName;
+                    const email = (typeof window.currentUser.email === 'string') ? window.currentUser.email : '';
+                    if (email && email.includes('@')) return email.split('@')[0];
+                    if (email) return email;
+                    if (window.currentUser.username) return window.currentUser.username;
+                    if (window.currentUser.name) return window.currentUser.name;
+                    return 'Anonymous';
                 }
 
                 // Fallback to stored username

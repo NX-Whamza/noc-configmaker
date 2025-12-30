@@ -12,7 +12,25 @@ try {
 const htmlPath = path.join(__dirname, '..', 'vm_deployment', 'NOC-configMaker.html');
 const html = fs.readFileSync(htmlPath, 'utf8');
 
-const dom = new JSDOM(html, { runScripts: "dangerously", resources: "usable" });
+const dom = new JSDOM(html, {
+  runScripts: "dangerously",
+  resources: "usable",
+  pretendToBeVisual: true,
+  url: "http://localhost/app",
+  beforeParse(window) {
+    window.alert = function (msg) { console.log("ALERT:", msg); };
+    try {
+      window.localStorage.setItem("auth_token", "test-token");
+      window.localStorage.setItem("user_info", JSON.stringify({ username: "test", isAdmin: true }));
+    } catch (_) {}
+    if (typeof window.fetch === "undefined" && typeof global.fetch === "function") {
+      window.fetch = global.fetch.bind(global);
+      window.Headers = global.Headers;
+      window.Request = global.Request;
+      window.Response = global.Response;
+    }
+  },
+});
 // Wait briefly for scripts to initialize
 setTimeout(() => {
     const window = dom.window;
@@ -58,6 +76,4 @@ setTimeout(() => {
         process.exit(2);
       }
     }, 200);
-
-    process.exit(0);
   }, 800);
