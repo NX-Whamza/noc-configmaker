@@ -1,18 +1,45 @@
 @echo off
-REM Quick Start - Opens both backend and frontend in separate windows
+REM Quick Start - Prefer Docker (most consistent); fallback to local Python servers
 
-title NOC ConfigMaker - Launcher
+title NOC Config Maker - Quick Start
 color 0E
 
 echo ========================================
-echo  NOC ConfigMaker - Quick Start
+echo  NOC Config Maker - Quick Start
 echo ========================================
-echo.
-echo Starting backend and frontend servers...
 echo.
 
 REM Ensure we run from the repo root even if launched from elsewhere
 cd /d "%~dp0"
+
+where docker >nul 2>nul
+if %errorlevel%==0 (
+  echo Starting via Docker Compose (recommended)...
+  echo.
+  docker compose up -d --build
+  if errorlevel 1 goto :fallback
+
+  echo.
+  echo App:     http://localhost:8000/app
+  echo Health:  http://localhost:8000/api/health
+  echo Ollama:  http://localhost:11434
+  echo.
+  echo Opening browser...
+  start http://localhost:8000/app
+  echo.
+  echo Tip: Stop everything with: docker compose down
+  echo.
+  pause
+  exit /b 0
+)
+
+:fallback
+echo.
+echo Docker start failed or Docker not found.
+echo Falling back to local Python servers (less consistent).
+echo.
+echo NOTE: This mode may not support all features (nginx proxy, Ollama, etc).
+echo.
 
 REM Start backend in new window
 start "NOC Backend" /MIN cmd /c "python api_server.py"
@@ -26,20 +53,17 @@ start "NOC Frontend" cmd /c "python -m http.server 8000"
 REM Wait for frontend to start
 timeout /t 3 /nobreak >nul
 
-REM Open browser
 echo Opening browser...
 start http://localhost:8000/vm_deployment/NOC-configMaker.html
 
 echo.
 echo ========================================
-echo  Services Started!
+echo  Services Started (Fallback Mode)
 echo ========================================
-echo.
 echo Backend:  http://localhost:5000
 echo Frontend: http://localhost:8000/vm_deployment/NOC-configMaker.html
 echo.
 echo KEEP THE SERVER WINDOWS OPEN!
-echo Close this window anytime.
 echo.
 
 pause

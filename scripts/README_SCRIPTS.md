@@ -9,9 +9,18 @@
 ## ✅ USE THESE (Updated, Current)
 
 ### `QUICK_START.bat` (in root folder, NOT scripts/)
-**Purpose**: Development launcher - Starts both backend + frontend  
+**Purpose**: Development launcher - starts the app (Docker-first)  
 **When to use**: When developing/testing locally  
 **Location**: Root folder (not in scripts/)
+
+### `scripts\\start_docker_local.bat` / `scripts\\stop_docker_local.bat`
+**Purpose**: One-click start/stop for the Docker Compose stack  
+**When to use**: Local testing with the same stack used on the VM  
+
+URLs:
+- App: `http://localhost:8000/app`
+- Health: `http://localhost:8000/api/health`
+- Ollama: `http://localhost:11434`
 
 ### `build_exe.py` (in root folder)
 **Purpose**: Build the distributable EXE  

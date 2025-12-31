@@ -41,6 +41,66 @@
             --sidebar-hover: #2a2a2a;
         }
 
+        :root[data-theme="slate"] {
+            --bg-color: #0b1220;
+            --text-color: #e5e7eb;
+            --text-color-secondary: #aab3c5;
+            --container-bg: rgba(255, 255, 255, 0.06);
+            --border-color: rgba(148, 163, 184, 0.25);
+            --input-bg: rgba(255, 255, 255, 0.08);
+            --button-bg: #ff7a00;
+            --button-hover: #e86f00;
+            --output-bg: rgba(255, 255, 255, 0.06);
+            --sidebar-bg: rgba(11, 18, 32, 0.98);
+            --sidebar-active: #ff7a00;
+            --sidebar-hover: rgba(255, 255, 255, 0.06);
+        }
+
+        :root[data-theme="graphite"] {
+            --bg-color: #0f0f10;
+            --text-color: #f0f0f0;
+            --text-color-secondary: #b0b0b0;
+            --container-bg: #1b1b1d;
+            --border-color: #3a3a3f;
+            --input-bg: #242428;
+            --button-bg: #ff7a00;
+            --button-hover: #e86f00;
+            --output-bg: #151517;
+            --sidebar-bg: #0f0f10;
+            --sidebar-active: #ff7a00;
+            --sidebar-hover: #1b1b1d;
+        }
+
+        :root[data-theme="neon-holo"] {
+            --bg-color: #070816;
+            --text-color: #eef0ff;
+            --text-color-secondary: #b7baf1;
+            --container-bg: rgba(20, 22, 54, 0.55);
+            --border-color: rgba(120, 108, 255, 0.35);
+            --input-bg: rgba(255, 255, 255, 0.07);
+            --button-bg: #7b61ff;
+            --button-hover: #5f45ff;
+            --output-bg: rgba(255, 255, 255, 0.05);
+            --sidebar-bg: rgba(7, 8, 22, 0.95);
+            --sidebar-active: #7b61ff;
+            --sidebar-hover: rgba(123, 97, 255, 0.14);
+        }
+
+        :root[data-theme="neon-aero"] {
+            --bg-color: #0a0d14;
+            --text-color: #eaf6ff;
+            --text-color-secondary: #a6c6da;
+            --container-bg: rgba(255, 255, 255, 0.06);
+            --border-color: rgba(125, 211, 252, 0.25);
+            --input-bg: rgba(255, 255, 255, 0.08);
+            --button-bg: #00d2ff;
+            --button-hover: #00b7de;
+            --output-bg: rgba(255, 255, 255, 0.05);
+            --sidebar-bg: rgba(10, 13, 20, 0.92);
+            --sidebar-active: #00d2ff;
+            --sidebar-hover: rgba(0, 210, 255, 0.12);
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -1604,6 +1664,13 @@
             box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
         }
 
+        .bar-fill {
+            height: 100%;
+            display: flex;
+            border-radius: 999px;
+            overflow: hidden;
+        }
+
         .bar-success {
             position: absolute;
             left: 0;
@@ -1617,6 +1684,26 @@
             top: 0;
             bottom: 0;
             background: linear-gradient(90deg, #b52b3a, #dc3545);
+        }
+
+        .bar-fill .bar-success,
+        .bar-fill .bar-fail {
+            position: static;
+        }
+
+        .monthly-tracker.compact {
+            max-width: 620px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .monthly-tracker.compact .monthly-row {
+            grid-template-columns: 76px minmax(180px, 420px) 34px;
+            gap: 10px;
+        }
+
+        .monthly-tracker.compact .bar-track {
+            height: 8px;
         }
 
         .monthly-help {
@@ -1737,16 +1824,8 @@
                         <p>Network operations configuration and management tool</p>
                     </div>
 
-                    <!-- Executive status strip (functional + minimal) -->
+                    <!-- Executive status strip (minimal) -->
                     <div class="status-strip" id="homeStatusStrip">
-                        <div class="status-pill warn" id="homeStatusBackend">
-                            <span class="status-dot"></span>
-                            <span class="status-kv"><span class="k">Backend</span><span class="v" id="homeStatusBackendValue">Checking…</span></span>
-                        </div>
-                        <div class="status-pill warn" id="homeStatusAI">
-                            <span class="status-dot"></span>
-                            <span class="status-kv"><span class="k">AI</span><span class="v" id="homeStatusAIValue">Checking…</span></span>
-                        </div>
                         <div class="status-pill" id="homeStatusUpdated">
                             <span class="status-dot"></span>
                             <span class="status-kv"><span class="k">Updated</span><span class="v" id="homeStatusUpdatedValue">—</span></span>
@@ -1819,6 +1898,15 @@
                                 <span>LIVE</span>
                             </div>
                         </div>
+
+                        <details class="section" style="margin: 12px 0 14px 0;">
+                            <summary style="cursor: pointer; color: var(--text-color); font-weight: 700;">Monthly Activity (auto)</summary>
+                            <div class="section-subtle" style="margin-top: 8px;">Updated <span id="homeMonthlyUpdated">—</span></div>
+                            <div id="homeMonthlySummary" class="monthly-help" style="margin-top: 6px;"></div>
+                            <div id="homeMonthlyTracker" class="monthly-tracker compact"></div>
+                            <div class="monthly-help" style="margin-top: 8px;">Tip: Click a month bar to jump to Log History filters.</div>
+                        </details>
+
                         <div id="recentActivityList">
                             <div class="empty-state">
                                 <div class="empty-state-icon">📋</div>
@@ -1858,18 +1946,15 @@
                     <!-- Theme Selection -->
                     <div class="settings-section">
                         <h3>Theme</h3>
-                        <div id="themeOptions">
-                            <label class="theme-option">
-                                <input type="radio" name="theme" value="dark" style="margin-right: 10px;">
-                                <span class="theme-preview" style="background: #1a1a1a;"></span>
-                                Default (midnight)
-                            </label>
-                            <label class="theme-option">
-                                <input type="radio" name="theme" value="light" style="margin-right: 10px;">
-                                <span class="theme-preview" style="background: #f4f4f4;"></span>
-                                Light
-                            </label>
-                        </div>
+                        <select id="themeSelect"
+                            style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-color);">
+                            <option value="dark">Default (midnight)</option>
+                            <option value="slate">Slate (cool)</option>
+                            <option value="graphite">Graphite (high contrast)</option>
+                            <option value="neon-holo">Neon (holographic)</option>
+                            <option value="neon-aero">Neon Aero (glassy)</option>
+                            <option value="light">Light</option>
+                        </select>
                         <p>Choose how components render across the app. Your selection follows you on every sign-in.</p>
                     </div>
 
@@ -4300,6 +4385,7 @@
                             <div class="section-subtle">Updated <span id="logMonthlyUpdated">—</span></div>
                         </div>
                         <div class="monthly-help">Click a month to auto-fill date filters.</div>
+                        <div id="logMonthlySummary" class="monthly-help" style="margin-top: 6px;"></div>
                         <div id="logMonthlyTracker" class="monthly-tracker"></div>
                     </div>
 
@@ -4978,12 +5064,13 @@
                 return;
             }
 
-            const API_BASE = isLocalDev ? 'http://localhost:5000' : window.location.origin;
+            const isNginxRouted = !isFileProtocol && (window.location.pathname === '/' || window.location.pathname.startsWith('/app'));
+            const API_BASE = (isLocalDev && !isNginxRouted) ? 'http://localhost:5000' : window.location.origin;
 
             console.log('[AUTH] API_BASE for authentication:', API_BASE, '(isLocalDev:', isLocalDev, ')');
 
-            // Normalize URL so users don't see .html in the bar
-            if (window.location.pathname.match(/\.html$/)) {
+            // Normalize URL so users don't see .html in the bar (only when not serving from /vm_deployment)
+            if (window.location.pathname.match(/\.html$/) && !window.location.pathname.includes('/vm_deployment/')) {
                 const targetPath = window.location.pathname.includes('login') ? '/' : '/app';
                 window.history.replaceState({}, '', targetPath);
             }
@@ -5025,11 +5112,12 @@
         const isFileProtocol = window.location.protocol === 'file:';
         const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
         const isLocalDev = isFileProtocol || isLocalhost;
+        const isNginxRouted = !isFileProtocol && (window.location.pathname === '/' || window.location.pathname.startsWith('/app'));
 
         // For local dev (file:// or localhost), use localhost:5000
         // For production/VM (accessed via IP or domain), ALWAYS use window.location.origin
         let API_BASE;
-        if (isLocalDev) {
+        if (isLocalDev && !isNginxRouted) {
             API_BASE = 'http://localhost:5000';
             console.log('[API] 🏠 LOCAL DEVELOPMENT MODE - Using localhost:5000');
         } else {
@@ -5114,39 +5202,6 @@
 
         function updateHomeStatusStrip(health, backendOnline) {
             const online = !!backendOnline;
-            setStatusPill('homeStatusBackend', 'homeStatusBackendValue', online ? 'ok' : 'err', online ? 'Online' : 'Offline');
-
-            let aiState = online ? 'warn' : 'err';
-            let aiText = online ? 'Checking…' : 'Unavailable';
-            if (online && health && typeof health === 'object') {
-                const provider = String(health.ai_provider || '').toLowerCase();
-                if (provider === 'ollama') {
-                    const model = health.ollama_model || '';
-                    if (health.ollama_available) {
-                        aiState = 'ok';
-                        aiText = model ? `Ollama (${model})` : 'Ollama';
-                    } else {
-                        aiState = 'warn';
-                        aiText = model ? `Ollama offline (${model})` : 'Ollama offline';
-                    }
-                } else if (provider === 'openai') {
-                    if (health.api_key_configured) {
-                        aiState = 'ok';
-                        aiText = 'OpenAI';
-                    } else {
-                        aiState = 'warn';
-                        aiText = 'OpenAI key missing';
-                    }
-                } else if (provider) {
-                    aiState = 'warn';
-                    aiText = provider.toUpperCase();
-                } else {
-                    aiState = 'warn';
-                    aiText = 'Unknown';
-                }
-            }
-            setStatusPill('homeStatusAI', 'homeStatusAIValue', aiState, aiText);
-
             setStatusPill('homeStatusUpdated', 'homeStatusUpdatedValue', online ? '' : 'err', new Date().toLocaleString());
         }
 
@@ -8884,12 +8939,13 @@
             window.navigateToActivity = function (type, id) {
                 console.log(`[NAV] Navigating to activity: type=${type}, id=${id}`);
 
-                if (type === 'migration') {
-                    // Navigate to migration tab
-                    navigateToTab('migration-pane');
+                if (type === 'migration' || type === 'upgrade') {
+                    // Navigate to Tower tab in "Upgrade Existing" mode
+                    window.navigateToTab?.('tower');
+                    setTimeout(() => { if (typeof switchMode === 'function') switchMode('upgrade'); }, 120);
 
                     // Try to fetch and display the migrated config from the activity log
-                    fetch(`${AI_API_BASE}/get-activity`)
+                    fetch(`${resolveApiBase()}/get-activity`)
                         .then(response => response.json())
                         .then(data => {
                             if (data && data.activities) {
@@ -8914,7 +8970,7 @@
                         });
                 } else {
                     // Navigate to saved configs tab and display the config
-                    navigateToTab('saved-configs-pane');
+                    window.navigateToTab?.('completed-configs');
 
                     // Fetch and display the config
                     if (id) {
@@ -8932,11 +8988,15 @@
                     const ongoingHTML = getOngoingActivitiesHTML();
 
                     if (liveActivities && liveActivities.length > 0) {
+                        // Home monthly overview (based on live activities)
+                        renderHomeMonthlyTracker(liveActivities);
                         // Show last 24 hours of activity from all tabs
                         const recentItems = liveActivities.slice(0, 10);
                         const completedHTML = recentItems.map(entry => {
                             const date = new Date(entry.timestamp);
                             const timeStr = formatCSTTimestamp(entry.timestamp);
+                            const statusText = (entry.success === false) ? 'FAILED' : 'SUCCESS';
+                            const statusColor = (entry.success === false) ? '#dc3545' : '#4CAF50';
 
                             // Determine icon based on activity type
                             let icon = '📝';
@@ -8979,7 +9039,7 @@
                             const username = entry.username || 'Unknown User';
                             return `
                                 <div class="activity-item" style="cursor: pointer;" onclick="navigateToActivity('${entry.type}', ${entry.id})">
-                                    <div class="title">${icon} ${activityLabel} - ${entry.siteName}</div>
+                                    <div class="title">${icon} ${activityLabel} - ${entry.siteName} <span style="margin-left: 10px; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,0.06); color: ${statusColor}; border: 1px solid rgba(255,255,255,0.12);">${statusText}</span></div>
                                     <div class="details">
                                         <span class="user-info">${username}</span> | 
                                         Device: ${entry.device} | RouterOS: ${entry.routeros}
@@ -8992,6 +9052,7 @@
                     } else {
                         // Fallback to local storage
                         const history = JSON.parse(localStorage.getItem('configHistory') || '[]');
+                        renderHomeMonthlyTracker(history.map(h => ({ ...h, success: h?.success !== false })));
                         if (history.length === 0 && !ongoingHTML) {
                             listElement.innerHTML = `
                                 <div class="empty-state">
@@ -9090,6 +9151,8 @@
                     console.log('[DASHBOARD] Auto-refreshing activity feed and metrics...');
                     updateRecentActivity();
                     updateDashboardMetrics();
+                    // Keep the homepage "Updated" timestamp live
+                    updateHomeStatusStrip(window.__LAST_BACKEND_HEALTH, window.BACKEND_ONLINE);
                 }
             }, 30000); // 30 second refresh interval
 
@@ -9106,9 +9169,14 @@
                 const currentTheme = localStorage.getItem('theme') || 'dark';
                 const currentFontSize = localStorage.getItem('fontSize') || 'comfortable';
 
-                // Set radio buttons
-                document.querySelector(`input[name="theme"][value="${currentTheme}"]`).checked = true;
-                document.querySelector(`input[name="fontSize"][value="${currentFontSize}"]`).checked = true;
+                // Set theme + font size
+                const themeSelect = document.getElementById('themeSelect');
+                if (themeSelect) {
+                    themeSelect.value = currentTheme;
+                    if (themeSelect.value !== currentTheme) themeSelect.value = 'dark';
+                }
+                const fontRadio = document.querySelector(`input[name="fontSize"][value="${currentFontSize}"]`);
+                if (fontRadio) fontRadio.checked = true;
 
                 // Update visual selection
                 updateSettingsSelection();
@@ -9119,16 +9187,6 @@
             }
 
             window.updateSettingsSelection = function () {
-                // Update theme option styling
-                document.querySelectorAll('.theme-option').forEach(opt => {
-                    const radio = opt.querySelector('input[type="radio"]');
-                    if (radio.checked) {
-                        opt.classList.add('selected');
-                    } else {
-                        opt.classList.remove('selected');
-                    }
-                });
-
                 // Update font option styling
                 document.querySelectorAll('.font-option').forEach(opt => {
                     const radio = opt.querySelector('input[type="radio"]');
@@ -9142,18 +9200,19 @@
 
             window.saveSettings = function () {
                 // Get selected values
-                const theme = document.querySelector('input[name="theme"]:checked').value;
+                const theme = document.getElementById('themeSelect')?.value || 'dark';
                 const fontSize = document.querySelector('input[name="fontSize"]:checked').value;
 
                 // Save to localStorage
                 localStorage.setItem('theme', theme);
                 localStorage.setItem('fontSize', fontSize);
+                if (theme !== 'light') localStorage.setItem('theme_last_nonlight', theme);
 
                 // Apply theme
                 document.documentElement.setAttribute('data-theme', theme);
                 const darkToggle = document.getElementById('darkToggle');
                 if (darkToggle) {
-                    darkToggle.innerHTML = theme === 'dark' ? '🌙 Dark' : '☀️ Light';
+                    darkToggle.innerHTML = theme === 'light' ? '☀️ Light' : '🌙 Dark';
                 }
 
                 // Apply font size
@@ -9185,10 +9244,12 @@
                 button.classList.add('active');
             }
 
-            // Handle settings radio button changes
+            // Handle settings control changes
             document.addEventListener('DOMContentLoaded', function () {
-                // Settings radio buttons
-                document.querySelectorAll('.theme-option input, .font-option input').forEach(radio => {
+                // Settings controls
+                const themeSelect = document.getElementById('themeSelect');
+                if (themeSelect) themeSelect.addEventListener('change', updateSettingsSelection);
+                document.querySelectorAll('.font-option input').forEach(radio => {
                     radio.addEventListener('change', updateSettingsSelection);
                 });
 
@@ -10193,12 +10254,19 @@
 
             function toggleDarkMode() {
                 const html = document.documentElement;
-                const currentTheme = html.getAttribute('data-theme');
-                const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+                const currentTheme = html.getAttribute('data-theme') || 'dark';
+                const lastNonLight = localStorage.getItem('theme_last_nonlight') || 'dark';
+                let newTheme;
+                if (currentTheme === 'light') {
+                    newTheme = lastNonLight;
+                } else {
+                    localStorage.setItem('theme_last_nonlight', currentTheme);
+                    newTheme = 'light';
+                }
                 html.setAttribute('data-theme', newTheme);
                 const darkToggle = document.getElementById('darkToggle');
                 if (darkToggle) {
-                    darkToggle.innerHTML = newTheme === 'dark' ? '🌙 Dark' : '☀️ Light';
+                    darkToggle.innerHTML = newTheme === 'light' ? '☀️ Light' : '🌙 Dark';
                 }
                 // Save preference
                 localStorage.setItem('theme', newTheme);
@@ -12395,9 +12463,10 @@
             // Load saved theme preference
             const savedTheme = localStorage.getItem('theme') || 'dark';
             document.documentElement.setAttribute('data-theme', savedTheme);
+            if (savedTheme !== 'light') localStorage.setItem('theme_last_nonlight', savedTheme);
             const darkToggle = document.getElementById('darkToggle');
             if (darkToggle) {
-                darkToggle.innerHTML = savedTheme === 'dark' ? '🌙 Dark' : '☀️ Light';
+                darkToggle.innerHTML = savedTheme === 'light' ? '☀️ Light' : '🌙 Dark';
             }
 
             // Auto-validate on page load
@@ -17987,25 +18056,42 @@ Ready for translation!`);
         }
 
         function parseActivityDate(activity) {
-            const raw = activity?.timestamp || activity?.timestamp_iso || activity?.formattedTime || '';
+            const unix = activity?.timestamp_unix ?? activity?.timestampUnix ?? null;
+            if (Number.isFinite(unix)) {
+                // Support seconds or milliseconds since epoch.
+                const ms = unix < 1e12 ? unix * 1000 : unix;
+                const du = new Date(ms);
+                if (Number.isFinite(du.getTime())) return du;
+            }
+
+            let raw = activity?.timestamp || activity?.timestamp_iso || activity?.formattedTime || '';
             if (!raw) return null;
+            raw = String(raw).trim().replace(/\s*\n\s*/g, ' ');
 
             // Backend emits ISO UTC in `timestamp` (preferred).
             const d1 = new Date(raw);
             if (Number.isFinite(d1.getTime())) return d1;
 
-            // Fallback: `MM/DD/YYYY HH:MMAM` (best-effort).
-            const m = String(raw).match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})(AM|PM)$/i);
+            // Fallbacks for non-ISO display timestamps.
+            // Supported examples:
+            // - 12/30/2025 11:38PM
+            // - 12/30/2025 11:38 PM
+            // - 12/30/2025 11:38:02 PM
+            // - 12/30/2025 23:38
+            const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i);
             if (m) {
-                const mm = Number.parseInt(m[1], 10);
-                const dd = Number.parseInt(m[2], 10);
-                const yyyy = Number.parseInt(m[3], 10);
+                const month = Number.parseInt(m[1], 10);
+                const day = Number.parseInt(m[2], 10);
+                const year = Number.parseInt(m[3], 10);
                 let hh = Number.parseInt(m[4], 10);
                 const min = Number.parseInt(m[5], 10);
-                const ap = m[6].toUpperCase();
-                if (ap === 'PM' && hh < 12) hh += 12;
-                if (ap === 'AM' && hh === 12) hh = 0;
-                const d2 = new Date(yyyy, mm - 1, dd, hh, min, 0, 0);
+                const sec = m[6] ? Number.parseInt(m[6], 10) : 0;
+                const ap = (m[7] || '').toUpperCase();
+                if (ap) {
+                    if (ap === 'PM' && hh < 12) hh += 12;
+                    if (ap === 'AM' && hh === 12) hh = 0;
+                }
+                const d2 = new Date(year, month - 1, day, hh, min, sec, 0);
                 if (Number.isFinite(d2.getTime())) return d2;
             }
 
@@ -18022,6 +18108,72 @@ Ready for translation!`);
         function renderMonthlyTracker(activities) {
             const container = document.getElementById('logMonthlyTracker');
             const updated = document.getElementById('logMonthlyUpdated');
+            const summary = document.getElementById('logMonthlySummary');
+            if (updated) updated.textContent = new Date().toLocaleString();
+            if (!container) return;
+
+            const groups = new Map(); // key: YYYY-MM
+            for (const a of activities || []) {
+                const d = parseActivityDate(a);
+                if (!d) continue;
+                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                const g = groups.get(key) || { year: d.getFullYear(), monthIndex: d.getMonth(), success: 0, fail: 0, total: 0 };
+                g.total += 1;
+                if (a?.success) g.success += 1;
+                else g.fail += 1;
+                groups.set(key, g);
+            }
+
+            if (groups.size === 0) {
+                container.innerHTML = '<div class="monthly-help">No monthly activity data available for the current filters yet.</div>';
+                if (summary) summary.textContent = '';
+                return;
+            }
+
+            const rows = Array.from(groups.entries())
+                .map(([key, g]) => ({ key, ...g }))
+                .sort((a, b) => b.key.localeCompare(a.key))
+                .slice(0, 12);
+
+            const maxTotal = Math.max(...rows.map(r => r.total), 1);
+            const scaleTotal = Math.max(100, maxTotal);
+            const monthFmt = new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric' });
+            if (summary && rows[0]) {
+                const latestLabel = monthFmt.format(new Date(rows[0].year, rows[0].monthIndex, 1));
+                summary.textContent = `Latest: ${latestLabel} • Total ${rows[0].total} • Success ${rows[0].success} • Fail ${rows[0].fail}`;
+            }
+
+            container.innerHTML = '';
+            for (const r of rows) {
+                const label = monthFmt.format(new Date(r.year, r.monthIndex, 1));
+                const successPct = r.total ? (r.success / r.total) * 100 : 0;
+                const failPct = r.total ? (r.fail / r.total) * 100 : 0;
+                const rowWidthPct = Math.min(100, Math.max(2, (r.total / scaleTotal) * 100));
+
+                const rowEl = document.createElement('div');
+                rowEl.className = 'monthly-row';
+                rowEl.title = `Click to filter: ${label} (Success ${r.success}, Fail ${r.fail})`;
+                rowEl.style.cursor = 'pointer';
+                rowEl.addEventListener('click', () => window.applyLogMonthFilter?.(r.year, r.monthIndex));
+
+                rowEl.innerHTML = `
+                    <div class="monthly-label">${label}</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width: ${rowWidthPct}%;">
+                            <div class="bar-success" style="width: ${successPct}%;"></div>
+                            <div class="bar-fail" style="width: ${failPct}%;"></div>
+                        </div>
+                    </div>
+                    <div class="monthly-count">${r.total}</div>
+                `;
+                container.appendChild(rowEl);
+            }
+        }
+
+        function renderHomeMonthlyTracker(activities) {
+            const container = document.getElementById('homeMonthlyTracker');
+            const updated = document.getElementById('homeMonthlyUpdated');
+            const summary = document.getElementById('homeMonthlySummary');
             if (updated) updated.textContent = new Date().toLocaleString();
             if (!container) return;
 
@@ -18039,6 +18191,7 @@ Ready for translation!`);
 
             if (groups.size === 0) {
                 container.innerHTML = '<div class="monthly-help">No monthly activity data available yet.</div>';
+                if (summary) summary.textContent = '';
                 return;
             }
 
@@ -18048,28 +18201,38 @@ Ready for translation!`);
                 .slice(0, 12);
 
             const maxTotal = Math.max(...rows.map(r => r.total), 1);
+            const scaleTotal = Math.max(100, maxTotal);
             const monthFmt = new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric' });
+            if (summary && rows[0]) {
+                const latestLabel = monthFmt.format(new Date(rows[0].year, rows[0].monthIndex, 1));
+                summary.textContent = `Latest: ${latestLabel} • Total ${rows[0].total} • Success ${rows[0].success} • Fail ${rows[0].fail}`;
+            }
 
             container.innerHTML = '';
             for (const r of rows) {
                 const label = monthFmt.format(new Date(r.year, r.monthIndex, 1));
                 const successPct = r.total ? (r.success / r.total) * 100 : 0;
                 const failPct = r.total ? (r.fail / r.total) * 100 : 0;
-                const rowWidthPct = (r.total / maxTotal) * 100;
+                const rowWidthPct = Math.min(100, Math.max(2, (r.total / scaleTotal) * 100));
 
                 const rowEl = document.createElement('div');
                 rowEl.className = 'monthly-row';
-                rowEl.title = `Click to filter: ${label} (Success ${r.success}, Fail ${r.fail})`;
+                rowEl.title = `Click to filter log history: ${label} (Success ${r.success}, Fail ${r.fail})`;
                 rowEl.style.cursor = 'pointer';
-                rowEl.addEventListener('click', () => window.applyLogMonthFilter?.(r.year, r.monthIndex));
+                rowEl.addEventListener('click', () => {
+                    navigateToTab?.('log-history');
+                    setTimeout(() => window.applyLogMonthFilter?.(r.year, r.monthIndex), 120);
+                });
 
                 rowEl.innerHTML = `
-                    <div class="month-label">${label}</div>
-                    <div class="bar-track" style="width: ${rowWidthPct}%;">
-                        <div class="bar-success" style="width: ${successPct}%;"></div>
-                        <div class="bar-fail" style="width: ${failPct}%;"></div>
+                    <div class="monthly-label">${label}</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width: ${rowWidthPct}%;">
+                            <div class="bar-success" style="width: ${successPct}%;"></div>
+                            <div class="bar-fail" style="width: ${failPct}%;"></div>
+                        </div>
                     </div>
-                    <div class="month-total">${r.total}</div>
+                    <div class="monthly-count">${r.total}</div>
                 `;
                 container.appendChild(rowEl);
             }
