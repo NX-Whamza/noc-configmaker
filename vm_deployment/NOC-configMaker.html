@@ -8920,6 +8920,8 @@
                         const data = await response.json();
                         if (data.success && data.activities) {
                             const allActivities = data.activities;
+                            window.__ALL_ACTIVITIES = allActivities;
+                            window.__ALL_ACTIVITIES_FETCHED_AT = Date.now();
                             const now = new Date();
                             const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
@@ -8967,6 +8969,8 @@
 
                 // Fallback to localStorage if backend unavailable
                 const history = JSON.parse(localStorage.getItem('configHistory') || '[]');
+                window.__ALL_ACTIVITIES = history;
+                window.__ALL_ACTIVITIES_FETCHED_AT = Date.now();
                 const now = new Date();
                 const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
@@ -9055,8 +9059,11 @@
                     const ongoingHTML = getOngoingActivitiesHTML();
 
                     if (liveActivities && liveActivities.length > 0) {
-                        // Home monthly overview (based on live activities)
-                        renderHomeMonthlyTracker(liveActivities);
+                        // Home monthly overview should use ALL history when available.
+                        const allForMonthly = (Array.isArray(window.__ALL_ACTIVITIES) && window.__ALL_ACTIVITIES.length > 0)
+                            ? window.__ALL_ACTIVITIES
+                            : liveActivities;
+                        renderHomeMonthlyTracker(allForMonthly);
                         // Show last 24 hours of activity from all tabs
                         const recentItems = liveActivities.slice(0, 10);
                         const completedHTML = recentItems.map(entry => {
@@ -18186,7 +18193,8 @@ Ready for translation!`);
                 const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
                 const g = groups.get(key) || { year: d.getFullYear(), monthIndex: d.getMonth(), success: 0, fail: 0, total: 0 };
                 g.total += 1;
-                if (a?.success) g.success += 1;
+                const ok = !(a?.success === false || a?.success === 0);
+                if (ok) g.success += 1;
                 else g.fail += 1;
                 groups.set(key, g);
             }
@@ -18251,7 +18259,8 @@ Ready for translation!`);
                 const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
                 const g = groups.get(key) || { year: d.getFullYear(), monthIndex: d.getMonth(), success: 0, fail: 0, total: 0 };
                 g.total += 1;
-                if (a?.success) g.success += 1;
+                const ok = !(a?.success === false || a?.success === 0);
+                if (ok) g.success += 1;
                 else g.fail += 1;
                 groups.set(key, g);
             }
