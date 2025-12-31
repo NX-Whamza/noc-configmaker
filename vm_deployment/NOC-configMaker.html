@@ -1656,6 +1656,28 @@
         .status-kv .k { color: var(--text-color-secondary, #aaa); }
         .status-kv .v { font-weight: 700; }
 
+        .header-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--text-color);
+            font-size: 9px;
+            line-height: 1;
+            white-space: nowrap;
+        }
+
+        :root:not([data-theme="dark"]) .header-status {
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            background: rgba(0, 0, 0, 0.03);
+        }
+
+        .header-status.ok .status-dot { background: #28a745; }
+        .header-status.err .status-dot { background: #dc3545; }
+
         .monthly-tracker {
             display: flex;
             flex-direction: column;
@@ -1835,6 +1857,10 @@
             <div class="user-section">
                 <span id="userEmailDisplay"
                     style="color: #bbb; font-size: 9px; margin-right: 10px; text-transform: uppercase;"></span>
+                <div class="header-status" id="globalUpdatedPill" title="Last UI refresh time (live)">
+                    <span class="status-dot" id="globalUpdatedDot" style="width: 6px; height: 6px;"></span>
+                    <span class="status-kv"><span class="k">Updated</span><span class="v" id="globalUpdatedAt">—</span></span>
+                </div>
                 <button class="toggle-dark" id="settingsBtn"
                     onclick="window.openSettingsModal && window.openSettingsModal()"
                     style="font-size: 9px; padding: 4px 8px;">⚙️ SETTINGS</button>
@@ -1930,7 +1956,7 @@
                         </div>
 
                         <details class="section" style="margin: 12px 0 14px 0;">
-                            <summary style="cursor: pointer; color: var(--text-color); font-weight: 700;">Monthly Activity (auto)</summary>
+                            <summary style="cursor: pointer; color: var(--text-color); font-weight: 700;">Monthly Activity</summary>
                             <div class="section-subtle" style="margin-top: 8px;">Updated <span id="homeMonthlyUpdated">—</span></div>
                             <div id="homeMonthlySummary" class="monthly-help" style="margin-top: 6px;"></div>
                             <div id="homeMonthlyTracker" class="monthly-tracker compact"></div>
@@ -5235,6 +5261,15 @@
         function updateHomeStatusStrip(health, backendOnline) {
             const online = !!backendOnline;
             setStatusPill('homeStatusUpdated', 'homeStatusUpdatedValue', online ? '' : 'err', new Date().toLocaleString());
+
+            const globalUpdatedAt = document.getElementById('globalUpdatedAt');
+            if (globalUpdatedAt) globalUpdatedAt.textContent = new Date().toLocaleString();
+
+            const globalPill = document.getElementById('globalUpdatedPill');
+            if (globalPill) {
+                globalPill.classList.remove('ok', 'err');
+                globalPill.classList.add(online ? 'ok' : 'err');
+            }
         }
 
         // Check backend health on page load with retries
