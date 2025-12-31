@@ -8349,6 +8349,26 @@ def extract_port_mapping(config_content):
         if not line or line.startswith('#'):
             continue
         if line.startswith('/'):
+            # Handle one-line export forms like: "/interface ethernet set ..."
+            if line.startswith('/interface ethernet') and ' set ' in line:
+                current_section = '/interface ethernet'
+                inline = line[len('/interface ethernet'):].strip()
+                if inline.startswith('set '):
+                    tokens = _safe_shlex_split(inline)
+                    kv = _parse_kv(tokens)
+                    default_name = None
+                    for t in tokens:
+                        if t.startswith('default-name='):
+                            default_name = t.split('=', 1)[1].strip()
+                            break
+                    comment = kv.get('comment')
+                    if default_name and comment:
+                        if default_name not in port_mapping:
+                            port_mapping[default_name] = {}
+                        port_mapping[default_name]['comment'] = comment.strip().strip('"').strip("'")
+                        port_mapping[default_name]['type'] = _infer_port_type(default_name)
+                continue
+
             current_section = line
             continue
         if current_section == '/interface ethernet' and line.startswith('set '):
@@ -8375,6 +8395,20 @@ def extract_port_mapping(config_content):
         if not line or line.startswith('#'):
             continue
         if line.startswith('/'):
+            # Handle one-line export forms like: "/ip address add ..."
+            if line.startswith('/ip address') and ' add ' in line:
+                current_section = '/ip address'
+                inline = line[len('/ip address'):].strip()
+                if inline.startswith('add '):
+                    tokens = _safe_shlex_split(inline)
+                    kv = _parse_kv(tokens)
+                    ip_cidr = kv.get('address')
+                    interface = kv.get('interface')
+                    comment = kv.get('comment', '')
+                    if ip_cidr and interface:
+                        all_ip_matches.append((ip_cidr.strip(), interface.strip(), (comment or '').strip()))
+                continue
+
             current_section = line
             continue
         if current_section == '/ip address' and line.startswith('add '):
@@ -8495,6 +8529,19 @@ def extract_port_mapping(config_content):
         if not line or line.startswith('#'):
             continue
         if line.startswith('/'):
+            # Handle one-line export forms like: "/interface bridge port add ..."
+            if line.startswith('/interface bridge port') and ' add ' in line:
+                current_section = '/interface bridge port'
+                inline = line[len('/interface bridge port'):].strip()
+                if inline.startswith('add '):
+                    tokens = _safe_shlex_split(inline)
+                    kv = _parse_kv(tokens)
+                    br = kv.get('bridge')
+                    iface = kv.get('interface')
+                    if br and iface:
+                        bridge_port_matches.append((br.strip(), iface.strip()))
+                continue
+
             current_section = line
             continue
         if current_section == '/interface bridge port' and line.startswith('add '):
@@ -8586,7 +8633,6 @@ def format_port_mapping_text(port_mapping, device_name='', customer_code=''):
     lines.append("=" * 67)
     lines.append("BH IPs/Port Map")
     lines.append("=" * 67)
-    lines.append("        ")
     lines.append("")
     
     # Sort ports for consistent output
@@ -8658,7 +8704,7 @@ def format_port_mapping_text(port_mapping, device_name='', customer_code=''):
             line = f"{port_display}: {ip_address}"
             lines.append(line)
     
-    lines.append("    ")
+    lines.append("")
     return "\n".join(lines)
 
 @app.route('/api/save-completed-config', methods=['POST'])
