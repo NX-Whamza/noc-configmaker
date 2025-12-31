@@ -45,15 +45,15 @@
             --bg-color: #0b1220;
             --text-color: #e5e7eb;
             --text-color-secondary: #aab3c5;
-            --container-bg: rgba(255, 255, 255, 0.06);
-            --border-color: rgba(148, 163, 184, 0.25);
-            --input-bg: rgba(255, 255, 255, 0.08);
+            --container-bg: #111827;
+            --border-color: #26324d;
+            --input-bg: #0f1b34;
             --button-bg: #ff7a00;
             --button-hover: #e86f00;
-            --output-bg: rgba(255, 255, 255, 0.06);
-            --sidebar-bg: rgba(11, 18, 32, 0.98);
+            --output-bg: #0f172a;
+            --sidebar-bg: #0b1220;
             --sidebar-active: #ff7a00;
-            --sidebar-hover: rgba(255, 255, 255, 0.06);
+            --sidebar-hover: #131c31;
         }
 
         :root[data-theme="graphite"] {
@@ -75,30 +75,60 @@
             --bg-color: #070816;
             --text-color: #eef0ff;
             --text-color-secondary: #b7baf1;
-            --container-bg: rgba(20, 22, 54, 0.55);
-            --border-color: rgba(120, 108, 255, 0.35);
-            --input-bg: rgba(255, 255, 255, 0.07);
+            --container-bg: #141636;
+            --border-color: #3f3aa3;
+            --input-bg: #1b1d45;
             --button-bg: #7b61ff;
             --button-hover: #5f45ff;
-            --output-bg: rgba(255, 255, 255, 0.05);
-            --sidebar-bg: rgba(7, 8, 22, 0.95);
+            --output-bg: #10122d;
+            --sidebar-bg: #070816;
             --sidebar-active: #7b61ff;
-            --sidebar-hover: rgba(123, 97, 255, 0.14);
+            --sidebar-hover: #13153a;
         }
 
         :root[data-theme="neon-aero"] {
             --bg-color: #0a0d14;
             --text-color: #eaf6ff;
             --text-color-secondary: #a6c6da;
-            --container-bg: rgba(255, 255, 255, 0.06);
-            --border-color: rgba(125, 211, 252, 0.25);
-            --input-bg: rgba(255, 255, 255, 0.08);
+            --container-bg: #0f1622;
+            --border-color: #1d3a4a;
+            --input-bg: #152133;
             --button-bg: #00d2ff;
             --button-hover: #00b7de;
-            --output-bg: rgba(255, 255, 255, 0.05);
-            --sidebar-bg: rgba(10, 13, 20, 0.92);
+            --output-bg: #0d131d;
+            --sidebar-bg: #0a0d14;
             --sidebar-active: #00d2ff;
-            --sidebar-hover: rgba(0, 210, 255, 0.12);
+            --sidebar-hover: #0f1f2b;
+        }
+
+        :root[data-theme="nx-ember"] {
+            --bg-color: #140f0b;
+            --text-color: #f3f0ee;
+            --text-color-secondary: #c9bfb7;
+            --container-bg: #1f1711;
+            --border-color: #3a2a1f;
+            --input-bg: #261c14;
+            --button-bg: #ff7a00;
+            --button-hover: #e86f00;
+            --output-bg: #19120d;
+            --sidebar-bg: #140f0b;
+            --sidebar-active: #ff7a00;
+            --sidebar-hover: #1f1711;
+        }
+
+        :root[data-theme="ocean"] {
+            --bg-color: #07141a;
+            --text-color: #e6fbff;
+            --text-color-secondary: #a5c7d0;
+            --container-bg: #0c1f28;
+            --border-color: #21404b;
+            --input-bg: #0f2732;
+            --button-bg: #22c55e;
+            --button-hover: #16a34a;
+            --output-bg: #08161c;
+            --sidebar-bg: #07141a;
+            --sidebar-active: #22c55e;
+            --sidebar-hover: #0c1f28;
         }
 
         * {
@@ -1949,10 +1979,12 @@
                         <select id="themeSelect"
                             style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-color);">
                             <option value="dark">Default (midnight)</option>
+                            <option value="nx-ember">NX Ember (warm)</option>
                             <option value="slate">Slate (cool)</option>
                             <option value="graphite">Graphite (high contrast)</option>
+                            <option value="ocean">Ocean (clean)</option>
                             <option value="neon-holo">Neon (holographic)</option>
-                            <option value="neon-aero">Neon Aero (glassy)</option>
+                            <option value="neon-aero">Neon Aero</option>
                             <option value="light">Light</option>
                         </select>
                         <p>Choose how components render across the app. Your selection follows you on every sign-in.</p>
