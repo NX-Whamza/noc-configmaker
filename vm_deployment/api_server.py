@@ -45,6 +45,7 @@ import sqlite3
 import hashlib
 import secrets
 from functools import wraps
+from ftth_renderer import render_ftth_config, TEMPLATE_PATH
 
 # JWT support (optional - install with: pip install PyJWT)
 try:
@@ -59,23 +60,30 @@ try:
 except ImportError:
     pytz = None
 
-TIMEZONE_NAME = 'America/Chicago'
+# Allow tests or alternate environments to override timezone name
+TIMEZONE_NAME = os.environ.get('TIMEZONE_NAME', 'America/Chicago')
 
-if ZoneInfo is not None:
-    try:
-        CST_ZONEINFO = ZoneInfo(TIMEZONE_NAME)
-    except Exception:
-        CST_ZONEINFO = None
-else:
+# When running automated tests, skip heavy timezone resource loading which can hang on
+# some Windows environments where tzdata resource loading is slow or blocked.
+if os.environ.get('NOC_CONFIGMAKER_TESTS') == '1':
     CST_ZONEINFO = None
-
-if pytz is not None:
-    try:
-        CST_PYTZ = pytz.timezone(TIMEZONE_NAME)
-    except Exception:
-        CST_PYTZ = None
-else:
     CST_PYTZ = None
+else:
+    if ZoneInfo is not None:
+        try:
+            CST_ZONEINFO = ZoneInfo(TIMEZONE_NAME)
+        except Exception:
+            CST_ZONEINFO = None
+    else:
+        CST_ZONEINFO = None
+
+    if pytz is not None:
+        try:
+            CST_PYTZ = pytz.timezone(TIMEZONE_NAME)
+        except Exception:
+            CST_PYTZ = None
+    else:
+        CST_PYTZ = None
 
 
 def _manual_cst_now():
@@ -1294,6 +1302,10 @@ def filter_scanner_requests():
     if client_ip and ('.255' in client_ip or client_ip.startswith('192.168.225')):
         # These are likely network scanners - silently handle
         pass
+
+    if request.path.startswith('/api/'):
+        origin = request.headers.get('Origin', '-')
+        print(f"[API] {request.method} {request.path} from {client_ip} host={request.host} origin={origin}")
     
     # Continue processing the request normally
     return None
@@ -2581,17 +2593,67 @@ def format_config_spacing(config_text):
     lines = normalized.split('\n')
     formatted_lines = []
 
+    # Drop exact duplicate lines (common after merges), but never touch embedded script sources.
+    seen_exact = set()
+
     for raw_line in lines:
         line = raw_line.rstrip()
 
-        # Convert "BREAK" separator *rules* into harmless comments to avoid clutter and apply-time side effects.
-        # Example seen in some configs:
+        # Drop RouterOS visual separators / "BREAK" rules.
+        # These are commonly inserted as visual dividers and are not intended to be applied.
+        # Examples:
         #   add chain=break comment="--------- BREAK --------- ..."
-        # This is not intended to be an actual firewall/mangle rule; keep as a comment separator.
-        if re.match(r'^\s*add\s+chain=break\b', line) and re.search(r'\bBREAK\b', line, flags=re.IGNORECASE):
-            line = '# ' + ('-' * 64)
+        #   add action=break comment="--------- BREAK --------- ..." disabled=yes
+        if re.search(r'(?i)\bchain\s*=\s*break\b', line) and re.search(r'(?i)\bBREAK\b', line):
+            continue
+        if re.search(r'(?i)\baction\s*=\s*break\b', line) and re.search(r'(?i)\bBREAK\b', line) and re.search(r'-{5,}', line):
+            continue
+        if re.search(r'(?i)\bBREAK\b', line) and re.search(r'-{5,}', line):
+            continue
+
+        # Fix user group policy line-wrapping (RouterOS export sometimes breaks tokens like "sensitiv e").
+        # Safe rule: policy is a comma-separated token list; whitespace inside the value is never meaningful.
+        if re.search(r'(?i)\bpolicy\s*=', line):
+            def _fix_policy_quoted(m):
+                inner = m.group(1)
+                inner = re.sub(r'\s+', '', inner)
+                return f'policy="{inner}"'
+
+            # Quoted form: policy="a,b,c"
+            line = re.sub(r'(?i)\bpolicy\s*=\s*"([^"]*)"', _fix_policy_quoted, line)
+
+            # Unquoted form (common on /user group set read): policy=a,b,c
+            # Capture value until next " key=" token or end-of-line, then strip whitespace inside.
+            def _fix_policy_unquoted(m):
+                head = m.group(1)
+                inner = m.group(2)
+                tail = m.group(3) or ''
+                inner = re.sub(r'\s+', '', inner)
+                return f"{head}{inner}{tail}"
+
+            line = re.sub(r'(?i)(\bpolicy\s*=\s*)([^"\r\n]+?)(\s+\w+\s*=\s*.*)?$', _fix_policy_unquoted, line)
+
+        # Fix common RouterOS rule token splits caused by line-wrapping in exports (do NOT remove normal spaces).
+        # Only apply to routing filter rule strings (rule="...").
+        if re.search(r'\brule="', line):
+            def _fix_rule(m):
+                inner = m.group(1)
+                inner = re.sub(r'(?i)dst-le\s+n', 'dst-len', inner)
+                inner = re.sub(r'(?i)blackh\s+ole', 'blackhole', inner)
+                inner = re.sub(r'(?i)bgp-communit\s+ies', 'bgp-communities', inner)
+                inner = re.sub(r'(?i)bgp-local-\s*pref', 'bgp-local-pref', inner)
+                return f'rule="{inner}"'
+            line = re.sub(r'rule="([^"]+)"', _fix_rule, line)
 
         line = _normalize_kv_spacing_outside_quotes(line)
+
+        # Drop exact duplicate lines (outside script sources).
+        if line and not line.lstrip().startswith('/') and not re.search(r'(?i)\bsource\s*=\s*"', line):
+            key = line.strip()
+            if key in seen_exact:
+                continue
+            seen_exact.add(key)
+
         stripped = line.strip()
         is_section_line = stripped.startswith('/') and stripped != '/'
 
@@ -2706,48 +2768,105 @@ def translate_config():
                 }
 
         def detect_source_device(config):
-            """Intelligently detect source device from config patterns"""
+            """Intelligently detect source device from config patterns (deterministic)."""
             device_info = {
                 'model': 'unknown',
                 'type': 'unknown',
                 'ports': [],
                 'management': 'ether1'
             }
-            
-            # Detect model from config - check more specific patterns first
-            # CCR2216: Has sfp28-1 through sfp28-12 (12 sfp28 ports), NO sfp-sfpplus ports
-            # CCR2004: Has sfp-sfpplus1-12, plus sfp28-1, sfp28-2 (only 2 sfp28 ports)
-            if 'CCR2216' in config or 'MT2216' in config or (config.count('sfp28-') > 3 and 'sfp28-3' in config and 'sfp-sfpplus' not in config):
+
+            text = config or ''
+
+            # Prefer explicit RouterOS export header model.
+            header_model = None
+            hm = re.search(r'(?m)^\s*#\s*model\s*=\s*(.+?)\s*$', text)
+            if hm:
+                header_model = hm.group(1).strip().strip('"').strip("'")
+
+            # Prefer identity-based detection (e.g., RTR-MT2004-..., RTR-MTCCR2216-...).
+            ident_digits = None
+            im = re.search(r'(?i)\bMT(?:CCR)?(\d{3,4})\b', text)
+            if im:
+                ident_digits = im.group(1)
+
+            # Resolve a canonical type/model if we can.
+            model_hint = (header_model or '')
+            digits_hint = None
+            dm = re.search(r'(?i)\b(?:CCR|RB)\s*(\d{3,4})\b', model_hint.replace('-', ' '))
+            if dm:
+                digits_hint = dm.group(1)
+            if not digits_hint:
+                digits_hint = ident_digits
+
+            if digits_hint == '2216' or ('CCR2216' in model_hint.upper()):
                 device_info['model'] = 'CCR2216-1G-12XS-2XQ'
                 device_info['type'] = 'ccr2216'
                 device_info['ports'] = ['ether1', 'sfp28-1', 'sfp28-2', 'sfp28-3', 'sfp28-4', 'sfp28-5', 'sfp28-6', 'sfp28-7', 'sfp28-8', 'sfp28-9', 'sfp28-10', 'sfp28-11', 'sfp28-12']
-            elif 'CCR1072' in config or ('sfp1' in config and 'sfp2' in config and 'sfp3' in config and 'sfp4' in config and 'sfp-sfpplus' not in config):
-                device_info['model'] = 'CCR1072-12G-4S+'
-                device_info['type'] = 'ccr1072'
-                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp1', 'sfp2', 'sfp3', 'sfp4']
-            elif 'CCR1036' in config:
-                device_info['model'] = 'CCR1036-12G-4S'
-                device_info['type'] = 'ccr1036'
-                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp1', 'sfp2', 'sfp3', 'sfp4']
-            elif 'CCR2004' in config or 'MT2004' in config or ('sfp-sfpplus' in config and 'sfp28-' not in config.replace('sfp28-1', '').replace('sfp28-2', '')):
-                # CCR2004 uses sfp-sfpplus1-12, and has sfp28-1, sfp28-2
-                # Check that we have sfp-sfpplus but NOT many sfp28 ports (CCR2216 has sfp28-1 through sfp28-12)
+                return device_info
+            if digits_hint == '2004' or ('CCR2004' in model_hint.upper()):
                 device_info['model'] = 'CCR2004-1G-12S+2XS'
                 device_info['type'] = 'ccr2004'
                 device_info['ports'] = ['ether1', 'sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4', 'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8', 'sfp-sfpplus9', 'sfp-sfpplus10', 'sfp-sfpplus11', 'sfp-sfpplus12', 'sfp28-1', 'sfp28-2']
-            elif 'CCR2116' in config:
+                return device_info
+            if digits_hint == '1072' or ('CCR1072' in model_hint.upper()):
+                device_info['model'] = 'CCR1072-12G-4S+'
+                device_info['type'] = 'ccr1072'
+                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp1', 'sfp2', 'sfp3', 'sfp4']
+                return device_info
+            if digits_hint == '1036' or ('CCR1036' in model_hint.upper()):
+                device_info['model'] = 'CCR1036-12G-4S'
+                device_info['type'] = 'ccr1036'
+                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp1', 'sfp2', 'sfp3', 'sfp4']
+                return device_info
+            if 'CCR2116' in model_hint.upper() or 'CCR2116' in text:
                 device_info['model'] = 'CCR2116-12G-4S+'
                 device_info['type'] = 'ccr2116'
                 device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4']
-            elif 'RB5009' in config:
+                return device_info
+            if 'RB5009' in model_hint.upper() or 'RB5009' in text:
                 device_info['model'] = 'RB5009UG+S+'
                 device_info['type'] = 'rb5009'
                 device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'sfp-sfpplus1']
-            elif 'RB2011' in config or 'MT2011' in config or ('ether10' in config and 'sfp1' in config and 'sfp2' not in config and 'sfp-sfpplus' not in config and 'sfp28-' not in config):
+                return device_info
+            if 'RB2011' in model_hint.upper() or 'RB2011' in text or 'MT2011' in text:
                 device_info['model'] = 'RB2011UiAS'
                 device_info['type'] = 'rb2011'
                 device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'sfp1']
-            
+                return device_info
+
+            # Fallback to interface-pattern heuristics.
+            # CCR2216: Has sfp28-1 through sfp28-12 (12 sfp28 ports), NO sfp-sfpplus ports
+            # CCR2004: Has sfp-sfpplus1-12, plus sfp28-1, sfp28-2 (only 2 sfp28 ports)
+            if 'CCR2216' in text or 'MT2216' in text or (text.count('sfp28-') > 3 and 'sfp28-3' in text and 'sfp-sfpplus' not in text):
+                device_info['model'] = 'CCR2216-1G-12XS-2XQ'
+                device_info['type'] = 'ccr2216'
+                device_info['ports'] = ['ether1', 'sfp28-1', 'sfp28-2', 'sfp28-3', 'sfp28-4', 'sfp28-5', 'sfp28-6', 'sfp28-7', 'sfp28-8', 'sfp28-9', 'sfp28-10', 'sfp28-11', 'sfp28-12']
+            elif 'CCR1072' in text or ('sfp1' in text and 'sfp2' in text and 'sfp3' in text and 'sfp4' in text and 'sfp-sfpplus' not in text):
+                device_info['model'] = 'CCR1072-12G-4S+'
+                device_info['type'] = 'ccr1072'
+                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp1', 'sfp2', 'sfp3', 'sfp4']
+            elif 'CCR1036' in text:
+                device_info['model'] = 'CCR1036-12G-4S'
+                device_info['type'] = 'ccr1036'
+                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp1', 'sfp2', 'sfp3', 'sfp4']
+            elif 'CCR2004' in text or 'MT2004' in text or ('sfp-sfpplus' in text and 'sfp28-' not in text.replace('sfp28-1', '').replace('sfp28-2', '')):
+                device_info['model'] = 'CCR2004-1G-12S+2XS'
+                device_info['type'] = 'ccr2004'
+                device_info['ports'] = ['ether1', 'sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4', 'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8', 'sfp-sfpplus9', 'sfp-sfpplus10', 'sfp-sfpplus11', 'sfp-sfpplus12', 'sfp28-1', 'sfp28-2']
+            elif 'CCR2116' in text:
+                device_info['model'] = 'CCR2116-12G-4S+'
+                device_info['type'] = 'ccr2116'
+                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4']
+            elif 'RB5009' in text:
+                device_info['model'] = 'RB5009UG+S+'
+                device_info['type'] = 'rb5009'
+                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'sfp-sfpplus1']
+            elif 'RB2011' in text or 'MT2011' in text or ('ether10' in text and 'sfp1' in text and 'sfp2' not in text and 'sfp-sfpplus' not in text and 'sfp28-' not in text):
+                device_info['model'] = 'RB2011UiAS'
+                device_info['type'] = 'rb2011'
+                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'sfp1']
+
             return device_info
         
         def get_target_device_info(target_device):
@@ -2866,6 +2985,8 @@ def translate_config():
                 'translated_config': translated,
                 'validation': validation,
                 'fast_mode': True,
+                'source_info': source_info,
+                'target_info': target_info,
                 'message': 'Config already compatible - no changes needed'
             })
         elif is_source_v7 and is_target_v7 and not same_exact_device:
@@ -4724,6 +4845,251 @@ Port Roles:
         source_device_info = detect_source_device(source_config)
         target_device_info = get_target_device_info(target_device)
         target_syntax_info = get_target_syntax(target_version)
+
+        def _extract_identity(cfg_text: str):
+            if not cfg_text:
+                return None
+            # Handles both compact and line-separated exports.
+            m = re.search(r'(?ms)^/system identity\s*\n\s*set\s+name=([^\n]+)\s*$', cfg_text)
+            if m:
+                return m.group(1).strip().strip('"').strip("'")
+            m = re.search(r'(?m)^\s*/system identity\s+set\s+name=([^\s]+)\s*$', cfg_text)
+            if m:
+                return m.group(1).strip().strip('"').strip("'")
+            return None
+
+        source_info = {
+            'model': source_device_info.get('model', 'unknown'),
+            'type': source_device_info.get('type', 'unknown'),
+            'identity': _extract_identity(source_config) or '',
+        }
+        target_info = {
+            'model': target_device_info.get('model', 'unknown'),
+            'type': target_device_info.get('type', target_device),
+            'routeros': target_version,
+        }
+
+        def _rewrite_identity_for_target(identity_name: str) -> str:
+            """Rewrite the extracted identity so it reflects the target device/model/digits.
+
+            This handles several common formats (quoted/unquoted, MT####, plain digits, model shortnames)
+            and performs word-boundary substitutions to avoid accidental partial matches.
+            """
+            name = (identity_name or '').strip()
+            target_model = (target_device_info.get('model') or '').strip()
+            src_model = (source_device_info.get('model') or '').strip()
+
+            tgt_digits = re.search(r'(\d{3,4})', target_model) if target_model else None
+            src_digits = re.search(r'(\d{3,4})', src_model) if src_model else None
+
+            # Replace explicit MT#### occurrences and standalone digit sequences where present.
+            if src_digits and tgt_digits:
+                name = re.sub(rf'(?i)\bMT{re.escape(src_digits.group(1))}\b', f"MT{tgt_digits.group(1)}", name)
+                name = re.sub(rf'(?i)\b{re.escape(src_digits.group(1))}\b', tgt_digits.group(1), name)
+
+            # Replace short model names (e.g., CCR2004 -> CCR2216)
+            old_model_short = (src_model.split('-')[0] if src_model else '').strip()
+            new_model_short = (target_model.split('-')[0] if target_model else '').strip()
+            if old_model_short and new_model_short and old_model_short.lower() != 'unknown' and new_model_short.lower() != 'unknown':
+                name = re.sub(rf'(?i)\b{re.escape(old_model_short)}\b', new_model_short, name)
+
+            # If the identity is digits-only (e.g., "2216") or contains a standalone 3-4 digit token
+            # and the target model includes digits, replace that token with the target digits.
+            if tgt_digits:
+                if re.fullmatch(r'\d{3,4}', name):
+                    name = tgt_digits.group(1)
+                elif (not src_digits) and re.search(r'(?<!\d)\d{3,4}(?!\d)', name):
+                    name = re.sub(r'(?<!\d)\d{3,4}(?!\d)', tgt_digits.group(1), name, count=1)
+
+            return name
+
+        def _enforce_management_port_policy(cfg_text: str) -> str:
+            """
+            NextLink policy: ether1 is MANAGEMENT only.
+
+            If a migration results in ether1 being used as a routed uplink/backhaul (IP/OSPF/mangle),
+            remap those non-management references to a deterministic SFP port on the target device and
+            keep ether1 labeled as Management.
+            """
+            text = cfg_text or ''
+            mgmt = (target_device_info.get('management') or 'ether1').strip() or 'ether1'
+            if mgmt.lower() != 'ether1':
+                return text
+
+            target_ports = target_device_info.get('ports') or []
+            candidates = [p for p in target_ports if p != mgmt]
+            if not candidates:
+                return text
+
+            # Collect used interface references to pick an unused destination port.
+            used = set()
+            for m in re.finditer(r'(?i)(?:^|\s)(?:interface|interfaces|in-interface|out-interface)=([A-Za-z0-9._-]+)', text):
+                used.add(m.group(1))
+
+            def _looks_mgmt_comment(c: str) -> bool:
+                c = (c or '').lower()
+                return ('mgmt' in c) or ('management' in c)
+
+            def _ip_in_192168(ip: str) -> bool:
+                try:
+                    return ipaddress.ip_address(ip) in ipaddress.ip_network('192.168.0.0/16')
+                except Exception:
+                    return False
+
+            # Detect non-mgmt usage on ether1.
+            non_mgmt_ip_on_ether1 = False
+            ether1_comment = None
+            for line in text.splitlines():
+                if re.search(r'\bdefault-name=ether1\b', line) and 'comment=' in line:
+                    cm = re.search(r'\bcomment=([^\s]+|"[^"]*")', line)
+                    if cm:
+                        ether1_comment = cm.group(1).strip().strip('"')
+                if re.search(r'(?i)\binterface=ether1\b', line) and line.lstrip().startswith('add') and 'address=' in line:
+                    ipm = re.search(r'\baddress=([0-9.]+)', line)
+                    cm = re.search(r'\bcomment=([^\s]+|"[^"]*")', line)
+                    cmt = (cm.group(1).strip().strip('"') if cm else '')
+                    if ipm:
+                        ip = ipm.group(1)
+                        if not _ip_in_192168(ip) and not _looks_mgmt_comment(cmt):
+                            non_mgmt_ip_on_ether1 = True
+                if re.search(r'(?i)\binterfaces=ether1\b', line):
+                    non_mgmt_ip_on_ether1 = True
+                if re.search(r'(?i)\b(out-interface|in-interface)=ether1\b', line):
+                    non_mgmt_ip_on_ether1 = True
+                # Any other ether1 attachment (bridge ports, DHCP server interface, etc.) is not management.
+                if re.search(r'(?i)\binterface=ether1\b', line) and 'address=' not in line and 'default-name=ether1' not in line:
+                    if 'source=' not in line:
+                        non_mgmt_ip_on_ether1 = True
+
+            if not non_mgmt_ip_on_ether1:
+                return text
+
+            dest = next((p for p in candidates if p not in used), candidates[0])
+
+            # Two-pass update for /interface ethernet lines so we can copy comments and un-disable dest.
+            lines = text.splitlines()
+            in_eth = False
+            saw_dest_set = False
+
+            def _strip_disabled_yes(s: str) -> str:
+                return re.sub(r'\s+disabled\s*=\s*yes\b', '', s, flags=re.IGNORECASE)
+
+            out = []
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith('/'):
+                    in_eth = (stripped == '/interface ethernet')
+                    out.append(line)
+                    continue
+
+                if in_eth and re.search(r'\bdefault-name=ether1\b', line):
+                    # Ensure ether1 is labeled as Management.
+                    if 'comment=' in line and not _looks_mgmt_comment(ether1_comment or ''):
+                        line = re.sub(r'\bcomment=([^\s]+|"[^"]*")', 'comment="Management"', line)
+                    elif 'comment=' not in line:
+                        line = line.rstrip() + ' comment="Management"'
+                    out.append(line)
+                    continue
+
+                if in_eth and re.search(rf'\bdefault-name={re.escape(dest)}\b', line):
+                    saw_dest_set = True
+                    line = _strip_disabled_yes(line)
+                    if ether1_comment and not _looks_mgmt_comment(ether1_comment):
+                        if 'comment=' in line:
+                            # Append without destroying existing comment.
+                            m = re.search(r'\bcomment=("([^"]*)"|[^\s]+)', line)
+                            if m:
+                                existing = m.group(1).strip().strip('"')
+                                combined = f"{existing} | {ether1_comment}"
+                                line = re.sub(r'\bcomment=("([^"]*)"|[^\s]+)', f'comment="{combined}"', line)
+                        else:
+                            line = line.rstrip() + f' comment="{ether1_comment}"'
+                    out.append(line)
+                    continue
+
+                out.append(line)
+
+            # If dest has no explicit set line, add a minimal one under /interface ethernet.
+            if not saw_dest_set:
+                updated = []
+                inserted = False
+                for i, line in enumerate(out):
+                    updated.append(line)
+                    if line.strip() == '/interface ethernet':
+                        continue
+                    if not inserted and (i + 1 < len(out)) and out[i].strip().startswith('set') and out[i + 1].strip().startswith('/'):
+                        # Insert before leaving the ethernet section.
+                        cmt = ether1_comment if (ether1_comment and not _looks_mgmt_comment(ether1_comment)) else 'Uplink'
+                        updated.append(f'set [ find default-name={dest} ] comment="{cmt}"')
+                        updated.append(f'set [ find default-name={dest} ] disabled=no')
+                        inserted = True
+                out = updated
+
+            # Now rewrite non-management references from ether1 -> dest.
+            rewritten = []
+            for line in out:
+                s = line
+                # Never rewrite inside script source payloads.
+                if 'source=' in s:
+                    rewritten.append(s)
+                    continue
+                if re.search(r'(?i)\binterfaces=ether1\b', s):
+                    s = re.sub(r'(?i)\binterfaces=ether1\b', f'interfaces={dest}', s)
+                if re.search(r'(?i)\binterface=ether1\b', s) and s.lstrip().startswith('add') and 'address=' in s:
+                    ipm = re.search(r'\baddress=([0-9.]+)', s)
+                    cm = re.search(r'\bcomment=([^\s]+|"[^"]*")', s)
+                    cmt = (cm.group(1).strip().strip('"') if cm else '')
+                    ip = ipm.group(1) if ipm else ''
+                    if ip and (not _ip_in_192168(ip)) and (not _looks_mgmt_comment(cmt)):
+                        s = re.sub(r'(?i)\binterface=ether1\b', f'interface={dest}', s)
+                # For all other lines, any `interface=ether1` is non-management and must move.
+                elif re.search(r'(?i)\binterface=ether1\b', s) and 'default-name=ether1' not in s:
+                    s = re.sub(r'(?i)\binterface=ether1\b', f'interface={dest}', s)
+                if re.search(r'(?i)\b(out-interface|in-interface)=ether1\b', s):
+                    s = re.sub(r'(?i)\bout-interface=ether1\b', f'out-interface={dest}', s)
+                    s = re.sub(r'(?i)\bin-interface=ether1\b', f'in-interface={dest}', s)
+                rewritten.append(s)
+
+            return "\n".join(rewritten)
+
+        def _postprocess_translated(cfg_text: str) -> str:
+            t = cfg_text or ''
+
+            # Normalize RouterOS header version and model to the target.
+            t = re.sub(r'(?m)^(#.*by RouterOS )\d+(?:\.\d+)+', rf'\g<1>{target_version}', t)
+            t = re.sub(r'(?m)^(#.*RouterOS )\d+(?:\.\d+)+', rf'\g<1>{target_version}', t)
+
+            target_model_full = target_device_info.get('model', 'unknown')
+            if target_model_full and target_model_full != 'unknown':
+                t = re.sub(r'(?m)^#\s*model\s*=.*$', f"# model ={target_model_full}", t)
+
+            # Rewrite identity to match target device family (e.g., MT1036 -> MT2004).
+            def _format_identity_for_set(name: str) -> str:
+                s = (name or '').strip()
+                # Use double quotes if name contains spaces or unusual characters.
+                if re.search(r'[^A-Za-z0-9._-]', s):
+                    # Replace any double quotes to avoid malformed output
+                    s = s.replace('"', "'")
+                    return f'"{s}"'
+                return s
+
+            # If a /system identity block exists, replace the set name line robustly.
+            if re.search(r'(?m)^\s*/system identity\b', t):
+                def _replace_set_name(m):
+                    current = m.group('name').strip().strip('"').strip("'")
+                    newname = _rewrite_identity_for_target(current)
+                    return m.group('prefix') + _format_identity_for_set(newname)
+
+                t = re.sub(r'(?m)^(?P<prefix>\s*/system identity\s*\n\s*set\s+name=)(?P<name>[^\n]+)', _replace_set_name, t)
+            else:
+                base = _extract_identity(source_config) or f"RTR-{(target_device_info.get('type') or target_device).upper()}-UNKNOWN"
+                t = t.rstrip() + "\n\n/system identity\nset name=" + _format_identity_for_set(_rewrite_identity_for_target(base)) + "\n"
+
+            t = _enforce_management_port_policy(t)
+
+            # Deterministic formatting + cleanup
+            t = format_config_spacing(t)
+            return t
         
         print(f"[DETECTED] Source: {source_syntax_info['version']} on {source_device_info['model']}")
         print(f"[TARGET] Converting to: {target_version} on {target_device_info['model']}")
@@ -4744,6 +5110,7 @@ Port Roles:
                 target_version,
                 strict_preserve=True,
             )
+            translated = _postprocess_translated(translated)
             validation = validate_translation(source_config, translated)
             return jsonify({
                 'success': True,
@@ -4751,6 +5118,8 @@ Port Roles:
                 'validation': validation,
                 'bypass_ai': True,
                 'strict_preserve': True,
+                'source_info': source_info,
+                'target_info': target_info,
                 'message': 'Strict-preserve mode: deterministic syntax/interface mapping only (no AI)'
             })
 
@@ -4772,12 +5141,15 @@ Port Roles:
                 target_version,
                 strict_preserve=strict_preserve,
             )
+            translated = _postprocess_translated(translated)
             validation = validate_translation(source_config, translated)
             return jsonify({
                 'success': True,
                 'translated_config': translated,
                 'validation': validation,
                 'bypass_ai': True,
+                'source_info': source_info,
+                'target_info': target_info,
                 'message': f'Large config ({config_size} lines, {config_size_mb:.2f}MB) - used intelligent translation for speed'
             })
         
@@ -4794,6 +5166,7 @@ Port Roles:
                 target_version,
                 strict_preserve=strict_preserve,
             )
+            translated_fast = _postprocess_translated(translated_fast)
             validation_fast = validate_translation(source_config, translated_fast)
             return jsonify({
                 'success': True,
@@ -5387,13 +5760,15 @@ Output (copy every line, update device model to {target_device.upper()}, preserv
 
             return t
 
-        translated = finalize_metadata(translated)
+        translated = _postprocess_translated(finalize_metadata(translated))
 
         return jsonify({
             'success': True,
             'translated_config': translated,
             'validation': validation,
-            'compliance': compliance_validation
+            'compliance': compliance_validation,
+            'source_info': source_info,
+            'target_info': target_info,
         })
 
     except Exception as e:
@@ -6209,6 +6584,107 @@ def validate_tarana_config(config_text, device, routeros_version):
     
     is_valid = len(errors) == 0
     return is_valid, errors, warnings
+
+@app.route('/api/gen-ftth-bng', methods=['POST'])
+def gen_ftth_bng():
+    """Generate a minimal FTTH BNG config (instate/out-of-state variations).
+
+    Expects JSON:
+      - device (e.g., CCR2004)
+      - target_version
+      - loopback_ip (32)
+      - cpe_cidr (/22)
+      - cgnat_cidr (/22)
+      - olt_cidr (/29)
+      - olt_port (interface name)
+      - identity
+    """
+    try:
+        data = request.get_json(force=True)
+        # FTTH generator is fixed to CCR2216 devices by policy
+        device = 'CCR2216'
+        target_version = data.get('target_version', '7.19.4')
+        loopback_ip = data.get('loopback_ip')
+        cpe_cidr = data.get('cpe_cidr')
+        cgnat_cidr = data.get('cgnat_cidr')
+        olt_cidr = data.get('olt_cidr')
+        olt_port = data.get('olt_port', 'sfp-sfpplus1')
+        olt_port_speed = data.get('olt_port_speed') or 'auto'
+        identity = data.get('identity', f"RTR-{device}.FTTH")
+
+        if not (loopback_ip and cpe_cidr and cgnat_cidr and olt_cidr):
+            return jsonify({'success': False, 'error': 'Missing required CIDR parameters (loopback_ip, cpe_cidr, cgnat_cidr, olt_cidr)'}), 400
+
+        # Use helper to derive network/router first/last hosts
+        try:
+            olt_info = _cidr_details_gen(olt_cidr)
+            cpe_info = _cidr_details_gen(cpe_cidr)
+            cgnat_info = _cidr_details_gen(cgnat_cidr)
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Invalid CIDR provided: {e}'}), 400
+
+        blocks = []
+        # System identity
+        blocks.append(f"/system identity\nset name={identity}\n")
+        # Basic interfaces
+        # Mark the OLT interface and record selected speed in the comment for visibility
+        speed_part = f" speed={olt_port_speed}" if olt_port_speed and olt_port_speed != 'auto' else ''
+        blocks.append(f"/interface ethernet\nset [ find default-name={olt_port} ] comment=\"OLT-speed:{olt_port_speed}\"{speed_part}\n")
+        blocks.append("/interface bridge\nadd name=bridge3000\nadd name=public-bridge\n")
+        blocks.append(f"/interface bridge port\nadd bridge=bridge3000 interface={olt_port}\n")
+        # IP addresses
+        loopback_clean = loopback_ip.replace('/32', '').strip()
+        blocks.append(f"/ip address\nadd address={loopback_clean} comment=loop0 interface=loop0 network={loopback_clean}\n")
+        blocks.append(f"add address={olt_info['router_ip']}/{olt_info['prefix']} comment=OLT-GW interface={olt_port} network={olt_info['network']}\n")
+        blocks.append(f"add address={cgnat_info['first_host']}/{cgnat_info['prefix']} comment=CGNAT interface=public-bridge network={cgnat_info['network']}\n")
+        # Minimal NAT rule: NAT CPE pool out via OLT
+        blocks.append("/ip firewall nat\nadd chain=srcnat src-address=" + cpe_info['network'] + "/" + str(cpe_info['prefix']) + " out-interface=" + olt_port + " action=masquerade comment=FTTH-CPE-NAT\n")
+        # Minimal DHCP pool for CPE
+        blocks.append("/ip pool\nadd name=cpe_pool ranges=" + cpe_info['first_host'] + "-" + cpe_info['last_host'] + "\n")
+        # Output config
+        config_text = "\n".join(blocks)
+        return jsonify({'success': True, 'config': config_text, 'device': device, 'version': target_version})
+    except Exception as exc:
+        print(f"[FTTH BNG] Error generating ftth bng: {exc}")
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@app.route('/api/preview-ftth-bng', methods=['POST','OPTIONS'])
+def preview_ftth_bng():
+    """Return parsed FTTH CIDR details for previewing in the UI."""
+    try:
+        # Respond to preflight / OPTIONS gracefully
+        if request.method == 'OPTIONS':
+            return jsonify({'success': True}), 200
+        data = request.get_json(force=True)
+        loopback_ip = data.get('loopback_ip')
+        cpe_cidr = data.get('cpe_cidr')
+        cgnat_cidr = data.get('cgnat_cidr')
+        olt_cidr = data.get('olt_cidr')
+
+        if not (loopback_ip and cpe_cidr and cgnat_cidr and olt_cidr):
+            return jsonify({'success': False, 'error': 'Missing one of required CIDR params (loopback_ip, cpe_cidr, cgnat_cidr, olt_cidr)'}), 400
+
+        try:
+            olt_info = _cidr_details_gen(olt_cidr)
+            cpe_info = _cidr_details_gen(cpe_cidr)
+            cgnat_info = _cidr_details_gen(cgnat_cidr)
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Invalid CIDR provided: {e}'}), 400
+
+        preview = {
+            'loopback': loopback_ip,
+            'olt': olt_info,
+            'cpe': cpe_info,
+            'cgnat': cgnat_info,
+            'suggested_nat_comment': 'FTTH-CPE-NAT',
+            'note': 'Preview only - use Generate to produce full configuration'
+        }
+        return jsonify({'success': True, 'preview': preview})
+    except Exception as exc:
+        print(f"[FTTH BNG] Preview error: {exc}")
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
 
 @app.route('/api/gen-tarana-config', methods=['POST'])
 def gen_tarana_config():
@@ -7349,7 +7825,21 @@ def app_config():
         'IN': os.getenv('BNG_PEER_IN', '10.254.247.3'),
     }
     default_bng_peer = os.getenv('BNG_PEER_DEFAULT', '10.254.247.3')
-    return jsonify({'bng_peers': bng_peers, 'default_bng_peer': default_bng_peer})
+    ftth_template_hash = None
+    ftth_template_mtime = None
+    try:
+        template_bytes = TEMPLATE_PATH.read_bytes()
+        ftth_template_hash = hashlib.sha256(template_bytes).hexdigest()[:12]
+        ftth_template_mtime = int(TEMPLATE_PATH.stat().st_mtime)
+    except Exception:
+        pass
+
+    return jsonify({
+        'bng_peers': bng_peers,
+        'default_bng_peer': default_bng_peer,
+        'ftth_template_hash': ftth_template_hash,
+        'ftth_template_mtime': ftth_template_mtime
+    })
 
 @app.route('/api/feedback', methods=['POST'])
 def submit_feedback():
@@ -9188,6 +9678,48 @@ def get_activity():
     except Exception as e:
         print(f"[ERROR] Failed to get activities: {e}")
         return jsonify({'success': False, 'error': str(e), 'activities': []}), 500
+
+
+@app.route('/api/generate-ftth-bng', methods=['POST', 'OPTIONS'])
+def generate_ftth_bng():
+    """
+    Generate complete FTTH BNG configuration for MikroTik CCR2216
+    Supports both In-State (with MPLS/LDP) and Out-of-State deployments
+    """
+    if request.method == 'OPTIONS':
+        return jsonify({'success': True}), 200
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'}), 400
+
+        print(f"[FTTH BNG] Received configuration request: {data.get('deployment_type', 'unknown')}")
+
+        config = render_ftth_config(data)
+        lines = config.count("\n") + 1
+
+        return jsonify({
+            'success': True,
+            'config': config,
+            'metadata': {
+                'deployment_type': data.get('deployment_type', 'instate'),
+                'router_identity': data.get('router_identity', ''),
+                'lines': lines
+            }
+        }), 200
+        
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"[ERROR] FTTH BNG generation failed: {e}")
+        print(error_details)
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'details': error_details
+        }), 500
+
+
 
 
 UI_DIR = Path(__file__).parent
