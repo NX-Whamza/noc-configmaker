@@ -23,11 +23,13 @@ set [ find default-name=sfp28-12 ] auto-negotiation=no comment=exfo speed=10G-ba
 add disabled=yes interface={{UPLINK_PRIMARY_PORT}} mtu={{UPLINK_PRIMARY_MTU}} name=vlan1017 vlan-id=1017
 /interface bonding
 add mode=802.3ad name=bonding3000-{{OLT1_TAG}} slaves=sfp28-3,sfp28-4,sfp28-5,sfp28-6 transmit-hash-policy=layer-2-and-3
+{{OLT2_BONDING_LINE}}
 /interface vlan
 add interface=bonding3000-{{OLT1_TAG}} name=vlan1000-{{OLT1_TAG}} vlan-id=1000
 add interface=bonding3000-{{OLT1_TAG}} name=vlan2000-{{OLT1_TAG}} vlan-id=2000
 add interface=bonding3000-{{OLT1_TAG}} name=vlan3000-{{OLT1_TAG}} vlan-id=3000
 add interface=bonding3000-{{OLT1_TAG}} name=vlan4000-{{OLT1_TAG}} vlan-id=4000
+{{OLT2_VLAN_LINES}}
 /ip dhcp-server option
 add code=43 name=opt43 value=0x011768747470733a2f2f7573732e6e786c696e6b2e636f6d2f
 /ip dhcp-server option sets
@@ -38,8 +40,10 @@ add name=cpe ranges={{CPE_POOL_START}}-{{CPE_POOL_END}}
 add name=unauth ranges={{UNAUTH_POOL_START}}-{{UNAUTH_POOL_END}}
 /port
 set 0 name=serial0
+/routing bgp instance
+{{BGP_INSTANCE_LINE}}
 /routing bgp template
-set default as=26077 disabled=no output.network=bgp-networks router-id={{ROUTER_ID}}
+{{BGP_TEMPLATE_LINE}}
 /routing ospf instance
 add disabled=no name=default-v2 router-id={{ROUTER_ID}}
 /routing ospf area
@@ -58,6 +62,7 @@ add bridge=bridge2000 interface=vlan2000-{{OLT1_TAG}}
 add bridge=bridge3000 interface=vlan3000-{{OLT1_TAG}}
 add bridge=bridge4000 ingress-filtering=no interface=vlan4000-{{OLT1_TAG}} internal-path-cost=10 path-cost=10
 add bridge=lan-bridge interface=ether1
+{{OLT2_BRIDGE_PORTS}}
 /ip neighbor discovery-settings
 set discover-interface-list=!dynamic
 /ip address
@@ -67,6 +72,7 @@ add address={{UNAUTH_GATEWAY}}/{{UNAUTH_PREFIX}} comment=UNAUTH interface=lan-br
 add address={{CGNAT_GATEWAY}}/{{CGNAT_PREFIX}} comment="CGNAT Private" interface=bridge1000 network={{CGNAT_NETWORK_BASE}}
 add address={{OLT1_IP}}/{{OLT1_PREFIX}} comment={{OLT1_NAME}} interface=bridge3000 network={{OLT1_NETWORK_BASE}}
 add address={{CGNAT_PUBLIC}} comment="CGNAT Public" interface=nat-public-bridge network={{CGNAT_PUBLIC}}
+{{OLT2_IP_LINE}}
 {{UPLINK_IP_LINES}}
 /ip dhcp-server
 add address-pool=cust dhcp-option-set=optset interface=bridge1000 lease-time=10m name=server1 use-radius=yes
@@ -205,12 +211,12 @@ add disabled=no lsr-id={{ROUTER_ID}} transport-addresses={{ROUTER_ID}}
 add address=142.147.112.2 secret=Nl22021234 service=dhcp src-address={{ROUTER_ID}} timeout=5s
 add address=142.147.112.18 secret=Nl22021234 service=dhcp src-address={{ROUTER_ID}} timeout=5s
 /routing bgp connection
-add as=26077 cisco-vpls-nlri-len-fmt=auto-bits connect=yes disabled=no listen=yes local.address={{ROUTER_ID}} local.role=ibgp multihop=yes name=CR7 output.network=bgp-networks remote.address=10.2.0.107/32 remote.as=26077 remote.port=179 router-id={{ROUTER_ID}} routing-table=main tcp-md5-key=m8M5JwvdYM templates=default
-add as=26077 cisco-vpls-nlri-len-fmt=auto-bits connect=yes disabled=no listen=yes local.address={{ROUTER_ID}} local.role=ibgp multihop=yes name=CR8 output.network=bgp-networks remote.address=10.2.0.108/32 remote.as=26077 remote.port=179 router-id={{ROUTER_ID}} routing-table=main tcp-md5-key=m8M5JwvdYM templates=default
+{{BGP_CONNECTION_LINES}}
 /routing ospf interface-template
 add area=backbone-v2 comment=loop0 cost=10 disabled=no interfaces=loop0 networks={{LOOPBACK_IP}}/32 passive priority=1
 add area=backbone-v2 comment="CPE/Tower Gear" cost=10 disabled=no interfaces=lan-bridge networks={{CPE_NETWORK_BASE}}/{{CPE_PREFIX}} priority=1
 add area=backbone-v2 comment={{OLT1_NAME}} cost=10 disabled=no interfaces=bridge3000 networks={{OLT1_NETWORK_BASE}}/{{OLT1_PREFIX}} priority=1
+{{OLT2_OSPF_LINE}}
 {{UPLINK_OSPF_LINES}}
 /snmp
 set contact=noc@team.nxlink.com enabled=yes location={{LOCATION}} src-address={{ROUTER_ID}} trap-community=*1

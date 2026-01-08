@@ -127,6 +127,9 @@ def main() -> int:
     _assert("sfp-sfpplus3" in translated, "Translated config did not map sfp28-3 -> sfp-sfpplus3")
     model = re.search(r"(?m)^#\s*model\s*=(.*)$", translated)
     _assert(model and "CCR2004" in model.group(1), "Translated config header model not updated to CCR2004")
+    # Identity should be rewritten to avoid retaining source device digits (e.g., MT2216 -> MT2004)
+    id_block = re.search(r'(?m)^\s*/system identity\s*\n\s*set\s+name=([^\n]+)', translated)
+    _assert(id_block and ("MT2216" not in id_block.group(1)) and ("CCR2004" in id_block.group(1) or "2004" in id_block.group(1)), "Identity not updated to target model/digits")
 
     # Translate (strict): CCR2004 -> CCR2216 must preserve critical sections and map embedded VLAN names.
     export = (
@@ -199,6 +202,9 @@ def main() -> int:
     _assert("/radius" in translated and "RADIUS_SECRET" in translated, "Strict translate lost /radius section")
     _assert("/system scheduler" in translated and "name=nightly" in translated, "Strict translate lost scheduler")
     _assert("/system script" in translated and "name=backup" in translated, "Strict translate lost scripts")
+    # Identity should be rewritten to reflect target model/digits (MT2004 -> MT2216)
+    id_block = re.search(r'(?m)^\s*/system identity\s*\n\s*set\s+name=([^\n]+)', translated)
+    _assert(id_block and ("MT2216" in id_block.group(1) or "CCR2216" in id_block.group(1)), "Identity was not updated to target model/digits")
 
     print("[OK] Smoke tests passed")
     return 0

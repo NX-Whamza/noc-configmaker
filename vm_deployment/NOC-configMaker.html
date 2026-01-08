@@ -4923,8 +4923,7 @@
                         <label for="ftth_routeros_in">RouterOS Version:</label>
                         <select id="ftth_routeros_in">
                             <option value="7.19.4" selected>7.19.4 (Minimum)</option>
-                            <option value="7.20.3">7.20.3</option>
-                            <option value="7.21.2">7.21.2</option>
+                            <option value="7.20.2">7.20.2</option>
                         </select>
                     </div>
                     <div style="margin-top: 10px;">
@@ -4945,7 +4944,8 @@
                             <li>CGNAT Private: /22 (e.g., 100.80.108.0/22)</li>
                             <li>CGNAT Public: /32 (e.g., 52.128.63.173/32)</li>
                             <li>UNAUTH Network: /22 (e.g., 10.130.100.0/22)</li>
-                            <li>OLT Network: /29 (e.g., 10.246.46.88/29)</li>
+                            <li>OLT Network 1: /29 (e.g., 10.246.46.88/29)</li>
+                            <li>OLT Network 2: /29 (Optional, e.g., 10.25.251.24/29)</li>
                         </ul>
                     </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
@@ -4970,12 +4970,22 @@
                             <input type="text" id="ftth_unauth_in" placeholder="10.130.100.0/22">
                         </div>
                         <div>
-                            <label for="ftth_olt_network_in">OLT Network (/29):</label>
+                            <label for="ftth_olt_network_in">OLT Network 1 (/29):</label>
                             <input type="text" id="ftth_olt_network_in" placeholder="10.246.46.88/29">
                         </div>
                         <div>
-                            <label for="ftth_olt_name_in">OLT Name:</label>
-                            <input type="text" id="ftth_olt_name_in" placeholder="OLT-NOMF2-1.TX-SITENAME-EA-FC-1">
+                            <label for="ftth_olt_network2_in">OLT Network 2 (/29, Optional):</label>
+                            <input type="text" id="ftth_olt_network2_in" placeholder="10.25.251.24/29">
+                        </div>
+                        <div>
+                            <label for="ftth_olt_lag1_in">OLT LAG Name 1 (Suffix):</label>
+                            <input type="text" id="ftth_olt_lag1_in" placeholder="TX-LAB-MF2-23"
+                                oninput="updateFtthOltLagName('in', 1)">
+                        </div>
+                        <div>
+                            <label for="ftth_olt_lag2_in">OLT LAG Name 2 (Suffix, Optional):</label>
+                            <input type="text" id="ftth_olt_lag2_in" placeholder="TX-LAB-MF2-23"
+                                oninput="updateFtthOltLagName('in', 2)">
                         </div>
                     </div>
                 </div>
@@ -4993,6 +5003,14 @@
                                 <select class="ftth-uplink-port">
                                     <option value="sfp28-1">sfp28-1</option>
                                     <option value="sfp28-2">sfp28-2</option>
+                                    <option value="sfp28-3">sfp28-3</option>
+                                    <option value="sfp28-4">sfp28-4</option>
+                                    <option value="sfp28-5">sfp28-5</option>
+                                    <option value="sfp28-6">sfp28-6</option>
+                                    <option value="sfp28-7">sfp28-7</option>
+                                    <option value="sfp28-8">sfp28-8</option>
+                                    <option value="sfp28-9">sfp28-9</option>
+                                    <option value="sfp28-10">sfp28-10</option>
                                     <option value="sfp28-11">sfp28-11</option>
                                     <option value="sfp28-12">sfp28-12</option>
                                 </select>
@@ -5050,17 +5068,20 @@
                 </div>
 
                 <div class="section">
-                    <h2>OLT Port Configuration</h2>
+                    <h2>OLT LAG PORTS CONFIGURATION</h2>
                     <p style="margin-bottom: 15px; color: var(--text-color-secondary);">
-                        Configure the 4-port bonding for OLT uplink. Click "Add OLT Ports" to automatically configure
-                        sfp28-3,4,5,6.
+                        Configure LAG ports for each OLT. Use LAG 1 for sfp28-3,4,5,6. LAG 2 is optional for sfp28-7,8,9,10.
                     </p>
                     <div id="ftth_olt_ports_in" style="margin-bottom: 15px;">
                         <!-- OLT ports will be added here dynamically -->
                     </div>
-                    <button type="button" onclick="addFtthOltPorts('in')"
+                    <button type="button" onclick="addFtthOltPorts('in', 1)"
                         style="background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">
-                        Add OLT Ports
+                        Add OLT LAG 1 Ports
+                    </button>
+                    <button type="button" onclick="addFtthOltPorts('in', 2)"
+                        style="background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">
+                        Add OLT LAG 2 Ports
                     </button>
                     <button type="button" onclick="clearFtthOltPorts('in')"
                         style="background: #dc3545; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">
@@ -5090,8 +5111,7 @@
                         <label for="ftth_routeros_out">RouterOS Version:</label>
                         <select id="ftth_routeros_out">
                             <option value="7.19.4" selected>7.19.4 (Minimum)</option>
-                            <option value="7.20.3">7.20.3</option>
-                            <option value="7.21.2">7.21.2</option>
+                            <option value="7.20.2">7.20.2</option>
                         </select>
                     </div>
                     <div style="margin-top: 10px;">
@@ -5112,7 +5132,8 @@
                             <li>CGNAT Private: /22 (e.g., 100.80.108.0/22)</li>
                             <li>CGNAT Public: /32 (e.g., 52.128.63.173/32)</li>
                             <li>UNAUTH Network: /22 (e.g., 10.130.100.0/22)</li>
-                            <li>OLT Network: /29 (e.g., 10.246.46.88/29)</li>
+                            <li>OLT Network 1: /29 (e.g., 10.246.46.88/29)</li>
+                            <li>OLT Network 2: /29 (Optional, e.g., 10.25.251.24/29)</li>
                         </ul>
                     </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
@@ -5137,12 +5158,22 @@
                             <input type="text" id="ftth_unauth_out" placeholder="10.130.100.0/22">
                         </div>
                         <div>
-                            <label for="ftth_olt_network_out">OLT Network (/29):</label>
+                            <label for="ftth_olt_network_out">OLT Network 1 (/29):</label>
                             <input type="text" id="ftth_olt_network_out" placeholder="10.246.46.88/29">
                         </div>
                         <div>
-                            <label for="ftth_olt_name_out">OLT Name:</label>
-                            <input type="text" id="ftth_olt_name_out" placeholder="OLT-NOMF2-1.TX-SITENAME-EA-FC-1">
+                            <label for="ftth_olt_network2_out">OLT Network 2 (/29, Optional):</label>
+                            <input type="text" id="ftth_olt_network2_out" placeholder="10.25.251.24/29">
+                        </div>
+                        <div>
+                            <label for="ftth_olt_lag1_out">OLT LAG Name 1 (Suffix):</label>
+                            <input type="text" id="ftth_olt_lag1_out" placeholder="TX-LAB-MF2-23"
+                                oninput="updateFtthOltLagName('out', 1)">
+                        </div>
+                        <div>
+                            <label for="ftth_olt_lag2_out">OLT LAG Name 2 (Suffix, Optional):</label>
+                            <input type="text" id="ftth_olt_lag2_out" placeholder="TX-LAB-MF2-23"
+                                oninput="updateFtthOltLagName('out', 2)">
                         </div>
                     </div>
                 </div>
@@ -5160,6 +5191,14 @@
                                 <select class="ftth-uplink-port">
                                     <option value="sfp28-1">sfp28-1</option>
                                     <option value="sfp28-2">sfp28-2</option>
+                                    <option value="sfp28-3">sfp28-3</option>
+                                    <option value="sfp28-4">sfp28-4</option>
+                                    <option value="sfp28-5">sfp28-5</option>
+                                    <option value="sfp28-6">sfp28-6</option>
+                                    <option value="sfp28-7">sfp28-7</option>
+                                    <option value="sfp28-8">sfp28-8</option>
+                                    <option value="sfp28-9">sfp28-9</option>
+                                    <option value="sfp28-10">sfp28-10</option>
                                     <option value="sfp28-11">sfp28-11</option>
                                     <option value="sfp28-12">sfp28-12</option>
                                 </select>
@@ -5216,17 +5255,20 @@
                     </button>
                 </div>
                 <div class="section">
-                    <h2>OLT Port Configuration</h2>
+                    <h2>OLT LAG PORTS CONFIGURATION</h2>
                     <p style="margin-bottom: 15px; color: var(--text-color-secondary);">
-                        Configure the 4-port bonding for OLT uplink. Click "Add OLT Ports" to automatically configure
-                        sfp28-3,4,5,6.
+                        Configure LAG ports for each OLT. Use LAG 1 for sfp28-3,4,5,6. LAG 2 is optional for sfp28-7,8,9,10.
                     </p>
                     <div id="ftth_olt_ports_out" style="margin-bottom: 15px;">
                         <!-- OLT ports will be added here dynamically -->
                     </div>
-                    <button type="button" onclick="addFtthOltPorts('out')"
+                    <button type="button" onclick="addFtthOltPorts('out', 1)"
                         style="background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">
-                        Add OLT Ports
+                        Add OLT LAG 1 Ports
+                    </button>
+                    <button type="button" onclick="addFtthOltPorts('out', 2)"
+                        style="background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">
+                        Add OLT LAG 2 Ports
                     </button>
                     <button type="button" onclick="clearFtthOltPorts('out')"
                         style="background: #dc3545; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">
@@ -5386,6 +5428,23 @@
                              VPLS tunnels for customers<br>
                              RouterOS v6/v7 compatibility<br>
                              Standardized security policies
+                        </div>
+                    </div>
+
+                    <!-- FTTH BNG Policy -->
+                    <div style="background: #e3f2fd; border: 2px solid #2196F3; border-radius: 8px; padding: 15px;">
+                        <h3 style="color: #1565C0; margin-bottom: 10px; margin-top: 0;"> FTTH BNG Policy</h3>
+                        <div style="font-size: 14px;">
+                            <strong>Port Assignments:</strong><br>
+                             ether1 = Management (ALWAYS)<br>
+                             sfp28-1 = Core uplink (routed/OSPF)<br>
+                             sfp28-3/4/5/6 = OLT LAG 1<br>
+                             sfp28-7/8/9/10 = OLT LAG 2 (optional)<br><br>
+                            <strong>Features:</strong><br>
+                             LAG-based OLT uplinks and VLAN bridges<br>
+                             DHCP pools for CPE/UNAUTH/CGNAT<br>
+                             BGP/OSPF/MPLS baseline templates<br>
+                             Standardized firewall and logging
                         </div>
                     </div>
 
@@ -20195,10 +20254,60 @@ Ready for translation!`);
         // Global variable to track OLT ports
         window.ftthOltPortsCount = { in: 0, out: 0 };
 
-        function getFtthOltName(suffix) {
-            const primary = document.getElementById(`ftth_olt_name_${suffix}`)?.value.trim();
-            return primary || 'OLT-MF2-1';
+        function buildFtthOltName(inputValue, tag) {
+            const raw = (inputValue || '').trim();
+            if (!raw) return '';
+            if (raw.toUpperCase().startsWith('OLT-')) return raw;
+            return `OLT-${tag}.${raw}`;
         }
+
+        function getFtthOltName(suffix, group) {
+            const suffixInput = group === 2
+                ? document.getElementById(`ftth_olt_lag2_${suffix}`)?.value.trim()
+                : document.getElementById(`ftth_olt_lag1_${suffix}`)?.value.trim();
+            const tag = group === 2 ? 'MF2-2' : 'MF2-1';
+            return buildFtthOltName(suffixInput, tag);
+        }
+
+        window.updateFtthOltLagName = function (suffix, group) {
+            const fullName = getFtthOltName(suffix, group);
+            const selector = group === 2 ? '[data-olt-group="2"]' : '[data-olt-group="1"]';
+            const container = document.getElementById(`ftth_olt_ports_${suffix}`);
+            if (!container) return;
+            container.querySelectorAll(`${selector} .ftth-port-comment`).forEach((input) => {
+                input.value = fullName;
+                input.placeholder = fullName;
+            });
+        };
+
+
+        function getFtthReservedPorts(suffix) {
+            const container = document.getElementById(`ftth_olt_ports_${suffix}`);
+            if (!container) return [];
+            const reserved = new Set();
+            container.querySelectorAll('input[readonly]').forEach((input) => {
+                const val = (input.value || '').trim();
+                if (val) reserved.add(val);
+            });
+            return Array.from(reserved);
+        }
+
+        window.updateFtthUplinkPortOptions = function (suffix) {
+            const reserved = new Set(getFtthReservedPorts(suffix));
+            const selects = document.querySelectorAll(`#ftth_uplink_rows_${suffix} .ftth-uplink-port`);
+            selects.forEach((select) => {
+                const options = Array.from(select.options);
+                options.forEach((option) => {
+                    const isReserved = reserved.has(option.value);
+                    option.disabled = isReserved;
+                    option.title = isReserved ? 'Reserved for OLT LAG ports' : '';
+                });
+                if (reserved.has(select.value)) {
+                    const firstAvailable = options.find((option) => !option.disabled);
+                    if (firstAvailable) select.value = firstAvailable.value;
+                }
+            });
+        };
 
         window.addFtthUplinkRow = function (suffix) {
             const container = document.getElementById(`ftth_uplink_rows_${suffix}`);
@@ -20223,6 +20332,7 @@ Ready for translation!`);
             const l2mtu = clone.querySelector('.ftth-uplink-l2mtu');
             if (l2mtu) l2mtu.value = '9212';
             container.appendChild(clone);
+            if (window.updateFtthUplinkPortOptions) window.updateFtthUplinkPortOptions(suffix);
         };
 
         window.removeFtthUplinkRow = function (button) {
@@ -20281,6 +20391,9 @@ Ready for translation!`);
                     outstateBtn.classList.add('active');
                 }
             }
+            if (window.updateFtthUplinkPortOptions) {
+                window.updateFtthUplinkPortOptions(state === 'instate' ? 'in' : 'out');
+            }
         };
 
         // Auto-generate Router Identity from Site Name
@@ -20301,17 +20414,21 @@ Ready for translation!`);
 
 
         // Add OLT Ports (4-port bonding)
-        window.addFtthOltPorts = function (suffix) {
+        window.addFtthOltPorts = function (suffix, group) {
             const container = document.getElementById(`ftth_olt_ports_${suffix}`);
             if (!container) return;
 
-            container.querySelectorAll('.uplink-item').forEach(el => el.remove());
+            const groupId = group === 2 ? '2' : '1';
+            container.querySelectorAll(`[data-olt-group="${groupId}"]`).forEach(el => el.remove());
 
-            const ports = ['sfp28-3', 'sfp28-4', 'sfp28-5', 'sfp28-6'];
-            const oltName = getFtthOltName(suffix);
+            const ports = groupId === '2'
+                ? ['sfp28-7', 'sfp28-8', 'sfp28-9', 'sfp28-10']
+                : ['sfp28-3', 'sfp28-4', 'sfp28-5', 'sfp28-6'];
+            const oltName = getFtthOltName(suffix, groupId === '2' ? 2 : 1);
             ports.forEach((port, index) => {
                 const portDiv = document.createElement('div');
                 portDiv.className = 'uplink-item';
+                portDiv.dataset.oltGroup = groupId;
                 portDiv.style.cssText = 'margin-bottom: 10px; padding: 15px; background: var(--input-bg); border-radius: 4px; border: 1px solid var(--border-color);';
                 portDiv.innerHTML = `
                     <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; align-items: center;">
@@ -20337,7 +20454,8 @@ Ready for translation!`);
             });
 
             window.ftthOltPortsCount[suffix] = container.querySelectorAll('.uplink-item').length;
-            console.log(`[FTTH] Added ${ports.length} OLT ports for ${suffix}`);
+            console.log(`[FTTH] Added ${ports.length} OLT ports for ${suffix} group ${groupId}`);
+            if (window.updateFtthUplinkPortOptions) window.updateFtthUplinkPortOptions(suffix);
         };
 
         // Clear OLT Ports
@@ -20348,6 +20466,7 @@ Ready for translation!`);
                 window.ftthOltPortsCount[suffix] = 0;
                 console.log(`[FTTH] Cleared OLT ports for ${suffix} state`);
             }
+            if (window.updateFtthUplinkPortOptions) window.updateFtthUplinkPortOptions(suffix);
         };
 
         // Validate CIDR notation
@@ -20379,7 +20498,9 @@ Ready for translation!`);
             const cgnatPublic = document.getElementById(`ftth_cgnat_public_${suffix}`)?.value.trim();
             const unauth = document.getElementById(`ftth_unauth_${suffix}`)?.value.trim();
             const oltNetwork = document.getElementById(`ftth_olt_network_${suffix}`)?.value.trim();
-            const oltName = document.getElementById(`ftth_olt_name_${suffix}`)?.value.trim();
+            const oltNetwork2 = document.getElementById(`ftth_olt_network2_${suffix}`)?.value.trim();
+            const oltLag1 = document.getElementById(`ftth_olt_lag1_${suffix}`)?.value.trim();
+            const oltLag2 = document.getElementById(`ftth_olt_lag2_${suffix}`)?.value.trim();
             const routerosVersion = document.getElementById(`ftth_routeros_${suffix}`)?.value.trim();
             const uplinks = collectFtthUplinks(suffix);
             const uplinkIp = uplinks.find(u => u.type === 'routed' && u.ip)?.ip || '';
@@ -20407,16 +20528,32 @@ Ready for translation!`);
             if (!oltNetwork) errors.push('OLT Network is required');
             else if (!validateCIDR(oltNetwork, 29)) errors.push('OLT Network must be a /29 (e.g., 10.246.46.88/29)');
 
-            if (!oltName) errors.push('OLT Name is required');
+            if (!oltLag1) errors.push('OLT LAG Name 1 is required');
+            if (oltNetwork2 && !validateCIDR(oltNetwork2, 29)) errors.push('OLT Network 2 must be a /29 (e.g., 10.25.251.24/29)');
+            if (oltLag2 && !oltNetwork2) errors.push('OLT Network 2 is required when OLT LAG Name 2 is provided');
+            if (oltNetwork2 && !oltLag2) errors.push('OLT LAG Name 2 is required when OLT Network 2 is provided');
             if (!uplinks.length) {
                 errors.push('At least one uplink is required');
             } else if (!uplinkIp) {
                 errors.push('Uplink IP/Net is required for routed uplinks');
             }
 
+            const reservedPorts = new Set(getFtthReservedPorts(suffix));
+            const reservedUplinks = uplinks.map(u => u.port).filter(p => reservedPorts.has(p));
+            if (reservedUplinks.length > 0) {
+                errors.push(`Uplink ports cannot use OLT LAG ports: ${reservedUplinks.join(', ')}`);
+            }
+
             // Check if OLT ports are configured
+            const lag2Ports = Array.from(document.querySelectorAll(`#ftth_olt_ports_${suffix} [data-olt-group="2"]`));
             if (window.ftthOltPortsCount[suffix] < 4) {
-                errors.push('Please add OLT ports (4 total ports)');
+                errors.push('Please add OLT LAG 1 ports (4 total ports)');
+            }
+            if (lag2Ports.length > 0 && !oltLag2) {
+                errors.push('OLT LAG Name 2 is required when LAG 2 ports are added');
+            }
+            if (oltLag2 && lag2Ports.length < 4) {
+                errors.push('Please add OLT LAG 2 ports (4 total ports)');
             }
 
             if (errors.length > 0) {
@@ -20454,7 +20591,9 @@ Ready for translation!`);
                 cgnat_public: document.getElementById(`ftth_cgnat_public_${suffix}`)?.value.trim(),
                 unauth_network: document.getElementById(`ftth_unauth_${suffix}`)?.value.trim(),
                 olt_network: document.getElementById(`ftth_olt_network_${suffix}`)?.value.trim(),
-                olt_name: document.getElementById(`ftth_olt_name_${suffix}`)?.value.trim(),
+                olt_network_secondary: document.getElementById(`ftth_olt_network2_${suffix}`)?.value.trim(),
+                olt_name_primary: getFtthOltName(suffix, 1),
+                olt_name_secondary: getFtthOltName(suffix, 2),
                 uplinks: collectFtthUplinks(suffix),
                 olt_ports: []
             };
@@ -20472,7 +20611,8 @@ Ready for translation!`);
                         configData.olt_ports.push({
                             port: portInput.value,
                             speed: speedSelect.value,
-                            comment: commentInput.value
+                            comment: commentInput.value,
+                            group: item.dataset.oltGroup || '1'
                         });
                     }
                 });
@@ -20679,7 +20819,9 @@ Ready for translation!`);
                 `ftth_cgnat_public_${suffix}`,
                 `ftth_unauth_${suffix}`,
                 `ftth_olt_network_${suffix}`,
-                `ftth_olt_name_${suffix}`
+                `ftth_olt_network2_${suffix}`,
+                `ftth_olt_lag1_${suffix}`,
+                `ftth_olt_lag2_${suffix}`
             ];
 
             inputs.forEach(id => {

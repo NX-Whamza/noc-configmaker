@@ -45,7 +45,6 @@ import sqlite3
 import hashlib
 import secrets
 from functools import wraps
-from ftth_renderer import render_ftth_config, TEMPLATE_PATH
 
 # JWT support (optional - install with: pip install PyJWT)
 try:
@@ -1302,10 +1301,6 @@ def filter_scanner_requests():
     if client_ip and ('.255' in client_ip or client_ip.startswith('192.168.225')):
         # These are likely network scanners - silently handle
         pass
-
-    if request.path.startswith('/api/'):
-        origin = request.headers.get('Origin', '-')
-        print(f"[API] {request.method} {request.path} from {client_ip} host={request.host} origin={origin}")
     
     # Continue processing the request normally
     return None
@@ -7825,21 +7820,7 @@ def app_config():
         'IN': os.getenv('BNG_PEER_IN', '10.254.247.3'),
     }
     default_bng_peer = os.getenv('BNG_PEER_DEFAULT', '10.254.247.3')
-    ftth_template_hash = None
-    ftth_template_mtime = None
-    try:
-        template_bytes = TEMPLATE_PATH.read_bytes()
-        ftth_template_hash = hashlib.sha256(template_bytes).hexdigest()[:12]
-        ftth_template_mtime = int(TEMPLATE_PATH.stat().st_mtime)
-    except Exception:
-        pass
-
-    return jsonify({
-        'bng_peers': bng_peers,
-        'default_bng_peer': default_bng_peer,
-        'ftth_template_hash': ftth_template_hash,
-        'ftth_template_mtime': ftth_template_mtime
-    })
+    return jsonify({'bng_peers': bng_peers, 'default_bng_peer': default_bng_peer})
 
 @app.route('/api/feedback', methods=['POST'])
 def submit_feedback():
@@ -9680,33 +9661,248 @@ def get_activity():
         return jsonify({'success': False, 'error': str(e), 'activities': []}), 500
 
 
-@app.route('/api/generate-ftth-bng', methods=['POST', 'OPTIONS'])
+@app.route('/api/generate-ftth-bng', methods=['POST'])
 def generate_ftth_bng():
     """
     Generate complete FTTH BNG configuration for MikroTik CCR2216
     Supports both In-State (with MPLS/LDP) and Out-of-State deployments
     """
-    if request.method == 'OPTIONS':
-        return jsonify({'success': True}), 200
     try:
         data = request.get_json()
-        if not data:
-            return jsonify({'success': False, 'error': 'No data provided'}), 400
-
         print(f"[FTTH BNG] Received configuration request: {data.get('deployment_type', 'unknown')}")
-
-        config = render_ftth_config(data)
-        lines = config.count("\n") + 1
-
+        
+        # Extract configuration parameters
+        deployment_type = data.get('deployment_type', 'instate')  # 'instate' or 'outstate'
+        router_identity = data.get('router_identity', 'RTR-MTCCR2216.FTTH-BNG')
+        location = data.get('location', '')
+        loopback_ip = data.get('loopback_ip', '')
+        cpe_network = data.get('cpe_network', '')
+        cgnat_private = data.get('cgnat_private', '')
+        cgnat_public = data.get('cgnat_public', '')
+        unauth_network = data.get('unauth_network', '')
+        olt_network = data.get('olt_network', '')
+        olt_name = data.get('olt_name', 'OLT-1')
+        uplink_port = data.get('uplink_port', 'sfp28-1')
+        uplink_ip = data.get('uplink_ip', '')
+        uplink_comment = data.get('uplink_comment', 'to-CORE')
+        olt_ports = data.get('olt_ports', [])
+        
+        # Validate required fields
+        if not all([loopback_ip, cpe_network, cgnat_private, cgnat_public, unauth_network, olt_network]):
+            return jsonify({
+                'success': False,
+                'error': 'Missing required IP allocation fields'
+            }), 400
+        
+        # Parse IP networks
+        try:
+            import ipaddress
+            loopback = ipaddress.ip_interface(loopback_ip)
+            cpe_net = ipaddress.ip_network(cpe_network, strict=False)
+            cgnat_priv_net = ipaddress.ip_network(cgnat_private, strict=False)
+            cgnat_pub = ipaddress.ip_interface(cgnat_public)
+            unauth_net = ipaddress.ip_network(unauth_network, strict=False)
+            olt_net = ipaddress.ip_network(olt_network, strict=False)
+            
+            # Calculate OLT router IP (first usable in /29)
+            olt_hosts = list(olt_net.hosts())
+            olt_router_ip = f"{olt_hosts[0]}/{olt_net.prefixlen}" if olt_hosts else f"{list(olt_net)[1]}/{olt_net.prefixlen}"
+            
+            # Calculate CPE and CGNAT pool ranges
+            cpe_hosts = list(cpe_net.hosts())
+            cpe_pool_start = str(cpe_hosts[0]) if cpe_hosts else str(list(cpe_net)[1])
+            cpe_pool_end = str(cpe_hosts[-1]) if cpe_hosts else str(list(cpe_net)[-2])
+            
+            cgnat_hosts = list(cgnat_priv_net.hosts())
+            cgnat_pool_start = str(cgnat_hosts[0]) if cgnat_hosts else str(list(cgnat_priv_net)[1])
+            cgnat_pool_end = str(cgnat_hosts[-1]) if cgnat_hosts else str(list(cgnat_priv_net)[-2])
+            
+            unauth_hosts = list(unauth_net.hosts())
+            unauth_pool_start = str(unauth_hosts[0]) if unauth_hosts else str(list(unauth_net)[1])
+            unauth_pool_end = str(unauth_hosts[-1]) if unauth_hosts else str(list(unauth_net)[-2])
+            
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': f'Invalid IP address or network: {str(e)}'
+            }), 400
+        
+        # Generate configuration
+        config_lines = []
+        
+        # Header
+        config_lines.append(f"# FTTH BNG Configuration - {router_identity}")
+        config_lines.append(f"# Generated: {get_cst_datetime_string()}")
+        config_lines.append(f"# Deployment Type: {deployment_type.upper()}")
+        config_lines.append(f"# Device: MikroTik CCR2216-1G-12XS-2XQ")
+        if location:
+            config_lines.append(f"# Location: {location}")
+        config_lines.append("")
+        
+        # System Identity
+        config_lines.append("# ========== SYSTEM IDENTITY ==========")
+        config_lines.append(f"/system/identity set name=\"{router_identity}\"")
+        config_lines.append("")
+        
+        # Bridges
+        config_lines.append("# ========== BRIDGES ==========")
+        config_lines.append("/interface/bridge add name=bridge1000 comment=\"VLAN 1000\"")
+        config_lines.append("/interface/bridge add name=bridge2000 comment=\"VLAN 2000\"")
+        config_lines.append("/interface/bridge add name=bridge3000 comment=\"VLAN 3000 - Management\"")
+        config_lines.append("/interface/bridge add name=bridge4000 comment=\"VLAN 4000\"")
+        config_lines.append("/interface/bridge add name=lan-bridge comment=\"LAN Bridge\"")
+        config_lines.append("/interface/bridge add name=loop0 comment=\"Loopback\"")
+        config_lines.append("/interface/bridge add name=nat-public-bridge comment=\"NAT Public\"")
+        config_lines.append("")
+        
+        # Ethernet Interfaces - Management
+        config_lines.append("# ========== ETHERNET INTERFACES ==========")
+        config_lines.append("/interface/ethernet set ether1 comment=\"Management\"")
+        config_lines.append("")
+        
+        # OLT Bonding Interface
+        if olt_ports:
+            config_lines.append("# ========== OLT BONDING ==========")
+            port_list = ','.join([p['port'] for p in olt_ports])
+            config_lines.append(f"/interface/bonding add name=bond-olt slaves=\"{port_list}\" mode=802.3ad comment=\"{olt_name}\"")
+            
+            # Configure individual OLT ports
+            for port_config in olt_ports:
+                port = port_config['port']
+                speed = port_config.get('speed', 'auto')
+                comment = port_config.get('comment', f'OLT-{port}')
+                if speed != 'auto':
+                    config_lines.append(f"/interface/ethernet set {port} speed={speed} comment=\"{comment}\"")
+                else:
+                    config_lines.append(f"/interface/ethernet set {port} comment=\"{comment}\"")
+            config_lines.append("")
+        
+        # Uplink Interface
+        config_lines.append("# ========== UPLINK INTERFACE ==========")
+        config_lines.append(f"/interface/ethernet set {uplink_port} comment=\"{uplink_comment}\"")
+        config_lines.append("")
+        
+        # VLAN Interfaces
+        config_lines.append("# ========== VLAN INTERFACES ==========")
+        if olt_ports:
+            config_lines.append("/interface/vlan add interface=bond-olt name=vlan1000 vlan-id=1000 comment=\"VLAN 1000\"")
+            config_lines.append("/interface/vlan add interface=bond-olt name=vlan2000 vlan-id=2000 comment=\"VLAN 2000\"")
+            config_lines.append("/interface/vlan add interface=bond-olt name=vlan3000 vlan-id=3000 comment=\"VLAN 3000 - Management\"")
+            config_lines.append("/interface/vlan add interface=bond-olt name=vlan4000 vlan-id=4000 comment=\"VLAN 4000\"")
+        config_lines.append("")
+        
+        # Bridge Ports
+        config_lines.append("# ========== BRIDGE PORTS ==========")
+        if olt_ports:
+            config_lines.append("/interface/bridge/port add bridge=bridge1000 interface=vlan1000")
+            config_lines.append("/interface/bridge/port add bridge=bridge2000 interface=vlan2000")
+            config_lines.append("/interface/bridge/port add bridge=bridge3000 interface=vlan3000")
+            config_lines.append("/interface/bridge/port add bridge=bridge4000 interface=vlan4000")
+        config_lines.append("")
+        
+        # IP Addresses
+        config_lines.append("# ========== IP ADDRESSES ==========")
+        config_lines.append(f"/ip/address add address={loopback_ip} interface=loop0 comment=\"Loopback\"")
+        config_lines.append(f"/ip/address add address={olt_router_ip} interface=bridge3000 comment=\"OLT Management\"")
+        if uplink_ip:
+            config_lines.append(f"/ip/address add address={uplink_ip} interface={uplink_port} comment=\"{uplink_comment}\"")
+        config_lines.append(f"/ip/address add address={cgnat_public} interface=nat-public-bridge comment=\"CGNAT Public\"")
+        config_lines.append("")
+        
+        # IP Pools
+        config_lines.append("# ========== IP POOLS ==========")
+        config_lines.append(f"/ip/pool add name=cpe-pool ranges={cpe_pool_start}-{cpe_pool_end} comment=\"CPE Pool\"")
+        config_lines.append(f"/ip/pool add name=cgnat-pool ranges={cgnat_pool_start}-{cgnat_pool_end} comment=\"CGNAT Pool\"")
+        config_lines.append(f"/ip/pool add name=unauth-pool ranges={unauth_pool_start}-{unauth_pool_end} comment=\"Unauthorized Pool\"")
+        config_lines.append("")
+        
+        # DHCP Server
+        config_lines.append("# ========== DHCP SERVER ==========")
+        config_lines.append(f"/ip/dhcp-server add name=cpe-dhcp interface=bridge1000 address-pool=cpe-pool disabled=no comment=\"CPE DHCP\"")
+        config_lines.append(f"/ip/dhcp-server add name=unauth-dhcp interface=bridge4000 address-pool=unauth-pool disabled=no comment=\"Unauthorized DHCP\"")
+        config_lines.append(f"/ip/dhcp-server/network add address={cpe_network} gateway={cpe_pool_start} dns-server=142.147.112.3,142.147.112.19 comment=\"CPE Network\"")
+        config_lines.append(f"/ip/dhcp-server/network add address={unauth_network} gateway={unauth_pool_start} dns-server=142.147.112.3,142.147.112.19 comment=\"Unauthorized Network\"")
+        config_lines.append("")
+        
+        # Firewall - NAT
+        config_lines.append("# ========== FIREWALL - NAT ==========")
+        config_lines.append(f"/ip/firewall/nat add chain=srcnat src-address={cpe_network} action=src-nat to-addresses={str(cgnat_pub.ip)} comment=\"CPE CGNAT\"")
+        config_lines.append(f"/ip/firewall/nat add chain=srcnat src-address={cgnat_private} action=src-nat to-addresses={str(cgnat_pub.ip)} comment=\"CGNAT Private\"")
+        config_lines.append("")
+        
+        # Firewall - Filter Rules
+        config_lines.append("# ========== FIREWALL - FILTER RULES ==========")
+        config_lines.append("/ip/firewall/filter add chain=input action=accept connection-state=established,related comment=\"Accept established/related\"")
+        config_lines.append("/ip/firewall/filter add chain=input action=accept protocol=icmp comment=\"Accept ICMP\"")
+        config_lines.append("/ip/firewall/filter add chain=input action=accept in-interface=ether1 comment=\"Accept from management\"")
+        config_lines.append("/ip/firewall/filter add chain=input action=drop comment=\"Drop all other input\"")
+        config_lines.append("")
+        
+        # OSPF Configuration (In-State only)
+        if deployment_type == 'instate':
+            config_lines.append("# ========== OSPF CONFIGURATION ==========")
+            config_lines.append("/routing/ospf/instance add name=default router-id=" + str(loopback.ip) + " comment=\"OSPF Instance\"")
+            config_lines.append(f"/routing/ospf/area add name=backbone area-id=0.0.0.0 instance=default comment=\"OSPF Area 0\"")
+            config_lines.append(f"/routing/ospf/interface-template add area=backbone networks={loopback_ip} comment=\"Loopback\"")
+            if uplink_ip:
+                config_lines.append(f"/routing/ospf/interface-template add area=backbone networks={uplink_ip.split('/')[0]}/30 cost=10 comment=\"Uplink\"")
+            config_lines.append("")
+            
+            # MPLS/LDP Configuration (In-State only)
+            config_lines.append("# ========== MPLS/LDP CONFIGURATION ==========")
+            config_lines.append("/mpls/ldp set enabled=yes lsr-id=" + str(loopback.ip) + " transport-address=" + str(loopback.ip))
+            config_lines.append(f"/mpls/ldp/interface add interface={uplink_port} comment=\"LDP on uplink\"")
+            config_lines.append("/mpls/interface add interface=all")
+            config_lines.append("")
+        
+        # SNMP Configuration
+        config_lines.append("# ========== SNMP CONFIGURATION ==========")
+        config_lines.append("/snmp set enabled=yes contact=\"netops@team.nxlink.com\"")
+        config_lines.append("/snmp/community set public name=public")
+        config_lines.append("")
+        
+        # NTP Client
+        config_lines.append("# ========== NTP CLIENT ==========")
+        config_lines.append("/system/ntp/client set enabled=yes")
+        config_lines.append("/system/ntp/client/servers add address=52.128.59.240")
+        config_lines.append("/system/ntp/client/servers add address=52.128.59.241")
+        config_lines.append("")
+        
+        # DNS
+        config_lines.append("# ========== DNS ==========")
+        config_lines.append("/ip/dns set servers=142.147.112.3,142.147.112.19 allow-remote-requests=yes")
+        config_lines.append("")
+        
+        # System Logging
+        config_lines.append("# ========== SYSTEM LOGGING ==========")
+        config_lines.append("/system/logging add topics=critical action=memory")
+        config_lines.append("/system/logging add topics=error action=memory")
+        config_lines.append("/system/logging add topics=warning action=memory")
+        config_lines.append("")
+        
+        # Final comment
+        config_lines.append("# ========== CONFIGURATION COMPLETE ==========")
+        config_lines.append(f"# Total configuration lines: {len(config_lines)}")
+        config_lines.append(f"# Deployment: {deployment_type.upper()}")
+        config_lines.append("# Please review and test before applying to production device")
+        
+        # Join all lines
+        config = "\n".join(config_lines)
+        
+        print(f"[FTTH BNG] Generated configuration: {len(config)} characters, {len(config_lines)} lines")
+        
         return jsonify({
             'success': True,
             'config': config,
             'metadata': {
-                'deployment_type': data.get('deployment_type', 'instate'),
-                'router_identity': data.get('router_identity', ''),
-                'lines': lines
+                'deployment_type': deployment_type,
+                'router_identity': router_identity,
+                'loopback': str(loopback.ip),
+                'olt_network': str(olt_net),
+                'cpe_network': str(cpe_net),
+                'lines': len(config_lines)
             }
-        }), 200
+        })
         
     except Exception as e:
         import traceback
@@ -9718,7 +9914,6 @@ def generate_ftth_bng():
             'error': str(e),
             'details': error_details
         }), 500
-
 
 
 

@@ -115,6 +115,8 @@ def _group_tag_from_name(name: str, fallback: str) -> str:
     upper = (name or '').upper()
     if 'MF2-1' in upper:
         return 'MF2-1'
+    if 'MF2-2' in upper:
+        return 'MF2-2'
     return fallback
 
 
@@ -160,8 +162,17 @@ def render_ftth_config(data: dict) -> str:
     unauth_network = data.get('unauth_network', '')
 
     olt_network = data.get('olt_network', '') or data.get('olt_network_primary', '')
+    olt_network_secondary = (
+        data.get('olt_network_secondary')
+        or data.get('olt_network2')
+        or ''
+    ).strip()
     olt_name = (data.get('olt_name', '') or '').strip() or (data.get('olt_name_primary', '') or '').strip() or 'OLT-MF2-1'
+    olt_name_secondary = (data.get('olt_name_secondary', '') or '').strip()
+    if olt_network_secondary and not olt_name_secondary:
+        olt_name_secondary = 'OLT-MF2-2'
 
+    routeros_version = (data.get('routeros_version', '') or '').strip()
     uplinks = data.get('uplinks', [])
     if not uplinks:
         uplinks = [{
@@ -185,12 +196,16 @@ def render_ftth_config(data: dict) -> str:
     unauth_net, unauth_first, _unauth_last = _net_details(unauth_network)
     cgnat_pub = ipaddress.ip_interface(cgnat_public)
     olt1_net, olt1_first, _olt1_last = _net_details(olt_network)
+    olt2_net = olt2_first = None
+    if olt_network_secondary:
+        olt2_net, olt2_first, _olt2_last = _net_details(olt_network_secondary)
 
     cpe_pool_start, cpe_pool_end = _pool_range(cpe_net, 10)
     unauth_pool_start, unauth_pool_end = _pool_range(unauth_net, 10)
     cgnat_pool_start, cgnat_pool_end = _pool_range(cgnat_net, 3)
 
     group1_tag = _group_tag_from_name(olt_name, 'MF2-1')
+    group2_tag = _group_tag_from_name(olt_name_secondary, 'MF2-2')
 
     uplink_lines = []
     uplink_ip_lines = []
@@ -232,12 +247,19 @@ def render_ftth_config(data: dict) -> str:
     primary_mtu = uplinks[0].get('mtu', '9000') if uplinks else '9000'
 
     olt_ports = data.get('olt_ports', [])
+    has_olt2_ports = any(str(p.get('group') or '1') == '2' for p in olt_ports)
+    if has_olt2_ports and not olt_network_secondary:
+        raise ValueError('OLT Network 2 is required when OLT LAG 2 ports are configured.')
+    if has_olt2_ports and not olt_name_secondary:
+        olt_name_secondary = 'OLT-MF2-2'
     olt_lines = []
     for port_cfg in olt_ports:
         port = port_cfg.get('port')
         if not port:
             continue
-        comment = _fmt_comment(port_cfg.get('comment') or olt_name)
+        group = str(port_cfg.get('group') or '1')
+        base_name = olt_name_secondary if group == '2' and olt_name_secondary else olt_name
+        comment = _fmt_comment(port_cfg.get('comment') or base_name)
         speed = port_cfg.get('speed', 'auto')
         parts = [f"set [ find default-name={port} ]"]
         if comment:
@@ -246,12 +268,70 @@ def render_ftth_config(data: dict) -> str:
             parts.append(f"speed={speed}")
         olt_lines.append(" ".join(parts))
 
+    olt2_bonding_line = ''
+    olt2_vlan_lines = ''
+    olt2_bridge_ports = ''
+    olt2_ip_line = ''
+    olt2_ospf_line = ''
+    if (olt2_net and olt2_first) or has_olt2_ports:
+        olt2_bonding_line = (
+            f"add mode=802.3ad name=bonding3000-{group2_tag} "
+            "slaves=sfp28-7,sfp28-8,sfp28-9,sfp28-10 transmit-hash-policy=layer-2-and-3"
+        )
+        olt2_vlan_lines = "\n".join([
+            f"add interface=bonding3000-{group2_tag} name=vlan1000-{group2_tag} vlan-id=1000",
+            f"add interface=bonding3000-{group2_tag} name=vlan2000-{group2_tag} vlan-id=2000",
+            f"add interface=bonding3000-{group2_tag} name=vlan3000-{group2_tag} vlan-id=3000",
+            f"add interface=bonding3000-{group2_tag} name=vlan4000-{group2_tag} vlan-id=4000",
+        ])
+        olt2_bridge_ports = "\n".join([
+            f"add bridge=bridge1000 ingress-filtering=no interface=vlan1000-{group2_tag} internal-path-cost=10 path-cost=10",
+            f"add bridge=bridge2000 interface=vlan2000-{group2_tag}",
+            f"add bridge=bridge3000 interface=vlan3000-{group2_tag}",
+            f"add bridge=bridge4000 ingress-filtering=no interface=vlan4000-{group2_tag} internal-path-cost=10 path-cost=10",
+        ])
+        if olt2_net and olt2_first:
+            olt2_ip_line = (
+                f"add address={olt2_first}/{olt2_net.prefixlen} comment={_fmt_comment(olt_name_secondary)} "
+                f"interface=bridge3000 network={olt2_net.network_address}"
+            )
+            olt2_ospf_line = (
+                f"add area=backbone-v2 comment={_fmt_comment(olt_name_secondary)} cost=10 disabled=no "
+                f"interfaces=bridge3000 networks={olt2_net.network_address}/{olt2_net.prefixlen} priority=1"
+            )
+
+    if routeros_version == '7.20.2':
+        bgp_instance_line = f"add as=26077 disabled=no name=bgp-instance-1 router-id={loopback.ip}"
+        bgp_template_line = "set default as=26077 disabled=no output.network=bgp-networks"
+        bgp_connection_lines = "\n".join([
+            f"add cisco-vpls-nlri-len-fmt=auto-bits connect=yes disabled=no instance=bgp-instance-1 listen=yes "
+            f"local.address={loopback.ip} .role=ibgp multihop=yes name=CR7 output.network=bgp-networks "
+            f"remote.address=10.2.0.107/32 .as=26077 .port=179 routing-table=main templates=default",
+            f"add cisco-vpls-nlri-len-fmt=auto-bits connect=yes disabled=no instance=bgp-instance-1 listen=yes "
+            f"local.address={loopback.ip} .role=ibgp multihop=yes name=CR8 output.network=bgp-networks "
+            f"remote.address=10.2.0.108/32 .as=26077 .port=179 routing-table=main templates=default",
+        ])
+    else:
+        bgp_instance_line = ''
+        bgp_template_line = f"set default as=26077 disabled=no output.network=bgp-networks router-id={loopback.ip}"
+        bgp_connection_lines = "\n".join([
+            f"add cisco-vpls-nlri-len-fmt=auto-bits connect=yes listen=yes local.address={loopback.ip} "
+            f".role=ibgp multihop=yes name=CR7 remote.address=10.2.0.107 .as=26077 .port=179 templates=default",
+            f"add cisco-vpls-nlri-len-fmt=auto-bits connect=yes listen=yes local.address={loopback.ip} "
+            f".role=ibgp multihop=yes name=CR8 remote.address=10.2.0.108 .as=26077 .port=179 templates=default",
+        ])
+
     replacements = {
         "{{UPLINK_ETHERNET_LINES}}": "\n".join(uplink_lines),
         "{{OLT_ETHERNET_LINES}}": "\n".join(olt_lines),
         "{{UPLINK_PRIMARY_PORT}}": primary_uplink,
         "{{UPLINK_PRIMARY_MTU}}": str(primary_mtu),
         "{{OLT1_TAG}}": group1_tag,
+        "{{OLT2_BONDING_LINE}}": olt2_bonding_line,
+        "{{OLT2_VLAN_LINES}}": olt2_vlan_lines,
+        "{{OLT2_BRIDGE_PORTS}}": olt2_bridge_ports,
+        "{{OLT2_IP_LINE}}": olt2_ip_line,
+        "{{OLT2_OSPF_LINE}}": olt2_ospf_line,
         "{{CGNAT_POOL_START}}": cgnat_pool_start,
         "{{CGNAT_POOL_END}}": cgnat_pool_end,
         "{{CPE_POOL_START}}": cpe_pool_start,
@@ -282,6 +362,9 @@ def render_ftth_config(data: dict) -> str:
         "{{ROUTER_IDENTITY}}": router_identity,
         "{{LOCATION}}": location,
         "{{GENERATED_AT}}": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        "{{BGP_INSTANCE_LINE}}": bgp_instance_line,
+        "{{BGP_TEMPLATE_LINE}}": bgp_template_line,
+        "{{BGP_CONNECTION_LINES}}": bgp_connection_lines,
     }
 
     template = TEMPLATE_PATH.read_text(encoding='utf-8')
