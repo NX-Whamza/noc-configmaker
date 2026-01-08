@@ -205,8 +205,8 @@ add disabled=no lsr-id={{ROUTER_ID}} transport-addresses={{ROUTER_ID}}
 add address=142.147.112.2 secret=Nl22021234 service=dhcp src-address={{ROUTER_ID}} timeout=5s
 add address=142.147.112.18 secret=Nl22021234 service=dhcp src-address={{ROUTER_ID}} timeout=5s
 /routing bgp connection
-add as=26077 cisco-vpls-nlri-len-fmt=auto-bits connect=yes disabled=no listen=yes local.address={{ROUTER_ID}} .role=ibgp multihop=yes name=CR7 output.network=bgp-networks remote.address=10.2.0.107/32 .as=26077 .port=179 router-id={{ROUTER_ID}} routing-table=main tcp-md5-key=m8M5JwvdYM templates=default
-add as=26077 cisco-vpls-nlri-len-fmt=auto-bits connect=yes disabled=no listen=yes local.address={{ROUTER_ID}} .role=ibgp multihop=yes name=CR8 output.network=bgp-networks remote.address=10.2.0.108/32 .as=26077 .port=179 router-id={{ROUTER_ID}} routing-table=main tcp-md5-key=m8M5JwvdYM templates=default
+add as=26077 cisco-vpls-nlri-len-fmt=auto-bits connect=yes disabled=no listen=yes local.address={{ROUTER_ID}} local.role=ibgp multihop=yes name=CR7 output.network=bgp-networks remote.address=10.2.0.107/32 remote.as=26077 remote.port=179 router-id={{ROUTER_ID}} routing-table=main tcp-md5-key=m8M5JwvdYM templates=default
+add as=26077 cisco-vpls-nlri-len-fmt=auto-bits connect=yes disabled=no listen=yes local.address={{ROUTER_ID}} local.role=ibgp multihop=yes name=CR8 output.network=bgp-networks remote.address=10.2.0.108/32 remote.as=26077 remote.port=179 router-id={{ROUTER_ID}} routing-table=main tcp-md5-key=m8M5JwvdYM templates=default
 /routing ospf interface-template
 add area=backbone-v2 comment=loop0 cost=10 disabled=no interfaces=loop0 networks={{LOOPBACK_IP}}/32 passive priority=1
 add area=backbone-v2 comment="CPE/Tower Gear" cost=10 disabled=no interfaces=lan-bridge networks={{CPE_NETWORK_BASE}}/{{CPE_PREFIX}} priority=1

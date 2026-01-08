@@ -147,7 +147,11 @@ def render_ftth_config(data: dict) -> str:
         raise FileNotFoundError(f"FTTH template missing: {TEMPLATE_PATH}")
 
     router_identity = data.get('router_identity', 'RTR-MTCCR2216.FTTH-BNG')
-    location = data.get('location', '')
+    location = (data.get('location', '') or '').strip()
+    if location:
+        location = location.replace(' ', '')
+    else:
+        location = '0,0'
 
     loopback_ip = data.get('loopback_ip', '')
     cpe_network = data.get('cpe_network', '')
