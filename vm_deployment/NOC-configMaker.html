@@ -4,13 +4,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NOC CONFIG MAKER TOOL</title>
+    <title>NOC Operations Config Suite</title>
     <meta name="theme-color" content="#ff7a00">
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
     <link rel="manifest" href="/assets/site.webmanifest">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
     <!-- Security: Prevent Source Code Access -->
     <!-- Security Script Removed for Debugging -->
@@ -140,6 +141,7 @@
             box-sizing: border-box;
         }
 
+        html,
         body {
             font-family: Arial, sans-serif;
             background-color: var(--bg-color);
@@ -147,6 +149,7 @@
             margin: 0;
             padding: 0;
             transition: all 0.3s ease;
+            overflow-x: hidden;
         }
 
         .main-container {
@@ -312,6 +315,7 @@
         .content-area {
             flex: 1;
             overflow-y: auto;
+            overflow-x: hidden;
             padding: 0;
             background: var(--bg-color);
         }
@@ -1798,6 +1802,300 @@
             color: var(--text-color-secondary, #aaa);
             font-size: 12px;
         }
+
+        /* Aviat Backhaul Firmware Updater (NOC themed) */
+        .aviat-tool {
+            --aviat-card: var(--container-bg);
+            --aviat-border: var(--border-color);
+            --aviat-accent: var(--button-bg);
+            --aviat-accent-strong: var(--button-bg);
+        }
+
+        .aviat-header {
+            background: var(--container-bg);
+            border: 1px solid var(--aviat-border);
+            border-left: 4px solid var(--aviat-accent-strong);
+            border-radius: 14px;
+            padding: 20px 26px;
+            margin-bottom: 16px;
+            text-align: center;
+            box-shadow: 0 12px 26px rgba(9, 14, 30, 0.2);
+        }
+
+        .aviat-header h1 {
+            margin: 0 0 6px 0;
+            color: var(--text-color);
+            font-size: 24px;
+        }
+
+        .aviat-header p {
+            margin: 0;
+            color: var(--text-color-secondary);
+            font-size: 13px;
+        }
+
+        .aviat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+            max-width: 100%;
+        }
+
+        .aviat-card {
+            background: var(--aviat-card);
+            border: 1px solid var(--aviat-border);
+            border-radius: 14px;
+            padding: 16px;
+            box-shadow: 0 10px 18px rgba(10, 12, 24, 0.2);
+            min-width: 0;
+        }
+
+        .aviat-card h2 {
+            margin: 0 0 12px 0;
+            font-size: 15px;
+            color: var(--text-color);
+            letter-spacing: 0.2px;
+        }
+
+        .checkbox-item {
+            display: grid;
+            grid-template-columns: 22px minmax(0, 1fr);
+            gap: 12px;
+            align-items: center;
+            padding: 12px 14px;
+            border-radius: 10px;
+            background: var(--input-bg);
+            border: 1px solid var(--aviat-border);
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: border-color 0.2s ease, background 0.2s ease;
+        }
+
+        .checkbox-item input[type="checkbox"] {
+            margin: 0;
+        }
+
+        .checkbox-item:hover {
+            border-color: var(--aviat-accent-strong);
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .aviat-task-title {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 8px;
+            font-weight: 600;
+        }
+
+        .aviat-task-step {
+            color: var(--aviat-accent-strong);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+            text-transform: uppercase;
+        }
+
+        .aviat-task-name {
+            font-size: 14px;
+            color: var(--text-color);
+        }
+
+        .aviat-task-desc {
+            margin-top: 4px;
+            color: var(--text-color-secondary);
+            font-size: 12px;
+        }
+
+        .aviat-maintenance-banner {
+            border-radius: 12px;
+            padding: 10px 16px;
+            border: 1px solid var(--aviat-border);
+            margin-bottom: 16px;
+            font-size: 12px;
+            text-align: center;
+            letter-spacing: 0.2px;
+        }
+
+        .aviat-maintenance-on {
+            background: rgba(46, 164, 96, 0.15);
+            color: #a7f3d0;
+            border-color: rgba(46, 164, 96, 0.35);
+        }
+
+        .aviat-maintenance-off {
+            background: rgba(255, 166, 0, 0.12);
+            color: #ffd166;
+            border-color: rgba(255, 166, 0, 0.35);
+        }
+
+        .aviat-btn {
+            background: var(--aviat-accent-strong);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 14px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .aviat-btn.secondary {
+            background: var(--border-color);
+            color: var(--text-color);
+        }
+
+        .aviat-btn.danger {
+            background: #c0392b;
+        }
+
+        .aviat-btn.success {
+            background: #2ecc71;
+        }
+
+        .aviat-status-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 22px;
+            height: 22px;
+            padding: 0 6px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 700;
+            border: 1px solid var(--aviat-border);
+            color: #dbe7ff;
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .aviat-status-badge.pending {
+            background: rgba(59, 130, 246, 0.12);
+            color: #9ec5ff;
+        }
+
+        .aviat-status-badge.processing {
+            background: rgba(255, 193, 7, 0.18);
+            color: #ffd166;
+        }
+
+        .aviat-status-badge.scheduled,
+        .aviat-status-badge.manual {
+            background: rgba(132, 204, 22, 0.14);
+            color: #c7f9a7;
+        }
+
+        .aviat-status-badge.success {
+            background: rgba(16, 185, 129, 0.18);
+            color: #a7f3d0;
+        }
+
+        .aviat-status-badge.error {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fecaca;
+        }
+
+        .aviat-queue {
+            max-height: 360px;
+            overflow-y: auto;
+            border-radius: 12px;
+            border: 1px solid var(--aviat-border);
+            background: var(--input-bg);
+        }
+
+        .aviat-queue-item {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 10px;
+            align-items: center;
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--aviat-border);
+        }
+
+        .aviat-queue-item:last-child {
+            border-bottom: none;
+        }
+
+        .aviat-status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+
+        .aviat-log {
+            background: var(--output-bg);
+            border: 1px solid var(--aviat-border);
+            border-radius: 12px;
+            padding: 12px;
+            min-height: 240px;
+            max-height: 240px;
+            overflow-y: auto;
+            font-family: "Courier New", monospace;
+            font-size: 12px;
+            color: var(--text-color);
+            white-space: pre-wrap;
+        }
+
+        .aviat-log-entry {
+            margin-bottom: 6px;
+        }
+
+        .aviat-log-time {
+            color: var(--text-color-secondary);
+            margin-right: 6px;
+        }
+
+        .aviat-stat-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 10px;
+            font-size: 12px;
+            color: var(--text-color-secondary);
+        }
+
+        .aviat-pill {
+            background: var(--input-bg);
+            border: 1px solid var(--aviat-border);
+            border-radius: 999px;
+            padding: 4px 10px;
+            color: var(--text-color-secondary);
+        }
+
+        @media (max-width: 1100px) {
+            .aviat-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        #aviat-backhaul-pane {
+            overflow-x: hidden;
+        }
+
+        #aviat-backhaul-pane * {
+            box-sizing: border-box;
+        }
+
+        #aviat-backhaul-pane .container {
+            max-width: 100%;
+            width: 100%;
+            box-sizing: border-box;
+            padding: 24px;
+        }
+
+        #aviat-backhaul-pane .aviat-grid,
+        #aviat-backhaul-pane .aviat-card,
+        #aviat-backhaul-pane .aviat-queue-item,
+        #aviat-backhaul-pane .aviat-log {
+            min-width: 0;
+        }
+
+        @media (max-width: 900px) {
+            #aviat-backhaul-pane .container {
+                padding: 18px;
+            }
+        }
     </style>
 </head>
 
@@ -1812,7 +2110,7 @@
                         <span style="font-size: 16px; color: white; font-weight: bold;"></span>
                     </div>
                     <div>
-                        <div style="font-size: 13px; font-weight: bold; color: var(--sidebar-active);">NOC CONFIG MAKER
+                        <div style="font-size: 13px; font-weight: bold; color: var(--sidebar-active);">NOC OPERATIONS CONFIG SUITE
                         </div>
                         <span class="subtitle">Network Operations Center Tool</span>
                     </div>
@@ -1871,6 +2169,7 @@
                         </a>
                     </div>
                 </div>
+                <button class="nav-item" data-tab="aviat-backhaul">AVIAT BACKHAUL UPDATER</button>
                 <button class="nav-item" data-tab="cisco-config">CISCO CONFIG</button>
                 <button class="nav-item" data-tab="completed-configs"> CONFIGS</button>
                 <button class="nav-item" data-tab="log-history"> LOG HISTORY</button>
@@ -1902,7 +2201,7 @@
             <div class="content-pane active" id="home-pane">
                 <div class="dashboard-container">
                     <div class="dashboard-header">
-                        <h1>Welcome to NOC Config Maker</h1>
+                    <h1>Welcome to NOC Operations Config Suite</h1>
                         <p>Network operations configuration and management tool</p>
                     </div>
 
@@ -1920,7 +2219,7 @@
                         <h2 class="announcements-title">Current Announcements</h2>
                         <div class="announcement-card" id="announcementsContainer">
                             <h3>Welcome! <span class="beta-badge">Beta Testing</span></h3>
-                            <p>Welcome to NOC Config Maker (Multi-Use Configuration Generator)!</p>
+                            <p>Welcome to NOC Operations Config Suite (Multi-Use Configuration Generator)!</p>
                             <p>This tool is currently in <strong>Beta Testing</strong> stage, so there might be some
                                 bugs or improvements needed. We appreciate your feedback as we work to make this the
                                 best configuration tool possible.</p>
@@ -1938,6 +2237,11 @@
                             <span class="metric-icon"></span>
                             <span class="metric-value" id="metricMigrations">0</span>
                             <span class="metric-label">Migrations Completed</span>
+                        </div>
+                        <div class="metric-card">
+                            <span class="metric-icon"></span>
+                            <span class="metric-value" id="metricFirmwareUpgrades">0</span>
+                            <span class="metric-label">Firmware Upgrades</span>
                         </div>
                         <div class="metric-card">
                             <span class="metric-icon"></span>
@@ -3121,6 +3425,12 @@
                             <button id="downloadBtn" onclick="downloadConfig()"
                                 style="background: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 16px;">Download
                                 .rsc File</button>
+                            <button id="portMapBtn" onclick="downloadPortMap()"
+                                style="background: #1f6feb; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 16px; margin-left: 10px;">Download
+                                Port Map</button>
+                            <button id="zipDownloadBtn" onclick="downloadConfigZip()"
+                                style="background: #ff8f1f; color: #1a1a1a; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 16px; margin-left: 10px;">Download
+                                Zip (Config + Port Map)</button>
                         </div>
                     </div>
                     <!-- End mainForm -->
@@ -4462,6 +4772,7 @@
                                     <option value="new-config">New Config</option>
                                     <option value="migration">Migration</option>
                                     <option value="upgrade">Upgrade</option>
+                                    <option value="aviat-upgrade">Aviat Backhaul Upgrade</option>
                                 </select>
                             </div>
                             <div>
@@ -5313,6 +5624,151 @@
                     </div>
                     <textarea id="ftth_config_output" readonly
                         style="width: 100%; min-height: 500px; padding: 15px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--output-bg); color: var(--text-color); font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.5; white-space: pre; overflow-x: auto;"></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AVIAT BACKHAUL TAB -->
+    <div class="content-pane" id="aviat-backhaul-pane">
+        <div class="container aviat-tool">
+            <div class="aviat-header">
+                <h1>Aviat Backhaul Firmware Updater</h1>
+                <p>Backhaul firmware upgrades, buffer policy, and SOP checks in one flow.</p>
+            </div>
+
+            <div id="maintenanceBanner" class="aviat-maintenance-banner aviat-maintenance-off">
+                OUTSIDE MAINTENANCE WINDOW (2:00 AM - 6:00 AM) | Activation allowed 2:00 AM - 5:00 AM
+            </div>
+
+            <div class="aviat-grid">
+                <div class="aviat-card">
+                    <h2>Tasks to Execute</h2>
+                    <label class="checkbox-item">
+                        <input type="checkbox" id="taskFirmware" checked>
+                        <div>
+                            <div class="aviat-task-title">
+                                <span class="aviat-task-name">Upload Firmware & Schedule Activation</span>
+                                <span class="aviat-task-step">Step 0</span>
+                            </div>
+                            <div class="aviat-task-desc">Software → Load URI → Activation</div>
+                        </div>
+                    </label>
+                    <label class="checkbox-item">
+                        <input type="checkbox" id="taskPassword" checked>
+                        <div>
+                            <div class="aviat-task-title">
+                                <span class="aviat-task-name">Change Credentials</span>
+                                <span class="aviat-task-step">Step 1</span>
+                            </div>
+                            <div class="aviat-task-desc">Admin → User Management</div>
+                        </div>
+                    </label>
+                    <label class="checkbox-item">
+                        <input type="checkbox" id="taskSNMP" checked>
+                        <div>
+                            <div class="aviat-task-title">
+                                <span class="aviat-task-name">Configure SNMP</span>
+                                <span class="aviat-task-step">Step 2</span>
+                            </div>
+                            <div class="aviat-task-desc">System Configuration → SNMP</div>
+                        </div>
+                    </label>
+                    <label class="checkbox-item">
+                        <input type="checkbox" id="taskBuffer" checked>
+                        <div>
+                            <div class="aviat-task-title">
+                                <span class="aviat-task-name">Run Buffer Script</span>
+                                <span class="aviat-task-step">Step 3</span>
+                            </div>
+                            <div class="aviat-task-desc">QoS → Default Policy → Buffer Size</div>
+                        </div>
+                    </label>
+                    <label class="checkbox-item">
+                        <input type="checkbox" id="taskSOP" checked>
+                        <div>
+                            <div class="aviat-task-title">
+                                <span class="aviat-task-name">Recheck SOP / Spec</span>
+                                <span class="aviat-task-step">Step 4</span>
+                            </div>
+                            <div class="aviat-task-desc">Verify firmware, SNMP, QoS</div>
+                        </div>
+                    </label>
+                </div>
+
+                <div class="aviat-card">
+                    <h2>Add Radios</h2>
+                    <textarea id="ipInput" placeholder="Enter IP addresses (comma or newline separated)&#10;e.g., 10.0.1.100, 10.0.1.101"></textarea>
+                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                        <button id="aviatAddBtn" class="aviat-btn">Add</button>
+                        <button id="aviatReplaceBtn" class="aviat-btn secondary">Replace</button>
+                    </div>
+
+                    <div id="statsBar" class="aviat-stat-row" style="margin-top: 14px; display: none;">
+                        <div>Total: <span id="statTotal">0</span></div>
+                        <div>Pending: <span id="statPending">0</span></div>
+                        <div>Running: <span id="statProcessing">0</span></div>
+                        <div>Scheduled: <span id="statScheduled">0</span></div>
+                        <div>Done: <span id="statSuccess">0</span></div>
+                        <div>Failed: <span id="statError">0</span></div>
+                    </div>
+
+                    <div id="statsActions" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
+                        <button id="aviatClearDoneBtn" class="aviat-btn secondary">Clear Done</button>
+                        <button id="aviatClearAllBtn" class="aviat-btn secondary">Clear All</button>
+                        <button id="aviatRefreshBtn" class="aviat-btn secondary">Refresh</button>
+                        <button id="aviatCheckStatusBtn" class="aviat-btn secondary">Check Status</button>
+                        <button id="activateScheduledBtn" class="aviat-btn">Activate Scheduled</button>
+                        <button id="abortBtn" class="aviat-btn danger" disabled>Abort</button>
+                        <button id="runBtn" class="aviat-btn success">Run All</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="aviat-grid" style="margin-top: 16px;">
+                <div class="aviat-card">
+                    <h2>Firmware Window</h2>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div>
+                            <label style="display: block; font-size: 12px; margin-bottom: 6px;">Activation Mode</label>
+                            <select id="activationMode">
+                                <option value="scheduled">Scheduled</option>
+                                <option value="immediate">Activate Now</option>
+                                <option value="manual">Manual (Download Only)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="display: block; font-size: 12px; margin-bottom: 6px;">Activation Time</label>
+                            <input type="time" id="activationTime" value="02:00">
+                        </div>
+                        <div style="grid-column: span 2;">
+                            <label style="display: block; font-size: 12px; margin-bottom: 6px;">Firmware Target</label>
+                            <select id="firmwareTarget">
+                                <option value="final">Final (6.1.0)</option>
+                                <option value="baseline">Baseline (2.11.11)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="aviat-card" id="radioListCard" style="display: none;">
+                    <h2>Radio Queue</h2>
+                    <div id="radioList" class="aviat-queue"></div>
+                </div>
+            </div>
+
+            <div class="aviat-card" style="margin-top: 16px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                    <h2 style="margin: 0;">Activity Log</h2>
+                    <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                        <button id="aviatLogRefreshBtn" class="aviat-btn secondary">Refresh</button>
+                        <button id="aviatLogStatusBtn" class="aviat-btn secondary">Check Status</button>
+                        <button id="aviatReloadUiBtn" class="aviat-btn secondary">Reload UI</button>
+                        <button id="aviatClearLogBtn" class="aviat-btn secondary">Clear</button>
+                    </div>
+                </div>
+                <div id="logBox" class="aviat-log" style="margin-top: 10px;">
+                    <div class="aviat-log-entry"><span class="aviat-log-time">[--:--:--]</span> Ready. Add radio IPs to begin.</div>
                 </div>
             </div>
         </div>
@@ -9494,20 +9950,25 @@
                             const totalCount = allActivities.length;
                             const successRate = totalCount > 0 ?
                                 Math.round((successCount / totalCount) * 100) : 100;
+                            const firmwareUpgradeCount = allActivities.filter(entry =>
+                                entry.type === 'aviat-upgrade'
+                            ).length;
 
                             // Update UI elements
                             const totalEl = document.getElementById('metricTotalConfigs');
                             const migrationsEl = document.getElementById('metricMigrations');
+                            const firmwareEl = document.getElementById('metricFirmwareUpgrades');
                             const successEl = document.getElementById('metricSuccess');
                             const todayEl = document.getElementById('metricToday');
 
                             // Total configs = ALL configs ever generated (migrations + new configs) - NEVER RESETS
                             if (totalEl) totalEl.textContent = totalCount;
                             if (migrationsEl) migrationsEl.textContent = migrationCount;
+                            if (firmwareEl) firmwareEl.textContent = firmwareUpgradeCount;
                             if (successEl) successEl.textContent = successRate + '%';
                             if (todayEl) todayEl.textContent = todayCount;
 
-                            console.log(`[METRICS]  Backend: Total=${totalCount} (ALL TIME), Today=${todayCount}, Success=${successCount}/${totalCount} (${successRate}%), Migrations=${migrationCount}`);
+                            console.log(`[METRICS]  Backend: Total=${totalCount} (ALL TIME), Today=${todayCount}, Success=${successCount}/${totalCount} (${successRate}%), Migrations=${migrationCount}, FirmwareUpgrades=${firmwareUpgradeCount}`);
                             return;
                         } else {
                             console.log('[METRICS]  Backend returned invalid data format, falling back to localStorage');
@@ -9542,20 +10003,25 @@
                 const totalCount = history.length;
                 const successRate = totalCount > 0 ?
                     Math.round((successCount / totalCount) * 100) : 100;
+                const firmwareUpgradeCount = history.filter(entry =>
+                    entry.type === 'aviat-upgrade'
+                ).length;
 
                 // Update UI elements
                 const totalEl = document.getElementById('metricTotalConfigs');
                 const migrationsEl = document.getElementById('metricMigrations');
+                const firmwareEl = document.getElementById('metricFirmwareUpgrades');
                 const successEl = document.getElementById('metricSuccess');
                 const todayEl = document.getElementById('metricToday');
 
                 // Total configs = ALL configs ever generated (migrations + new configs) - NEVER RESETS
                 if (totalEl) totalEl.textContent = totalCount;
                 if (migrationsEl) migrationsEl.textContent = migrationCount;
+                if (firmwareEl) firmwareEl.textContent = firmwareUpgradeCount;
                 if (successEl) successEl.textContent = successRate + '%';
                 if (todayEl) todayEl.textContent = todayCount;
 
-                console.log(`[METRICS]  localStorage: Total=${totalCount} (ALL TIME), Today=${todayCount}, Success=${successCount}/${totalCount} (${successRate}%), Migrations=${migrationCount}`);
+                console.log(`[METRICS]  localStorage: Total=${totalCount} (ALL TIME), Today=${todayCount}, Success=${successCount}/${totalCount} (${successRate}%), Migrations=${migrationCount}, FirmwareUpgrades=${firmwareUpgradeCount}`);
             }
 
             // Navigate to activity details when clicking on recent activity items
@@ -9591,6 +10057,8 @@
                             // If backend is unavailable, just navigate to the tab
                             alert('Migration completed. Config may have been downloaded already.');
                         });
+                } else if (type === 'aviat-upgrade') {
+                    window.navigateToTab?.('aviat-backhaul');
                 } else {
                     // Navigate to saved configs tab and display the config
                     window.navigateToTab?.('completed-configs');
@@ -9645,6 +10113,9 @@
                             } else if (entry.type === 'enterprise-feeding-outstate-config') {
                                 icon = '';
                                 activityLabel = 'Enterprise Feeding Out-of-State Config';
+                            } else if (entry.type === 'aviat-upgrade') {
+                                icon = '';
+                                activityLabel = 'Aviat Backhaul Upgrade';
                             } else if (entry.type === 'tower-config') {
                                 icon = '';
                                 activityLabel = 'Tower Config';
@@ -11044,19 +11515,91 @@
                     return;
                 }
 
-                const siteName = document.getElementById('siteName').value || 'mikrotik';
-                const targetDevice = document.getElementById('targetDevice').value || 'ccr2004';
-                const timestamp = new Date().toISOString().split('T')[0];
+                const baseName = getTowerBaseFilename();
 
                 const blob = new Blob([config], { type: 'text/plain' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `${siteName}-${targetDevice}-${timestamp}.rsc`;
+                a.download = `${baseName}.rsc`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
+            }
+
+            function getTowerBaseFilename() {
+                const siteName = (document.getElementById('siteName')?.value || 'mikrotik').trim() || 'mikrotik';
+                const targetDevice = document.getElementById('targetDevice')?.value || 'ccr2004';
+                const timestamp = new Date().toISOString().split('T')[0];
+                return `${siteName}-${targetDevice}-${timestamp}`;
+            }
+
+            async function fetchPortMapFromConfig(configText) {
+                const apiBase = (typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api';
+                const response = await fetch(`${apiBase}/extract-port-map`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ config_content: configText })
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to extract port map');
+                }
+                return data.port_map_text || '';
+            }
+
+            async function downloadPortMap() {
+                const config = document.getElementById('output').value;
+                if (!config) {
+                    alert('Please generate a configuration first!');
+                    return;
+                }
+                try {
+                    const portMap = await fetchPortMapFromConfig(config);
+                    const baseName = getTowerBaseFilename();
+                    const blob = new Blob([portMap], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${baseName}-port-map.txt`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                } catch (err) {
+                    alert(`Port map download failed: ${err.message}`);
+                }
+            }
+
+            async function downloadConfigZip() {
+                const config = document.getElementById('output').value;
+                if (!config) {
+                    alert('Please generate a configuration first!');
+                    return;
+                }
+                if (!window.JSZip) {
+                    alert('JSZip is not available. Please refresh and try again.');
+                    return;
+                }
+                try {
+                    const portMap = await fetchPortMapFromConfig(config);
+                    const baseName = getTowerBaseFilename();
+                    const zip = new JSZip();
+                    zip.file(`${baseName}.rsc`, config);
+                    zip.file(`${baseName}-port-map.txt`, portMap);
+                    const blob = await zip.generateAsync({ type: 'blob' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${baseName}.zip`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                } catch (err) {
+                    alert(`Zip download failed: ${err.message}`);
+                }
             }
 
             function normalizeConfigOrder(config) {
@@ -20873,6 +21416,696 @@ Ready for translation!`);
         console.log('[FTTH] FTTH BNG Configuration functions loaded');
     </script>
 
+    <!-- AVIAT BACKHAUL SCRIPT -->
+    <script>
+        (function () {
+            const aviatState = {
+                radios: [],
+                isProcessing: false,
+                currentTaskId: null,
+                autoStatusInterval: null,
+                nextStatusCheckAt: 0
+            };
+
+            let aviatApiOverride = null;
+
+            function getAviatApiBase() {
+                if (aviatApiOverride) return aviatApiOverride;
+                const base = (typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api';
+                return `${base}/aviat`;
+            }
+
+            function getAviatCandidateBases() {
+                const bases = [];
+                const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                bases.push(`${window.location.origin}/api/aviat`);
+                bases.push(getAviatApiBase());
+                if (isLocal) {
+                    bases.push('http://localhost:5000/api/aviat');
+                }
+                return Array.from(new Set(bases.filter(Boolean)));
+            }
+
+            async function aviatFetch(path, options) {
+                const bases = getAviatCandidateBases();
+                let lastError = null;
+                for (const base of bases) {
+                    try {
+                        const response = await fetch(`${base}${path}`, options);
+                        const contentType = response.headers.get('content-type') || '';
+                        const shouldRetry = [403, 404, 405].includes(response.status);
+                        if (shouldRetry && base !== bases[bases.length - 1]) {
+                            continue;
+                        }
+                        if (response.ok) {
+                            aviatApiOverride = base;
+                        }
+                        return response;
+                    } catch (err) {
+                        lastError = err;
+                    }
+                }
+                const baseList = bases.length ? ` (${bases.join(', ')})` : '';
+                throw lastError || new Error(`Failed to fetch${baseList}`);
+            }
+
+            async function parseAviatJson(response) {
+                const contentType = response.headers.get('content-type') || '';
+                if (!contentType.includes('application/json')) {
+                    return { error: `Unexpected response (${response.status})` };
+                }
+                return response.json();
+            }
+
+            function aviatAddLog(message, type = 'info') {
+                const logBox = document.getElementById('logBox');
+                if (!logBox) return;
+                const time = new Date().toLocaleTimeString();
+                const entry = document.createElement('div');
+                entry.className = `aviat-log-entry log-${type}`;
+                entry.innerHTML = `<span class="aviat-log-time">[${time}]</span> ${message}`;
+                logBox.appendChild(entry);
+                logBox.scrollTop = logBox.scrollHeight;
+            }
+
+            function aviatClearLog() {
+                const logBox = document.getElementById('logBox');
+                if (!logBox) return;
+                logBox.innerHTML = '<div class="aviat-log-entry"><span class="aviat-log-time">[--:--:--]</span> Log cleared.</div>';
+            }
+
+            function aviatNormalizeStatus(status, successFlag) {
+                if (!status) return successFlag ? 'success' : 'pending';
+                const lower = String(status).toLowerCase();
+                if (['success', 'error', 'pending', 'processing', 'scheduled', 'manual'].includes(lower)) {
+                    return lower;
+                }
+                if (['completed', 'done'].includes(lower)) {
+                    return successFlag === false ? 'error' : 'success';
+                }
+                if (['failed', 'fail'].includes(lower)) {
+                    return 'error';
+                }
+                return successFlag === true ? 'success' : lower;
+            }
+
+            function aviatStatusIcon(status) {
+                const icons = {
+                    pending: '.',
+                    processing: '~',
+                    scheduled: 'S',
+                    manual: 'M',
+                    success: 'OK',
+                    error: 'X'
+                };
+                return icons[status] || '?';
+            }
+
+            function aviatPersistRadios() {
+                try {
+                    localStorage.setItem('aviatRadios', JSON.stringify(aviatState.radios));
+                } catch (e) {
+                    // ignore storage errors
+                }
+            }
+
+            function aviatRestoreRadios() {
+                try {
+                    const raw = localStorage.getItem('aviatRadios');
+                    if (!raw) return;
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed)) {
+                        aviatState.radios = parsed.map(r => ({
+                            ...r,
+                            status: aviatNormalizeStatus(r.status, r.success)
+                        }));
+                    }
+                } catch (e) {
+                    // ignore storage errors
+                }
+            }
+
+            function aviatUpdateUI() {
+                const statsBar = document.getElementById('statsBar');
+                const radioListCard = document.getElementById('radioListCard');
+                const radioList = document.getElementById('radioList');
+
+                if (!statsBar || !radioListCard || !radioList) return;
+
+                if (aviatState.radios.length === 0) {
+                    statsBar.style.display = 'none';
+                    radioListCard.style.display = 'none';
+                    return;
+                }
+
+                statsBar.style.display = 'flex';
+                radioListCard.style.display = 'block';
+
+                const stats = {
+                    total: aviatState.radios.length,
+                    pending: aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'pending').length,
+                    processing: aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'processing').length,
+                    scheduled: aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'scheduled').length,
+                    success: aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'success').length,
+                    error: aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'error').length
+                };
+
+                document.getElementById('statTotal').textContent = stats.total;
+                document.getElementById('statPending').textContent = stats.pending;
+                document.getElementById('statProcessing').textContent = stats.processing;
+                document.getElementById('statScheduled').textContent = stats.scheduled;
+                document.getElementById('statSuccess').textContent = stats.success;
+                document.getElementById('statError').textContent = stats.error;
+
+                radioList.innerHTML = aviatState.radios.map(r => {
+                    const mainStatus = aviatNormalizeStatus(r.status);
+                    const fwStatus = aviatNormalizeStatus(r.firmwareStatus);
+                    const pwStatus = aviatNormalizeStatus(r.passwordStatus);
+                    const snmpStatus = aviatNormalizeStatus(r.snmpStatus);
+                    const bufferStatus = aviatNormalizeStatus(r.bufferStatus);
+                    const sopStatus = aviatNormalizeStatus(r.sopStatus);
+                    const disabled = mainStatus === 'processing' ? 'disabled' : '';
+                    return `
+                        <div class="aviat-queue-item">
+                            <div>
+                                <span class="aviat-status-badge ${mainStatus}">${aviatStatusIcon(mainStatus)}</span>
+                                ${r.ip}
+                                <div style="margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap;">
+                                    <span class="aviat-status-badge ${fwStatus}" title="Firmware">${aviatStatusIcon(fwStatus)}</span>
+                                    <span class="aviat-status-badge ${pwStatus}" title="Password">${aviatStatusIcon(pwStatus)}</span>
+                                    <span class="aviat-status-badge ${snmpStatus}" title="SNMP">${aviatStatusIcon(snmpStatus)}</span>
+                                    <span class="aviat-status-badge ${bufferStatus}" title="Buffer">${aviatStatusIcon(bufferStatus)}</span>
+                                    <span class="aviat-status-badge ${sopStatus}" title="SOP">${aviatStatusIcon(sopStatus)}</span>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 6px; align-items: center;">
+                                <button class="aviat-btn secondary" onclick="aviatRunSingle('${r.ip}')" ${disabled}>Run</button>
+                                <button class="aviat-btn danger" onclick="aviatRemoveRadio('${r.ip}')" ${disabled}>Remove</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                aviatPersistRadios();
+            }
+
+            function aviatAddRadios() {
+                const input = document.getElementById('ipInput');
+                if (!input) return;
+                const raw = input.value.trim();
+                if (!raw) return;
+                const newIPs = raw.split(/[\n,]+/)
+                    .map(ip => ip.trim())
+                    .filter(ip => ip && !aviatState.radios.find(r => r.ip === ip));
+
+                newIPs.forEach(ip => {
+                    aviatState.radios.push({
+                        ip,
+                        status: 'pending',
+                        firmwareStatus: 'pending',
+                        passwordStatus: 'pending',
+                        snmpStatus: 'pending',
+                        bufferStatus: 'pending',
+                        sopStatus: 'pending'
+                    });
+                });
+
+                if (newIPs.length > 0) {
+                    aviatAddLog(`Added ${newIPs.length} radio(s) to queue`, 'info');
+                }
+
+                input.value = '';
+                aviatUpdateUI();
+            }
+
+            function aviatReplaceRadios() {
+                const input = document.getElementById('ipInput');
+                if (!input || !input.value.trim()) {
+                    aviatAddLog('Please enter IPs to replace the list', 'warning');
+                    return;
+                }
+                aviatState.radios = [];
+                aviatAddRadios();
+            }
+
+            function aviatRemoveRadio(ip) {
+                aviatState.radios = aviatState.radios.filter(r => r.ip !== ip);
+                aviatUpdateUI();
+            }
+
+            window.aviatRemoveRadio = aviatRemoveRadio;
+
+            function aviatClearAll() {
+                aviatState.radios = [];
+                aviatUpdateUI();
+                aviatAddLog('Cleared all radios', 'info');
+            }
+
+            function aviatClearCompleted() {
+                aviatState.radios = aviatState.radios.filter(r => aviatNormalizeStatus(r.status) !== 'success');
+                aviatUpdateUI();
+                aviatAddLog('Cleared completed radios', 'info');
+            }
+
+            function computeActivationAt(timeStr) {
+                if (!timeStr) return null;
+                const [hour, minute] = timeStr.split(':').map(v => parseInt(v, 10));
+                const now = new Date();
+                const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
+                if (target <= now) {
+                    target.setDate(target.getDate() + 1);
+                }
+                return target.toISOString();
+            }
+
+            function buildRunPayload() {
+                const doFirmware = document.getElementById('taskFirmware').checked;
+                const doBuffer = document.getElementById('taskBuffer').checked;
+                const doSNMP = document.getElementById('taskSNMP').checked;
+                const doPassword = document.getElementById('taskPassword').checked;
+                const doSOP = document.getElementById('taskSOP').checked;
+                const activationTime = document.getElementById('activationTime').value;
+                const activationMode = document.getElementById('activationMode').value;
+                const firmwareTarget = document.getElementById('firmwareTarget').value;
+
+                const tasks = [];
+                if (doFirmware) tasks.push('firmware');
+                if (doBuffer) tasks.push('buffer');
+                if (doSNMP) tasks.push('snmp');
+                if (doPassword) tasks.push('password');
+                if (doSOP) tasks.push('sop');
+
+                if (tasks.length === 0) {
+                    aviatAddLog('No tasks selected', 'warning');
+                    return null;
+                }
+
+                return {
+                    tasks,
+                    maintenance_params: {
+                        activation_time: activationMode === 'scheduled' ? activationTime : null,
+                        activation_at: activationMode === 'scheduled' ? computeActivationAt(activationTime) : null,
+                        activate_now: activationMode === 'immediate',
+                        activation_mode: activationMode,
+                        firmware_target: firmwareTarget,
+                        firmware_uri: null
+                    }
+                };
+            }
+
+            function buildScheduledSyncPayload(ips) {
+                const doBuffer = document.getElementById('taskBuffer').checked;
+                const doSNMP = document.getElementById('taskSNMP').checked;
+                const doPassword = document.getElementById('taskPassword').checked;
+                const doSOP = document.getElementById('taskSOP').checked;
+                const activationTime = document.getElementById('activationTime').value;
+                const activationMode = document.getElementById('activationMode').value;
+                const firmwareTarget = document.getElementById('firmwareTarget').value;
+
+                const remainingTasks = [];
+                if (doBuffer) remainingTasks.push('buffer');
+                if (doSNMP) remainingTasks.push('snmp');
+                if (doPassword) remainingTasks.push('password');
+                if (doSOP) remainingTasks.push('sop');
+
+                return {
+                    ips,
+                    remaining_tasks: remainingTasks,
+                    maintenance_params: {
+                        activation_time: activationMode === 'scheduled' ? activationTime : null,
+                        activation_at: activationMode === 'scheduled' ? computeActivationAt(activationTime) : null,
+                        activate_now: false,
+                        activation_mode: activationMode,
+                        firmware_target: firmwareTarget,
+                        firmware_uri: null
+                    },
+                    activation_at: activationMode === 'scheduled' ? computeActivationAt(activationTime) : null
+                };
+            }
+
+            async function aviatSubmitRun(ips) {
+                const payload = buildRunPayload();
+                if (!payload) return;
+                try {
+                    const response = await aviatFetch('/run', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            ips,
+                            tasks: payload.tasks,
+                            maintenance_params: payload.maintenance_params
+                        })
+                    });
+                    const data = await parseAviatJson(response);
+                    if (data.task_id) {
+                        aviatState.currentTaskId = data.task_id;
+                        document.getElementById('abortBtn').disabled = false;
+                        aviatStartLogStream(data.task_id);
+                        aviatMonitorStatus(data.task_id);
+                    } else {
+                        aviatAddLog(`Error starting task: ${data.error || 'Unknown error'}`, 'error');
+                        aviatResetRunButton();
+                    }
+                } catch (err) {
+                    aviatAddLog(`Failed to connect to backend: ${err.message}`, 'error');
+                    aviatResetRunButton();
+                }
+            }
+
+            window.aviatRunSingle = async function (ip) {
+                if (aviatState.isProcessing) return;
+                aviatState.isProcessing = true;
+                document.getElementById('runBtn').textContent = 'Processing...';
+                document.getElementById('runBtn').disabled = true;
+                await aviatSubmitRun([ip]);
+            };
+
+            async function aviatRunAll() {
+                if (aviatState.isProcessing) return;
+                const pending = aviatState.radios.filter(r => ['pending', 'error'].includes(aviatNormalizeStatus(r.status)));
+                if (pending.length === 0) {
+                    aviatAddLog('No radios to process', 'warning');
+                    return;
+                }
+                aviatState.isProcessing = true;
+                document.getElementById('runBtn').textContent = 'Processing...';
+                document.getElementById('runBtn').disabled = true;
+                aviatAddLog('----------------------------------------', 'info');
+                aviatAddLog(`Starting Configuration for ${pending.length} radio(s)`, 'info');
+                aviatAddLog('----------------------------------------', 'info');
+                await aviatSubmitRun(pending.map(r => r.ip));
+            }
+
+            async function aviatActivateScheduled() {
+                if (aviatState.isProcessing) return;
+                aviatState.isProcessing = true;
+                document.getElementById('runBtn').textContent = 'Processing...';
+                document.getElementById('runBtn').disabled = true;
+                try {
+                    const now = new Date();
+                    const scheduledIps = aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'scheduled').map(r => r.ip);
+                    const syncPayload = scheduledIps.length > 0 ? buildScheduledSyncPayload(scheduledIps) : null;
+                    if (syncPayload) {
+                        await aviatFetch('/scheduled/sync', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(syncPayload)
+                        });
+                    }
+                    const response = await aviatFetch('/activate-scheduled', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            force: true,
+                            client_hour: now.getHours(),
+                            client_minute: now.getMinutes(),
+                            ips: scheduledIps,
+                            remaining_tasks: syncPayload ? syncPayload.remaining_tasks : [],
+                            maintenance_params: syncPayload ? syncPayload.maintenance_params : {},
+                            activation_at: syncPayload ? syncPayload.activation_at : null
+                        })
+                    });
+                    const data = await parseAviatJson(response);
+                    if (!response.ok) {
+                        aviatAddLog(data.error || 'Activate scheduled failed', 'error');
+                        aviatResetRunButton();
+                        return;
+                    }
+                    if (data.task_id) {
+                        aviatState.nextStatusCheckAt = Date.now() + 1800000;
+                        setTimeout(() => { aviatCheckStatus(); }, 1800000);
+                        aviatState.currentTaskId = data.task_id;
+                        document.getElementById('abortBtn').disabled = false;
+                        aviatStartLogStream(data.task_id);
+                        aviatMonitorStatus(data.task_id);
+                    } else {
+                        aviatAddLog('No scheduled devices to activate', 'warning');
+                        aviatResetRunButton();
+                    }
+                } catch (err) {
+                    aviatAddLog(`Activate scheduled failed: ${err.message}`, 'error');
+                    aviatResetRunButton();
+                }
+            }
+
+            async function aviatAbortRun() {
+                if (!aviatState.currentTaskId) return;
+                try {
+                    await aviatFetch(`/abort/${aviatState.currentTaskId}`, { method: 'POST' });
+                    aviatAddLog('Abort requested', 'warning');
+                } catch (err) {
+                    aviatAddLog(`Abort failed: ${err.message}`, 'error');
+                }
+            }
+
+            function aviatResetRunButton() {
+                aviatState.isProcessing = false;
+                aviatState.currentTaskId = null;
+                const abortBtn = document.getElementById('abortBtn');
+                if (abortBtn) abortBtn.disabled = true;
+                document.getElementById('runBtn').textContent = 'Run All';
+                document.getElementById('runBtn').disabled = false;
+            }
+
+            function aviatStartAutoStatusChecks() {
+                if (aviatState.autoStatusInterval) return;
+                aviatState.autoStatusInterval = setInterval(() => {
+                    const hasRunning = aviatState.radios.some(r => aviatNormalizeStatus(r.status) === 'processing');
+                    if (hasRunning) {
+                        aviatCheckStatus();
+                    }
+                }, 300000);
+            }
+
+            async function aviatCheckStatus() {
+                try {
+                    const now = Date.now();
+                    if (now < aviatState.nextStatusCheckAt) {
+                        const mins = Math.ceil((aviatState.nextStatusCheckAt - now) / 60000);
+                        aviatAddLog(`Status check deferred (${mins} min until post-activation window).`, 'info');
+                        return;
+                    }
+                    aviatAddLog(`Checking status for ${aviatState.radios.length} radio(s)...`, 'info');
+                    const response = await aviatFetch('/check-status', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ips: aviatState.radios.map(r => r.ip) })
+                    });
+                    const data = await parseAviatJson(response);
+                    if (!response.ok) {
+                        aviatAddLog(data.error || 'Check status failed', 'error');
+                        return;
+                    }
+                    const results = data.results || [];
+                    results.forEach(res => {
+                        const radio = aviatState.radios.find(r => r.ip === res.ip);
+                        if (!radio) return;
+                        if (res.error || !res.reachable) {
+                            radio.status = 'error';
+                            return;
+                        }
+                        const firmwareOk = res.firmware && res.firmware.startsWith('6.');
+                        radio.firmwareStatus = firmwareOk ? 'success' : 'pending';
+                        radio.snmpStatus = res.snmp_ok ? 'success' : 'pending';
+                        radio.bufferStatus = res.buffer_ok ? 'success' : 'pending';
+                        radio.sopStatus = firmwareOk && res.snmp_ok && res.buffer_ok ? 'success' : 'pending';
+                        if (radio.sopStatus === 'success') {
+                            radio.status = 'success';
+                        } else if (aviatNormalizeStatus(radio.status) !== 'scheduled') {
+                            radio.status = 'pending';
+                        }
+                    });
+                    aviatUpdateUI();
+                    aviatAddLog(`Status check completed (${results.length} radios)`, 'info');
+                } catch (err) {
+                    aviatAddLog(`Check status failed: ${err.message}`, 'error');
+                }
+            }
+
+            async function aviatRefreshStatus() {
+                try {
+                    const response = await aviatFetch('/scheduled');
+                    const data = await parseAviatJson(response);
+                    if (!response.ok) {
+                        aviatAddLog(data.error || `Refresh failed (${response.status})`, 'error');
+                        return;
+                    }
+                    const scheduled = new Set(data.scheduled || []);
+                    aviatState.radios = aviatState.radios.map(r => {
+                        if (scheduled.has(r.ip)) {
+                            return { ...r, status: 'scheduled' };
+                        }
+                        if (r.status === 'scheduled') {
+                            return { ...r, status: 'pending' };
+                        }
+                        return r;
+                    });
+                    aviatUpdateUI();
+                    aviatAddLog('Refreshed scheduled queue', 'info');
+                } catch (err) {
+                    aviatAddLog(`Refresh failed: ${err.message}`, 'error');
+                }
+            }
+
+            function aviatStartLogStream(taskId) {
+                const eventSource = new EventSource(`${getAviatApiBase()}/stream/${taskId}`);
+                eventSource.onmessage = function (event) {
+                    const data = JSON.parse(event.data);
+                    aviatAddLog(data.message, data.level);
+                    const ipMatch = data.message.match(/\[(\d+\.\d+\.\d+\.\d+)\]/);
+                    if (ipMatch) {
+                        const ip = ipMatch[1];
+                        const radio = aviatState.radios.find(r => r.ip === ip);
+                        if (radio) {
+                            radio.status = 'processing';
+                            if (data.message.includes('Triggering firmware download')) {
+                                radio.firmwareStatus = 'processing';
+                            } else if (data.message.includes('Firmware download complete') || data.message.includes('Firmware download started')) {
+                                radio.firmwareStatus = 'success';
+                            } else if (data.message.includes('Scheduled activation queued')) {
+                                radio.status = 'scheduled';
+                            } else if (data.message.includes('Activation started')) {
+                                radio.firmwareStatus = 'success';
+                            } else if (data.message.includes('Password changed')) {
+                                radio.passwordStatus = 'success';
+                            } else if (data.message.includes('SNMP configured')) {
+                                radio.snmpStatus = 'success';
+                            } else if (data.message.includes('Buffer script applied')) {
+                                radio.bufferStatus = 'success';
+                            } else if (data.message.includes('SOP check')) {
+                                if (data.message.includes('FAIL')) {
+                                    radio.sopStatus = 'error';
+                                } else if (data.message.includes('PASS')) {
+                                    radio.sopStatus = 'success';
+                                }
+                            } else if (data.message.includes('SUCCESS')) {
+                                radio.status = 'success';
+                            } else if (data.message.includes('FAILED')) {
+                                radio.status = 'error';
+                            } else if (data.level === 'error' && data.message.toLowerCase().includes('failed')) {
+                                radio.status = 'error';
+                            }
+                        }
+                    }
+                    aviatUpdateUI();
+                };
+                eventSource.onerror = function () {
+                    eventSource.close();
+                };
+            }
+
+            function aviatMonitorStatus(taskId) {
+                const interval = setInterval(async () => {
+                    try {
+                        const response = await aviatFetch(`/status/${taskId}`);
+                        const data = await parseAviatJson(response);
+                        if (data.status === 'completed' || data.status === 'aborted') {
+                            clearInterval(interval);
+                            (data.results || []).forEach(res => {
+                                const radio = aviatState.radios.find(r => r.ip === res.ip);
+                                if (radio) {
+                                    radio.status = aviatNormalizeStatus(res.status, res.success);
+                                    radio.firmwareStatus = res.firmware_downloaded ? 'success' : 'pending';
+                                    radio.passwordStatus = res.password_changed ? 'success' : 'pending';
+                                    radio.snmpStatus = res.snmp_configured ? 'success' : 'pending';
+                                    radio.bufferStatus = res.buffer_configured ? 'success' : 'pending';
+                                    radio.sopStatus = res.sop_checked ? (res.sop_passed ? 'success' : 'error') : 'pending';
+                                }
+                            });
+                            aviatUpdateUI();
+                            aviatResetRunButton();
+                            const success = (data.results || []).filter(r => r.success).length;
+                            aviatAddLog('----------------------------------------', 'info');
+                            aviatAddLog(`Batch complete: ${success}/${(data.results || []).length} successful`, success === (data.results || []).length ? 'success' : 'warning');
+                            if (data.status === 'aborted') {
+                                aviatAddLog('Batch aborted', 'warning');
+                            }
+                        }
+                    } catch (err) {
+                        console.error('Aviat status check failed', err);
+                    }
+                }, 2000);
+            }
+
+            function aviatUpdateMaintenanceBanner() {
+                const banner = document.getElementById('maintenanceBanner');
+                if (!banner) return;
+                const now = new Date();
+                const hour = now.getHours();
+                const inWindow = hour >= 2 && hour < 6;
+                const canActivate = hour >= 2 && hour < 5;
+                banner.className = `aviat-maintenance-banner ${inWindow ? 'aviat-maintenance-on' : 'aviat-maintenance-off'}`;
+                banner.textContent = inWindow
+                    ? 'MAINTENANCE WINDOW ACTIVE (2:00 AM - 6:00 AM) | Activation allowed until 5:00 AM'
+                    : 'OUTSIDE MAINTENANCE WINDOW (2:00 AM - 6:00 AM) | Activation allowed 2:00 AM - 5:00 AM';
+                const activateBtn = document.getElementById('activateScheduledBtn');
+                if (activateBtn) {
+                    activateBtn.disabled = !canActivate;
+                    activateBtn.title = canActivate ? '' : 'Activation disabled after 5:00 AM local time';
+                }
+            }
+
+            function aviatBindControls() {
+                const addBtn = document.getElementById('aviatAddBtn');
+                const replaceBtn = document.getElementById('aviatReplaceBtn');
+                const clearDoneBtn = document.getElementById('aviatClearDoneBtn');
+                const clearAllBtn = document.getElementById('aviatClearAllBtn');
+                const refreshBtn = document.getElementById('aviatRefreshBtn');
+                const checkStatusBtn = document.getElementById('aviatCheckStatusBtn');
+                const activateBtn = document.getElementById('activateScheduledBtn');
+                const abortBtn = document.getElementById('abortBtn');
+                const runBtn = document.getElementById('runBtn');
+                const logRefreshBtn = document.getElementById('aviatLogRefreshBtn');
+                const logStatusBtn = document.getElementById('aviatLogStatusBtn');
+                const reloadBtn = document.getElementById('aviatReloadUiBtn');
+                const clearLogBtn = document.getElementById('aviatClearLogBtn');
+                const ipInput = document.getElementById('ipInput');
+
+                if (addBtn) addBtn.addEventListener('click', aviatAddRadios);
+                if (replaceBtn) replaceBtn.addEventListener('click', aviatReplaceRadios);
+                if (clearDoneBtn) clearDoneBtn.addEventListener('click', aviatClearCompleted);
+                if (clearAllBtn) clearAllBtn.addEventListener('click', aviatClearAll);
+                if (refreshBtn) refreshBtn.addEventListener('click', aviatRefreshStatus);
+                if (checkStatusBtn) checkStatusBtn.addEventListener('click', aviatCheckStatus);
+                if (activateBtn) activateBtn.addEventListener('click', aviatActivateScheduled);
+                if (abortBtn) abortBtn.addEventListener('click', aviatAbortRun);
+                if (runBtn) runBtn.addEventListener('click', aviatRunAll);
+                if (logRefreshBtn) logRefreshBtn.addEventListener('click', aviatRefreshStatus);
+                if (logStatusBtn) logStatusBtn.addEventListener('click', aviatCheckStatus);
+                if (reloadBtn) reloadBtn.addEventListener('click', () => window.location.reload());
+                if (clearLogBtn) clearLogBtn.addEventListener('click', aviatClearLog);
+
+                if (ipInput) {
+                    ipInput.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            aviatAddRadios();
+                        }
+                    });
+                }
+
+                const activationModeSelect = document.getElementById('activationMode');
+                const activationTimeInput = document.getElementById('activationTime');
+                if (activationModeSelect && activationTimeInput) {
+                    activationTimeInput.disabled = activationModeSelect.value !== 'scheduled';
+                    activationModeSelect.addEventListener('change', () => {
+                        activationTimeInput.disabled = activationModeSelect.value !== 'scheduled';
+                    });
+                }
+            }
+
+            document.addEventListener('DOMContentLoaded', () => {
+                aviatRestoreRadios();
+                aviatUpdateUI();
+                aviatRefreshStatus();
+                aviatBindControls();
+                aviatUpdateMaintenanceBanner();
+                setInterval(aviatUpdateMaintenanceBanner, 60000);
+                aviatStartAutoStatusChecks();
+                aviatAddLog('Tool initialized', 'info');
+            });
+        })();
+    </script>
 </body>
 
 </html>

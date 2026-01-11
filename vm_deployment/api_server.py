@@ -45,6 +45,10 @@ import sqlite3
 import hashlib
 import secrets
 from functools import wraps
+import threading
+import queue
+import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # JWT support (optional - install with: pip install PyJWT)
 try:
@@ -153,6 +157,18 @@ except ImportError:
     HAS_COMPLIANCE = False
     # Compliance reference not available - RFC-09-10-25 compliance will not be enforced
 
+# Aviat backhaul updater integration (merged into NOC backend)
+try:
+    from aviat_config import (
+        process_radio as aviat_process_radio,
+        process_radios_parallel as aviat_process_radios_parallel,
+        check_device_status as aviat_check_device_status,
+        CONFIG as AVIAT_CONFIG,
+    )
+    HAS_AVIAT = True
+except Exception:
+    HAS_AVIAT = False
+
 # Safe print function for PyInstaller compatibility (defined early for use throughout)
 def safe_print(*args, **kwargs):
     """Print with error handling for PyInstaller compatibility"""
@@ -175,6 +191,37 @@ def safe_print(*args, **kwargs):
 
 # Make the module's print resilient on Windows consoles that can't encode certain Unicode characters.
 print = safe_print
+
+# ========================================
+# AVIAT BACKHAUL UPDATER STATE
+# ========================================
+aviat_tasks = {}
+aviat_log_queues = {}
+aviat_scheduled_queue = []
+AVIAT_SCHEDULED_STORE = Path(__file__).resolve().parent / "aviat_scheduled_queue.json"
+
+
+def _aviat_load_scheduled_queue():
+    if not AVIAT_SCHEDULED_STORE.exists():
+        return
+    try:
+        with open(AVIAT_SCHEDULED_STORE, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, list):
+            aviat_scheduled_queue.extend(data)
+    except Exception:
+        pass
+
+
+def _aviat_save_scheduled_queue():
+    try:
+        with open(AVIAT_SCHEDULED_STORE, "w", encoding="utf-8") as handle:
+            json.dump(aviat_scheduled_queue, handle)
+    except Exception:
+        pass
+
+
+_aviat_load_scheduled_queue()
 
 # ========================================
 # ROUTERBOARD INTERFACE DATABASE
@@ -9416,6 +9463,28 @@ def download_port_map(config_id):
         print(f"[ERROR] Failed to download port map: {e}")
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/api/extract-port-map', methods=['POST'])
+def extract_port_map():
+    """Extract a port map from raw config content without saving a config."""
+    try:
+        data = request.get_json(force=True)
+        config_content = (data.get('config_content') or '').strip()
+        if not config_content:
+            return jsonify({'error': 'No configuration content provided'}), 400
+
+        device_name = data.get('device_name', '')
+        customer_code = data.get('customer_code', '')
+        port_mapping = extract_port_mapping(config_content)
+        port_map_text = format_port_mapping_text(port_mapping, device_name, customer_code)
+        return jsonify({
+            'port_mapping': port_mapping,
+            'port_map_text': port_map_text
+        })
+    except Exception as e:
+        print(f"[ERROR] Failed to extract port map: {e}")
+        return jsonify({'error': str(e)}), 500
+
 # Lazy initialize configs database - only when first accessed
 _configs_db_initialized = False
 def ensure_configs_db():
@@ -9659,6 +9728,406 @@ def get_activity():
     except Exception as e:
         print(f"[ERROR] Failed to get activities: {e}")
         return jsonify({'success': False, 'error': str(e), 'activities': []}), 500
+
+
+# ========================================
+# AVIAT BACKHAUL UPDATER API
+# ========================================
+
+def _aviat_should_log(result):
+    status = (result or {}).get('status')
+    if status in ('scheduled', 'manual', 'aborted'):
+        return False
+    return True
+
+def _log_aviat_activity(result):
+    try:
+        if not _aviat_should_log(result):
+            return
+        init_activity_db()
+        secure_dir = 'secure_data'
+        db_path = os.path.join(secure_dir, 'activity_log.db')
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        ts_unix = get_unix_timestamp()
+        ts_iso = get_utc_timestamp()
+        username = 'aviat-tool'
+        activity_type = 'aviat-upgrade'
+        site_name = result.get('ip') or 'Unknown'
+        device = 'Aviat Backhaul'
+        routeros = result.get('firmware_version_after') or result.get('firmware_version_before') or ''
+        success = 1 if result.get('success') else 0
+        c.execute('''INSERT INTO activities 
+                     (username, activity_type, device, site_name, routeros_version, success, timestamp, timestamp_unix)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                  (username, activity_type, device, site_name, routeros, success, ts_iso, ts_unix))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        safe_print(f"[AVIAT] Failed to log activity: {e}")
+
+def _aviat_result_dict(result):
+    return {
+        'ip': result.ip,
+        'success': result.success,
+        'status': getattr(result, 'status', 'completed'),
+        'firmware_downloaded': result.firmware_downloaded,
+        'firmware_scheduled': result.firmware_scheduled,
+        'firmware_activated': result.firmware_activated,
+        'password_changed': result.password_changed,
+        'snmp_configured': result.snmp_configured,
+        'buffer_configured': result.buffer_configured,
+        'sop_checked': result.sop_checked,
+        'sop_passed': result.sop_passed,
+        'sop_results': result.sop_results,
+        'firmware_version_before': result.firmware_version_before,
+        'firmware_version_after': result.firmware_version_after,
+        'error': result.error
+    }
+
+
+def _aviat_background_task(task_id, ips, task_types, maintenance_params=None):
+    aviat_tasks[task_id]['status'] = 'running'
+    maintenance_params = maintenance_params or {}
+    activation_mode = maintenance_params.get('activation_mode')
+
+    def log_callback(message, level):
+        if task_id in aviat_log_queues:
+            aviat_log_queues[task_id].put({'message': message, 'level': level})
+
+    results = []
+
+    def should_abort():
+        return aviat_tasks.get(task_id, {}).get('abort') is True
+
+    if activation_mode == "scheduled":
+        result_list = aviat_process_radios_parallel(
+            ips,
+            task_types,
+            maintenance_params,
+            should_abort=should_abort,
+            callback=log_callback,
+        )
+        results.extend([_aviat_result_dict(r) for r in result_list])
+    else:
+        for ip in ips:
+            if task_id not in aviat_tasks:
+                break
+            if should_abort():
+                aviat_tasks[task_id]['status'] = 'aborted'
+                break
+            result = aviat_process_radio(
+                ip,
+                task_types,
+                callback=log_callback,
+                maintenance_params=maintenance_params,
+                should_abort=should_abort,
+            )
+            results.append(_aviat_result_dict(result))
+
+    if activation_mode == "scheduled":
+        remaining_tasks = [t for t in task_types if t not in ("firmware", "all")]
+        for res in results:
+            if res.get("status") == "scheduled":
+                aviat_scheduled_queue.append({
+                    "ip": res["ip"],
+                    "remaining_tasks": remaining_tasks,
+                    "maintenance_params": maintenance_params,
+                    "activation_at": maintenance_params.get("activation_at"),
+                })
+        _aviat_save_scheduled_queue()
+
+    if aviat_tasks.get(task_id, {}).get('abort'):
+        remaining = [ip for ip in ips if ip not in [r['ip'] for r in results]]
+        for ip in remaining:
+            results.append({
+                'ip': ip,
+                'success': False,
+                'status': 'aborted',
+                'firmware_downloaded': False,
+                'firmware_scheduled': False,
+                'firmware_activated': False,
+                'password_changed': False,
+                'snmp_configured': False,
+                'buffer_configured': False,
+                'sop_checked': False,
+                'sop_passed': False,
+                'sop_results': [],
+                'firmware_version_before': None,
+                'firmware_version_after': None,
+                'error': 'Aborted'
+            })
+        aviat_tasks[task_id]['status'] = 'aborted'
+    else:
+        aviat_tasks[task_id]['status'] = 'completed'
+    aviat_tasks[task_id]['results'] = results
+    for res in results:
+        _log_aviat_activity(res)
+
+    if task_id in aviat_log_queues:
+        aviat_log_queues[task_id].put(None)
+
+
+@app.route('/api/aviat/run', methods=['POST'])
+def aviat_run_tasks():
+    if not HAS_AVIAT:
+        return jsonify({'error': 'Aviat backend not available'}), 503
+    data = request.json or {}
+    ips = data.get('ips', [])
+    task_types = data.get('tasks', [])
+    m_params = data.get('maintenance_params', {})
+
+    if not ips:
+        return jsonify({'error': 'No IPs provided'}), 400
+
+    task_id = str(uuid.uuid4())
+    aviat_tasks[task_id] = {
+        'status': 'pending',
+        'abort': False,
+        'ips': ips,
+        'tasks': task_types,
+        'results': []
+    }
+    aviat_log_queues[task_id] = queue.Queue()
+
+    thread = threading.Thread(
+        target=_aviat_background_task, args=(task_id, ips, task_types, m_params)
+    )
+    thread.start()
+
+    return jsonify({'task_id': task_id})
+
+
+@app.route('/api/aviat/activate-scheduled', methods=['POST'])
+def aviat_activate_scheduled():
+    if not HAS_AVIAT:
+        return jsonify({'error': 'Aviat backend not available'}), 503
+    data = request.json or {}
+    force = data.get("force", True)
+    request_ips = data.get("ips") or []
+    request_remaining = data.get("remaining_tasks") or []
+    request_maintenance = data.get("maintenance_params") or {}
+    request_activation_at = data.get("activation_at")
+    client_hour = data.get("client_hour")
+    client_minute = data.get("client_minute")
+
+    if client_hour is not None:
+        try:
+            client_hour = int(client_hour)
+            if not (2 <= client_hour < 5):
+                return jsonify({"error": "Outside activation window (2:00 AM - 5:00 AM)"}), 400
+        except Exception:
+            pass
+    else:
+        now = datetime.now()
+        if not (2 <= now.hour < 5):
+            return jsonify({"error": "Outside activation window (2:00 AM - 5:00 AM)"}), 400
+
+    if not aviat_scheduled_queue and not request_ips:
+        return jsonify({"error": "No scheduled devices"}), 400
+
+    task_id = str(uuid.uuid4())
+    if request_ips:
+        to_activate = [
+            {
+                "ip": ip,
+                "remaining_tasks": request_remaining,
+                "maintenance_params": request_maintenance,
+                "activation_at": request_activation_at,
+            }
+            for ip in request_ips
+        ]
+    else:
+        to_activate = list(aviat_scheduled_queue)
+
+    aviat_tasks[task_id] = {
+        'status': 'pending',
+        'abort': False,
+        'ips': [x["ip"] for x in to_activate],
+        'tasks': ['activate'],
+        'results': []
+    }
+    aviat_log_queues[task_id] = queue.Queue()
+
+    def activation_task():
+        aviat_tasks[task_id]['status'] = 'running'
+
+        def log_callback(message, level):
+            if task_id in aviat_log_queues:
+                aviat_log_queues[task_id].put({'message': message, 'level': level})
+
+        local_to_activate = list(to_activate)
+        if not force and not request_ips:
+            now = datetime.now()
+            filtered = []
+            remaining = []
+            for entry in aviat_scheduled_queue:
+                activation_at = entry.get("activation_at")
+                if activation_at:
+                    try:
+                        if datetime.fromisoformat(activation_at.replace("Z", "")) <= now:
+                            filtered.append(entry)
+                        else:
+                            remaining.append(entry)
+                    except Exception:
+                        filtered.append(entry)
+                else:
+                    filtered.append(entry)
+            local_to_activate = filtered
+            aviat_scheduled_queue[:] = remaining
+            _aviat_save_scheduled_queue()
+        elif not request_ips:
+            aviat_scheduled_queue.clear()
+            _aviat_save_scheduled_queue()
+
+        def run_activation(entry):
+            ip = entry["ip"]
+            remaining_tasks = entry.get("remaining_tasks", [])
+            full_tasks = ["activate"] + remaining_tasks
+            result = aviat_process_radio(
+                ip,
+                full_tasks,
+                callback=log_callback,
+                maintenance_params=entry.get("maintenance_params", {}),
+            )
+            return entry, result
+
+        worker_count = max(1, len(local_to_activate))
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = [executor.submit(run_activation, entry) for entry in local_to_activate]
+            for future in as_completed(futures):
+                entry, result = future.result()
+                ip = entry["ip"]
+                remaining_tasks = entry.get("remaining_tasks", [])
+                aviat_tasks[task_id]['results'].append({
+                    'ip': ip,
+                    'success': result.success,
+                    'status': result.status,
+                    'firmware_downloaded': result.firmware_downloaded,
+                    'firmware_scheduled': result.firmware_scheduled,
+                    'firmware_activated': result.firmware_activated,
+                    'password_changed': result.password_changed,
+                    'snmp_configured': result.snmp_configured,
+                    'buffer_configured': result.buffer_configured,
+                    'sop_checked': result.sop_checked,
+                    'sop_passed': result.sop_passed,
+                    'sop_results': result.sop_results,
+                    'firmware_version_before': result.firmware_version_before,
+                    'firmware_version_after': result.firmware_version_after,
+                    'error': result.error
+                })
+                _log_aviat_activity({
+                    'ip': ip,
+                    'success': result.success,
+                    'status': result.status,
+                    'firmware_version_before': result.firmware_version_before,
+                    'firmware_version_after': result.firmware_version_after,
+                })
+                if result.status == "scheduled":
+                    aviat_scheduled_queue.append({
+                        "ip": ip,
+                        "remaining_tasks": remaining_tasks,
+                        "maintenance_params": entry.get("maintenance_params", {}),
+                        "activation_at": entry.get("activation_at"),
+                    })
+                    _aviat_save_scheduled_queue()
+
+        aviat_tasks[task_id]['status'] = 'completed'
+        if task_id in aviat_log_queues:
+            aviat_log_queues[task_id].put(None)
+
+    thread = threading.Thread(target=activation_task)
+    thread.start()
+    return jsonify({'task_id': task_id})
+
+
+@app.route('/api/aviat/scheduled', methods=['GET'])
+def aviat_get_scheduled():
+    if not HAS_AVIAT:
+        return jsonify({'error': 'Aviat backend not available'}), 503
+    return jsonify({
+        "scheduled": [item.get("ip") for item in aviat_scheduled_queue]
+    })
+
+
+@app.route('/api/aviat/scheduled/sync', methods=['POST'])
+def aviat_sync_scheduled():
+    if not HAS_AVIAT:
+        return jsonify({'error': 'Aviat backend not available'}), 503
+    data = request.json or {}
+    ips = data.get("ips", [])
+    remaining_tasks = data.get("remaining_tasks", [])
+    maintenance_params = data.get("maintenance_params", {})
+    activation_at = data.get("activation_at")
+
+    if not isinstance(ips, list) or not ips:
+        return jsonify({"error": "No scheduled IPs provided"}), 400
+
+    aviat_scheduled_queue.clear()
+    for ip in ips:
+        aviat_scheduled_queue.append({
+            "ip": ip,
+            "remaining_tasks": remaining_tasks,
+            "maintenance_params": maintenance_params,
+            "activation_at": activation_at,
+        })
+    _aviat_save_scheduled_queue()
+    return jsonify({"scheduled": [item.get("ip") for item in aviat_scheduled_queue]})
+
+
+@app.route('/api/aviat/check-status', methods=['POST'])
+def aviat_check_status():
+    if not HAS_AVIAT:
+        return jsonify({'error': 'Aviat backend not available'}), 503
+    data = request.json or {}
+    ips = data.get('ips', [])
+    if not ips:
+        return jsonify({'error': 'No IPs provided'}), 400
+
+    results = []
+    with ThreadPoolExecutor(max_workers=AVIAT_CONFIG.max_workers) as executor:
+        futures = {executor.submit(aviat_check_device_status, ip): ip for ip in ips}
+        for future in as_completed(futures):
+            results.append(future.result())
+
+    return jsonify({'results': results})
+
+
+@app.route('/api/aviat/abort/<task_id>', methods=['POST'])
+def aviat_abort_task(task_id):
+    if not HAS_AVIAT:
+        return jsonify({'error': 'Aviat backend not available'}), 503
+    if task_id not in aviat_tasks:
+        return jsonify({'error': 'Task not found'}), 404
+    aviat_tasks[task_id]['abort'] = True
+    return jsonify({'status': 'aborting'})
+
+
+@app.route('/api/aviat/stream/<task_id>')
+def aviat_stream_logs(task_id):
+    if not HAS_AVIAT:
+        return jsonify({'error': 'Aviat backend not available'}), 503
+    if task_id not in aviat_log_queues:
+        return jsonify({'error': 'Task not found'}), 404
+
+    def generate():
+        q = aviat_log_queues[task_id]
+        while True:
+            data = q.get()
+            if data is None:
+                break
+            yield f"data: {json.dumps(data)}\n\n"
+
+    return Response(generate(), mimetype='text/event-stream')
+
+
+@app.route('/api/aviat/status/<task_id>')
+def aviat_get_status(task_id):
+    if not HAS_AVIAT:
+        return jsonify({'error': 'Aviat backend not available'}), 503
+    if task_id not in aviat_tasks:
+        return jsonify({'error': 'Task not found'}), 404
+    return jsonify(aviat_tasks[task_id])
 
 
 @app.route('/api/generate-ftth-bng', methods=['POST'])
