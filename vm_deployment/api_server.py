@@ -9992,7 +9992,8 @@ def aviat_activate_scheduled():
             )
             return entry, result
 
-        worker_count = max(1, len(local_to_activate))
+        activation_limit = int(os.environ.get("AVIAT_ACTIVATION_MAX", "20"))
+        worker_count = max(1, min(len(local_to_activate), activation_limit))
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = [executor.submit(run_activation, entry) for entry in local_to_activate]
             for future in as_completed(futures):

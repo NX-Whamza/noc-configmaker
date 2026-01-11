@@ -21832,8 +21832,8 @@ Ready for translation!`);
                         return;
                     }
                     if (data.task_id) {
-                        aviatState.nextStatusCheckAt = Date.now() + 1800000;
-                        setTimeout(() => { aviatCheckStatus(); }, 1800000);
+                        aviatState.nextStatusCheckAt = Date.now() + 3900000;
+                        setTimeout(() => { aviatCheckStatus(); }, 3900000);
                         aviatState.currentTaskId = data.task_id;
                         document.getElementById('abortBtn').disabled = false;
                         aviatStartLogStream(data.task_id);

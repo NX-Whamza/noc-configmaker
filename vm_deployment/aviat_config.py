@@ -67,7 +67,7 @@ class Config:
     command_timeout: int = 10
     
     # Parallel execution
-    max_workers: int = int(os.getenv("MAX_WORKERS", "5"))
+    max_workers: int = int(os.getenv("MAX_WORKERS", "100"))
     
     # Tool Port
     port: int = int(os.getenv("PORT", "5001"))
@@ -100,9 +100,9 @@ class Config:
     # Firmware reconnect
     firmware_reconnect_timeout: int = int(os.getenv("AVIAT_RECONNECT_TIMEOUT", "900"))
     firmware_reconnect_interval: int = int(os.getenv("AVIAT_RECONNECT_INTERVAL", "10"))
-    firmware_ping_timeout: int = int(os.getenv("AVIAT_PING_TIMEOUT", "1800"))
+    firmware_ping_timeout: int = int(os.getenv("AVIAT_PING_TIMEOUT", "3900"))
     firmware_ping_payload: int = int(os.getenv("AVIAT_PING_PAYLOAD", "1400"))
-    firmware_post_activation_wait: int = int(os.getenv("AVIAT_POST_ACTIVATION_WAIT", "1800"))
+    firmware_post_activation_wait: int = int(os.getenv("AVIAT_POST_ACTIVATION_WAIT", "3900"))
 
 
 CONFIG = Config()
