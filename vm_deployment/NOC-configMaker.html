@@ -4859,9 +4859,9 @@
                                         <th
                                             style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border-color);">
                                             Site/Device</th>
-                                        <th
-                                            style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border-color);">
-                                            RouterOS</th>
+                                          <th
+                                              style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border-color);">
+                                              Firmware</th>
                                         <th
                                             style="padding: 12px; text-align: center; border-bottom: 2px solid var(--border-color);">
                                             Status</th>
@@ -9984,9 +9984,11 @@
                             // Calculate ACTUAL success rate from ALL activities
                             const successCount = allActivities.filter(e => e.success === true || e.success === 1).length;
                             const failCount = allActivities.filter(e => e.success === false || e.success === 0).length;
-                            const totalCount = allActivities.length;
+                            const nonAviatActivities = allActivities.filter(entry => entry.type !== 'aviat-upgrade');
+                            const totalCount = nonAviatActivities.length;
+                            const successCountFiltered = nonAviatActivities.filter(e => e.success === true).length;
                             const successRate = totalCount > 0 ?
-                                Math.round((successCount / totalCount) * 100) : 100;
+                                Math.round((successCountFiltered / totalCount) * 100) : 100;
                             const firmwareUpgradeCount = allActivities.filter(entry =>
                                 entry.type === 'aviat-upgrade'
                             ).length;
@@ -10003,9 +10005,15 @@
                             if (migrationsEl) migrationsEl.textContent = migrationCount;
                             if (firmwareEl) firmwareEl.textContent = firmwareUpgradeCount;
                             if (successEl) successEl.textContent = successRate + '%';
-                            if (todayEl) todayEl.textContent = todayCount;
+                            if (todayEl) todayEl.textContent = nonAviatActivities.filter(entry => {
+                                const entryDate = new Date(entry.timestamp);
+                                return entryDate >= todayStart;
+                            }).length;
 
-                            console.log(`[METRICS]  Backend: Total=${totalCount} (ALL TIME), Today=${todayCount}, Success=${successCount}/${totalCount} (${successRate}%), Migrations=${migrationCount}, FirmwareUpgrades=${firmwareUpgradeCount}`);
+                            console.log(`[METRICS]  Backend: Total=${totalCount} (ALL TIME), Today=${nonAviatActivities.filter(entry => {
+                                const entryDate = new Date(entry.timestamp);
+                                return entryDate >= todayStart;
+                            }).length}, Success=${successCountFiltered}/${totalCount} (${successRate}%), Migrations=${migrationCount}, FirmwareUpgrades=${firmwareUpgradeCount}`);
                             return;
                         } else {
                             console.log('[METRICS]  Backend returned invalid data format, falling back to localStorage');
@@ -10025,7 +10033,8 @@
                 const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
                 // Calculate TODAY's configs (since midnight) - resets every 24 hours
-                const todayCount = history.filter(entry => {
+                const nonAviatHistory = history.filter(entry => entry.type !== 'aviat-upgrade');
+                const todayCount = nonAviatHistory.filter(entry => {
                     const entryDate = new Date(entry.timestamp);
                     return entryDate >= todayStart;
                 }).length;
@@ -10036,8 +10045,8 @@
                 ).length;
 
                 // Calculate success rate from ALL activities
-                const successCount = history.filter(e => e.success === true).length;
-                const totalCount = history.length;
+                const successCount = nonAviatHistory.filter(e => e.success === true).length;
+                const totalCount = nonAviatHistory.length;
                 const successRate = totalCount > 0 ?
                     Math.round((successCount / totalCount) * 100) : 100;
                 const firmwareUpgradeCount = history.filter(entry =>
@@ -10176,7 +10185,7 @@
                                     <div class="title">${icon} ${activityLabel} - ${entry.siteName} <span style="margin-left: 10px; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,0.06); color: ${statusColor}; border: 1px solid rgba(255,255,255,0.12);">${statusText}</span></div>
                                     <div class="details">
                                         <span class="user-info">${username}</span> | 
-                                        Device: ${entry.device} | RouterOS: ${entry.routeros}
+                                        Device: ${entry.device} | Firmware: ${entry.routeros}
                                     </div>
                                     <div class="time">${timeStr} <span style="color: #4CAF50; margin-left: 10px;"> Click to view</span></div>
                                 </div>
@@ -10206,7 +10215,7 @@
                                         <div class="title">${icon} ${entry.type === 'migration' ? 'Migration' : 'Config Generated'} - ${entry.siteName}</div>
                                         <div class="details">
                                             <span class="user-info">${username}</span> | 
-                                            Device: ${entry.device} | RouterOS: ${entry.routeros}
+                                            Device: ${entry.device} | Firmware: ${entry.routeros}
                                         </div>
                                         <div class="time">${timeStr} <span style="color: #4CAF50; margin-left: 10px;"> Click to view</span></div>
                                     </div>
@@ -19683,21 +19692,23 @@ Ready for translation!`);
                         return;
                     }
 
-                    tableBody.innerHTML = tableFiltered.map(activity => {
-                        const statusIcon = activity.success ? '' : '';
-                        const statusColor = activity.success ? '#4CAF50' : '#dc3545';
+                      tableBody.innerHTML = tableFiltered.map(activity => {
+                          const successFlag = activity.success === true;
+                          const failureFlag = activity.success === false;
+                          const statusIcon = successFlag ? 'OK' : (failureFlag ? 'X' : '-');
+                          const statusColor = successFlag ? '#4CAF50' : (failureFlag ? '#dc3545' : '#888');
 
-                        return `
-                    <tr style="border-bottom: 1px solid var(--border-color);">
-                        <td style="padding: 12px;">${activity.formattedTime || activity.timestamp}</td>
-                        <td style="padding: 12px; font-weight: 600;">${activity.username}</td>
-                        <td style="padding: 12px;">${activity.message || `${activity.type} - ${activity.siteName || 'N/A'}`}</td>
-                        <td style="padding: 12px;">${activity.siteName || 'N/A'} ${activity.device ? `(${activity.device})` : ''}</td>
-                        <td style="padding: 12px;">${activity.routeros || 'N/A'}</td>
-                        <td style="padding: 12px; text-align: center; color: ${statusColor}; font-weight: bold;">${statusIcon}</td>
-                    </tr>
-                `;
-                    }).join('');
+                          return `
+                      <tr style="border-bottom: 1px solid var(--border-color);">
+                          <td style="padding: 12px;">${activity.formattedTime || activity.timestamp}</td>
+                          <td style="padding: 12px; font-weight: 600;">${activity.username}</td>
+                          <td style="padding: 12px;">${activity.message || `${activity.type} - ${activity.siteName || 'N/A'}`}</td>
+                          <td style="padding: 12px;">${activity.siteName || 'N/A'} ${activity.device ? `(${activity.device})` : ''}</td>
+                          <td style="padding: 12px;">${activity.routeros || 'N/A'}</td>
+                          <td style="padding: 12px; text-align: center; color: ${statusColor}; font-weight: bold;">${statusIcon}</td>
+                      </tr>
+                  `;
+                      }).join('');
                 } else {
                     console.warn('[LOG HISTORY] No activities in response or invalid format:', data);
                     tableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 50px; color: var(--text-color-secondary);">No activity logs found. Activities will appear here as you generate configurations.</td></tr>';
@@ -19719,7 +19730,7 @@ Ready for translation!`);
 
                 if (data.success && data.activities) {
                     // Convert to CSV
-                    const headers = ['Timestamp', 'User', 'Type', 'Site/Device', 'RouterOS', 'Status'];
+                      const headers = ['Timestamp', 'User', 'Type', 'Site/Device', 'Firmware', 'Status'];
                     const rows = data.activities.map(a => [
                         a.timestamp,
                         a.username,
