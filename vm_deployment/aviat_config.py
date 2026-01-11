@@ -105,6 +105,8 @@ class Config:
     firmware_post_activation_wait: int = int(os.getenv("AVIAT_POST_ACTIVATION_WAIT", "3900"))
     firmware_ping_check_interval: int = int(os.getenv("AVIAT_PING_CHECK_INTERVAL", "900"))
     firmware_ping_max_wait: int = int(os.getenv("AVIAT_PING_MAX_WAIT", "3600"))
+    sop_recheck_attempts: int = int(os.getenv("AVIAT_SOP_RECHECK_ATTEMPTS", "3"))
+    sop_recheck_delay: int = int(os.getenv("AVIAT_SOP_RECHECK_DELAY", "3"))
 
 
 CONFIG = Config()
@@ -620,6 +622,7 @@ def _get_snmp_output(client: AviatSSHClient) -> str:
             "show running-config | include snmp",
             "show running-config snmp",
             "show running-config | include SNMP",
+            "show running-config",
         ],
     )
 
@@ -630,6 +633,7 @@ def _get_buffer_output(client: AviatSSHClient) -> str:
         [
             "show running-config qos-default-policy ExternalBufferSize | include queue-limit",
             "show running-config qos-default-policy ExternalBufferSize",
+            "show running-config",
         ],
     )
 
@@ -707,7 +711,7 @@ def _load_sop_checks() -> List[Dict[str, Any]]:
         return []
 
 
-def run_sop_checks(client: AviatSSHClient, callback=None) -> Tuple[bool, List[Dict[str, Any]]]:
+def _evaluate_sop(client: AviatSSHClient, callback=None) -> Tuple[bool, List[Dict[str, Any]]]:
     results: List[Dict[str, Any]] = []
     checks = _load_sop_checks()
 
@@ -779,13 +783,34 @@ def run_sop_checks(client: AviatSSHClient, callback=None) -> Tuple[bool, List[Di
         )
 
     passed_all = all(item.get("pass") for item in results) if results else True
-    for item in results:
+    return passed_all, results
+
+
+def run_sop_checks(client: AviatSSHClient, callback=None) -> Tuple[bool, List[Dict[str, Any]]]:
+    attempts = max(1, CONFIG.sop_recheck_attempts)
+    delay = max(0, CONFIG.sop_recheck_delay)
+    last_results: List[Dict[str, Any]] = []
+    for attempt in range(1, attempts + 1):
+        passed, results = _evaluate_sop(client, callback=callback)
+        last_results = results
+        if passed:
+            break
+        if attempt < attempts and delay:
+            log(
+                f"  [{client.ip}] SOP recheck attempt {attempt}/{attempts} failed; retrying in {delay}s...",
+                "warning",
+                callback=callback,
+            )
+            time.sleep(delay)
+
+    passed_all = all(item.get("pass") for item in last_results) if last_results else True
+    for item in last_results:
         log(
             f"  [{client.ip}] SOP check - {item['name']}: {'PASS' if item['pass'] else 'FAIL'}",
             "success" if item["pass"] else "warning",
             callback=callback,
         )
-    return passed_all, results
+    return passed_all, last_results
 
 
 def wait_for_reconnect(

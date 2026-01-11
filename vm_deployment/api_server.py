@@ -199,6 +199,8 @@ aviat_tasks = {}
 aviat_log_queues = {}
 aviat_global_log_queues = set()
 aviat_global_log_history = []
+aviat_shared_queue = []
+AVIAT_SHARED_QUEUE_STORE = Path(__file__).resolve().parent / "aviat_shared_queue.json"
 AVIAT_GLOBAL_LOG_LIMIT = 2000
 aviat_scheduled_queue = []
 AVIAT_SCHEDULED_STORE = Path(__file__).resolve().parent / "aviat_scheduled_queue.json"
@@ -225,6 +227,83 @@ def _aviat_save_scheduled_queue():
 
 
 _aviat_load_scheduled_queue()
+
+def _aviat_load_shared_queue():
+    if not AVIAT_SHARED_QUEUE_STORE.exists():
+        return
+    try:
+        with AVIAT_SHARED_QUEUE_STORE.open("r") as handle:
+            data = json.load(handle) or []
+        aviat_shared_queue.clear()
+        aviat_shared_queue.extend(data)
+    except Exception:
+        pass
+
+def _aviat_save_shared_queue():
+    try:
+        with AVIAT_SHARED_QUEUE_STORE.open("w") as handle:
+            json.dump(aviat_shared_queue, handle)
+    except Exception:
+        pass
+
+def _aviat_queue_find(ip):
+    for entry in aviat_shared_queue:
+        if entry.get("ip") == ip:
+            return entry
+    return None
+
+def _aviat_queue_upsert(ip, updates=None):
+    entry = _aviat_queue_find(ip)
+    if entry is None:
+        entry = {"ip": ip}
+        aviat_shared_queue.append(entry)
+    if updates:
+        entry.update(updates)
+    entry["updated_at"] = datetime.utcnow().isoformat() + "Z"
+    return entry
+
+def _aviat_queue_remove(ip):
+    aviat_shared_queue[:] = [e for e in aviat_shared_queue if e.get("ip") != ip]
+
+def _aviat_status_from_result(result):
+    status = (result or {}).get("status")
+    success = result.get("success")
+    if status in ("scheduled", "manual"):
+        return status
+    if status == "aborted":
+        return "aborted"
+    if success:
+        return "success"
+    return "error"
+
+def _aviat_substatus(flag, scheduled=False):
+    if scheduled:
+        return "scheduled"
+    return "success" if flag else "pending"
+
+def _aviat_queue_update_from_result(result, username=None):
+    if not result:
+        return
+    ip = result.get("ip")
+    if not ip:
+        return
+    status = _aviat_status_from_result(result)
+    updates = {
+        "status": status,
+        "firmwareStatus": _aviat_substatus(
+            result.get("firmware_downloaded") or result.get("firmware_activated"),
+            scheduled=result.get("firmware_scheduled"),
+        ),
+        "passwordStatus": _aviat_substatus(result.get("password_changed")),
+        "snmpStatus": _aviat_substatus(result.get("snmp_configured")),
+        "bufferStatus": _aviat_substatus(result.get("buffer_configured")),
+        "sopStatus": _aviat_substatus(result.get("sop_passed")),
+    }
+    if username:
+        updates["username"] = username
+    _aviat_queue_upsert(ip, updates)
+
+_aviat_load_shared_queue()
 
 # ========================================
 # ROUTERBOARD INTERFACE DATABASE
@@ -9988,6 +10067,11 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
                     "activation_at": maintenance_params.get("activation_at"),
                     "username": username or "aviat-tool",
                 })
+                _aviat_queue_upsert(res["ip"], {
+                    "status": "scheduled",
+                    "firmwareStatus": "scheduled",
+                    "username": username or "aviat-tool",
+                })
         _aviat_save_scheduled_queue()
 
     if aviat_tasks.get(task_id, {}).get('abort'):
@@ -10015,7 +10099,9 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
         aviat_tasks[task_id]['status'] = 'completed'
     aviat_tasks[task_id]['results'] = results
     for res in results:
+        _aviat_queue_update_from_result(res, username=username)
         _log_aviat_activity(res)
+    _aviat_save_shared_queue()
 
     if task_id in aviat_log_queues:
         aviat_log_queues[task_id].put(None)
@@ -10033,6 +10119,13 @@ def aviat_run_tasks():
 
     if not ips:
         return jsonify({'error': 'No IPs provided'}), 400
+
+    for ip in ips:
+        _aviat_queue_upsert(ip, {
+            "status": "processing",
+            "username": username or "aviat-tool",
+        })
+    _aviat_save_shared_queue()
 
     task_id = str(uuid.uuid4())
     aviat_tasks[task_id] = {
@@ -10096,6 +10189,13 @@ def aviat_activate_scheduled():
         ]
     else:
         to_activate = list(aviat_scheduled_queue)
+
+    for entry in to_activate:
+        _aviat_queue_upsert(entry["ip"], {
+            "status": "processing",
+            "username": entry.get("username") or username or "aviat-tool",
+        })
+    _aviat_save_shared_queue()
 
     aviat_tasks[task_id] = {
         'status': 'pending',
@@ -10184,6 +10284,21 @@ def aviat_activate_scheduled():
                     'firmware_version_before': result.firmware_version_before,
                     'firmware_version_after': result.firmware_version_after,
                 })
+                _aviat_queue_update_from_result(
+                    {
+                        "ip": ip,
+                        "success": result.success,
+                        "status": result.status,
+                        "firmware_downloaded": result.firmware_downloaded,
+                        "firmware_scheduled": result.firmware_scheduled,
+                        "firmware_activated": result.firmware_activated,
+                        "password_changed": result.password_changed,
+                        "snmp_configured": result.snmp_configured,
+                        "buffer_configured": result.buffer_configured,
+                        "sop_passed": result.sop_passed,
+                    },
+                    username=entry.get("username") or username,
+                )
                 if result.status == "scheduled":
                     aviat_scheduled_queue.append({
                         "ip": ip,
@@ -10193,8 +10308,15 @@ def aviat_activate_scheduled():
                         "username": entry.get("username") or username,
                     })
                     _aviat_save_scheduled_queue()
+                    _aviat_queue_upsert(ip, {
+                        "status": "scheduled",
+                        "firmwareStatus": "scheduled",
+                        "username": entry.get("username") or username or "aviat-tool",
+                    })
+                    _aviat_save_shared_queue()
 
         aviat_tasks[task_id]['status'] = 'completed'
+        _aviat_save_shared_queue()
         if task_id in aviat_log_queues:
             aviat_log_queues[task_id].put(None)
 
@@ -10238,6 +10360,38 @@ def aviat_sync_scheduled():
     _aviat_save_scheduled_queue()
     return jsonify({"scheduled": [item.get("ip") for item in aviat_scheduled_queue]})
 
+@app.route('/api/aviat/queue', methods=['GET', 'POST'])
+def aviat_queue_state():
+    if not HAS_AVIAT:
+        return jsonify({'error': 'Aviat backend not available'}), 503
+    if request.method == 'GET':
+        return jsonify({"radios": aviat_shared_queue})
+
+    data = request.json or {}
+    mode = (data.get("mode") or "replace").lower()
+    radios = data.get("radios") or []
+    username = data.get("username") or "aviat-tool"
+
+    if mode == "replace":
+        aviat_shared_queue.clear()
+    if mode in ("replace", "add"):
+        for radio in radios:
+            ip = radio.get("ip") if isinstance(radio, dict) else str(radio)
+            if not ip:
+                continue
+            updates = radio if isinstance(radio, dict) else {}
+            updates.setdefault("status", "pending")
+            updates.setdefault("username", username)
+            _aviat_queue_upsert(ip, updates)
+    if mode == "remove":
+        for radio in radios:
+            ip = radio.get("ip") if isinstance(radio, dict) else str(radio)
+            if ip:
+                _aviat_queue_remove(ip)
+
+    _aviat_save_shared_queue()
+    return jsonify({"radios": aviat_shared_queue})
+
 
 @app.route('/api/aviat/check-status', methods=['POST'])
 def aviat_check_status():
@@ -10253,6 +10407,25 @@ def aviat_check_status():
         futures = {executor.submit(aviat_check_device_status, ip): ip for ip in ips}
         for future in as_completed(futures):
             results.append(future.result())
+
+    for res in results:
+        ip = res.get("ip")
+        if not ip:
+            continue
+        firmware_ok = bool(res.get("firmware") and str(res.get("firmware")).startswith("6."))
+        snmp_ok = bool(res.get("snmp_ok"))
+        buffer_ok = bool(res.get("buffer_ok"))
+        status = "success" if firmware_ok and snmp_ok and buffer_ok else "pending"
+        if res.get("error"):
+            status = "error"
+        _aviat_queue_upsert(ip, {
+            "status": status,
+            "firmwareStatus": "success" if firmware_ok else "pending",
+            "snmpStatus": "success" if snmp_ok else "pending",
+            "bufferStatus": "success" if buffer_ok else "pending",
+            "sopStatus": "success" if firmware_ok and snmp_ok and buffer_ok else "pending",
+        })
+    _aviat_save_shared_queue()
 
     return jsonify({'results': results})
 

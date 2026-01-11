@@ -9989,8 +9989,9 @@
                             const successCountFiltered = nonAviatActivities.filter(e => e.success === true).length;
                             const successRate = totalCount > 0 ?
                                 Math.round((successCountFiltered / totalCount) * 100) : 100;
-                            const firmwareUpgradeCount = allActivities.filter(entry =>
-                                entry.type === 'aviat-upgrade'
+                            const firmwareBaseline = 42;
+                            const firmwareUpgradeCount = firmwareBaseline + allActivities.filter(entry =>
+                                entry.type === 'aviat-upgrade' && (entry.success === true || entry.success === 1)
                             ).length;
 
                             // Update UI elements
@@ -10049,8 +10050,9 @@
                 const totalCount = nonAviatHistory.length;
                 const successRate = totalCount > 0 ?
                     Math.round((successCount / totalCount) * 100) : 100;
-                const firmwareUpgradeCount = history.filter(entry =>
-                    entry.type === 'aviat-upgrade'
+                const firmwareBaseline = 42;
+                const firmwareUpgradeCount = firmwareBaseline + history.filter(entry =>
+                    entry.type === 'aviat-upgrade' && entry.success === true
                 ).length;
 
                 // Update UI elements
@@ -21703,6 +21705,19 @@ Ready for translation!`);
                 return icons[status] || '?';
             }
 
+            function aviatNormalizeRadio(r) {
+                return {
+                    ip: r.ip,
+                    status: aviatNormalizeStatus(r.status, r.success),
+                    firmwareStatus: aviatNormalizeStatus(r.firmwareStatus),
+                    passwordStatus: aviatNormalizeStatus(r.passwordStatus),
+                    snmpStatus: aviatNormalizeStatus(r.snmpStatus),
+                    bufferStatus: aviatNormalizeStatus(r.bufferStatus),
+                    sopStatus: aviatNormalizeStatus(r.sopStatus),
+                    username: r.username || ''
+                };
+            }
+
             function aviatPersistRadios() {
                 try {
                     localStorage.setItem('aviatRadios', JSON.stringify(aviatState.radios));
@@ -21717,10 +21732,7 @@ Ready for translation!`);
                     if (!raw) return;
                     const parsed = JSON.parse(raw);
                     if (Array.isArray(parsed)) {
-                        aviatState.radios = parsed.map(r => ({
-                            ...r,
-                            status: aviatNormalizeStatus(r.status, r.success)
-                        }));
+                        aviatState.radios = parsed.map(aviatNormalizeRadio);
                     }
                 } catch (e) {
                     // ignore storage errors
@@ -21791,6 +21803,24 @@ Ready for translation!`);
                 aviatPersistRadios();
             }
 
+            async function aviatLoadSharedQueue() {
+                try {
+                    const response = await aviatFetch('/queue');
+                    if (!response.ok) {
+                        throw new Error(`Queue fetch failed (${response.status})`);
+                    }
+                    const data = await response.json();
+                    if (Array.isArray(data.radios)) {
+                        aviatState.radios = data.radios.map(aviatNormalizeRadio);
+                        aviatUpdateUI();
+                        return true;
+                    }
+                } catch (err) {
+                    aviatAddLog(`Shared queue unavailable: ${err.message}`, 'warning');
+                }
+                return false;
+            }
+
             function aviatAddRadios() {
                 const input = document.getElementById('ipInput');
                 if (!input) return;
@@ -21799,25 +21829,34 @@ Ready for translation!`);
                 const newIPs = raw.split(/[\n,]+/)
                     .map(ip => ip.trim())
                     .filter(ip => ip && !aviatState.radios.find(r => r.ip === ip));
+                if (newIPs.length === 0) return;
+                const radios = newIPs.map(ip => ({
+                    ip,
+                    status: 'pending',
+                    firmwareStatus: 'pending',
+                    passwordStatus: 'pending',
+                    snmpStatus: 'pending',
+                    bufferStatus: 'pending',
+                    sopStatus: 'pending',
+                    username: aviatGetUsername()
+                }));
 
-                newIPs.forEach(ip => {
-                    aviatState.radios.push({
-                        ip,
-                        status: 'pending',
-                        firmwareStatus: 'pending',
-                        passwordStatus: 'pending',
-                        snmpStatus: 'pending',
-                        bufferStatus: 'pending',
-                        sopStatus: 'pending'
-                    });
-                });
-
-                if (newIPs.length > 0) {
-                    aviatAddLog(`Added ${newIPs.length} radio(s) to queue`, 'info');
-                }
+                aviatFetch('/queue', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode: 'add', radios, username: aviatGetUsername() })
+                }).then(res => res.json())
+                  .then(data => {
+                      if (Array.isArray(data.radios)) {
+                          aviatState.radios = data.radios.map(aviatNormalizeRadio);
+                          aviatAddLog(`Added ${newIPs.length} radio(s) to queue`, 'info');
+                          aviatUpdateUI();
+                      }
+                  }).catch(err => {
+                      aviatAddLog(`Queue add failed: ${err.message}`, 'error');
+                  });
 
                 input.value = '';
-                aviatUpdateUI();
             }
 
             function aviatReplaceRadios() {
@@ -21826,27 +21865,86 @@ Ready for translation!`);
                     aviatAddLog('Please enter IPs to replace the list', 'warning');
                     return;
                 }
-                aviatState.radios = [];
-                aviatAddRadios();
+                const raw = input.value.trim();
+                const newIPs = raw.split(/[\n,]+/)
+                    .map(ip => ip.trim())
+                    .filter(ip => ip);
+                const radios = newIPs.map(ip => ({
+                    ip,
+                    status: 'pending',
+                    firmwareStatus: 'pending',
+                    passwordStatus: 'pending',
+                    snmpStatus: 'pending',
+                    bufferStatus: 'pending',
+                    sopStatus: 'pending',
+                    username: aviatGetUsername()
+                }));
+                aviatFetch('/queue', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode: 'replace', radios, username: aviatGetUsername() })
+                }).then(res => res.json())
+                  .then(data => {
+                      if (Array.isArray(data.radios)) {
+                          aviatState.radios = data.radios.map(aviatNormalizeRadio);
+                          aviatAddLog(`Replaced queue with ${newIPs.length} radio(s)`, 'info');
+                          aviatUpdateUI();
+                      }
+                  }).catch(err => {
+                      aviatAddLog(`Queue replace failed: ${err.message}`, 'error');
+                  });
+                input.value = '';
             }
 
             function aviatRemoveRadio(ip) {
-                aviatState.radios = aviatState.radios.filter(r => r.ip !== ip);
-                aviatUpdateUI();
+                aviatFetch('/queue', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode: 'remove', radios: [{ ip }], username: aviatGetUsername() })
+                }).then(res => res.json())
+                  .then(data => {
+                      if (Array.isArray(data.radios)) {
+                          aviatState.radios = data.radios.map(aviatNormalizeRadio);
+                          aviatUpdateUI();
+                      }
+                  }).catch(err => {
+                      aviatAddLog(`Remove failed: ${err.message}`, 'error');
+                  });
             }
 
             window.aviatRemoveRadio = aviatRemoveRadio;
 
             function aviatClearAll() {
-                aviatState.radios = [];
-                aviatUpdateUI();
-                aviatAddLog('Cleared all radios', 'info');
+                aviatFetch('/queue', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode: 'replace', radios: [], username: aviatGetUsername() })
+                }).then(res => res.json())
+                  .then(data => {
+                      aviatState.radios = [];
+                      aviatUpdateUI();
+                      aviatAddLog('Cleared all radios', 'info');
+                  }).catch(err => {
+                      aviatAddLog(`Clear failed: ${err.message}`, 'error');
+                  });
             }
 
             function aviatClearCompleted() {
-                aviatState.radios = aviatState.radios.filter(r => aviatNormalizeStatus(r.status) !== 'success');
-                aviatUpdateUI();
-                aviatAddLog('Cleared completed radios', 'info');
+                const remaining = aviatState.radios.filter(r => aviatNormalizeStatus(r.status) !== 'success');
+                aviatFetch('/queue', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode: 'replace', radios: remaining, username: aviatGetUsername() })
+                }).then(res => res.json())
+                  .then(data => {
+                      if (Array.isArray(data.radios)) {
+                          aviatState.radios = data.radios.map(aviatNormalizeRadio);
+                          aviatUpdateUI();
+                          aviatAddLog('Cleared completed radios', 'info');
+                      }
+                  }).catch(err => {
+                      aviatAddLog(`Clear completed failed: ${err.message}`, 'error');
+                  });
             }
 
             function computeActivationAt(timeStr) {
@@ -22128,12 +22226,16 @@ Ready for translation!`);
                 }
             }
 
-            async function aviatRefreshStatus() {
+            async function aviatRefreshStatus(options = {}) {
+                const quiet = options.quiet === true;
                 try {
+                    const queueLoaded = await aviatLoadSharedQueue();
                     const response = await aviatFetch('/scheduled');
                     const data = await parseAviatJson(response);
                     if (!response.ok) {
-                        aviatAddLog(data.error || `Refresh failed (${response.status})`, 'error');
+                        if (!quiet) {
+                            aviatAddLog(data.error || `Refresh failed (${response.status})`, 'error');
+                        }
                         return;
                     }
                     const scheduled = new Set(data.scheduled || []);
@@ -22147,9 +22249,13 @@ Ready for translation!`);
                         return r;
                     });
                     aviatUpdateUI();
-                    aviatAddLog('Refreshed scheduled queue', 'info');
+                    if (!quiet) {
+                        aviatAddLog(queueLoaded ? 'Refreshed shared queue' : 'Refreshed scheduled queue', 'info');
+                    }
                 } catch (err) {
-                    aviatAddLog(`Refresh failed: ${err.message}`, 'error');
+                    if (!quiet) {
+                        aviatAddLog(`Refresh failed: ${err.message}`, 'error');
+                    }
                 }
             }
 
@@ -22215,6 +22321,11 @@ Ready for translation!`);
                     eventSource.close();
                     aviatState.globalStreamStarted = false;
                     aviatAddLog('Live log stream disconnected. Monitoring status only.', 'warning');
+                    setTimeout(() => {
+                        if (!aviatState.globalStreamStarted) {
+                            aviatStartGlobalLogStream();
+                        }
+                    }, 5000);
                 };
             }
 
@@ -22323,12 +22434,17 @@ Ready for translation!`);
             }
 
             document.addEventListener('DOMContentLoaded', () => {
-                aviatRestoreRadios();
-                aviatUpdateUI();
-                aviatRefreshStatus();
+                aviatLoadSharedQueue().then(loaded => {
+                    if (!loaded) {
+                        aviatRestoreRadios();
+                        aviatUpdateUI();
+                    }
+                    aviatRefreshStatus();
+                });
                 aviatBindControls();
                 aviatUpdateMaintenanceBanner();
                 setInterval(aviatUpdateMaintenanceBanner, 60000);
+                setInterval(() => aviatRefreshStatus({ quiet: true }), 30000);
                 aviatStartAutoStatusChecks();
                 aviatStartGlobalLogStream();
                 aviatAddLog('Tool initialized', 'info');
