@@ -1836,7 +1836,7 @@
 
         .aviat-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
             gap: 16px;
             max-width: 100%;
         }
@@ -2067,6 +2067,10 @@
             .aviat-grid {
                 grid-template-columns: 1fr;
             }
+
+            #aviat-backhaul-pane .aviat-card {
+                padding: 14px;
+            }
         }
 
         #aviat-backhaul-pane {
@@ -2089,6 +2093,12 @@
         #aviat-backhaul-pane .aviat-queue-item,
         #aviat-backhaul-pane .aviat-log {
             min-width: 0;
+        }
+
+        #aviat-backhaul-pane textarea,
+        #aviat-backhaul-pane input,
+        #aviat-backhaul-pane select {
+            max-width: 100%;
         }
 
         @media (max-width: 900px) {
@@ -21428,6 +21438,18 @@ Ready for translation!`);
             };
 
             let aviatApiOverride = null;
+            const aviatGetUsername = () => {
+                if (typeof getUsername === 'function') {
+                    return getUsername();
+                }
+                if (window.currentUser && typeof window.currentUser === 'string') {
+                    return window.currentUser;
+                }
+                if (window.currentUser && typeof window.currentUser === 'object') {
+                    return window.currentUser.username || window.currentUser.email || '';
+                }
+                return '';
+            };
 
             function getAviatApiBase() {
                 if (aviatApiOverride) return aviatApiOverride;
@@ -21437,10 +21459,15 @@ Ready for translation!`);
 
             function getAviatCandidateBases() {
                 const bases = [];
-                const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-                bases.push(`${window.location.origin}/api/aviat`);
-                bases.push(getAviatApiBase());
-                if (isLocal) {
+                const originBase = `${window.location.origin}/api/aviat`;
+                const apiBase = getAviatApiBase();
+                const isFile = window.location.protocol === 'file:' || window.location.origin === 'null';
+
+                bases.push(originBase);
+                if (apiBase && apiBase !== originBase) {
+                    bases.push(apiBase);
+                }
+                if (isFile) {
                     bases.push('http://localhost:5000/api/aviat');
                 }
                 return Array.from(new Set(bases.filter(Boolean)));
@@ -21474,7 +21501,30 @@ Ready for translation!`);
                 if (!contentType.includes('application/json')) {
                     return { error: `Unexpected response (${response.status})` };
                 }
-                return response.json();
+                try {
+                    return await response.json();
+                } catch (err) {
+                    return { error: `Invalid JSON response (${response.status})` };
+                }
+            }
+
+            function getAviatStreamBase() {
+                if (aviatApiOverride && aviatApiOverride.startsWith('http')) return aviatApiOverride;
+                return `${window.location.origin}/api/aviat`;
+            }
+
+            async function aviatFetchWithTimeout(path, options, timeoutMs = 15000) {
+                const controller = new AbortController();
+                const id = setTimeout(() => controller.abort(), timeoutMs);
+                try {
+                    const response = await aviatFetch(path, {
+                        ...options,
+                        signal: controller.signal
+                    });
+                    return response;
+                } finally {
+                    clearTimeout(id);
+                }
             }
 
             function aviatAddLog(message, type = 'info') {
@@ -21710,7 +21760,7 @@ Ready for translation!`);
                         firmware_target: firmwareTarget,
                         firmware_uri: null
                     },
-                    username: getUsername()
+                    username: aviatGetUsername()
                 };
             }
 
@@ -21741,7 +21791,7 @@ Ready for translation!`);
                         firmware_uri: null
                     },
                     activation_at: activationMode === 'scheduled' ? computeActivationAt(activationTime) : null,
-                    username: getUsername()
+                    username: aviatGetUsername()
                 };
             }
 
@@ -21749,7 +21799,7 @@ Ready for translation!`);
                 const payload = buildRunPayload();
                 if (!payload) return;
                 try {
-                    const response = await aviatFetch('/run', {
+                    const response = await aviatFetchWithTimeout('/run', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -21770,7 +21820,10 @@ Ready for translation!`);
                         aviatResetRunButton();
                     }
                 } catch (err) {
-                    aviatAddLog(`Failed to connect to backend: ${err.message}`, 'error');
+                    const message = err.name === 'AbortError'
+                        ? 'Backend request timed out. Please retry.'
+                        : `Failed to connect to backend: ${err.message}`;
+                    aviatAddLog(message, 'error');
                     aviatResetRunButton();
                 }
             }
@@ -21815,7 +21868,7 @@ Ready for translation!`);
                             body: JSON.stringify(syncPayload)
                         });
                     }
-                    const response = await aviatFetch('/activate-scheduled', {
+                    const response = await aviatFetchWithTimeout('/activate-scheduled', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -21826,7 +21879,7 @@ Ready for translation!`);
                             remaining_tasks: syncPayload ? syncPayload.remaining_tasks : [],
                             maintenance_params: syncPayload ? syncPayload.maintenance_params : {},
                             activation_at: syncPayload ? syncPayload.activation_at : null,
-                            username: getUsername()
+                            username: aviatGetUsername()
                         })
                     });
                     const data = await parseAviatJson(response);
@@ -21847,7 +21900,10 @@ Ready for translation!`);
                         aviatResetRunButton();
                     }
                 } catch (err) {
-                    aviatAddLog(`Activate scheduled failed: ${err.message}`, 'error');
+                    const message = err.name === 'AbortError'
+                        ? 'Activate scheduled timed out. Please retry.'
+                        : `Activate scheduled failed: ${err.message}`;
+                    aviatAddLog(message, 'error');
                     aviatResetRunButton();
                 }
             }
@@ -21952,9 +22008,19 @@ Ready for translation!`);
             }
 
             function aviatStartLogStream(taskId) {
-                const eventSource = new EventSource(`${getAviatApiBase()}/stream/${taskId}`);
+                const eventSource = new EventSource(`${getAviatStreamBase()}/stream/${taskId}`);
+                eventSource.onopen = function () {
+                    aviatAddLog('Live log stream connected', 'info');
+                };
                 eventSource.onmessage = function (event) {
-                    const data = JSON.parse(event.data);
+                    let data;
+                    try {
+                        data = JSON.parse(event.data);
+                    } catch (err) {
+                        aviatAddLog('Live log stream parse failed. Monitoring status only.', 'warning');
+                        eventSource.close();
+                        return;
+                    }
                     aviatAddLog(data.message, data.level);
                     const ipMatch = data.message.match(/\[(\d+\.\d+\.\d+\.\d+)\]/);
                     if (ipMatch) {
@@ -21995,6 +22061,7 @@ Ready for translation!`);
                 };
                 eventSource.onerror = function () {
                     eventSource.close();
+                    aviatAddLog('Live log stream disconnected. Monitoring status only.', 'warning');
                 };
             }
 
