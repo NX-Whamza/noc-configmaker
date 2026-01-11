@@ -103,6 +103,8 @@ class Config:
     firmware_ping_timeout: int = int(os.getenv("AVIAT_PING_TIMEOUT", "3900"))
     firmware_ping_payload: int = int(os.getenv("AVIAT_PING_PAYLOAD", "1400"))
     firmware_post_activation_wait: int = int(os.getenv("AVIAT_POST_ACTIVATION_WAIT", "3900"))
+    firmware_ping_check_interval: int = int(os.getenv("AVIAT_PING_CHECK_INTERVAL", "900"))
+    firmware_ping_max_wait: int = int(os.getenv("AVIAT_PING_MAX_WAIT", "3600"))
 
 
 CONFIG = Config()
@@ -888,6 +890,53 @@ def wait_after_activation(callback=None):
     time.sleep(wait_seconds)
 
 
+def wait_for_device_ready(
+    ip: str,
+    callback=None,
+    payload_size: Optional[int] = None,
+    check_interval: Optional[int] = None,
+    max_wait: Optional[int] = None,
+) -> bool:
+    """Poll with ICMP ping every N minutes until reachable or max wait reached."""
+    payload = payload_size if payload_size is not None else CONFIG.firmware_ping_payload
+    interval = check_interval if check_interval is not None else CONFIG.firmware_ping_check_interval
+    max_wait_seconds = max_wait if max_wait is not None else CONFIG.firmware_ping_max_wait
+    start = time.time()
+    attempt = 1
+    while time.time() - start < max_wait_seconds:
+        try:
+            result = subprocess.run(
+                ["ping", "-c", "1", "-W", "2", "-s", str(payload), ip],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            if result.returncode == 0:
+                log(
+                    f"[{ip}] Ping successful after reboot; continuing.",
+                    "success",
+                    callback=callback,
+                )
+                return True
+        except Exception:
+            pass
+        remaining = max_wait_seconds - int(time.time() - start)
+        next_check = (datetime.now() + timedelta(seconds=interval)).strftime("%H:%M")
+        log(
+            f"[{ip}] Ping check {attempt} failed; retrying in {interval // 60} min (next at {next_check}, remaining {max(0, remaining) // 60} min).",
+            "info",
+            callback=callback,
+        )
+        attempt += 1
+        time.sleep(interval)
+    log(
+        f"[{ip}] Ping did not recover within {max_wait_seconds // 60} minutes.",
+        "error",
+        callback=callback,
+    )
+    return False
+
+
 # ============================================================================
 # MAIN PROCESSING
 # ============================================================================
@@ -1014,7 +1063,9 @@ def process_radio(
                         break
                 if baseline_needed and step_name == "baseline" and activate_now:
                     client.close()
-                    wait_after_activation(callback=callback)
+                    if not wait_for_device_ready(ip, callback=callback):
+                        result.error = "Device did not recover within 60 minutes after activation"
+                        return result
                     client = wait_for_reconnect(
                         ip,
                         username=login_username,
@@ -1087,14 +1138,8 @@ def process_radio(
                     result.error = msg
                     return result
                 client.close()
-                wait_after_activation(callback=callback)
-                if not wait_for_ping(
-                    ip,
-                    timeout=CONFIG.firmware_ping_timeout,
-                    payload_size=CONFIG.firmware_ping_payload,
-                    callback=callback,
-                ):
-                    result.error = "Device did not respond to ping after activation"
+                if not wait_for_device_ready(ip, callback=callback):
+                    result.error = "Device did not recover within 60 minutes after activation"
                     return result
                 client = wait_for_reconnect(
                     ip,
