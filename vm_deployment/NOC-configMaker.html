@@ -2345,6 +2345,33 @@
 
                     <hr style="border: none; border-top: 1px solid var(--border-color); margin: 20px 0;">
 
+                    <!-- Admin Reset Password -->
+                    <div class="settings-section" id="adminResetSection" style="display: none;">
+                        <h3>Admin: Reset User Password</h3>
+                        <div class="form-group">
+                            <label for="adminResetEmail">User Email</label>
+                            <input type="email" id="adminResetEmail" class="form-input"
+                                placeholder="user@team.nxlink.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="adminResetTempPassword">Temporary Password (optional)</label>
+                            <input type="text" id="adminResetTempPassword" class="form-input"
+                                placeholder="Leave blank to use default password">
+                        </div>
+                        <label style="display: flex; gap: 8px; align-items: center; font-size: 13px; color: #bbb; margin-bottom: 12px;">
+                            <input type="checkbox" id="adminRequirePasswordChange" checked>
+                            Require password change on next login
+                        </label>
+                        <button onclick="adminResetUserPassword()"
+                            style="background: #d35400; color: white; padding: 10px 18px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                            Reset Password
+                        </button>
+                        <div id="adminResetStatus"
+                            style="margin-top: 10px; font-size: 13px; color: #aaa; display: none;"></div>
+                    </div>
+
+                    <hr style="border: none; border-top: 1px solid var(--border-color); margin: 20px 0;">
+
                     <!-- Theme Selection -->
                     <div class="settings-section">
                         <h3>Theme</h3>
@@ -10287,6 +10314,11 @@
 
                 // Update visual selection
                 updateSettingsSelection();
+
+                // Load admin reset section (if admin)
+                if (typeof loadAdminResetSection === 'function') {
+                    loadAdminResetSection();
+                }
             }
 
             window.closeSettingsModal = function () {
@@ -10328,6 +10360,91 @@
                 // Show success and close
                 alert('Settings saved successfully!');
                 closeSettingsModal();
+            }
+
+            async function loadAdminResetSection() {
+                const section = document.getElementById('adminResetSection');
+                if (!section) return;
+
+                const token = localStorage.getItem('auth_token');
+                if (!token) {
+                    section.style.display = 'none';
+                    return;
+                }
+
+                const apiBase = (typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api';
+                try {
+                    const response = await fetch(`${apiBase}/admin/feedback?limit=1`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    section.style.display = response.ok ? 'block' : 'none';
+                } catch (error) {
+                    console.warn('[ADMIN RESET] Admin check failed:', error);
+                    section.style.display = 'none';
+                }
+            }
+
+            window.adminResetUserPassword = async function () {
+                const emailInput = document.getElementById('adminResetEmail');
+                const tempPassInput = document.getElementById('adminResetTempPassword');
+                const requireChangeInput = document.getElementById('adminRequirePasswordChange');
+                const statusDiv = document.getElementById('adminResetStatus');
+
+                if (!emailInput || !statusDiv) return;
+                const email = (emailInput.value || '').trim().toLowerCase();
+                const newPassword = (tempPassInput?.value || '').trim();
+                const requirePasswordChange = !!requireChangeInput?.checked;
+
+                if (!email) {
+                    statusDiv.textContent = 'Enter a user email to reset.';
+                    statusDiv.style.color = '#ff6b6b';
+                    statusDiv.style.display = 'block';
+                    return;
+                }
+
+                const token = localStorage.getItem('auth_token');
+                if (!token) {
+                    statusDiv.textContent = 'Not authenticated. Please log in again.';
+                    statusDiv.style.color = '#ff6b6b';
+                    statusDiv.style.display = 'block';
+                    return;
+                }
+
+                const apiBase = (typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api';
+                statusDiv.textContent = 'Resetting password...';
+                statusDiv.style.color = '#999';
+                statusDiv.style.display = 'block';
+
+                try {
+                    const response = await fetch(`${apiBase}/admin/users/reset-password`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({
+                            email,
+                            newPassword: newPassword || null,
+                            requirePasswordChange
+                        })
+                    });
+                    const data = await response.json();
+                    if (!response.ok || data.success === false) {
+                        throw new Error(data.error || 'Failed to reset password');
+                    }
+
+                    let msg = 'Password reset successfully.';
+                    if (data.temporaryPassword) {
+                        msg += ` Temporary password: ${data.temporaryPassword}`;
+                    }
+                    statusDiv.textContent = msg;
+                    statusDiv.style.color = '#4caf50';
+                    emailInput.value = '';
+                    if (tempPassInput) tempPassInput.value = '';
+                } catch (error) {
+                    statusDiv.textContent = error.message || 'Failed to reset password.';
+                    statusDiv.style.color = '#ff6b6b';
+                }
             }
 
             // Feedback Modal Functions
@@ -21475,17 +21592,20 @@ Ready for translation!`);
 
             async function aviatFetch(path, options) {
                 const bases = getAviatCandidateBases();
+                const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
                 let lastError = null;
                 for (const base of bases) {
                     try {
                         const response = await fetch(`${base}${path}`, options);
-                        const contentType = response.headers.get('content-type') || '';
                         const shouldRetry = [403, 404, 405].includes(response.status);
                         if (shouldRetry && base !== bases[bases.length - 1]) {
                             continue;
                         }
                         if (response.ok) {
-                            aviatApiOverride = base;
+                            const allowOverride = base.startsWith(window.location.origin) || isLocalHost || window.location.protocol === 'file:';
+                            if (allowOverride) {
+                                aviatApiOverride = base;
+                            }
                         }
                         return response;
                     } catch (err) {
@@ -21798,6 +21918,13 @@ Ready for translation!`);
             async function aviatSubmitRun(ips) {
                 const payload = buildRunPayload();
                 if (!payload) return;
+                ips.forEach(ip => {
+                    const radio = aviatState.radios.find(r => r.ip === ip);
+                    if (radio) {
+                        radio.status = 'processing';
+                    }
+                });
+                aviatUpdateUI();
                 try {
                     const response = await aviatFetchWithTimeout('/run', {
                         method: 'POST',
@@ -21860,6 +21987,13 @@ Ready for translation!`);
                 try {
                     const now = new Date();
                     const scheduledIps = aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'scheduled').map(r => r.ip);
+                    scheduledIps.forEach(ip => {
+                        const radio = aviatState.radios.find(r => r.ip === ip);
+                        if (radio) {
+                            radio.status = 'processing';
+                        }
+                    });
+                    aviatUpdateUI();
                     const syncPayload = scheduledIps.length > 0 ? buildScheduledSyncPayload(scheduledIps) : null;
                     if (syncPayload) {
                         await aviatFetch('/scheduled/sync', {

@@ -8069,6 +8069,65 @@ def get_feedback():
         safe_print(f"[ADMIN FEEDBACK ERROR] {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/admin/users/reset-password', methods=['POST'])
+@require_auth
+def admin_reset_user_password():
+    """Admin-only password reset for users."""
+    try:
+        if not is_admin_user():
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json() or {}
+        email = (data.get('email') or '').strip().lower()
+        new_password = (data.get('newPassword') or '').strip()
+        require_change = bool(data.get('requirePasswordChange', True))
+
+        if not email:
+            return jsonify({'success': False, 'error': 'Email is required'}), 400
+
+        if not validate_email_domain(email):
+            return jsonify({'success': False, 'error': 'Invalid email domain'}), 403
+
+        if new_password and len(new_password) < 8:
+            return jsonify({'success': False, 'error': 'New password must be at least 8 characters'}), 400
+
+        init_users_db()
+        secure_dir = 'secure_data'
+        db_path = os.path.join(secure_dir, 'users.db')
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        c.execute('SELECT id FROM users WHERE email = ?', (email,))
+        user = c.fetchone()
+        if not user:
+            conn.close()
+            return jsonify({'success': False, 'error': 'User not found'}), 404
+
+        effective_password = new_password or DEFAULT_PASSWORD
+        new_password_hash = hash_password(effective_password)
+        c.execute('''UPDATE users
+                     SET password_hash = ?,
+                         first_login = ?,
+                         password_changed_at = CURRENT_TIMESTAMP,
+                         reset_token = NULL,
+                         reset_token_expires = NULL
+                     WHERE id = ?''',
+                 (new_password_hash, 1 if require_change else 0, user['id']))
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'message': 'Password reset successfully',
+            'temporaryPassword': effective_password if not new_password else None,
+            'requirePasswordChange': require_change
+        })
+
+    except Exception as e:
+        safe_print(f"[ADMIN USER RESET ERROR] {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/admin/feedback/<int:feedback_id>/status', methods=['PUT'])
 @require_auth
 def update_feedback_status(feedback_id):
@@ -8332,6 +8391,14 @@ def init_users_db():
                   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                   last_login DATETIME,
                   is_active INTEGER DEFAULT 1)''')
+
+    # Add missing columns for password resets
+    c.execute("PRAGMA table_info(users)")
+    existing_cols = {row[1] for row in c.fetchall()}
+    if 'reset_token' not in existing_cols:
+        c.execute("ALTER TABLE users ADD COLUMN reset_token TEXT")
+    if 'reset_token_expires' not in existing_cols:
+        c.execute("ALTER TABLE users ADD COLUMN reset_token_expires INTEGER")
     
     # User sessions table
     c.execute('''CREATE TABLE IF NOT EXISTS user_sessions
@@ -8620,33 +8687,96 @@ def forgot_password():
         
         if not email:
             return jsonify({'success': False, 'error': 'Email required'}), 400
+
+        if not validate_email_domain(email):
+            return jsonify({'success': False, 'error': 'Invalid email domain'}), 403
         
         init_users_db()
         secure_dir = 'secure_data'
         db_path = os.path.join(secure_dir, 'users.db')
         conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
         c = conn.cursor()
-        
-        c.execute('SELECT id FROM users WHERE email = ?', (email,))
+
+        c.execute('SELECT id, email FROM users WHERE email = ?', (email,))
         user = c.fetchone()
-        conn.close()
-        
+
+        reset_token = None
         if user:
-            # In production, send password reset email
-            # For now, just return success (don't reveal if user exists)
-            return jsonify({
-                'success': True,
-                'message': 'If an account exists with this email, a password reset link has been sent.'
-            })
-        else:
-            # Same message for security (don't reveal if user exists)
-            return jsonify({
-                'success': True,
-                'message': 'If an account exists with this email, a password reset link has been sent.'
-            })
+            reset_token = secrets.token_urlsafe(32)
+            expires_at = int(time.time()) + (60 * 60)  # 1 hour
+            c.execute('''UPDATE users
+                         SET reset_token = ?, reset_token_expires = ?
+                         WHERE id = ?''',
+                      (reset_token, expires_at, user['id']))
+            conn.commit()
+
+        conn.close()
+
+        # In production, send password reset email.
+        # For now, return token when available so UI can redirect to reset.
+        return jsonify({
+            'success': True,
+            'message': 'If an account exists with this email, a password reset link has been sent.',
+            'resetToken': reset_token
+        })
             
     except Exception as e:
         print(f"[AUTH ERROR] Forgot password failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/auth/reset-password', methods=['POST'])
+def reset_password():
+    """Reset password using a reset token (no current password required)."""
+    try:
+        data = request.get_json()
+        email = data.get('email', '').strip().lower()
+        reset_token = data.get('resetToken', '').strip()
+        new_password = data.get('newPassword', '')
+
+        if not email or not reset_token or not new_password:
+            return jsonify({'success': False, 'error': 'Email, reset token, and new password are required'}), 400
+
+        if len(new_password) < 8:
+            return jsonify({'success': False, 'error': 'New password must be at least 8 characters'}), 400
+
+        if not validate_email_domain(email):
+            return jsonify({'success': False, 'error': 'Invalid email domain'}), 403
+
+        init_users_db()
+        secure_dir = 'secure_data'
+        db_path = os.path.join(secure_dir, 'users.db')
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        c.execute('SELECT * FROM users WHERE email = ?', (email,))
+        user = c.fetchone()
+        if not user:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Invalid reset token'}), 400
+
+        expires_at = user['reset_token_expires'] or 0
+        if user['reset_token'] != reset_token or int(time.time()) > int(expires_at):
+            conn.close()
+            return jsonify({'success': False, 'error': 'Invalid or expired reset token'}), 400
+
+        new_password_hash = hash_password(new_password)
+        c.execute('''UPDATE users
+                     SET password_hash = ?,
+                         first_login = 0,
+                         password_changed_at = CURRENT_TIMESTAMP,
+                         reset_token = NULL,
+                         reset_token_expires = NULL
+                     WHERE id = ?''',
+                 (new_password_hash, user['id']))
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message': 'Password reset successfully'})
+
+    except Exception as e:
+        print(f"[AUTH ERROR] Reset password failed: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/auth/verify', methods=['POST'])
@@ -10028,6 +10158,7 @@ def aviat_activate_scheduled():
                 })
                 _log_aviat_activity({
                     'ip': ip,
+                    'username': entry.get("username") or username,
                     'success': result.success,
                     'status': result.status,
                     'firmware_version_before': result.firmware_version_before,
@@ -10039,6 +10170,7 @@ def aviat_activate_scheduled():
                         "remaining_tasks": remaining_tasks,
                         "maintenance_params": entry.get("maintenance_params", {}),
                         "activation_at": entry.get("activation_at"),
+                        "username": entry.get("username") or username,
                     })
                     _aviat_save_scheduled_queue()
 
@@ -10125,12 +10257,20 @@ def aviat_stream_logs(task_id):
     def generate():
         q = aviat_log_queues[task_id]
         while True:
-            data = q.get()
+            try:
+                data = q.get(timeout=15)
+            except queue.Empty:
+                # Keep the connection alive to avoid proxy timeouts.
+                yield ": keep-alive\n\n"
+                continue
             if data is None:
                 break
             yield f"data: {json.dumps(data)}\n\n"
 
-    return Response(generate(), mimetype='text/event-stream')
+    response = Response(generate(), mimetype='text/event-stream')
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['X-Accel-Buffering'] = 'no'
+    return response
 
 
 @app.route('/api/aviat/status/<task_id>')

@@ -478,8 +478,42 @@
         }
 
         function showForgotPassword() {
-            // Redirect to password reset page
-            window.location.href = 'forgot-password.html';
+            const email = window.prompt('Enter your @team.nxlink.com email to reset your password:');
+            if (!email) {
+                return;
+            }
+
+            const trimmedEmail = email.trim().toLowerCase();
+            if (!trimmedEmail.endsWith('@team.nxlink.com')) {
+                showError('Only @team.nxlink.com email addresses are allowed.');
+                return;
+            }
+
+            hideError();
+            fetch('/api/auth/forgot-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: trimmedEmail })
+            })
+                .then(async (response) => {
+                    const data = await response.json().catch(() => ({}));
+                    if (!response.ok || data.success === false) {
+                        throw new Error(data.error || 'Failed to start password reset');
+                    }
+
+                    if (data.resetToken) {
+                        sessionStorage.setItem('reset_email', trimmedEmail);
+                        sessionStorage.setItem('reset_token', data.resetToken);
+                        window.location.href = 'change-password.html?reset=true';
+                        return;
+                    }
+
+                    showError('If an account exists, a reset was sent. Contact admin if you need help.');
+                })
+                .catch((error) => {
+                    console.error('Forgot Password Error:', error);
+                    showError(error.message || 'Failed to start password reset.');
+                });
         }
     </script>
 </body>
