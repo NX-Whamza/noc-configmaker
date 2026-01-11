@@ -21562,7 +21562,8 @@ Ready for translation!`);
                 isProcessing: false,
                 currentTaskId: null,
                 autoStatusInterval: null,
-                nextStatusCheckAt: 0
+                nextStatusCheckAt: 0,
+                globalStreamStarted: false
             };
 
             let aviatApiOverride = null;
@@ -22152,8 +22153,50 @@ Ready for translation!`);
                 }
             }
 
-            function aviatStartLogStream(taskId) {
-                const eventSource = new EventSource(`${getAviatStreamBase()}/stream/${taskId}`);
+            function aviatHandleStreamMessage(data) {
+                aviatAddLog(data.message, data.level);
+                const ipMatch = data.message.match(/\[(\d+\.\d+\.\d+\.\d+)\]/);
+                if (ipMatch) {
+                    const ip = ipMatch[1];
+                    const radio = aviatState.radios.find(r => r.ip === ip);
+                    if (radio) {
+                        radio.status = 'processing';
+                        if (data.message.includes('Triggering firmware download')) {
+                            radio.firmwareStatus = 'processing';
+                        } else if (data.message.includes('Firmware download complete') || data.message.includes('Firmware download started')) {
+                            radio.firmwareStatus = 'success';
+                        } else if (data.message.includes('Scheduled activation queued')) {
+                            radio.status = 'scheduled';
+                        } else if (data.message.includes('Activation started')) {
+                            radio.firmwareStatus = 'success';
+                        } else if (data.message.includes('Password changed')) {
+                            radio.passwordStatus = 'success';
+                        } else if (data.message.includes('SNMP configured')) {
+                            radio.snmpStatus = 'success';
+                        } else if (data.message.includes('Buffer script applied')) {
+                            radio.bufferStatus = 'success';
+                        } else if (data.message.includes('SOP check')) {
+                            if (data.message.includes('FAIL')) {
+                                radio.sopStatus = 'error';
+                            } else if (data.message.includes('PASS')) {
+                                radio.sopStatus = 'success';
+                            }
+                        } else if (data.message.includes('SUCCESS')) {
+                            radio.status = 'success';
+                        } else if (data.message.includes('FAILED')) {
+                            radio.status = 'error';
+                        } else if (data.level === 'error' && data.message.toLowerCase().includes('failed')) {
+                            radio.status = 'error';
+                        }
+                    }
+                }
+                aviatUpdateUI();
+            }
+
+            function aviatStartGlobalLogStream() {
+                if (aviatState.globalStreamStarted) return;
+                aviatState.globalStreamStarted = true;
+                const eventSource = new EventSource(`${getAviatStreamBase()}/stream/global`);
                 eventSource.onopen = function () {
                     aviatAddLog('Live log stream connected', 'info');
                 };
@@ -22166,48 +22209,17 @@ Ready for translation!`);
                         eventSource.close();
                         return;
                     }
-                    aviatAddLog(data.message, data.level);
-                    const ipMatch = data.message.match(/\[(\d+\.\d+\.\d+\.\d+)\]/);
-                    if (ipMatch) {
-                        const ip = ipMatch[1];
-                        const radio = aviatState.radios.find(r => r.ip === ip);
-                        if (radio) {
-                            radio.status = 'processing';
-                            if (data.message.includes('Triggering firmware download')) {
-                                radio.firmwareStatus = 'processing';
-                            } else if (data.message.includes('Firmware download complete') || data.message.includes('Firmware download started')) {
-                                radio.firmwareStatus = 'success';
-                            } else if (data.message.includes('Scheduled activation queued')) {
-                                radio.status = 'scheduled';
-                            } else if (data.message.includes('Activation started')) {
-                                radio.firmwareStatus = 'success';
-                            } else if (data.message.includes('Password changed')) {
-                                radio.passwordStatus = 'success';
-                            } else if (data.message.includes('SNMP configured')) {
-                                radio.snmpStatus = 'success';
-                            } else if (data.message.includes('Buffer script applied')) {
-                                radio.bufferStatus = 'success';
-                            } else if (data.message.includes('SOP check')) {
-                                if (data.message.includes('FAIL')) {
-                                    radio.sopStatus = 'error';
-                                } else if (data.message.includes('PASS')) {
-                                    radio.sopStatus = 'success';
-                                }
-                            } else if (data.message.includes('SUCCESS')) {
-                                radio.status = 'success';
-                            } else if (data.message.includes('FAILED')) {
-                                radio.status = 'error';
-                            } else if (data.level === 'error' && data.message.toLowerCase().includes('failed')) {
-                                radio.status = 'error';
-                            }
-                        }
-                    }
-                    aviatUpdateUI();
+                    aviatHandleStreamMessage(data);
                 };
                 eventSource.onerror = function () {
                     eventSource.close();
+                    aviatState.globalStreamStarted = false;
                     aviatAddLog('Live log stream disconnected. Monitoring status only.', 'warning');
                 };
+            }
+
+            function aviatStartLogStream(taskId) {
+                aviatStartGlobalLogStream();
             }
 
             function aviatMonitorStatus(taskId) {
@@ -22318,6 +22330,7 @@ Ready for translation!`);
                 aviatUpdateMaintenanceBanner();
                 setInterval(aviatUpdateMaintenanceBanner, 60000);
                 aviatStartAutoStatusChecks();
+                aviatStartGlobalLogStream();
                 aviatAddLog('Tool initialized', 'info');
             });
         })();

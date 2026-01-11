@@ -197,6 +197,9 @@ print = safe_print
 # ========================================
 aviat_tasks = {}
 aviat_log_queues = {}
+aviat_global_log_queues = set()
+aviat_global_log_history = []
+AVIAT_GLOBAL_LOG_LIMIT = 2000
 aviat_scheduled_queue = []
 AVIAT_SCHEDULED_STORE = Path(__file__).resolve().parent / "aviat_scheduled_queue.json"
 
@@ -9918,6 +9921,21 @@ def _aviat_result_dict(result, username=None):
         payload['username'] = username
     return payload
 
+def _aviat_broadcast_log(message, level="info", task_id=None):
+    entry = {
+        "message": message,
+        "level": level,
+        "task_id": task_id,
+        "ts": datetime.utcnow().isoformat() + "Z",
+    }
+    aviat_global_log_history.append(entry)
+    if len(aviat_global_log_history) > AVIAT_GLOBAL_LOG_LIMIT:
+        del aviat_global_log_history[: len(aviat_global_log_history) - AVIAT_GLOBAL_LOG_LIMIT]
+    for q in list(aviat_global_log_queues):
+        try:
+            q.put(entry)
+        except Exception:
+            pass
 
 def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, username=None):
     aviat_tasks[task_id]['status'] = 'running'
@@ -9925,6 +9943,7 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
     activation_mode = maintenance_params.get('activation_mode')
 
     def log_callback(message, level):
+        _aviat_broadcast_log(message, level, task_id=task_id)
         if task_id in aviat_log_queues:
             aviat_log_queues[task_id].put({'message': message, 'level': level})
 
@@ -10091,6 +10110,7 @@ def aviat_activate_scheduled():
         aviat_tasks[task_id]['status'] = 'running'
 
         def log_callback(message, level):
+            _aviat_broadcast_log(message, level, task_id=task_id)
             if task_id in aviat_log_queues:
                 aviat_log_queues[task_id].put({'message': message, 'level': level})
 
@@ -10270,6 +10290,38 @@ def aviat_stream_logs(task_id):
     response = Response(generate(), mimetype='text/event-stream')
     response.headers['Cache-Control'] = 'no-cache'
     response.headers['X-Accel-Buffering'] = 'no'
+    return response
+
+
+@app.route('/api/aviat/stream/global')
+def aviat_stream_global():
+    if not HAS_AVIAT:
+        return jsonify({'error': 'Aviat backend not available'}), 503
+    q = queue.Queue()
+    aviat_global_log_queues.add(q)
+
+    def generate():
+        # Send backlog first
+        for entry in aviat_global_log_history[-200:]:
+            yield f"data: {json.dumps(entry)}\n\n"
+        while True:
+            try:
+                data = q.get(timeout=15)
+            except queue.Empty:
+                yield ": keep-alive\n\n"
+                continue
+            if data is None:
+                break
+            yield f"data: {json.dumps(data)}\n\n"
+
+    response = Response(generate(), mimetype='text/event-stream')
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['X-Accel-Buffering'] = 'no'
+
+    @response.call_on_close
+    def _cleanup():
+        aviat_global_log_queues.discard(q)
+
     return response
 
 
