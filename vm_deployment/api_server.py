@@ -9751,7 +9751,7 @@ def _log_aviat_activity(result):
         c = conn.cursor()
         ts_unix = get_unix_timestamp()
         ts_iso = get_utc_timestamp()
-        username = 'aviat-tool'
+        username = result.get('username') or 'aviat-tool'
         activity_type = 'aviat-upgrade'
         site_name = result.get('ip') or 'Unknown'
         device = 'Aviat Backhaul'
@@ -9766,8 +9766,8 @@ def _log_aviat_activity(result):
     except Exception as e:
         safe_print(f"[AVIAT] Failed to log activity: {e}")
 
-def _aviat_result_dict(result):
-    return {
+def _aviat_result_dict(result, username=None):
+    payload = {
         'ip': result.ip,
         'success': result.success,
         'status': getattr(result, 'status', 'completed'),
@@ -9784,9 +9784,12 @@ def _aviat_result_dict(result):
         'firmware_version_after': result.firmware_version_after,
         'error': result.error
     }
+    if username:
+        payload['username'] = username
+    return payload
 
 
-def _aviat_background_task(task_id, ips, task_types, maintenance_params=None):
+def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, username=None):
     aviat_tasks[task_id]['status'] = 'running'
     maintenance_params = maintenance_params or {}
     activation_mode = maintenance_params.get('activation_mode')
@@ -9808,7 +9811,7 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None):
             should_abort=should_abort,
             callback=log_callback,
         )
-        results.extend([_aviat_result_dict(r) for r in result_list])
+        results.extend([_aviat_result_dict(r, username=username) for r in result_list])
     else:
         for ip in ips:
             if task_id not in aviat_tasks:
@@ -9823,7 +9826,7 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None):
                 maintenance_params=maintenance_params,
                 should_abort=should_abort,
             )
-            results.append(_aviat_result_dict(result))
+            results.append(_aviat_result_dict(result, username=username))
 
     if activation_mode == "scheduled":
         remaining_tasks = [t for t in task_types if t not in ("firmware", "all")]
@@ -9834,6 +9837,7 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None):
                     "remaining_tasks": remaining_tasks,
                     "maintenance_params": maintenance_params,
                     "activation_at": maintenance_params.get("activation_at"),
+                    "username": username or "aviat-tool",
                 })
         _aviat_save_scheduled_queue()
 
@@ -9876,6 +9880,7 @@ def aviat_run_tasks():
     ips = data.get('ips', [])
     task_types = data.get('tasks', [])
     m_params = data.get('maintenance_params', {})
+    username = data.get('username')
 
     if not ips:
         return jsonify({'error': 'No IPs provided'}), 400
@@ -9891,7 +9896,7 @@ def aviat_run_tasks():
     aviat_log_queues[task_id] = queue.Queue()
 
     thread = threading.Thread(
-        target=_aviat_background_task, args=(task_id, ips, task_types, m_params)
+        target=_aviat_background_task, args=(task_id, ips, task_types, m_params, username)
     )
     thread.start()
 
@@ -9927,6 +9932,8 @@ def aviat_activate_scheduled():
         return jsonify({"error": "No scheduled devices"}), 400
 
     task_id = str(uuid.uuid4())
+    username = data.get("username")
+
     if request_ips:
         to_activate = [
             {
@@ -9934,6 +9941,7 @@ def aviat_activate_scheduled():
                 "remaining_tasks": request_remaining,
                 "maintenance_params": request_maintenance,
                 "activation_at": request_activation_at,
+                "username": username,
             }
             for ip in request_ips
         ]
@@ -10002,6 +10010,7 @@ def aviat_activate_scheduled():
                 remaining_tasks = entry.get("remaining_tasks", [])
                 aviat_tasks[task_id]['results'].append({
                     'ip': ip,
+                    'username': entry.get("username") or username,
                     'success': result.success,
                     'status': result.status,
                     'firmware_downloaded': result.firmware_downloaded,
@@ -10059,6 +10068,7 @@ def aviat_sync_scheduled():
     ips = data.get("ips", [])
     remaining_tasks = data.get("remaining_tasks", [])
     maintenance_params = data.get("maintenance_params", {})
+    username = data.get("username") or "aviat-tool"
     activation_at = data.get("activation_at")
 
     if not isinstance(ips, list) or not ips:
@@ -10071,6 +10081,7 @@ def aviat_sync_scheduled():
             "remaining_tasks": remaining_tasks,
             "maintenance_params": maintenance_params,
             "activation_at": activation_at,
+            "username": username,
         })
     _aviat_save_scheduled_queue()
     return jsonify({"scheduled": [item.get("ip") for item in aviat_scheduled_queue]})

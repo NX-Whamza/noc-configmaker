@@ -21709,7 +21709,8 @@ Ready for translation!`);
                         activation_mode: activationMode,
                         firmware_target: firmwareTarget,
                         firmware_uri: null
-                    }
+                    },
+                    username: getUsername()
                 };
             }
 
@@ -21739,7 +21740,8 @@ Ready for translation!`);
                         firmware_target: firmwareTarget,
                         firmware_uri: null
                     },
-                    activation_at: activationMode === 'scheduled' ? computeActivationAt(activationTime) : null
+                    activation_at: activationMode === 'scheduled' ? computeActivationAt(activationTime) : null,
+                    username: getUsername()
                 };
             }
 
@@ -21753,7 +21755,8 @@ Ready for translation!`);
                         body: JSON.stringify({
                             ips,
                             tasks: payload.tasks,
-                            maintenance_params: payload.maintenance_params
+                            maintenance_params: payload.maintenance_params,
+                            username: payload.username
                         })
                     });
                     const data = await parseAviatJson(response);
@@ -21822,7 +21825,8 @@ Ready for translation!`);
                             ips: scheduledIps,
                             remaining_tasks: syncPayload ? syncPayload.remaining_tasks : [],
                             maintenance_params: syncPayload ? syncPayload.maintenance_params : {},
-                            activation_at: syncPayload ? syncPayload.activation_at : null
+                            activation_at: syncPayload ? syncPayload.activation_at : null,
+                            username: getUsername()
                         })
                     });
                     const data = await parseAviatJson(response);
