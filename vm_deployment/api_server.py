@@ -21,7 +21,7 @@ if sys.platform == 'win32':
         pass
 
 from flask import Flask, request, jsonify, send_file, send_from_directory
-from flask import make_response, abort
+from flask import make_response, abort, Response
 from flask_cors import CORS
 import os
 import builtins
