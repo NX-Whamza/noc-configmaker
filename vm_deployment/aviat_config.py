@@ -20,6 +20,8 @@ import re
 import csv
 import json
 import subprocess
+import socket
+import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -928,27 +930,44 @@ def wait_for_device_ready(
     max_wait_seconds = max_wait if max_wait is not None else CONFIG.firmware_ping_max_wait
     start = time.time()
     attempt = 1
+    ping_available = shutil.which("ping") is not None
+    if not ping_available:
+        log(
+            f"[{ip}] Ping binary not available; using TCP probe on port 22.",
+            "warning",
+            callback=callback,
+        )
     while time.time() - start < max_wait_seconds:
+        reachable = False
         try:
-            result = subprocess.run(
-                ["ping", "-c", "1", "-W", "2", "-s", str(payload), ip],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-            if result.returncode == 0:
-                log(
-                    f"[{ip}] Ping successful after reboot; continuing.",
-                    "success",
-                    callback=callback,
+            if ping_available:
+                result = subprocess.run(
+                    ["ping", "-c", "1", "-W", "2", "-s", str(payload), ip],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
                 )
-                return True
+                if result.returncode == 0:
+                    reachable = True
         except Exception:
             pass
+        if not reachable:
+            try:
+                with socket.create_connection((ip, 22), timeout=2):
+                    reachable = True
+            except Exception:
+                reachable = False
+        if reachable:
+            log(
+                f"[{ip}] Device reachable after reboot; continuing.",
+                "success",
+                callback=callback,
+            )
+            return True
         remaining = max_wait_seconds - int(time.time() - start)
         next_check = (datetime.now() + timedelta(seconds=interval)).strftime("%H:%M")
         log(
-            f"[{ip}] Ping check {attempt} failed; retrying in {interval // 60} min (next at {next_check}, remaining {max(0, remaining) // 60} min).",
+            f"[{ip}] Availability check {attempt} failed; retrying in {interval // 60} min (next at {next_check}, remaining {max(0, remaining) // 60} min).",
             "info",
             callback=callback,
         )

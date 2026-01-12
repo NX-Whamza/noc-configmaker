@@ -6469,6 +6469,13 @@
             }
         }
 
+        function formatUsernameDisplay(raw) {
+            if (!raw || typeof raw !== 'string') return 'unknown';
+            const trimmed = raw.trim();
+            const atIndex = trimmed.indexOf('@');
+            return atIndex > 0 ? trimmed.slice(0, atIndex) : trimmed;
+        }
+
         function getRADIUSDHCPServers() {
             const servers = getInfrastructureValue('radiusServers.dhcp', []);
             return Array.isArray(servers) ? servers : [];
@@ -10181,7 +10188,7 @@
                                 }
                             }
 
-                            const username = entry.username || 'Unknown User';
+                            const username = formatUsernameDisplay(entry.username || 'Unknown User');
                             return `
                                 <div class="activity-item" style="cursor: pointer;" onclick="navigateToActivity('${entry.type}', ${entry.id})">
                                     <div class="title">${icon} ${activityLabel} - ${entry.siteName} <span style="margin-left: 10px; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,0.06); color: ${statusColor}; border: 1px solid rgba(255,255,255,0.12);">${statusText}</span></div>
@@ -10211,7 +10218,7 @@
                                 const date = new Date(entry.timestamp);
                                 const timeStr = formatCSTTimestamp(entry.timestamp);
                                 const icon = entry.type === 'migration' ? '' : '';
-                                const username = entry.username || getUsername();
+                                const username = formatUsernameDisplay(entry.username || getUsername());
                                 return `
                                     <div class="activity-item" style="cursor: pointer;" onclick="navigateToActivity('${entry.type}', ${entry.id})">
                                         <div class="title">${icon} ${entry.type === 'migration' ? 'Migration' : 'Config Generated'} - ${entry.siteName}</div>
@@ -10281,7 +10288,7 @@
                         <div class="activity-item" style="background: #1a3a1a; border-left: 3px solid #4CAF50;">
                             <div class="title"> ONGOING: ${activity.description}</div>
                             <div class="details">
-                                <span class="user-info">${activity.username}</span> | 
+                                <span class="user-info">${formatUsernameDisplay(activity.username)}</span> | 
                                 Started: ${time}
                             </div>
                         </div>
@@ -19703,7 +19710,7 @@ Ready for translation!`);
                           return `
                       <tr style="border-bottom: 1px solid var(--border-color);">
                           <td style="padding: 12px;">${activity.formattedTime || activity.timestamp}</td>
-                          <td style="padding: 12px; font-weight: 600;">${activity.username}</td>
+                          <td style="padding: 12px; font-weight: 600;">${formatUsernameDisplay(activity.username)}</td>
                           <td style="padding: 12px;">${activity.message || `${activity.type} - ${activity.siteName || 'N/A'}`}</td>
                           <td style="padding: 12px;">${activity.siteName || 'N/A'} ${activity.device ? `(${activity.device})` : ''}</td>
                           <td style="padding: 12px;">${activity.routeros || 'N/A'}</td>
