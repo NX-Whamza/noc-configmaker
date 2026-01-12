@@ -1984,6 +1984,11 @@
             color: #c7f9a7;
         }
 
+        .aviat-status-badge.loading {
+            background: rgba(155, 89, 182, 0.18);
+            color: #d7b7f1;
+        }
+
         .aviat-status-badge.success {
             background: rgba(16, 185, 129, 0.18);
             color: #a7f3d0;
@@ -5745,6 +5750,7 @@
                         <div>Total: <span id="statTotal">0</span></div>
                         <div>Pending: <span id="statPending">0</span></div>
                         <div>Running: <span id="statProcessing">0</span></div>
+                        <div>Loading: <span id="statLoading">0</span></div>
                         <div>Scheduled: <span id="statScheduled">0</span></div>
                         <div>Done: <span id="statSuccess">0</span></div>
                         <div>Failed: <span id="statError">0</span></div>
@@ -6474,6 +6480,13 @@
             const trimmed = raw.trim();
             const atIndex = trimmed.indexOf('@');
             return atIndex > 0 ? trimmed.slice(0, atIndex) : trimmed;
+        }
+
+        function sanitizeActivityText(text) {
+            if (!text || typeof text !== 'string') return text || '';
+            return text.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, (match) => {
+                return formatUsernameDisplay(match);
+            });
         }
 
         function getRADIUSDHCPServers() {
@@ -19711,7 +19724,7 @@ Ready for translation!`);
                       <tr style="border-bottom: 1px solid var(--border-color);">
                           <td style="padding: 12px;">${activity.formattedTime || activity.timestamp}</td>
                           <td style="padding: 12px; font-weight: 600;">${formatUsernameDisplay(activity.username)}</td>
-                          <td style="padding: 12px;">${activity.message || `${activity.type} - ${activity.siteName || 'N/A'}`}</td>
+                          <td style="padding: 12px;">${sanitizeActivityText(activity.message || `${activity.type} - ${activity.siteName || 'N/A'}`)}</td>
                           <td style="padding: 12px;">${activity.siteName || 'N/A'} ${activity.device ? `(${activity.device})` : ''}</td>
                           <td style="padding: 12px;">${activity.routeros || 'N/A'}</td>
                           <td style="padding: 12px; text-align: center; color: ${statusColor}; font-weight: bold;">${statusIcon}</td>
@@ -21688,7 +21701,7 @@ Ready for translation!`);
             function aviatNormalizeStatus(status, successFlag) {
                 if (!status) return successFlag ? 'success' : 'pending';
                 const lower = String(status).toLowerCase();
-                if (['success', 'error', 'pending', 'processing', 'scheduled', 'manual'].includes(lower)) {
+                if (['success', 'error', 'pending', 'processing', 'loading', 'scheduled', 'manual'].includes(lower)) {
                     return lower;
                 }
                 if (['completed', 'done'].includes(lower)) {
@@ -21704,6 +21717,7 @@ Ready for translation!`);
                 const icons = {
                     pending: '.',
                     processing: '~',
+                    loading: 'LD',
                     scheduled: 'S',
                     manual: 'M',
                     success: 'OK',
@@ -21766,6 +21780,7 @@ Ready for translation!`);
                     total: aviatState.radios.length,
                     pending: aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'pending').length,
                     processing: aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'processing').length,
+                    loading: aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'loading').length,
                     scheduled: aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'scheduled').length,
                     success: aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'success').length,
                     error: aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'error').length
@@ -21774,6 +21789,7 @@ Ready for translation!`);
                 document.getElementById('statTotal').textContent = stats.total;
                 document.getElementById('statPending').textContent = stats.pending;
                 document.getElementById('statProcessing').textContent = stats.processing;
+                document.getElementById('statLoading').textContent = stats.loading;
                 document.getElementById('statScheduled').textContent = stats.scheduled;
                 document.getElementById('statSuccess').textContent = stats.success;
                 document.getElementById('statError').textContent = stats.error;
@@ -22139,9 +22155,10 @@ Ready for translation!`);
                         aviatResetRunButton();
                         return;
                     }
-                    if (data.task_id) {
-                        aviatState.nextStatusCheckAt = Date.now() + 3900000;
-                        setTimeout(() => { aviatCheckStatus(); }, 3900000);
+                if (data.task_id) {
+                        aviatState.activationCheckStart = Date.now();
+                        aviatState.nextStatusCheckAt = aviatState.activationCheckStart + 3600000;
+                        setTimeout(() => { aviatCheckStatus(); }, 3600000);
                         aviatState.currentTaskId = data.task_id;
                         document.getElementById('abortBtn').disabled = false;
                         aviatStartLogStream(data.task_id);
@@ -22185,7 +22202,7 @@ Ready for translation!`);
                     if (hasRunning) {
                         aviatCheckStatus();
                     }
-                }, 300000);
+                }, 3600000);
             }
 
             async function aviatCheckStatus() {
@@ -22212,6 +22229,10 @@ Ready for translation!`);
                         const radio = aviatState.radios.find(r => r.ip === res.ip);
                         if (!radio) return;
                         if (res.error || !res.reachable) {
+                            const currentStatus = aviatNormalizeStatus(radio.status);
+                            if (currentStatus === 'processing' || currentStatus === 'scheduled') {
+                                return;
+                            }
                             radio.status = 'error';
                             return;
                         }
@@ -22228,6 +22249,14 @@ Ready for translation!`);
                     });
                     aviatUpdateUI();
                     aviatAddLog(`Status check completed (${results.length} radios)`, 'info');
+                    if (aviatState.activationCheckStart) {
+                        const elapsed = now - aviatState.activationCheckStart;
+                        if (elapsed < 5400000) {
+                            aviatState.nextStatusCheckAt = Date.now() + 3600000;
+                        } else {
+                            aviatState.activationCheckStart = null;
+                        }
+                    }
                 } catch (err) {
                     aviatAddLog(`Check status failed: ${err.message}`, 'error');
                 }
@@ -22237,20 +22266,27 @@ Ready for translation!`);
                 const quiet = options.quiet === true;
                 try {
                     const queueLoaded = await aviatLoadSharedQueue();
-                    const response = await aviatFetch('/scheduled');
-                    const data = await parseAviatJson(response);
-                    if (!response.ok) {
+                    const scheduledResponse = await aviatFetch('/scheduled');
+                    const scheduledData = await parseAviatJson(scheduledResponse);
+                    const loadingResponse = await aviatFetch('/loading');
+                    const loadingData = await parseAviatJson(loadingResponse);
+                    if (!scheduledResponse.ok || !loadingResponse.ok) {
                         if (!quiet) {
-                            aviatAddLog(data.error || `Refresh failed (${response.status})`, 'error');
+                            const errMsg = scheduledData.error || loadingData.error || `Refresh failed (${scheduledResponse.status}/${loadingResponse.status})`;
+                            aviatAddLog(errMsg, 'error');
                         }
                         return;
                     }
-                    const scheduled = new Set(data.scheduled || []);
+                    const scheduled = new Set(scheduledData.scheduled || []);
+                    const loading = new Set(loadingData.loading || []);
                     aviatState.radios = aviatState.radios.map(r => {
+                        if (loading.has(r.ip)) {
+                            return { ...r, status: 'loading', firmwareStatus: 'loading' };
+                        }
                         if (scheduled.has(r.ip)) {
                             return { ...r, status: 'scheduled' };
                         }
-                        if (r.status === 'scheduled') {
+                        if (r.status === 'loading' || r.status === 'scheduled') {
                             return { ...r, status: 'pending' };
                         }
                         return r;
@@ -22277,7 +22313,10 @@ Ready for translation!`);
                         if (data.message.includes('Triggering firmware download')) {
                             radio.firmwareStatus = 'processing';
                         } else if (data.message.includes('Firmware download complete') || data.message.includes('Firmware download started')) {
-                            radio.firmwareStatus = 'success';
+                            radio.firmwareStatus = 'loading';
+                        } else if (data.message.includes('Added to loading queue')) {
+                            radio.status = 'loading';
+                            radio.firmwareStatus = 'loading';
                         } else if (data.message.includes('Scheduled activation queued')) {
                             radio.status = 'scheduled';
                         } else if (data.message.includes('Activation started')) {

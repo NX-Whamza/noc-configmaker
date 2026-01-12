@@ -128,6 +128,7 @@ class RadioResult:
     snmp_configured: bool = False
     buffer_configured: bool = False
     firmware_downloaded: bool = False
+    firmware_downloaded_version: Optional[str] = None
     firmware_scheduled: bool = False
     firmware_activated: bool = False
     sop_checked: bool = False
@@ -583,6 +584,16 @@ def _parse_version(version_output: str) -> Optional[str]:
     parts = match.group(1).split(".")
     return ".".join(parts[:3])
 
+def _parse_inactive_version(version_output: str) -> Optional[str]:
+    match = re.search(
+        r"inactive-version\s+([0-9]+(?:\.[0-9]+){1,})",
+        version_output,
+        re.I,
+    )
+    if not match:
+        return None
+    parts = match.group(1).split(".")
+    return ".".join(parts[:3])
 
 def _version_tuple(version: Optional[str]) -> Tuple[int, int, int]:
     if not version:
@@ -603,6 +614,20 @@ def get_firmware_version(client: AviatSSHClient, callback=None) -> Optional[str]
         log(f"  [{client.ip}] Detected firmware {version}", "info", callback=callback)
     else:
         log(f"  [{client.ip}] Failed to parse firmware version", "warning", callback=callback)
+    return version
+
+
+def get_inactive_firmware_version(client: AviatSSHClient, callback=None) -> Optional[str]:
+    log(f"  [{client.ip}] Checking inactive firmware version...", "info", callback=callback)
+    output = client.send_command("show software-status inactive-version")
+    version = _parse_inactive_version(output)
+    if not version:
+        output = client.send_command("show software-status")
+        version = _parse_inactive_version(output)
+    if version:
+        log(f"  [{client.ip}] Inactive firmware {version}", "info", callback=callback)
+    else:
+        log(f"  [{client.ip}] Failed to parse inactive firmware version", "warning", callback=callback)
     return version
 
 
@@ -1086,6 +1111,12 @@ def process_radio(
                             callback=callback,
                         )
                         break
+                    if step_name == "baseline":
+                        version = CONFIG.firmware_baseline_version
+                    elif step_name == "final":
+                        version = CONFIG.firmware_final_version
+                    else:
+                        version = None
                     firmware_was_triggered = True
                     success, msg = trigger_firmware_download(
                         client,
@@ -1096,6 +1127,8 @@ def process_radio(
                         callback=callback,
                     )
                     result.firmware_downloaded = result.firmware_downloaded or success
+                    if success:
+                        result.firmware_downloaded_version = version
                     result.firmware_scheduled = result.firmware_scheduled or bool(
                         success and activation_time and not activate_now
                     )
@@ -1138,11 +1171,11 @@ def process_radio(
 
                 if firmware_was_triggered and activation_mode == "scheduled":
                     log(
-                        f"[{ip}] Firmware download complete. Scheduled activation queued.",
+                        f"[{ip}] Firmware download complete. Added to loading queue.",
                         "warning",
                         callback=callback,
                     )
-                    result.status = "scheduled"
+                    result.status = "loading"
                     result.success = True
                     return result
 
@@ -1213,7 +1246,9 @@ def process_radio(
                         )
                         result.firmware_downloaded = result.firmware_downloaded or success
                         result.firmware_scheduled = result.firmware_scheduled or success
-                        result.status = "scheduled"
+                        if success:
+                            result.firmware_downloaded_version = CONFIG.firmware_final_version
+                        result.status = "loading"
                         result.success = True
                         return result
                     result.error = "Final firmware not detected after activation"
@@ -1284,13 +1319,13 @@ def process_radio(
         
     except Exception as e:
         result.error = str(e)
-        log(f"[{ip}] ✗ {e}", "error", callback=callback)
+        log(f"[{ip}] ERROR: {e}", "error", callback=callback)
         
     finally:
         client.close()
         result.duration = time.time() - start_time
         
-    status = "✓ SUCCESS" if result.success else "✗ FAILED"
+    status = "SUCCESS" if result.success else "FAILED"
     log(f"[{ip}] {status} (took {result.duration:.1f}s)", "success" if result.success else "error", callback=callback)
     
     return result

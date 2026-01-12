@@ -164,6 +164,8 @@ try:
         process_radios_parallel as aviat_process_radios_parallel,
         check_device_status as aviat_check_device_status,
         CONFIG as AVIAT_CONFIG,
+        get_inactive_firmware_version as aviat_get_inactive_firmware_version,
+        AviatSSHClient,
     )
     HAS_AVIAT = True
 except Exception:
@@ -204,6 +206,14 @@ AVIAT_SHARED_QUEUE_STORE = Path(__file__).resolve().parent / "aviat_shared_queue
 AVIAT_GLOBAL_LOG_LIMIT = 2000
 aviat_scheduled_queue = []
 AVIAT_SCHEDULED_STORE = Path(__file__).resolve().parent / "aviat_scheduled_queue.json"
+aviat_loading_queue = []
+AVIAT_LOADING_STORE = Path(__file__).resolve().parent / "aviat_loading_queue.json"
+aviat_activation_lock = threading.Lock()
+aviat_loading_lock = threading.Lock()
+AVIAT_AUTO_ACTIVATE = os.getenv("AVIAT_AUTO_ACTIVATE", "true").lower() in ("1", "true", "yes")
+AVIAT_AUTO_ACTIVATE_POLL = int(os.getenv("AVIAT_AUTO_ACTIVATE_POLL", "60"))
+AVIAT_LOADING_CHECK_INTERVAL = int(os.getenv("AVIAT_LOADING_CHECK_INTERVAL", "3600"))
+AVIAT_LOADING_MAX_WAIT = int(os.getenv("AVIAT_LOADING_MAX_WAIT", "5400"))
 
 
 def _aviat_load_scheduled_queue():
@@ -227,6 +237,29 @@ def _aviat_save_scheduled_queue():
 
 
 _aviat_load_scheduled_queue()
+
+
+def _aviat_load_loading_queue():
+    if not AVIAT_LOADING_STORE.exists():
+        return
+    try:
+        with open(AVIAT_LOADING_STORE, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, list):
+            aviat_loading_queue.extend(data)
+    except Exception:
+        pass
+
+
+def _aviat_save_loading_queue():
+    try:
+        with open(AVIAT_LOADING_STORE, "w", encoding="utf-8") as handle:
+            json.dump(aviat_loading_queue, handle)
+    except Exception:
+        pass
+
+
+_aviat_load_loading_queue()
 
 def _aviat_load_shared_queue():
     if not AVIAT_SHARED_QUEUE_STORE.exists():
@@ -268,7 +301,7 @@ def _aviat_queue_remove(ip):
 def _aviat_status_from_result(result):
     status = (result or {}).get("status")
     success = result.get("success")
-    if status in ("scheduled", "manual"):
+    if status in ("scheduled", "manual", "loading"):
         return status
     if status == "aborted":
         return "aborted"
@@ -276,7 +309,9 @@ def _aviat_status_from_result(result):
         return "success"
     return "error"
 
-def _aviat_substatus(flag, scheduled=False):
+def _aviat_substatus(flag, scheduled=False, loading=False):
+    if loading:
+        return "loading"
     if scheduled:
         return "scheduled"
     return "success" if flag else "pending"
@@ -293,6 +328,7 @@ def _aviat_queue_update_from_result(result, username=None):
         "firmwareStatus": _aviat_substatus(
             result.get("firmware_downloaded") or result.get("firmware_activated"),
             scheduled=result.get("firmware_scheduled"),
+            loading=status == "loading",
         ),
         "passwordStatus": _aviat_substatus(result.get("password_changed")),
         "snmpStatus": _aviat_substatus(result.get("snmp_configured")),
@@ -304,6 +340,281 @@ def _aviat_queue_update_from_result(result, username=None):
     _aviat_queue_upsert(ip, updates)
 
 _aviat_load_shared_queue()
+
+def _short_username(raw):
+    if not raw:
+        return "unknown"
+    if "@" in raw:
+        return raw.split("@", 1)[0]
+    return raw
+
+def _aviat_connect_with_fallback(ip, callback=None):
+    client = None
+    try:
+        client = AviatSSHClient(
+            ip,
+            username=AVIAT_CONFIG.default_username,
+            password=AVIAT_CONFIG.new_password,
+        )
+        client.connect()
+        if callback:
+            callback(f"[{ip}] Connected with new password", "info")
+        return client
+    except Exception:
+        if client:
+            try:
+                client.close()
+            except Exception:
+                pass
+    client = AviatSSHClient(
+        ip,
+        username=AVIAT_CONFIG.default_username,
+        password=AVIAT_CONFIG.default_password,
+    )
+    client.connect()
+    if callback:
+        callback(f"[{ip}] Connected with default password", "info")
+    return client
+
+
+def _aviat_loading_check_loop():
+    while True:
+        time.sleep(AVIAT_LOADING_CHECK_INTERVAL)
+        if not HAS_AVIAT:
+            continue
+        if not aviat_loading_queue:
+            continue
+        now = datetime.utcnow()
+        to_schedule = []
+        still_loading = []
+        failed = []
+        with aviat_loading_lock:
+            for entry in list(aviat_loading_queue):
+                ip = entry.get("ip")
+                if not ip:
+                    continue
+                started_at = entry.get("started_at")
+                if started_at:
+                    try:
+                        started_dt = datetime.fromisoformat(started_at.replace("Z", ""))
+                        if (now - started_dt).total_seconds() > AVIAT_LOADING_MAX_WAIT:
+                            failed.append(entry)
+                            continue
+                    except Exception:
+                        pass
+                try:
+                    def local_log(message, level):
+                        _aviat_broadcast_log(message, level)
+                    client = _aviat_connect_with_fallback(ip, callback=local_log)
+                    inactive_version = aviat_get_inactive_firmware_version(client, callback=local_log)
+                    client.close()
+                except Exception as exc:
+                    _aviat_broadcast_log(f"[{ip}] Loading check failed: {exc}", "warning")
+                    still_loading.append(entry)
+                    continue
+                if inactive_version in (
+                    AVIAT_CONFIG.firmware_baseline_version,
+                    AVIAT_CONFIG.firmware_final_version,
+                    entry.get("target_version"),
+                ):
+                    _aviat_broadcast_log(
+                        f"[{ip}] Firmware {inactive_version} loaded (inactive). Moving to scheduled queue.",
+                        "success",
+                    )
+                    to_schedule.append(entry)
+                else:
+                    still_loading.append(entry)
+                    _aviat_broadcast_log(
+                        f"[{ip}] Firmware still loading; next check in {AVIAT_LOADING_CHECK_INTERVAL // 60} min.",
+                        "info",
+                    )
+
+            if failed:
+                for entry in failed:
+                    ip = entry.get("ip")
+                    if ip:
+                        _aviat_queue_upsert(ip, {
+                            "status": "error",
+                            "firmwareStatus": "error",
+                            "username": entry.get("username") or "aviat-tool",
+                        })
+                        _aviat_broadcast_log(
+                            f"[{ip}] Firmware load timed out after {AVIAT_LOADING_MAX_WAIT // 60} min.",
+                            "error",
+                        )
+                _aviat_save_shared_queue()
+
+            if to_schedule:
+                for entry in to_schedule:
+                    aviat_scheduled_queue.append({
+                        "ip": entry.get("ip"),
+                        "remaining_tasks": entry.get("remaining_tasks", []),
+                        "maintenance_params": entry.get("maintenance_params", {}),
+                        "activation_at": entry.get("activation_at"),
+                        "username": entry.get("username") or "aviat-tool",
+                    })
+                    _aviat_queue_upsert(entry.get("ip"), {
+                        "status": "scheduled",
+                        "firmwareStatus": "scheduled",
+                        "username": entry.get("username") or "aviat-tool",
+                    })
+                _aviat_save_scheduled_queue()
+                _aviat_save_shared_queue()
+
+            aviat_loading_queue[:] = still_loading
+            _aviat_save_loading_queue()
+
+def _aviat_activate_entries(task_id, to_activate, username=None):
+    aviat_tasks[task_id]['status'] = 'running'
+
+    def log_callback(message, level):
+        _aviat_broadcast_log(message, level, task_id=task_id)
+        if task_id in aviat_log_queues:
+            aviat_log_queues[task_id].put({'message': message, 'level': level})
+
+    activation_limit = int(os.environ.get("AVIAT_ACTIVATION_MAX", "20"))
+    worker_count = max(1, min(len(to_activate), activation_limit))
+
+    def run_activation(entry):
+        ip = entry["ip"]
+        remaining_tasks = entry.get("remaining_tasks", [])
+        full_tasks = ["activate"] + remaining_tasks
+        result = aviat_process_radio(
+            ip,
+            full_tasks,
+            callback=log_callback,
+            maintenance_params=entry.get("maintenance_params", {}),
+        )
+        return entry, result
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = [executor.submit(run_activation, entry) for entry in to_activate]
+        for future in as_completed(futures):
+            entry, result = future.result()
+            ip = entry["ip"]
+            remaining_tasks = entry.get("remaining_tasks", [])
+            aviat_tasks[task_id]['results'].append({
+                'ip': ip,
+                'username': entry.get("username") or username,
+                'success': result.success,
+                'status': result.status,
+                'firmware_downloaded': result.firmware_downloaded,
+                'firmware_scheduled': result.firmware_scheduled,
+                'firmware_activated': result.firmware_activated,
+                'password_changed': result.password_changed,
+                'snmp_configured': result.snmp_configured,
+                'buffer_configured': result.buffer_configured,
+                'sop_checked': result.sop_checked,
+                'sop_passed': result.sop_passed,
+                'sop_results': result.sop_results,
+                'firmware_version_before': result.firmware_version_before,
+                'firmware_version_after': result.firmware_version_after,
+                'error': result.error
+            })
+            _log_aviat_activity({
+                'ip': ip,
+                'username': entry.get("username") or username,
+                'firmware_version_after': result.firmware_version_after,
+                'firmware_version_before': result.firmware_version_before,
+                'success': result.success,
+                'status': result.status
+            })
+            _aviat_queue_update_from_result(
+                _aviat_result_dict(result, username=entry.get("username") or username),
+                username=entry.get("username") or username,
+            )
+            if result.status == "loading":
+                aviat_loading_queue.append({
+                    "ip": ip,
+                    "remaining_tasks": remaining_tasks,
+                    "maintenance_params": entry.get("maintenance_params", {}),
+                    "activation_at": entry.get("activation_at"),
+                    "username": entry.get("username") or username or "aviat-tool",
+                    "target_version": result.firmware_downloaded_version,
+                    "started_at": datetime.utcnow().isoformat() + "Z",
+                })
+                _aviat_save_loading_queue()
+                _aviat_queue_upsert(ip, {
+                    "status": "loading",
+                    "firmwareStatus": "loading",
+                    "username": entry.get("username") or username or "aviat-tool",
+                })
+                _aviat_save_shared_queue()
+            elif result.firmware_scheduled and result.status == "scheduled":
+                aviat_scheduled_queue.append({
+                    "ip": ip,
+                    "remaining_tasks": remaining_tasks,
+                    "maintenance_params": entry.get("maintenance_params", {}),
+                    "activation_at": entry.get("activation_at"),
+                    "username": entry.get("username") or username or "aviat-tool",
+                })
+                _aviat_save_scheduled_queue()
+                _aviat_queue_upsert(ip, {
+                    "status": "scheduled",
+                    "username": entry.get("username") or username or "aviat-tool",
+                })
+                _aviat_save_shared_queue()
+
+    aviat_tasks[task_id]['status'] = 'completed'
+    _aviat_save_shared_queue()
+    if task_id in aviat_log_queues:
+        aviat_log_queues[task_id].put(None)
+
+def _aviat_auto_activate_loop():
+    while True:
+        time.sleep(AVIAT_AUTO_ACTIVATE_POLL)
+        if not AVIAT_AUTO_ACTIVATE:
+            continue
+        if not HAS_AVIAT:
+            continue
+        now = datetime.now()
+        if not (2 <= now.hour < 5):
+            continue
+        if not aviat_scheduled_queue:
+            continue
+        if not aviat_activation_lock.acquire(blocking=False):
+            continue
+        try:
+            to_activate = []
+            remaining = []
+            for entry in aviat_scheduled_queue:
+                activation_at = entry.get("activation_at")
+                if activation_at:
+                    try:
+                        if datetime.fromisoformat(activation_at.replace("Z", "")) <= now:
+                            to_activate.append(entry)
+                        else:
+                            remaining.append(entry)
+                    except Exception:
+                        to_activate.append(entry)
+                else:
+                    to_activate.append(entry)
+            if not to_activate:
+                continue
+            aviat_scheduled_queue[:] = remaining
+            _aviat_save_scheduled_queue()
+            for entry in to_activate:
+                _aviat_queue_upsert(entry["ip"], {
+                    "status": "processing",
+                    "username": entry.get("username") or "aviat-tool",
+                })
+            _aviat_save_shared_queue()
+            task_id = f"auto-{uuid.uuid4()}"
+            aviat_tasks[task_id] = {
+                'status': 'pending',
+                'abort': False,
+                'ips': [x["ip"] for x in to_activate],
+                'tasks': ['activate'],
+                'results': []
+            }
+            aviat_log_queues[task_id] = queue.Queue()
+            threading.Thread(
+                target=_aviat_activate_entries,
+                args=(task_id, to_activate),
+                daemon=True,
+            ).start()
+        finally:
+            aviat_activation_lock.release()
 
 # ========================================
 # ROUTERBOARD INTERFACE DATABASE
@@ -9806,8 +10117,9 @@ def log_activity():
         conn.commit()
         conn.close()
         
-        # Format activity message
-        activity_msg = f"{username}"
+        # Format activity message (use short username for display)
+        display_user = _short_username(username)
+        activity_msg = f"{display_user}"
         if activity_type == 'migration':
             activity_msg += f" migrated {site_name}"
         elif activity_type == 'new-config':
@@ -9873,20 +10185,21 @@ def get_activity():
         for row in rows:
             # Format activity message
             username = row['username']
+            display_user = _short_username(username)
             activity_type = row['activity_type']
             site_name = row['site_name'] or 'Unknown'
             device = row['device'] or ''
-            
+
             if activity_type == 'migration':
-                message = f"{username} migrated {site_name}"
+                message = f"{display_user} migrated {site_name}"
             elif activity_type == 'new-config':
-                message = f"{username} configured {site_name}"
+                message = f"{display_user} configured {site_name}"
             else:
-                message = f"{username} - {activity_type} - {site_name}"
-            
-            if device:
-                message += f" ({device})"
-            
+                message = f"{display_user} - {activity_type} - {site_name}"
+
+                if device:
+                    message += f" ({device})"
+
             # Normalize timestamp to ISO UTC for reliable frontend parsing; also return a CST display string.
             dt_utc = None
             ts_unix = row['timestamp_unix'] if has_unix else None
@@ -9921,7 +10234,7 @@ def get_activity():
             else:
                 timestamp_iso = row['timestamp']
                 formatted_time = row['timestamp']
-            
+
             activities.append({
                 'id': row['id'],
                 'username': row['username'],
@@ -9948,7 +10261,7 @@ def get_activity():
 
 def _aviat_should_log(result):
     status = (result or {}).get('status')
-    if status in ('scheduled', 'manual', 'aborted'):
+    if status in ('scheduled', 'manual', 'aborted', 'loading'):
         return False
     return True
 
@@ -9963,7 +10276,7 @@ def _log_aviat_activity(result):
         c = conn.cursor()
         ts_unix = get_unix_timestamp()
         ts_iso = get_utc_timestamp()
-        username = result.get('username') or 'aviat-tool'
+        username = _short_username(result.get('username') or 'aviat-tool')
         activity_type = 'aviat-upgrade'
         site_name = result.get('ip') or 'Unknown'
         device = 'Aviat Backhaul'
@@ -9984,6 +10297,7 @@ def _aviat_result_dict(result, username=None):
         'success': result.success,
         'status': getattr(result, 'status', 'completed'),
         'firmware_downloaded': result.firmware_downloaded,
+        'firmware_downloaded_version': getattr(result, 'firmware_downloaded_version', None),
         'firmware_scheduled': result.firmware_scheduled,
         'firmware_activated': result.firmware_activated,
         'password_changed': result.password_changed,
@@ -10059,7 +10373,22 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
     if activation_mode == "scheduled":
         remaining_tasks = [t for t in task_types if t not in ("firmware", "all")]
         for res in results:
-            if res.get("status") == "scheduled":
+            if res.get("status") == "loading":
+                aviat_loading_queue.append({
+                    "ip": res["ip"],
+                    "remaining_tasks": remaining_tasks,
+                    "maintenance_params": maintenance_params,
+                    "activation_at": maintenance_params.get("activation_at"),
+                    "username": username or "aviat-tool",
+                    "target_version": res.get("firmware_downloaded_version"),
+                    "started_at": datetime.utcnow().isoformat() + "Z",
+                })
+                _aviat_queue_upsert(res["ip"], {
+                    "status": "loading",
+                    "firmwareStatus": "loading",
+                    "username": username or "aviat-tool",
+                })
+            elif res.get("status") == "scheduled":
                 aviat_scheduled_queue.append({
                     "ip": res["ip"],
                     "remaining_tasks": remaining_tasks,
@@ -10073,6 +10402,7 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
                     "username": username or "aviat-tool",
                 })
         _aviat_save_scheduled_queue()
+        _aviat_save_loading_queue()
 
     if aviat_tasks.get(task_id, {}).get('abort'):
         remaining = [ip for ip in ips if ip not in [r['ip'] for r in results]]
@@ -10238,87 +10568,7 @@ def aviat_activate_scheduled():
             aviat_scheduled_queue.clear()
             _aviat_save_scheduled_queue()
 
-        def run_activation(entry):
-            ip = entry["ip"]
-            remaining_tasks = entry.get("remaining_tasks", [])
-            full_tasks = ["activate"] + remaining_tasks
-            result = aviat_process_radio(
-                ip,
-                full_tasks,
-                callback=log_callback,
-                maintenance_params=entry.get("maintenance_params", {}),
-            )
-            return entry, result
-
-        activation_limit = int(os.environ.get("AVIAT_ACTIVATION_MAX", "20"))
-        worker_count = max(1, min(len(local_to_activate), activation_limit))
-        with ThreadPoolExecutor(max_workers=worker_count) as executor:
-            futures = [executor.submit(run_activation, entry) for entry in local_to_activate]
-            for future in as_completed(futures):
-                entry, result = future.result()
-                ip = entry["ip"]
-                remaining_tasks = entry.get("remaining_tasks", [])
-                aviat_tasks[task_id]['results'].append({
-                    'ip': ip,
-                    'username': entry.get("username") or username,
-                    'success': result.success,
-                    'status': result.status,
-                    'firmware_downloaded': result.firmware_downloaded,
-                    'firmware_scheduled': result.firmware_scheduled,
-                    'firmware_activated': result.firmware_activated,
-                    'password_changed': result.password_changed,
-                    'snmp_configured': result.snmp_configured,
-                    'buffer_configured': result.buffer_configured,
-                    'sop_checked': result.sop_checked,
-                    'sop_passed': result.sop_passed,
-                    'sop_results': result.sop_results,
-                    'firmware_version_before': result.firmware_version_before,
-                    'firmware_version_after': result.firmware_version_after,
-                    'error': result.error
-                })
-                _log_aviat_activity({
-                    'ip': ip,
-                    'username': entry.get("username") or username,
-                    'success': result.success,
-                    'status': result.status,
-                    'firmware_version_before': result.firmware_version_before,
-                    'firmware_version_after': result.firmware_version_after,
-                })
-                _aviat_queue_update_from_result(
-                    {
-                        "ip": ip,
-                        "success": result.success,
-                        "status": result.status,
-                        "firmware_downloaded": result.firmware_downloaded,
-                        "firmware_scheduled": result.firmware_scheduled,
-                        "firmware_activated": result.firmware_activated,
-                        "password_changed": result.password_changed,
-                        "snmp_configured": result.snmp_configured,
-                        "buffer_configured": result.buffer_configured,
-                        "sop_passed": result.sop_passed,
-                    },
-                    username=entry.get("username") or username,
-                )
-                if result.status == "scheduled":
-                    aviat_scheduled_queue.append({
-                        "ip": ip,
-                        "remaining_tasks": remaining_tasks,
-                        "maintenance_params": entry.get("maintenance_params", {}),
-                        "activation_at": entry.get("activation_at"),
-                        "username": entry.get("username") or username,
-                    })
-                    _aviat_save_scheduled_queue()
-                    _aviat_queue_upsert(ip, {
-                        "status": "scheduled",
-                        "firmwareStatus": "scheduled",
-                        "username": entry.get("username") or username or "aviat-tool",
-                    })
-                    _aviat_save_shared_queue()
-
-        aviat_tasks[task_id]['status'] = 'completed'
-        _aviat_save_shared_queue()
-        if task_id in aviat_log_queues:
-            aviat_log_queues[task_id].put(None)
+        _aviat_activate_entries(task_id, local_to_activate, username=username)
 
     thread = threading.Thread(target=activation_task)
     thread.start()
@@ -10331,6 +10581,15 @@ def aviat_get_scheduled():
         return jsonify({'error': 'Aviat backend not available'}), 503
     return jsonify({
         "scheduled": [item.get("ip") for item in aviat_scheduled_queue]
+    })
+
+
+@app.route('/api/aviat/loading', methods=['GET'])
+def aviat_get_loading():
+    if not HAS_AVIAT:
+        return jsonify({'error': 'Aviat backend not available'}), 503
+    return jsonify({
+        "loading": [item.get("ip") for item in aviat_loading_queue]
     })
 
 
@@ -10411,6 +10670,15 @@ def aviat_check_status():
     for res in results:
         ip = res.get("ip")
         if not ip:
+            continue
+        current = _aviat_queue_find(ip) or {}
+        current_status = current.get("status")
+        if current_status in ("loading", "scheduled", "manual"):
+            if res.get("error"):
+                _aviat_queue_upsert(ip, {
+                    "status": "error",
+                    "username": current.get("username"),
+                })
             continue
         firmware_ok = bool(res.get("firmware") and str(res.get("firmware")).startswith("6."))
         snmp_ok = bool(res.get("snmp_ok"))
@@ -10841,6 +11109,15 @@ if __name__ == '__main__':
         print("\n[COMPLIANCE] RFC-09-10-25 enforcement is ENABLED")
     else:
         print("\n[WARN] RFC-09-10-25 enforcement is DISABLED (reference not found)")
+
+    if HAS_AVIAT and AVIAT_AUTO_ACTIVATE:
+        print("\n[AVIAT] Auto-activation scheduler is ENABLED")
+        threading.Thread(target=_aviat_auto_activate_loop, daemon=True).start()
+    elif HAS_AVIAT:
+        print("\n[AVIAT] Auto-activation scheduler is DISABLED")
+    if HAS_AVIAT:
+        print("[AVIAT] Firmware loading checker is ENABLED")
+        threading.Thread(target=_aviat_loading_check_loop, daemon=True).start()
 
     print("\nStarting server on http://0.0.0.0:5000")
     print("=" * 50 + "\n")
