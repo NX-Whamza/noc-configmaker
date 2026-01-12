@@ -212,7 +212,7 @@ aviat_activation_lock = threading.Lock()
 aviat_loading_lock = threading.Lock()
 AVIAT_AUTO_ACTIVATE = os.getenv("AVIAT_AUTO_ACTIVATE", "true").lower() in ("1", "true", "yes")
 AVIAT_AUTO_ACTIVATE_POLL = int(os.getenv("AVIAT_AUTO_ACTIVATE_POLL", "60"))
-AVIAT_LOADING_CHECK_INTERVAL = int(os.getenv("AVIAT_LOADING_CHECK_INTERVAL", "3600"))
+AVIAT_LOADING_CHECK_INTERVAL = int(os.getenv("AVIAT_LOADING_CHECK_INTERVAL", "900"))
 AVIAT_LOADING_MAX_WAIT = int(os.getenv("AVIAT_LOADING_MAX_WAIT", "5400"))
 
 
@@ -379,10 +379,11 @@ def _aviat_connect_with_fallback(ip, callback=None):
 
 def _aviat_loading_check_loop():
     while True:
-        time.sleep(AVIAT_LOADING_CHECK_INTERVAL)
         if not HAS_AVIAT:
+            time.sleep(AVIAT_LOADING_CHECK_INTERVAL)
             continue
         if not aviat_loading_queue:
+            time.sleep(AVIAT_LOADING_CHECK_INTERVAL)
             continue
         now = datetime.utcnow()
         to_schedule = []
@@ -463,6 +464,7 @@ def _aviat_loading_check_loop():
 
             aviat_loading_queue[:] = still_loading
             _aviat_save_loading_queue()
+        time.sleep(AVIAT_LOADING_CHECK_INTERVAL)
 
 def _aviat_activate_entries(task_id, to_activate, username=None):
     aviat_tasks[task_id]['status'] = 'running'
