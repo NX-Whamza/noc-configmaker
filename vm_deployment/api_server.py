@@ -464,6 +464,14 @@ def _aviat_loading_check_loop():
 
             aviat_loading_queue[:] = still_loading
             _aviat_save_loading_queue()
+
+        if aviat_loading_queue:
+            next_check = get_cst_now() + timedelta(seconds=AVIAT_LOADING_CHECK_INTERVAL)
+            _aviat_broadcast_log(
+                f"[AVIAT] Next loading check at {next_check.strftime('%H:%M')} CST",
+                "info",
+            )
+
         time.sleep(AVIAT_LOADING_CHECK_INTERVAL)
 
 def _aviat_activate_entries(task_id, to_activate, username=None):
