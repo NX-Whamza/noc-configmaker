@@ -22332,7 +22332,10 @@ Ready for translation!`);
                     const ip = ipMatch[1];
                     const radio = aviatState.radios.find(r => r.ip === ip);
                     if (radio) {
-                        if (!['loading', 'scheduled', 'success', 'error'].includes(aviatNormalizeStatus(radio.status))) {
+                        const normalizedStatus = aviatNormalizeStatus(radio.status);
+                        const normalizedFirmware = aviatNormalizeStatus(radio.firmwareStatus);
+                        if (!['loading', 'scheduled', 'success', 'error', 'processing'].includes(normalizedStatus)
+                            && !['loading', 'scheduled'].includes(normalizedFirmware)) {
                             radio.status = 'processing';
                         }
                         if (data.message.includes('Triggering firmware download')) {

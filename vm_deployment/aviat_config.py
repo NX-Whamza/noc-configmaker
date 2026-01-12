@@ -631,6 +631,17 @@ def get_inactive_firmware_version(client: AviatSSHClient, callback=None) -> Opti
     return version
 
 
+def get_uptime_days(client: AviatSSHClient, callback=None) -> int:
+    output = client.send_command("show uptime")
+    match = re.search(r"up\\s+(\\d+)\\s+day", output, re.I)
+    if match:
+        days = int(match.group(1))
+    else:
+        days = 0
+    log(f"  [{client.ip}] Uptime days: {days}", "info", callback=callback)
+    return days
+
+
 def _first_valid_output(client: AviatSSHClient, commands: List[str]) -> str:
     for command in commands:
         output = client.send_command(command)
@@ -954,11 +965,19 @@ def wait_for_device_ready(
     payload_size: Optional[int] = None,
     check_interval: Optional[int] = None,
     max_wait: Optional[int] = None,
+    initial_delay: int = 0,
 ) -> bool:
     """Poll with ICMP ping every N minutes until reachable or max wait reached."""
     payload = payload_size if payload_size is not None else CONFIG.firmware_ping_payload
     interval = check_interval if check_interval is not None else CONFIG.firmware_ping_check_interval
     max_wait_seconds = max_wait if max_wait is not None else CONFIG.firmware_ping_max_wait
+    if initial_delay > 0:
+        log(
+            f"[{ip}] Waiting {initial_delay // 60} min before first availability check...",
+            "info",
+            callback=callback,
+        )
+        time.sleep(initial_delay)
     start = time.time()
     attempt = 1
     ping_available = shutil.which("ping") is not None
@@ -968,14 +987,6 @@ def wait_for_device_ready(
             "warning",
             callback=callback,
         )
-    if interval > 0:
-        next_check = (datetime.now() + timedelta(seconds=interval)).strftime("%H:%M")
-        log(
-            f"[{ip}] Waiting {interval // 60} min before first availability check (next at {next_check}).",
-            "info",
-            callback=callback,
-        )
-        time.sleep(interval)
     while time.time() - start < max_wait_seconds:
         reachable = False
         try:
@@ -1041,6 +1052,7 @@ def process_radio(
     if activation_time == "":
         activation_time = None
     activation_mode = maintenance_params.get("activation_mode", "scheduled")
+    waited_after_activation = False
     activate_now = maintenance_params.get("activate_now")
     if activate_now is None:
         activate_now = CONFIG.firmware_activate_now
@@ -1154,7 +1166,11 @@ def process_radio(
                         break
                 if baseline_needed and step_name == "baseline" and activate_now:
                     client.close()
-                    if not wait_for_device_ready(ip, callback=callback):
+                    if not wait_for_device_ready(
+                        ip,
+                        callback=callback,
+                        initial_delay=CONFIG.firmware_ping_check_interval,
+                    ):
                         result.error = "Device did not recover within 60 minutes after activation"
                         return result
                     client = wait_for_reconnect(
@@ -1163,6 +1179,7 @@ def process_radio(
                         password=login_password,
                         callback=callback,
                     )
+                    waited_after_activation = True
                     current_version = get_firmware_version(client, callback=callback)
                     if _version_tuple(current_version) < _version_tuple(
                         CONFIG.firmware_baseline_version
@@ -1192,6 +1209,24 @@ def process_radio(
                     result.status = "loading"
                     result.success = True
                     return result
+
+                if firmware_was_triggered and activation_mode == "immediate" and not waited_after_activation:
+                    client.close()
+                    if not wait_for_device_ready(
+                        ip,
+                        callback=callback,
+                        initial_delay=CONFIG.firmware_ping_check_interval,
+                    ):
+                        result.error = "Device did not recover within 60 minutes after activation"
+                        return result
+                    client = wait_for_reconnect(
+                        ip,
+                        username=login_username,
+                        password=login_password,
+                        callback=callback,
+                    )
+                    current_version = get_firmware_version(client, callback=callback)
+                    result.firmware_version_after = current_version
 
             if baseline_needed and result.firmware_activated:
                 current_version = get_firmware_version(client, callback=callback)
@@ -1223,13 +1258,38 @@ def process_radio(
                 result.firmware_activated = True
                 result.firmware_version_after = current_version
             else:
+                uptime_days = get_uptime_days(client, callback=callback)
+                if uptime_days > 250:
+                    log(
+                        f"[{ip}] Uptime {uptime_days} days exceeds 250; rebooting before activation.",
+                        "warning",
+                        callback=callback,
+                    )
+                    try:
+                        client.send_command("reboot", timeout=5)
+                    except Exception:
+                        pass
+                    client.close()
+                    if not wait_for_device_ready(ip, callback=callback):
+                        result.error = "Device did not recover after pre-activation reboot"
+                        return result
+                    client = wait_for_reconnect(
+                        ip,
+                        username=login_username,
+                        password=login_password,
+                        callback=callback,
+                    )
                 success, msg = activate_firmware(client, callback=callback)
                 result.firmware_activated = success
                 if not success and not result.error:
                     result.error = msg
                     return result
                 client.close()
-                if not wait_for_device_ready(ip, callback=callback):
+                if not wait_for_device_ready(
+                    ip,
+                    callback=callback,
+                    initial_delay=CONFIG.firmware_ping_check_interval,
+                ):
                     result.error = "Device did not recover within 60 minutes after activation"
                     return result
                 client = wait_for_reconnect(

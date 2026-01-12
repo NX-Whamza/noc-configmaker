@@ -295,6 +295,11 @@ def _aviat_queue_upsert(ip, updates=None):
     entry["updated_at"] = datetime.utcnow().isoformat() + "Z"
     return entry
 
+def _aviat_clean_remaining_tasks(task_types):
+    if not task_types:
+        return []
+    return [task for task in task_types if task not in ("firmware", "activate")]
+
 def _aviat_queue_remove(ip):
     aviat_shared_queue[:] = [e for e in aviat_shared_queue if e.get("ip") != ip]
 
@@ -424,6 +429,15 @@ def _aviat_loading_check_loop():
                         "warning",
                     )
                     continue
+                version_match = re.search(r"\b(\d+\.\d+\.\d+)\b", inactive_version)
+                if not version_match:
+                    still_loading.append(entry)
+                    _aviat_broadcast_log(
+                        f"[{ip}] Inactive firmware version invalid; keeping in loading queue.",
+                        "warning",
+                    )
+                    continue
+                inactive_version = version_match.group(1)
                 target_version = (entry.get("target_version") or "").strip()
                 ready_versions = {
                     AVIAT_CONFIG.firmware_baseline_version,
@@ -461,9 +475,10 @@ def _aviat_loading_check_loop():
 
             if to_schedule:
                 for entry in to_schedule:
+                    remaining_tasks = _aviat_clean_remaining_tasks(entry.get("remaining_tasks", []))
                     aviat_scheduled_queue.append({
                         "ip": entry.get("ip"),
-                        "remaining_tasks": entry.get("remaining_tasks", []),
+                        "remaining_tasks": remaining_tasks,
                         "maintenance_params": entry.get("maintenance_params", {}),
                         "activation_at": entry.get("activation_at"),
                         "username": entry.get("username") or "aviat-tool",
@@ -501,7 +516,7 @@ def _aviat_activate_entries(task_id, to_activate, username=None):
 
     def run_activation(entry):
         ip = entry["ip"]
-        remaining_tasks = entry.get("remaining_tasks", [])
+        remaining_tasks = _aviat_clean_remaining_tasks(entry.get("remaining_tasks", []))
         full_tasks = ["activate"] + remaining_tasks
         result = aviat_process_radio(
             ip,
@@ -516,7 +531,7 @@ def _aviat_activate_entries(task_id, to_activate, username=None):
         for future in as_completed(futures):
             entry, result = future.result()
             ip = entry["ip"]
-            remaining_tasks = entry.get("remaining_tasks", [])
+            remaining_tasks = _aviat_clean_remaining_tasks(entry.get("remaining_tasks", []))
             aviat_tasks[task_id]['results'].append({
                 'ip': ip,
                 'username': entry.get("username") or username,
@@ -10261,7 +10276,7 @@ def get_activity():
 
             activities.append({
                 'id': row['id'],
-                'username': row['username'],
+                'username': display_user,
                 'type': row['activity_type'],
                 'device': row['device'],
                 'siteName': row['site_name'],
@@ -10406,7 +10421,7 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
             results.append(_aviat_result_dict(result, username=username))
 
     if activation_mode == "scheduled":
-        remaining_tasks = [t for t in task_types if t not in ("firmware", "all")]
+        remaining_tasks = _aviat_clean_remaining_tasks([t for t in task_types if t != "all"])
         for res in results:
             if res.get("status") == "loading":
                 aviat_loading_queue.append({
@@ -10517,7 +10532,7 @@ def aviat_activate_scheduled():
     data = request.json or {}
     force = data.get("force", True)
     request_ips = data.get("ips") or []
-    request_remaining = data.get("remaining_tasks") or []
+    request_remaining = _aviat_clean_remaining_tasks(data.get("remaining_tasks") or [])
     request_maintenance = data.get("maintenance_params") or {}
     request_activation_at = data.get("activation_at")
     client_hour = data.get("client_hour")
@@ -10642,7 +10657,7 @@ def aviat_sync_scheduled():
         return jsonify({'error': 'Aviat backend not available'}), 503
     data = request.json or {}
     ips = data.get("ips", [])
-    remaining_tasks = data.get("remaining_tasks", [])
+    remaining_tasks = _aviat_clean_remaining_tasks(data.get("remaining_tasks", []))
     maintenance_params = data.get("maintenance_params", {})
     username = data.get("username") or "aviat-tool"
     activation_at = data.get("activation_at")
