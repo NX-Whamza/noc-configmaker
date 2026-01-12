@@ -413,10 +413,18 @@ def _aviat_loading_check_loop():
                     _aviat_broadcast_log(f"[{ip}] Loading check failed: {exc}", "warning")
                     still_loading.append(entry)
                     continue
+                if not inactive_version:
+                    still_loading.append(entry)
+                    _aviat_broadcast_log(
+                        f"[{ip}] Inactive firmware version unknown; keeping in loading queue.",
+                        "warning",
+                    )
+                    continue
+                target_version = entry.get("target_version")
                 if inactive_version in (
                     AVIAT_CONFIG.firmware_baseline_version,
                     AVIAT_CONFIG.firmware_final_version,
-                    entry.get("target_version"),
+                    target_version,
                 ):
                     _aviat_broadcast_log(
                         f"[{ip}] Firmware {inactive_version} loaded (inactive). Moving to scheduled queue.",
@@ -10364,6 +10372,17 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
             callback=log_callback,
         )
         results.extend([_aviat_result_dict(r, username=username) for r in result_list])
+    elif activation_mode == "immediate":
+        activation_limit = int(os.environ.get("AVIAT_ACTIVATION_MAX", "20"))
+        result_list = aviat_process_radios_parallel(
+            ips,
+            task_types,
+            maintenance_params,
+            should_abort=should_abort,
+            callback=log_callback,
+            max_workers=activation_limit,
+        )
+        results.extend([_aviat_result_dict(r, username=username) for r in result_list])
     else:
         for ip in ips:
             if task_id not in aviat_tasks:
@@ -10683,12 +10702,7 @@ def aviat_check_status():
             continue
         current = _aviat_queue_find(ip) or {}
         current_status = current.get("status")
-        if current_status in ("loading", "scheduled", "manual"):
-            if res.get("error"):
-                _aviat_queue_upsert(ip, {
-                    "status": "error",
-                    "username": current.get("username"),
-                })
+        if current_status in ("loading", "scheduled", "manual", "success", "error"):
             continue
         firmware_ok = bool(res.get("firmware") and str(res.get("firmware")).startswith("6."))
         snmp_ok = bool(res.get("snmp_ok"))

@@ -586,7 +586,7 @@ def _parse_version(version_output: str) -> Optional[str]:
 
 def _parse_inactive_version(version_output: str) -> Optional[str]:
     match = re.search(
-        r"inactive-version\s+([0-9]+(?:\.[0-9]+){1,})",
+        r"inactive-version\s*[:=]?\s*([0-9]+(?:\.[0-9]+){1,})",
         version_output,
         re.I,
     )
@@ -962,6 +962,14 @@ def wait_for_device_ready(
             "warning",
             callback=callback,
         )
+    if interval > 0:
+        next_check = (datetime.now() + timedelta(seconds=interval)).strftime("%H:%M")
+        log(
+            f"[{ip}] Waiting {interval // 60} min before first availability check (next at {next_check}).",
+            "info",
+            callback=callback,
+        )
+        time.sleep(interval)
     while time.time() - start < max_wait_seconds:
         reachable = False
         try:
@@ -1337,11 +1345,12 @@ def process_radios_parallel(
     maintenance_params: Optional[Dict[str, Any]] = None,
     should_abort: Optional[callable] = None,
     callback=None,
+    max_workers: Optional[int] = None,
 ) -> List[RadioResult]:
     """Process multiple radios in parallel"""
     results = []
-    
-    with ThreadPoolExecutor(max_workers=CONFIG.max_workers) as executor:
+    worker_count = max_workers if max_workers is not None else CONFIG.max_workers
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
         futures = {
             executor.submit(
                 process_radio,

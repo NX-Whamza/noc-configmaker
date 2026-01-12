@@ -22098,7 +22098,13 @@ Ready for translation!`);
 
             async function aviatRunAll() {
                 if (aviatState.isProcessing) return;
-                const pending = aviatState.radios.filter(r => ['pending', 'error'].includes(aviatNormalizeStatus(r.status)));
+                const pending = aviatState.radios.filter(r => {
+                    const status = aviatNormalizeStatus(r.status);
+                    if (!['pending', 'error'].includes(status)) return false;
+                    if (['loading', 'scheduled', 'processing', 'manual', 'success'].includes(status)) return false;
+                    if (['loading', 'scheduled'].includes(aviatNormalizeStatus(r.firmwareStatus))) return false;
+                    return true;
+                });
                 if (pending.length === 0) {
                     aviatAddLog('No radios to process', 'warning');
                     return;
@@ -22213,11 +22219,16 @@ Ready for translation!`);
                         aviatAddLog(`Status check deferred (${mins} min until post-activation window).`, 'info');
                         return;
                     }
-                    aviatAddLog(`Checking status for ${aviatState.radios.length} radio(s)...`, 'info');
+                    const processing = aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'processing');
+                    if (processing.length === 0) {
+                        aviatAddLog('No running radios to check', 'info');
+                        return;
+                    }
+                    aviatAddLog(`Checking status for ${processing.length} running radio(s)...`, 'info');
                     const response = await aviatFetch('/check-status', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ ips: aviatState.radios.map(r => r.ip) })
+                        body: JSON.stringify({ ips: processing.map(r => r.ip) })
                     });
                     const data = await parseAviatJson(response);
                     if (!response.ok) {
@@ -22230,7 +22241,7 @@ Ready for translation!`);
                         if (!radio) return;
                         if (res.error || !res.reachable) {
                             const currentStatus = aviatNormalizeStatus(radio.status);
-                            if (currentStatus === 'processing' || currentStatus === 'scheduled') {
+                            if (currentStatus === 'processing') {
                                 return;
                             }
                             radio.status = 'error';
@@ -22243,7 +22254,7 @@ Ready for translation!`);
                         radio.sopStatus = firmwareOk && res.snmp_ok && res.buffer_ok ? 'success' : 'pending';
                         if (radio.sopStatus === 'success') {
                             radio.status = 'success';
-                        } else if (aviatNormalizeStatus(radio.status) !== 'scheduled') {
+                        } else if (aviatNormalizeStatus(radio.status) === 'processing') {
                             radio.status = 'pending';
                         }
                     });
@@ -22287,7 +22298,7 @@ Ready for translation!`);
                             return { ...r, status: 'scheduled' };
                         }
                         if (r.status === 'loading' || r.status === 'scheduled') {
-                            return { ...r, status: 'pending' };
+                            return r;
                         }
                         return r;
                     });
@@ -22309,7 +22320,9 @@ Ready for translation!`);
                     const ip = ipMatch[1];
                     const radio = aviatState.radios.find(r => r.ip === ip);
                     if (radio) {
-                        radio.status = 'processing';
+                        if (!['loading', 'scheduled', 'success', 'error'].includes(aviatNormalizeStatus(radio.status))) {
+                            radio.status = 'processing';
+                        }
                         if (data.message.includes('Triggering firmware download')) {
                             radio.firmwareStatus = 'processing';
                         } else if (data.message.includes('Firmware download complete') || data.message.includes('Firmware download started')) {
@@ -22317,8 +22330,9 @@ Ready for translation!`);
                         } else if (data.message.includes('Added to loading queue')) {
                             radio.status = 'loading';
                             radio.firmwareStatus = 'loading';
-                        } else if (data.message.includes('Scheduled activation queued')) {
+                        } else if (data.message.includes('Scheduled activation queued') || data.message.includes('Moving to scheduled queue')) {
                             radio.status = 'scheduled';
+                            radio.firmwareStatus = 'scheduled';
                         } else if (data.message.includes('Activation started')) {
                             radio.firmwareStatus = 'success';
                         } else if (data.message.includes('Password changed')) {
