@@ -10202,9 +10202,10 @@
                             }
 
                             const username = formatUsernameDisplay(entry.username || 'Unknown User');
+                            const safeSiteName = sanitizeActivityText(entry.siteName || '');
                             return `
                                 <div class="activity-item" style="cursor: pointer;" onclick="navigateToActivity('${entry.type}', ${entry.id})">
-                                    <div class="title">${icon} ${activityLabel} - ${entry.siteName} <span style="margin-left: 10px; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,0.06); color: ${statusColor}; border: 1px solid rgba(255,255,255,0.12);">${statusText}</span></div>
+                                    <div class="title">${icon} ${activityLabel} - ${safeSiteName} <span style="margin-left: 10px; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,0.06); color: ${statusColor}; border: 1px solid rgba(255,255,255,0.12);">${statusText}</span></div>
                                     <div class="details">
                                         <span class="user-info">${username}</span> | 
                                         Device: ${entry.device} | Firmware: ${entry.routeros}
@@ -10232,9 +10233,10 @@
                                 const timeStr = formatCSTTimestamp(entry.timestamp);
                                 const icon = entry.type === 'migration' ? '' : '';
                                 const username = formatUsernameDisplay(entry.username || getUsername());
+                                const safeSiteName = sanitizeActivityText(entry.siteName || '');
                                 return `
                                     <div class="activity-item" style="cursor: pointer;" onclick="navigateToActivity('${entry.type}', ${entry.id})">
-                                        <div class="title">${icon} ${entry.type === 'migration' ? 'Migration' : 'Config Generated'} - ${entry.siteName}</div>
+                                        <div class="title">${icon} ${entry.type === 'migration' ? 'Migration' : 'Config Generated'} - ${safeSiteName}</div>
                                         <div class="details">
                                             <span class="user-info">${username}</span> | 
                                             Device: ${entry.device} | Firmware: ${entry.routeros}
@@ -19725,7 +19727,7 @@ Ready for translation!`);
                           <td style="padding: 12px;">${activity.formattedTime || activity.timestamp}</td>
                           <td style="padding: 12px; font-weight: 600;">${formatUsernameDisplay(activity.username)}</td>
                           <td style="padding: 12px;">${sanitizeActivityText(activity.message || `${activity.type} - ${activity.siteName || 'N/A'}`)}</td>
-                          <td style="padding: 12px;">${activity.siteName || 'N/A'} ${activity.device ? `(${activity.device})` : ''}</td>
+                          <td style="padding: 12px;">${sanitizeActivityText(activity.siteName || 'N/A')} ${activity.device ? `(${activity.device})` : ''}</td>
                           <td style="padding: 12px;">${activity.routeros || 'N/A'}</td>
                           <td style="padding: 12px; text-align: center; color: ${statusColor}; font-weight: bold;">${statusIcon}</td>
                       </tr>
@@ -21727,7 +21729,7 @@ Ready for translation!`);
             }
 
             function aviatNormalizeRadio(r) {
-                return {
+                const normalized = {
                     ip: r.ip,
                     status: aviatNormalizeStatus(r.status, r.success),
                     firmwareStatus: aviatNormalizeStatus(r.firmwareStatus),
@@ -21737,6 +21739,16 @@ Ready for translation!`);
                     sopStatus: aviatNormalizeStatus(r.sopStatus),
                     username: r.username || ''
                 };
+                if (!['success', 'error'].includes(normalized.status)) {
+                    if (normalized.firmwareStatus === 'loading') {
+                        normalized.status = 'loading';
+                    } else if (normalized.firmwareStatus === 'scheduled') {
+                        normalized.status = 'scheduled';
+                    } else if (normalized.sopStatus === 'success') {
+                        normalized.status = 'success';
+                    }
+                }
+                return normalized;
             }
 
             function aviatPersistRadios() {

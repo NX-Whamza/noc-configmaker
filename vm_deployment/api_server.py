@@ -413,19 +413,25 @@ def _aviat_loading_check_loop():
                     _aviat_broadcast_log(f"[{ip}] Loading check failed: {exc}", "warning")
                     still_loading.append(entry)
                     continue
-                if not inactive_version:
+                inactive_version = (inactive_version or "").strip()
+                if (
+                    not inactive_version
+                    or inactive_version.lower() in ("none", "unknown", "0.0.0", "0")
+                ):
                     still_loading.append(entry)
                     _aviat_broadcast_log(
                         f"[{ip}] Inactive firmware version unknown; keeping in loading queue.",
                         "warning",
                     )
                     continue
-                target_version = entry.get("target_version")
-                if inactive_version in (
+                target_version = (entry.get("target_version") or "").strip()
+                ready_versions = {
                     AVIAT_CONFIG.firmware_baseline_version,
                     AVIAT_CONFIG.firmware_final_version,
-                    target_version,
-                ):
+                }
+                if target_version:
+                    ready_versions.add(target_version)
+                if inactive_version in ready_versions:
                     _aviat_broadcast_log(
                         f"[{ip}] Firmware {inactive_version} loaded (inactive). Moving to scheduled queue.",
                         "success",
@@ -10549,6 +10555,14 @@ def aviat_activate_scheduled():
     else:
         to_activate = list(aviat_scheduled_queue)
 
+    if request_ips:
+        request_set = set(request_ips)
+        aviat_scheduled_queue[:] = [
+            entry for entry in aviat_scheduled_queue
+            if entry.get("ip") not in request_set
+        ]
+        _aviat_save_scheduled_queue()
+
     for entry in to_activate:
         _aviat_queue_upsert(entry["ip"], {
             "status": "processing",
@@ -10703,6 +10717,8 @@ def aviat_check_status():
         current = _aviat_queue_find(ip) or {}
         current_status = current.get("status")
         if current_status in ("loading", "scheduled", "manual", "success", "error"):
+            continue
+        if current_status == "processing" and (res.get("error") or not res.get("reachable", True)):
             continue
         firmware_ok = bool(res.get("firmware") and str(res.get("firmware")).startswith("6."))
         snmp_ok = bool(res.get("snmp_ok"))

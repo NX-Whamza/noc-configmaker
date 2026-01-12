@@ -871,6 +871,12 @@ def check_device_status(ip: str, callback=None) -> Dict[str, Any]:
         "buffer_ok": False,
         "error": None,
     }
+    try:
+        sock = socket.create_connection((ip, CONFIG.ssh_port), timeout=3)
+        sock.close()
+    except Exception as exc:
+        result["error"] = f"tcp-probe failed: {exc}"
+        return result
     client = None
     try:
         try:
