@@ -22157,8 +22157,8 @@ Ready for translation!`);
                     }
                 if (data.task_id) {
                         aviatState.activationCheckStart = Date.now();
-                        aviatState.nextStatusCheckAt = aviatState.activationCheckStart + 3600000;
-                        setTimeout(() => { aviatCheckStatus(); }, 3600000);
+                        aviatState.nextStatusCheckAt = aviatState.activationCheckStart + 900000;
+                        setTimeout(() => { aviatCheckStatus(); }, 900000);
                         aviatState.currentTaskId = data.task_id;
                         document.getElementById('abortBtn').disabled = false;
                         aviatStartLogStream(data.task_id);
@@ -22202,7 +22202,7 @@ Ready for translation!`);
                     if (hasRunning) {
                         aviatCheckStatus();
                     }
-                }, 3600000);
+                }, 900000);
             }
 
             async function aviatCheckStatus() {
@@ -22252,7 +22252,7 @@ Ready for translation!`);
                     if (aviatState.activationCheckStart) {
                         const elapsed = now - aviatState.activationCheckStart;
                         if (elapsed < 5400000) {
-                            aviatState.nextStatusCheckAt = Date.now() + 3600000;
+                            aviatState.nextStatusCheckAt = Date.now() + 900000;
                         } else {
                             aviatState.activationCheckStart = null;
                         }
