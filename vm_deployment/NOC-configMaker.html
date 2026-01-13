@@ -9866,44 +9866,12 @@
                 sendActivityToBackend(entry);
             };
 
-            // FTTH BNG generator helper (quick UI flow)
+            // FTTH BNG generator helper (redirect to full FTTH form)
             window.generateFtthBng = async function () {
-                const loopback = prompt('Loopback IP (/32) - e.g., 10.13.100.5/32');
-                const cpe = prompt('CPE network (/22) - e.g., 192.0.2.0/22');
-                const cgnat = prompt('CGNAT network (/22) - e.g., 100.64.0.0/22');
-                const olt = prompt('OLT network (/29) - e.g., 198.51.100.8/29');
-                const olt_port = prompt('OLT port (default sfp-sfpplus1)', 'sfp-sfpplus1');
-                const identity = prompt('System identity (optional)', 'RTR-FTTH-AUTO');
-                if (!loopback || !cpe || !cgnat || !olt) {
-                    alert('Loopback, CPE, CGNAT and OLT CIDRs are required');
-                    return;
+                if (typeof window.generateFtthBngConfig === 'function') {
+                    return window.generateFtthBngConfig();
                 }
-                const payload = {
-                    device: (document.getElementById('deviceSelect') || {}).value || 'ccr2004',
-                    target_version: (document.getElementById('targetVersion') || {}).value || '7.19.4',
-                    loopback_ip: loopback,
-                    cpe_cidr: cpe,
-                    cgnat_cidr: cgnat,
-                    olt_cidr: olt,
-                    olt_port: olt_port,
-                    identity: identity
-                };
-                try {
-                    const r = await fetch('/api/gen-ftth-bng', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                    const data = await r.json();
-                    if (!data.success) {
-                        alert('FTTH generator error: ' + (data.error || 'unknown'));
-                        return;
-                    }
-                    const cfg = data.config || '';
-                    document.getElementById('upgradeOutput').value = cfg;
-                    document.getElementById('upgradeOutputSection').style.display = 'block';
-                    saveConfigToHistory({ type: 'ftth', device: payload.device, siteName: identity, routeros: payload.target_version, success: true });
-                    alert('FTTH BNG configuration generated and placed in Upgrade Output');
-                } catch (e) {
-                    console.error('FTTH generation failed', e);
-                    alert('FTTH generation failed: ' + e.message);
-                }
+                alert('Please use the FTTH BNG Configuration Generator tab.');
             };
 
             // Deduplication for activity logging (prevent duplicates within 5 seconds)
@@ -20765,8 +20733,8 @@ Ready for translation!`);
                 const sfx = _ftth_active_suffix();
                 const loopback = (document.getElementById(`ftth_loopback_${sfx}`) || {}).value || '';
                 const cpe = (document.getElementById(`ftth_cpe_${sfx}`) || {}).value || '';
-                const cgnat = (document.getElementById(`ftth_cgnat_${sfx}`) || {}).value || '';
-                const olt = (document.getElementById(`ftth_olt_${sfx}`) || {}).value || '';
+                const cgnat = (document.getElementById(`ftth_cgnat_private_${sfx}`) || {}).value || '';
+                const olt = (document.getElementById(`ftth_olt_network_${sfx}`) || {}).value || '';
                 const errEl = document.getElementById('ftthError');
                 const previewEl = document.getElementById('ftthPreview');
                 errEl.style.display = 'none'; errEl.textContent = ''; previewEl.style.display = 'none'; previewEl.textContent = '';
@@ -20815,33 +20783,35 @@ Ready for translation!`);
                 previewBtn?.addEventListener('click', async () => { await doFtthPreview(); });
 
                 generateBtn?.addEventListener('click', async () => {
-                    if (generateBtn.disabled) { document.getElementById('ftthError').textContent = 'Please run Preview and correct any errors before generating.'; document.getElementById('ftthError').style.display = 'block'; return; }
-                    const sfx = _ftth_active_suffix();
-                    const loopback = (document.getElementById(`ftth_loopback_${sfx}`) || {}).value || '';
-                    const cpe = (document.getElementById(`ftth_cpe_${sfx}`) || {}).value || '';
-                    const cgnat = (document.getElementById(`ftth_cgnat_${sfx}`) || {}).value || '';
-                    const olt = (document.getElementById(`ftth_olt_${sfx}`) || {}).value || '';
-                    const olt_port = (document.getElementById(`ftth_olt_port_${sfx}`) || {}).value || 'sfp-sfpplus1';
-                    const olt_port_speed = (document.getElementById(`ftth_olt_speed_${sfx}`) || {}).value || 'auto';
-                    let identity = (document.getElementById(`ftth_identity_${sfx}`) || {}).value || '';
-                    const errEl = document.getElementById('ftthError'); errEl.style.display = 'none'; errEl.textContent = '';
-                    if (!identity) identity = `RTR-CCR2216.FTTH`;
-                    try {
-                        const r = await fetch('/api/gen-ftth-bng', {
-                            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-                                device: 'CCR2216', target_version: (document.getElementById('targetVersion') || {}).value || '7.19.4', loopback_ip: loopback, cpe_cidr: cpe, cgnat_cidr: cgnat, olt_cidr: olt, olt_port: olt_port, olt_port_speed: olt_port_speed, identity: identity
-                            })
-                        });
-                        const data = await r.json(); if (!data.success) { errEl.textContent = 'Generator error: ' + (data.error || 'unknown'); errEl.style.display = 'block'; return; }
-                        const cfg = data.config || ''; document.getElementById('ftth_output').value = cfg; document.getElementById('ftth_output').parentElement.style.display = 'block';
-                        saveConfigToHistory({ type: 'ftth', device: (document.getElementById('deviceSelect') || {}).value || 'ccr2004', siteName: identity, routeros: (document.getElementById('targetVersion') || {}).value || '7.19.4', success: true });
-                        alert('FTTH BNG configuration generated and placed in Generated Configuration');
-                    } catch (e) { errEl.textContent = 'Request failed: ' + (e.message || e); errEl.style.display = 'block'; }
+                    if (generateBtn.disabled) {
+                        const errEl = document.getElementById('ftthError');
+                        errEl.textContent = 'Please run Preview and correct any errors before generating.';
+                        errEl.style.display = 'block';
+                        return;
+                    }
+                    if (typeof window.generateFtthBngConfig === 'function') {
+                        await window.generateFtthBngConfig();
+                        return;
+                    }
+                    const errEl = document.getElementById('ftthError');
+                    errEl.textContent = 'FTTH generator not available. Please reload the page.';
+                    errEl.style.display = 'block';
                 });
 
                 resetBtn?.addEventListener('click', () => {
                     const sfx = _ftth_active_suffix();
-                    const ids = [`ftth_loopback_${sfx}`, `ftth_cpe_${sfx}`, `ftth_cgnat_${sfx}`, `ftth_olt_${sfx}`, `ftth_olt_port_${sfx}`, `ftth_olt_speed_${sfx}`, `ftth_identity_${sfx}`];
+                    const ids = [
+                        `ftth_loopback_${sfx}`,
+                        `ftth_cpe_${sfx}`,
+                        `ftth_cgnat_private_${sfx}`,
+                        `ftth_cgnat_public_${sfx}`,
+                        `ftth_unauth_${sfx}`,
+                        `ftth_olt_network_${sfx}`,
+                        `ftth_olt_network2_${sfx}`,
+                        `ftth_identity_${sfx}`,
+                        `ftth_location_${sfx}`,
+                        `ftth_routeros_${sfx}`
+                    ];
                     ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
                     document.getElementById('ftthPreview').style.display = 'none'; document.getElementById('ftthPreview').textContent = '';
                     document.getElementById('ftthGenerate').disabled = true; document.getElementById('ftthError').style.display = 'none';
@@ -20907,10 +20877,15 @@ Ready for translation!`);
                     return {
                         loopback: (document.getElementById(`ftth_loopback_${sfx}`) || {}).value || '',
                         cpe: (document.getElementById(`ftth_cpe_${sfx}`) || {}).value || '',
-                        cgnat: (document.getElementById(`ftth_cgnat_${sfx}`) || {}).value || '',
-                        olt: (document.getElementById(`ftth_olt_${sfx}`) || {}).value || '',
-                        olt_port: (document.getElementById(`ftth_olt_port_${sfx}`) || {}).value || 'sfp-sfpplus1',
-                        olt_port_speed: (document.getElementById(`ftth_olt_speed_${sfx}`) || {}).value || 'auto',
+                        cgnat_private: (document.getElementById(`ftth_cgnat_private_${sfx}`) || {}).value || '',
+                        cgnat_public: (document.getElementById(`ftth_cgnat_public_${sfx}`) || {}).value || '',
+                        unauth: (document.getElementById(`ftth_unauth_${sfx}`) || {}).value || '',
+                        olt_network: (document.getElementById(`ftth_olt_network_${sfx}`) || {}).value || '',
+                        olt_network2: (document.getElementById(`ftth_olt_network2_${sfx}`) || {}).value || '',
+                        olt_lag1: (document.getElementById(`ftth_olt_lag1_${sfx}`) || {}).value || '',
+                        olt_lag2: (document.getElementById(`ftth_olt_lag2_${sfx}`) || {}).value || '',
+                        location: (document.getElementById(`ftth_location_${sfx}`) || {}).value || '',
+                        routeros: (document.getElementById(`ftth_routeros_${sfx}`) || {}).value || '7.19.4',
                         identity: (document.getElementById(`ftth_identity_${sfx}`) || {}).value || ''
                     };
                 }
@@ -20931,10 +20906,15 @@ Ready for translation!`);
                     const sfx = _ftth_active_suffix();
                     (document.getElementById(`ftth_loopback_${sfx}`) || {}).value = p.loopback || '';
                     (document.getElementById(`ftth_cpe_${sfx}`) || {}).value = p.cpe || '';
-                    (document.getElementById(`ftth_cgnat_${sfx}`) || {}).value = p.cgnat || '';
-                    (document.getElementById(`ftth_olt_${sfx}`) || {}).value = p.olt || '';
-                    (document.getElementById(`ftth_olt_port_${sfx}`) || {}).value = p.olt_port || 'sfp-sfpplus1';
-                    (document.getElementById(`ftth_olt_speed_${sfx}`) || {}).value = p.olt_port_speed || 'auto';
+                    (document.getElementById(`ftth_cgnat_private_${sfx}`) || {}).value = p.cgnat_private || '';
+                    (document.getElementById(`ftth_cgnat_public_${sfx}`) || {}).value = p.cgnat_public || '';
+                    (document.getElementById(`ftth_unauth_${sfx}`) || {}).value = p.unauth || '';
+                    (document.getElementById(`ftth_olt_network_${sfx}`) || {}).value = p.olt_network || '';
+                    (document.getElementById(`ftth_olt_network2_${sfx}`) || {}).value = p.olt_network2 || '';
+                    (document.getElementById(`ftth_olt_lag1_${sfx}`) || {}).value = p.olt_lag1 || '';
+                    (document.getElementById(`ftth_olt_lag2_${sfx}`) || {}).value = p.olt_lag2 || '';
+                    (document.getElementById(`ftth_location_${sfx}`) || {}).value = p.location || '';
+                    (document.getElementById(`ftth_routeros_${sfx}`) || {}).value = p.routeros || '7.19.4';
                     (document.getElementById(`ftth_identity_${sfx}`) || {}).value = p.identity || '';
                     document.getElementById('ftth_preset_select').value = '';
                 });

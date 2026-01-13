@@ -1,5 +1,6 @@
 from pathlib import Path
 import ipaddress
+import os
 import re
 from datetime import datetime
 
@@ -130,6 +131,28 @@ def _fmt_comment(value: str) -> str:
     return val
 
 
+def _ftth_quote(value: str) -> str:
+    if value is None:
+        return "\"\""
+    return "\"" + str(value).replace("\"", "") + "\""
+
+
+def _ftth_user_passwords():
+    return {
+        'root': os.getenv('FTTH_USER_ROOT_PASSWORD', 'CHANGE_ME'),
+        'deployment': os.getenv('FTTH_USER_DEPLOYMENT_PASSWORD', 'CHANGE_ME'),
+        'infra': os.getenv('FTTH_USER_INFRA_PASSWORD', 'CHANGE_ME'),
+        'ido': os.getenv('FTTH_USER_IDO_PASSWORD', 'CHANGE_ME'),
+        'sts': os.getenv('FTTH_USER_STS_PASSWORD', 'CHANGE_ME'),
+        'eng': os.getenv('FTTH_USER_ENG_PASSWORD', 'CHANGE_ME'),
+        'noc': os.getenv('FTTH_USER_NOC_PASSWORD', 'CHANGE_ME'),
+        'comeng': os.getenv('FTTH_USER_COMENG_PASSWORD', 'CHANGE_ME'),
+        'devops': os.getenv('FTTH_USER_DEVOPS_PASSWORD', 'CHANGE_ME'),
+        'acq': os.getenv('FTTH_USER_ACQ_PASSWORD', 'CHANGE_ME'),
+        'admin': os.getenv('FTTH_ADMIN_PASSWORD', 'CHANGE_ME'),
+    }
+
+
 def _net_details(cidr: str):
     net = ipaddress.ip_network(cidr, strict=False)
     hosts = list(net.hosts())
@@ -144,6 +167,75 @@ def _pool_range(net: ipaddress.IPv4Network, start_offset: int):
     return str(start_ip), str(end_ip)
 
 
+def _strip_ftth_headers(config: str) -> str:
+    """Remove human-readable headers/metadata from generated FTTH output."""
+    drop_prefixes = (
+        "FTTH BNG Configuration - ",
+        "Generated:",
+        "Deployment Type:",
+        "Device:",
+        "Location:",
+        "Total configuration lines:",
+        "Deployment:",
+        "Please review",
+        "CONFIGURATION COMPLETE",
+        "==========",
+        "#==========",
+        "# FTTH BNG Configuration",
+    )
+    cleaned = []
+    for line in config.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(drop_prefixes):
+            continue
+        # Drop banner lines like "======" or "#==========SECTION=========="
+        if re.match(r"^#?=+.*=+$", stripped):
+            continue
+        cleaned.append(line)
+    return "\n".join(cleaned).strip() + "\n"
+
+
+def _normalize_ftth_output(config: str) -> str:
+    """Normalize FTTH output to legacy RouterOS CLI section syntax."""
+    # Normalize line endings first to make replacements reliable.
+    normalized = config.replace("\r\n", "\n").replace("\r", "\n")
+    replacements = [
+        ("/interface/bridge/port", "/interface bridge port"),
+        ("/interface/bridge", "/interface bridge"),
+        ("/interface/ethernet", "/interface ethernet"),
+        ("/interface/bonding", "/interface bonding"),
+        ("/interface/vlan", "/interface vlan"),
+        ("/ip/dhcp-server/network", "/ip dhcp-server network"),
+        ("/ip/dhcp-server", "/ip dhcp-server"),
+        ("/ip/firewall/address-list", "/ip firewall address-list"),
+        ("/ip/firewall/nat", "/ip firewall nat"),
+        ("/ip/firewall/filter", "/ip firewall filter"),
+        ("/ip/firewall/mangle", "/ip firewall mangle"),
+        ("/ip/firewall/raw", "/ip firewall raw"),
+        ("/ip/firewall/service-port", "/ip firewall service-port"),
+        ("/ip/address", "/ip address"),
+        ("/ip/dns", "/ip dns"),
+        ("/routing/ospf/interface-template", "/routing ospf interface-template"),
+        ("/routing/ospf/area", "/routing ospf area"),
+        ("/routing/ospf/instance", "/routing ospf instance"),
+        ("/routing/bgp/connection", "/routing bgp connection"),
+        ("/routing/bgp/template", "/routing bgp template"),
+        ("/routing/bgp/instance", "/routing bgp instance"),
+        ("/snmp/community", "/snmp community"),
+        ("/system/ntp/client/servers", "/system ntp client servers"),
+        ("/system/ntp/client", "/system ntp client"),
+        ("/system/logging", "/system logging"),
+        ("/system/identity", "/system identity"),
+        ("/system/clock", "/system clock"),
+        ("/system/note", "/system note"),
+        ("/system/routerboard/settings", "/system routerboard settings"),
+    ]
+
+    for old, new in replacements:
+        normalized = normalized.replace(old, new)
+    return normalized
+
+
 def render_ftth_config(data: dict) -> str:
     if not TEMPLATE_PATH.exists():
         raise FileNotFoundError(f"FTTH template missing: {TEMPLATE_PATH}")
@@ -151,7 +243,7 @@ def render_ftth_config(data: dict) -> str:
     router_identity = data.get('router_identity', 'RTR-MTCCR2216.FTTH-BNG')
     location = (data.get('location', '') or '').strip()
     if location:
-        location = location.replace(' ', '')
+        location = location.replace('"', '')
     else:
         location = '0,0'
 
@@ -235,11 +327,13 @@ def render_ftth_config(data: dict) -> str:
         uplink_ip = uplink.get('ip', '')
         if uplink.get('type', 'routed') == 'routed' and uplink_ip:
             uplink_iface = ipaddress.ip_interface(uplink_ip)
+            ospf_comment = _fmt_comment(uplink.get('comment', 'UPLINK'))
+            ospf_comment_part = f" comment={ospf_comment}" if ospf_comment else ""
             uplink_ip_lines.append(
                 f"add address={uplink_ip} comment={_fmt_comment(uplink.get('comment', 'UPLINK'))} interface={port} network={uplink_iface.network.network_address}"
             )
             uplink_ospf_lines.append(
-                f"add area=backbone-v2 auth=md5 auth-id=1 auth-key=m8M5JwvdYM cost=10 disabled=no interfaces={port} networks={uplink_iface.network.network_address}/{uplink_iface.network.prefixlen} priority=1 type=ptp"
+                f"add area=backbone-v2 auth=md5 auth-id=1 auth-key=m8M5JwvdYM{ospf_comment_part} cost=10 disabled=no interfaces={port} networks={uplink_iface.network.network_address}/{uplink_iface.network.prefixlen} priority=1 type=ptp"
             )
         uplink_ldp_lines.append(f"add disabled=no interface={port}")
 
@@ -267,6 +361,23 @@ def render_ftth_config(data: dict) -> str:
         if speed and speed != 'auto':
             parts.append(f"speed={speed}")
         olt_lines.append(" ".join(parts))
+
+    if not olt_lines:
+        olt1_comment = _fmt_comment(olt_name)
+        olt_lines = [
+            f"set [ find default-name=sfp28-3 ] comment={olt1_comment}",
+            f"set [ find default-name=sfp28-4 ] comment={olt1_comment}",
+            f"set [ find default-name=sfp28-5 ] comment={olt1_comment}",
+            f"set [ find default-name=sfp28-6 ] comment={olt1_comment}",
+        ]
+        if olt_network_secondary or olt_name_secondary or has_olt2_ports:
+            olt2_comment = _fmt_comment(olt_name_secondary or 'OLT-MF2-2')
+            olt_lines.extend([
+                f"set [ find default-name=sfp28-7 ] comment={olt2_comment}",
+                f"set [ find default-name=sfp28-8 ] comment={olt2_comment}",
+                f"set [ find default-name=sfp28-9 ] comment={olt2_comment}",
+                f"set [ find default-name=sfp28-10 ] comment={olt2_comment}",
+            ])
 
     olt2_bonding_line = ''
     olt2_vlan_lines = ''
@@ -301,7 +412,10 @@ def render_ftth_config(data: dict) -> str:
             )
 
     if routeros_version == '7.20.2':
-        bgp_instance_line = f"add as=26077 disabled=no name=bgp-instance-1 router-id={loopback.ip}"
+        bgp_instance_block = "\n".join([
+            "/routing bgp instance",
+            f"add as=26077 disabled=no name=bgp-instance-1 router-id={loopback.ip}",
+        ])
         bgp_template_line = "set default as=26077 disabled=no output.network=bgp-networks"
         bgp_connection_lines = "\n".join([
             f"add cisco-vpls-nlri-len-fmt=auto-bits connect=yes disabled=no instance=bgp-instance-1 listen=yes "
@@ -312,7 +426,7 @@ def render_ftth_config(data: dict) -> str:
             f"remote.address=10.2.0.108/32 .as=26077 .port=179 routing-table=main templates=default",
         ])
     else:
-        bgp_instance_line = ''
+        bgp_instance_block = ''
         bgp_template_line = f"set default as=26077 disabled=no output.network=bgp-networks router-id={loopback.ip}"
         bgp_connection_lines = "\n".join([
             f"add cisco-vpls-nlri-len-fmt=auto-bits connect=yes listen=yes local.address={loopback.ip} "
@@ -321,6 +435,7 @@ def render_ftth_config(data: dict) -> str:
             f".role=ibgp multihop=yes name=CR8 remote.address=10.2.0.108 .as=26077 .port=179 templates=default",
         ])
 
+    user_passwords = _ftth_user_passwords()
     replacements = {
         "{{UPLINK_ETHERNET_LINES}}": "\n".join(uplink_lines),
         "{{OLT_ETHERNET_LINES}}": "\n".join(olt_lines),
@@ -361,14 +476,27 @@ def render_ftth_config(data: dict) -> str:
         "{{OLT1_NAME}}": _fmt_comment(olt_name),
         "{{ROUTER_IDENTITY}}": router_identity,
         "{{LOCATION}}": location,
+        "{{SNMP_CONTACT}}": os.getenv('NEXTLINK_SNMP_CONTACT', 'noc@team.nxlink.com'),
         "{{GENERATED_AT}}": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        "{{BGP_INSTANCE_LINE}}": bgp_instance_line,
+        "{{BGP_INSTANCE_BLOCK}}": bgp_instance_block,
         "{{BGP_TEMPLATE_LINE}}": bgp_template_line,
         "{{BGP_CONNECTION_LINES}}": bgp_connection_lines,
+        "{{USER_ROOT_PASSWORD}}": _ftth_quote(user_passwords['root']),
+        "{{USER_DEPLOYMENT_PASSWORD}}": _ftth_quote(user_passwords['deployment']),
+        "{{USER_INFRA_PASSWORD}}": _ftth_quote(user_passwords['infra']),
+        "{{USER_IDO_PASSWORD}}": _ftth_quote(user_passwords['ido']),
+        "{{USER_STS_PASSWORD}}": _ftth_quote(user_passwords['sts']),
+        "{{USER_ENG_PASSWORD}}": _ftth_quote(user_passwords['eng']),
+        "{{USER_NOC_PASSWORD}}": _ftth_quote(user_passwords['noc']),
+        "{{USER_COMENG_PASSWORD}}": _ftth_quote(user_passwords['comeng']),
+        "{{USER_DEVOPS_PASSWORD}}": _ftth_quote(user_passwords['devops']),
+        "{{USER_ACQ_PASSWORD}}": _ftth_quote(user_passwords['acq']),
+        "{{USER_ADMIN_PASSWORD}}": _ftth_quote(user_passwords['admin']),
     }
 
     template = TEMPLATE_PATH.read_text(encoding='utf-8')
     for key, value in replacements.items():
         template = template.replace(key, value)
 
-    return template
+    template = _strip_ftth_headers(template)
+    return _normalize_ftth_output(template)
