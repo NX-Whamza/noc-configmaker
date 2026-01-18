@@ -25,14 +25,11 @@ set [ find default-name=sfp28-12 ] auto-negotiation=no comment=exfo speed=10G-ba
 add disabled=yes interface={{UPLINK_PRIMARY_PORT}} mtu={{UPLINK_PRIMARY_MTU}} name=vlan1017 vlan-id=1017
 
 /interface bonding
-add mode=802.3ad name=bonding3000-{{OLT1_TAG}} slaves=sfp28-3,sfp28-4,sfp28-5,sfp28-6 transmit-hash-policy=layer-2-and-3
+{{OLT1_BONDING_LINE}}
 {{OLT2_BONDING_LINE}}
 
 /interface vlan
-add interface=bonding3000-{{OLT1_TAG}} name=vlan1000-{{OLT1_TAG}} vlan-id=1000
-add interface=bonding3000-{{OLT1_TAG}} name=vlan2000-{{OLT1_TAG}} vlan-id=2000
-add interface=bonding3000-{{OLT1_TAG}} name=vlan3000-{{OLT1_TAG}} vlan-id=3000
-add interface=bonding3000-{{OLT1_TAG}} name=vlan4000-{{OLT1_TAG}} vlan-id=4000
+{{OLT1_VLAN_LINES}}
 {{OLT2_VLAN_LINES}}
 
 /ip dhcp-server option
@@ -85,10 +82,7 @@ add name=IDO policy="local,telnet,ssh,reboot,read,write,test,winbox,password,sni
 add name=CALLCENTER-WRITE policy="local,telnet,ssh,read,write,test,winbox,sniff,!ftp,!reboot,!policy,!password,!web,!sensitive,!api,!romon,!rest-api"
 
 /interface bridge port
-add bridge=bridge1000 ingress-filtering=no interface=vlan1000-{{OLT1_TAG}} internal-path-cost=10 path-cost=10
-add bridge=bridge2000 interface=vlan2000-{{OLT1_TAG}}
-add bridge=bridge3000 interface=vlan3000-{{OLT1_TAG}}
-add bridge=bridge4000 ingress-filtering=no interface=vlan4000-{{OLT1_TAG}} internal-path-cost=10 path-cost=10
+{{OLT1_BRIDGE_PORTS}}
 add bridge=lan-bridge interface=ether1
 {{OLT2_BRIDGE_PORTS}}
 
@@ -100,7 +94,7 @@ add address={{CPE_GATEWAY}}/{{CPE_PREFIX}} comment="CPE/Tower Gear" interface=la
 add address={{LOOPBACK_IP}} comment=loop0 interface=loop0 network={{LOOPBACK_IP}}
 add address={{UNAUTH_GATEWAY}}/{{UNAUTH_PREFIX}} comment=UNAUTH interface=lan-bridge network={{UNAUTH_NETWORK_BASE}}
 add address={{CGNAT_GATEWAY}}/{{CGNAT_PREFIX}} comment="CGNAT Private" interface=bridge1000 network={{CGNAT_NETWORK_BASE}}
-add address={{OLT1_IP}}/{{OLT1_PREFIX}} comment={{OLT1_NAME}} interface=bridge3000 network={{OLT1_NETWORK_BASE}}
+{{OLT1_IP_LINE}}
 add address={{CGNAT_PUBLIC}} comment="CGNAT Public" interface=nat-public-bridge network={{CGNAT_PUBLIC}}
 {{OLT2_IP_LINE}}
 {{UPLINK_IP_LINES}}
@@ -298,7 +292,7 @@ add address=142.147.112.18 secret=Nl22021234 service=dhcp src-address={{ROUTER_I
 /routing ospf interface-template
 add area=backbone-v2 comment=loop0 cost=10 disabled=no interfaces=loop0 networks={{LOOPBACK_IP}}/32 passive priority=1
 add area=backbone-v2 comment="CPE/Tower Gear" cost=10 disabled=no interfaces=lan-bridge networks={{CPE_NETWORK_BASE}}/{{CPE_PREFIX}} priority=1
-add area=backbone-v2 comment={{OLT1_NAME}} cost=10 disabled=no interfaces=bridge3000 networks={{OLT1_NETWORK_BASE}}/{{OLT1_PREFIX}} priority=1
+{{OLT1_OSPF_LINE}}
 {{OLT2_OSPF_LINE}}
 {{UPLINK_OSPF_LINES}}
 

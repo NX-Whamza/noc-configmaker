@@ -254,6 +254,7 @@ def render_ftth_config(data: dict) -> str:
     unauth_network = data.get('unauth_network', '')
 
     olt_network = data.get('olt_network', '') or data.get('olt_network_primary', '')
+    olt_network_100g = (data.get('olt_network_100g', '') or '').strip()
     olt_network_secondary = (
         data.get('olt_network_secondary')
         or data.get('olt_network2')
@@ -261,6 +262,7 @@ def render_ftth_config(data: dict) -> str:
     ).strip()
     olt_name = (data.get('olt_name', '') or '').strip() or (data.get('olt_name_primary', '') or '').strip() or 'OLT-MF2-1'
     olt_name_secondary = (data.get('olt_name_secondary', '') or '').strip()
+    olt_name_100g = (data.get('olt_name_100g', '') or '').strip()
     if olt_network_secondary and not olt_name_secondary:
         olt_name_secondary = 'OLT-MF2-2'
 
@@ -279,6 +281,13 @@ def render_ftth_config(data: dict) -> str:
             'auto_negotiation': data.get('uplink_auto_negotiation', False),
         }]
 
+    olt_ports = data.get('olt_ports', [])
+    has_olt2_ports = any(str(p.get('group') or '1') == '2' for p in olt_ports)
+    has_olt1_ports = any(str(p.get('group') or '1') == '1' for p in olt_ports)
+    has_100g_ports = any(str(p.get('group') or '').lower() == '100g' for p in olt_ports)
+
+    if has_100g_ports and olt_network_100g:
+        olt_network = olt_network_100g
     if not all([loopback_ip, cpe_network, cgnat_private, cgnat_public, unauth_network, olt_network]):
         raise ValueError('Missing required IP allocation fields.')
 
@@ -340,22 +349,34 @@ def render_ftth_config(data: dict) -> str:
     primary_uplink = uplinks[0].get('port', 'sfp28-1') if uplinks else 'sfp28-1'
     primary_mtu = uplinks[0].get('mtu', '9000') if uplinks else '9000'
 
-    olt_ports = data.get('olt_ports', [])
-    has_olt2_ports = any(str(p.get('group') or '1') == '2' for p in olt_ports)
+    if has_100g_ports and (has_olt1_ports or has_olt2_ports):
+        raise ValueError('200G OLT ports cannot be combined with LAG 1 or LAG 2 ports.')
     if has_olt2_ports and not olt_network_secondary:
         raise ValueError('OLT Network 2 is required when OLT LAG 2 ports are configured.')
     if has_olt2_ports and not olt_name_secondary:
         olt_name_secondary = 'OLT-MF2-2'
+    if has_100g_ports and olt_network_secondary:
+        raise ValueError('OLT Network 2 should not be set when using 200G OLT ports.')
+    if has_100g_ports and not olt_network_100g:
+        raise ValueError('OLT Network (200G) is required when using 200G OLT ports.')
+    if has_100g_ports and not olt_name_100g:
+        olt_name_100g = 'OLT-MF2-100G'
+    if has_100g_ports and olt_name_100g:
+        olt_name = olt_name_100g
+        group1_tag = 'MF2_100G'
     olt_lines = []
     for port_cfg in olt_ports:
         port = port_cfg.get('port')
         if not port:
             continue
         group = str(port_cfg.get('group') or '1')
-        base_name = olt_name_secondary if group == '2' and olt_name_secondary else olt_name
+        if group == '100g':
+            base_name = olt_name
+        else:
+            base_name = olt_name_secondary if group == '2' and olt_name_secondary else olt_name
         comment = _fmt_comment(port_cfg.get('comment') or base_name)
         speed = port_cfg.get('speed', 'auto')
-        parts = [f"set [ find default-name={port} ]"]
+        parts = [f"set [ find default-name={port} ]", "auto-negotiation=no"]
         if comment:
             parts.append(f"comment={comment}")
         if speed and speed != 'auto':
@@ -365,19 +386,64 @@ def render_ftth_config(data: dict) -> str:
     if not olt_lines:
         olt1_comment = _fmt_comment(olt_name)
         olt_lines = [
-            f"set [ find default-name=sfp28-3 ] comment={olt1_comment}",
-            f"set [ find default-name=sfp28-4 ] comment={olt1_comment}",
-            f"set [ find default-name=sfp28-5 ] comment={olt1_comment}",
-            f"set [ find default-name=sfp28-6 ] comment={olt1_comment}",
+            f"set [ find default-name=sfp28-3 ] auto-negotiation=no comment={olt1_comment}",
+            f"set [ find default-name=sfp28-4 ] auto-negotiation=no comment={olt1_comment}",
+            f"set [ find default-name=sfp28-5 ] auto-negotiation=no comment={olt1_comment}",
+            f"set [ find default-name=sfp28-6 ] auto-negotiation=no comment={olt1_comment}",
         ]
         if olt_network_secondary or olt_name_secondary or has_olt2_ports:
             olt2_comment = _fmt_comment(olt_name_secondary or 'OLT-MF2-2')
             olt_lines.extend([
-                f"set [ find default-name=sfp28-7 ] comment={olt2_comment}",
-                f"set [ find default-name=sfp28-8 ] comment={olt2_comment}",
-                f"set [ find default-name=sfp28-9 ] comment={olt2_comment}",
-                f"set [ find default-name=sfp28-10 ] comment={olt2_comment}",
+                f"set [ find default-name=sfp28-7 ] auto-negotiation=no comment={olt2_comment}",
+                f"set [ find default-name=sfp28-8 ] auto-negotiation=no comment={olt2_comment}",
+                f"set [ find default-name=sfp28-9 ] auto-negotiation=no comment={olt2_comment}",
+                f"set [ find default-name=sfp28-10 ] auto-negotiation=no comment={olt2_comment}",
             ])
+
+    if has_100g_ports:
+        bonding_name = "bonding_MF2_100G"
+        bonding_comment = _fmt_comment(f"MF2_100G_IP-ADDR: {olt1_first}")
+        olt1_bonding_line = (
+            f"add comment={bonding_comment} lacp-rate=1sec mode=802.3ad "
+            f"name={bonding_name} slaves=qsfp28-1-1,qsfp28-2-1 transmit-hash-policy=layer-2-and-3"
+        )
+        olt1_vlan_lines = "\n".join([
+            f"add interface={bonding_name} name=vlan1000-{group1_tag} vlan-id=1000",
+            f"add interface={bonding_name} name=vlan2000-{group1_tag} vlan-id=2000",
+            f"add interface={bonding_name} name=vlan3000-{group1_tag} vlan-id=3000",
+            f"add interface={bonding_name} name=vlan4000-{group1_tag} vlan-id=4000",
+        ])
+        olt1_bridge_ports = "\n".join([
+            f"add bridge=bridge1000 ingress-filtering=no interface=vlan1000-{group1_tag} internal-path-cost=10 path-cost=10",
+            f"add bridge=bridge2000 interface=vlan2000-{group1_tag}",
+            f"add bridge=bridge3000 interface=vlan3000-{group1_tag}",
+            f"add bridge=bridge4000 ingress-filtering=no interface=vlan4000-{group1_tag} internal-path-cost=10 path-cost=10",
+        ])
+    else:
+        olt1_bonding_line = (
+            f"add mode=802.3ad name=bonding3000-{group1_tag} "
+            "slaves=sfp28-3,sfp28-4,sfp28-5,sfp28-6 transmit-hash-policy=layer-2-and-3"
+        )
+        olt1_vlan_lines = "\n".join([
+            f"add interface=bonding3000-{group1_tag} name=vlan1000-{group1_tag} vlan-id=1000",
+            f"add interface=bonding3000-{group1_tag} name=vlan2000-{group1_tag} vlan-id=2000",
+            f"add interface=bonding3000-{group1_tag} name=vlan3000-{group1_tag} vlan-id=3000",
+            f"add interface=bonding3000-{group1_tag} name=vlan4000-{group1_tag} vlan-id=4000",
+        ])
+        olt1_bridge_ports = "\n".join([
+            f"add bridge=bridge1000 ingress-filtering=no interface=vlan1000-{group1_tag} internal-path-cost=10 path-cost=10",
+            f"add bridge=bridge2000 interface=vlan2000-{group1_tag}",
+            f"add bridge=bridge3000 interface=vlan3000-{group1_tag}",
+            f"add bridge=bridge4000 ingress-filtering=no interface=vlan4000-{group1_tag} internal-path-cost=10 path-cost=10",
+        ])
+    olt1_ip_line = (
+        f"add address={olt1_first}/{olt1_net.prefixlen} comment={_fmt_comment(olt_name)} "
+        f"interface=bridge3000 network={olt1_net.network_address}"
+    )
+    olt1_ospf_line = (
+        f"add area=backbone-v2 comment={_fmt_comment(olt_name)} cost=10 disabled=no "
+        f"interfaces=bridge3000 networks={olt1_net.network_address}/{olt1_net.prefixlen} priority=1"
+    )
 
     olt2_bonding_line = ''
     olt2_vlan_lines = ''
@@ -442,6 +508,11 @@ def render_ftth_config(data: dict) -> str:
         "{{UPLINK_PRIMARY_PORT}}": primary_uplink,
         "{{UPLINK_PRIMARY_MTU}}": str(primary_mtu),
         "{{OLT1_TAG}}": group1_tag,
+        "{{OLT1_BONDING_LINE}}": olt1_bonding_line,
+        "{{OLT1_VLAN_LINES}}": olt1_vlan_lines,
+        "{{OLT1_BRIDGE_PORTS}}": olt1_bridge_ports,
+        "{{OLT1_IP_LINE}}": olt1_ip_line,
+        "{{OLT1_OSPF_LINE}}": olt1_ospf_line,
         "{{OLT2_BONDING_LINE}}": olt2_bonding_line,
         "{{OLT2_VLAN_LINES}}": olt2_vlan_lines,
         "{{OLT2_BRIDGE_PORTS}}": olt2_bridge_ports,
@@ -497,6 +568,20 @@ def render_ftth_config(data: dict) -> str:
     template = TEMPLATE_PATH.read_text(encoding='utf-8')
     for key, value in replacements.items():
         template = template.replace(key, value)
+
+    if has_100g_ports:
+        template = re.sub(
+            r"^.*default-name=qsfp28-1-1.*disabled=yes.*\n",
+            "",
+            template,
+            flags=re.M,
+        )
+        template = re.sub(
+            r"^.*default-name=qsfp28-2-1.*disabled=yes.*\n",
+            "",
+            template,
+            flags=re.M,
+        )
 
     template = _strip_ftth_headers(template)
     return _normalize_ftth_output(template)

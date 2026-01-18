@@ -338,6 +338,116 @@
             transition: all 0.3s ease;
         }
 
+        .ftth-home-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin: 20px 0 30px;
+        }
+
+        .ftth-home-tab {
+            background: var(--input-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 8px 16px;
+            border-radius: 999px;
+            cursor: pointer;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            transition: all 0.2s ease;
+        }
+
+        .ftth-home-tab.active {
+            background: var(--button-primary);
+            border-color: var(--button-primary);
+            color: #fff;
+        }
+
+        .ftth-home-dropdown {
+            position: relative;
+            display: inline-flex;
+        }
+
+        .ftth-home-dropdown-toggle {
+            background: var(--input-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 10px 18px;
+            border-radius: 999px;
+            cursor: pointer;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+            min-width: 260px;
+            justify-content: center;
+        }
+
+        .ftth-home-dropdown-toggle:hover {
+            border-color: var(--button-primary);
+            color: var(--button-primary);
+        }
+
+        .ftth-home-dropdown.open .ftth-home-dropdown-toggle {
+            background: var(--button-primary);
+            border-color: var(--button-primary);
+            color: #fff;
+        }
+
+        .ftth-home-dropdown-menu {
+            position: absolute;
+            top: calc(100% + 10px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            box-shadow: var(--shadow-md);
+            padding: 8px;
+            min-width: 280px;
+            display: none;
+            z-index: 20;
+        }
+
+        .ftth-home-dropdown.open .ftth-home-dropdown-menu {
+            display: block;
+        }
+
+        .ftth-home-dropdown-item {
+            width: 100%;
+            background: transparent;
+            border: 1px solid transparent;
+            color: var(--text-color);
+            padding: 10px 12px;
+            border-radius: 8px;
+            text-align: left;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.15s ease;
+        }
+
+        .ftth-home-dropdown-item:hover {
+            background: var(--input-bg);
+            border-color: var(--border-color);
+        }
+
+        .ftth-home-dropdown-item.active {
+            background: rgba(255, 129, 35, 0.18);
+            border-color: var(--button-primary);
+            color: var(--button-primary);
+        }
+
+        .ftth-home-section {
+            display: none;
+        }
+
+        .ftth-home-section.active {
+            display: block;
+        }
+
         .testing-banner {
             background: #fff3cd;
             color: #856404;
@@ -2152,10 +2262,6 @@
                              Tarana Sectors
                             <span class="desc">ALPHA/BETA/GAMMA/DELTA sector configuration</span>
                         </a>
-                        <a data-tab="ftth" id="ftthMenuItem">
-                             FTTH BNG CONFIG
-                            <span class="desc">FTTH BNG configuration generator</span>
-                        </a>
                         <a data-tab="enterprise-feeding">
                              Enterprise Feeding
                             <span class="desc">Commercial/enterprise uplink provisioning</span>
@@ -2185,6 +2291,19 @@
                     </div>
                 </div>
                 <button class="nav-item" data-tab="aviat-backhaul">AVIAT BACKHAUL UPDATER</button>
+                <div class="nav-item dropdown" data-tab="ftth-home">
+                    <button>FTTH HOME</button>
+                    <div class="dropdown-menu">
+                        <a data-tab="ftth-home" data-ftth-home-tab="olt">
+                             OLT CONFIGURATION
+                            <span class="desc">FTTH OLT configuration package builder</span>
+                        </a>
+                        <a data-tab="ftth-home" data-ftth-home-tab="bng">
+                             FTTH BNG CONFIG
+                            <span class="desc">FTTH BNG configuration generator</span>
+                        </a>
+                    </div>
+                </div>
                 <button class="nav-item" data-tab="cisco-config">CISCO CONFIG</button>
                 <button class="nav-item" data-tab="completed-configs"> CONFIGS</button>
                 <button class="nav-item" data-tab="log-history"> LOG HISTORY</button>
@@ -5235,7 +5354,7 @@
                 </div>
             </div>
 
-            <!-- FTTH BNG CONFIGURATION TAB --!>
+            <!-- FTTH BNG CONFIGURATION TAB -->
             <div class="content-pane" id="ftth-pane">
                 <div class="container">
                     <h1 style="text-align: center; margin-bottom: 10px;"> FTTH BNG Configuration Generator</h1>
@@ -5331,6 +5450,10 @@
                             <input type="text" id="ftth_olt_network2_in" placeholder="10.25.251.24/29">
                         </div>
                         <div>
+                            <label for="ftth_olt_network100g_in">OLT Network (200G Ports, /29, Optional):</label>
+                            <input type="text" id="ftth_olt_network100g_in" placeholder="10.246.9.80/29">
+                        </div>
+                        <div>
                             <label for="ftth_olt_lag1_in">OLT LAG Name 1 (Suffix):</label>
                             <input type="text" id="ftth_olt_lag1_in" placeholder="TX-LAB-MF2-23"
                                 oninput="updateFtthOltLagName('in', 1)">
@@ -5339,6 +5462,11 @@
                             <label for="ftth_olt_lag2_in">OLT LAG Name 2 (Suffix, Optional):</label>
                             <input type="text" id="ftth_olt_lag2_in" placeholder="TX-LAB-MF2-23"
                                 oninput="updateFtthOltLagName('in', 2)">
+                        </div>
+                        <div>
+                            <label for="ftth_olt_lag100g_in">OLT LAG Name (200G Ports, Optional):</label>
+                            <input type="text" id="ftth_olt_lag100g_in" placeholder="TX-LAB-MF2-100G"
+                                oninput="updateFtthOltLagName('in', '100g')">
                         </div>
                     </div>
                 </div>
@@ -5436,6 +5564,10 @@
                         style="background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">
                         Add OLT LAG 2 Ports
                     </button>
+                    <button type="button" onclick="addFtthOltPorts('in', '100g')"
+                        style="background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">
+                        Add OLT LAG 200G Ports
+                    </button>
                     <button type="button" onclick="clearFtthOltPorts('in')"
                         style="background: #dc3545; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">
                         Clear All Ports
@@ -5519,6 +5651,10 @@
                             <input type="text" id="ftth_olt_network2_out" placeholder="10.25.251.24/29">
                         </div>
                         <div>
+                            <label for="ftth_olt_network100g_out">OLT Network (200G Ports, /29, Optional):</label>
+                            <input type="text" id="ftth_olt_network100g_out" placeholder="10.246.9.80/29">
+                        </div>
+                        <div>
                             <label for="ftth_olt_lag1_out">OLT LAG Name 1 (Suffix):</label>
                             <input type="text" id="ftth_olt_lag1_out" placeholder="TX-LAB-MF2-23"
                                 oninput="updateFtthOltLagName('out', 1)">
@@ -5527,6 +5663,11 @@
                             <label for="ftth_olt_lag2_out">OLT LAG Name 2 (Suffix, Optional):</label>
                             <input type="text" id="ftth_olt_lag2_out" placeholder="TX-LAB-MF2-23"
                                 oninput="updateFtthOltLagName('out', 2)">
+                        </div>
+                        <div>
+                            <label for="ftth_olt_lag100g_out">OLT LAG Name (200G Ports, Optional):</label>
+                            <input type="text" id="ftth_olt_lag100g_out" placeholder="TX-LAB-MF2-100G"
+                                oninput="updateFtthOltLagName('out', '100g')">
                         </div>
                     </div>
                 </div>
@@ -5623,6 +5764,10 @@
                         style="background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">
                         Add OLT LAG 2 Ports
                     </button>
+                    <button type="button" onclick="addFtthOltPorts('out', '100g')"
+                        style="background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">
+                        Add OLT LAG 200G Ports
+                    </button>
                     <button type="button" onclick="clearFtthOltPorts('out')"
                         style="background: #dc3545; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">
                         Clear All Ports
@@ -5670,6 +5815,63 @@
             </div>
         </div>
     </div>
+
+            <!-- FTTH HOME TAB -->
+            <div class="content-pane" id="ftth-home-pane">
+                <div class="container">
+                    <div id="ftth-home-hero">
+                        <h1 style="text-align: center; margin-bottom: 10px;"> FTTH HOME</h1>
+                        <p style="text-align: center; color: var(--text-color-secondary); margin-bottom: 30px;">
+                            Generate MF2 package with dynamic gateway and primary IP (all other files unchanged)
+                        </p>
+                    </div>
+
+                    <div class="ftth-home-tabs">
+                        <div class="ftth-home-dropdown" id="ftthHomeDropdown">
+                            <button class="ftth-home-dropdown-toggle" id="ftthHomeDropdownToggle" type="button"
+                                aria-haspopup="true" aria-expanded="false">
+                                <span id="ftthHomeDropdownLabel">OLT CONFIGURATION</span>
+                                <span class="ftth-home-dropdown-caret">v</span>
+                            </button>
+                            <div class="ftth-home-dropdown-menu" id="ftthHomeDropdownMenu" role="menu">
+                                <button class="ftth-home-dropdown-item active" type="button"
+                                    data-ftth-home-tab="olt">OLT CONFIGURATION</button>
+                                <button class="ftth-home-dropdown-item" type="button"
+                                    data-ftth-home-tab="bng">FTTH BNG CONFIGURATION</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="ftth-home-olt-section" class="ftth-home-section active">
+                        <div class="section">
+                            <h2>OLT CONFIGURATION</h2>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                                <div>
+                                    <label for="ftth_home_gateway_ip">Gateway IP (Static Route Next-Hop, /29):</label>
+                                    <input type="text" id="ftth_home_gateway_ip" placeholder="10.16.1.113/29">
+                                </div>
+                                <div>
+                                    <label for="ftth_home_primary_ip">Primary IP (Service mgnt, /29):</label>
+                                    <input type="text" id="ftth_home_primary_ip" placeholder="10.16.1.114/29">
+                                    <small style="color: var(--text-color-secondary); font-size: 11px;">Prefix-length is fixed at /29</small>
+                                </div>
+                                <div>
+                                    <label for="ftth_home_olt_name">OLT Name (for ZIP name):</label>
+                                    <input type="text" id="ftth_home_olt_name" placeholder="TX-MARLIN-W-FC-2">
+                                </div>
+                            </div>
+                            <div style="margin-top: 20px;">
+                                <button class="aviat-btn success" onclick="generateFtthHomeZip()">
+                                    Download MF2 Package
+                                </button>
+                                <span id="ftth_home_status" style="margin-left: 12px; color: var(--text-color-secondary);"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="ftth-home-bng-section" class="ftth-home-section"></div>
+                </div>
+            </div>
 
     <!-- AVIAT BACKHAUL TAB -->
     <div class="content-pane" id="aviat-backhaul-pane">
@@ -9871,7 +10073,10 @@
                 if (typeof window.generateFtthBngConfig === 'function') {
                     return window.generateFtthBngConfig();
                 }
-                alert('Please use the FTTH BNG Configuration Generator tab.');
+                navigateToTab('ftth-home');
+                if (typeof window.showFtthHomeSubTab === 'function') {
+                    window.showFtthHomeSubTab('bng');
+                }
             };
 
             // Deduplication for activity logging (prevent duplicates within 5 seconds)
@@ -10542,25 +10747,16 @@
                         e.preventDefault();
                         if (!link.classList.contains('disabled')) {
                             const tabId = link.getAttribute('data-tab');
+                            const ftthHomeTab = link.getAttribute('data-ftth-home-tab');
                             navigateToTab(tabId);
-                        }
-                    });
-                });
-
-                // FTTH menu item (inside Mikrotik dropdown) should open FTTH modal
-                document.querySelectorAll('.dropdown-menu a[data-action="open-ftth"]').forEach(link => {
-                    link.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        if (!link.classList.contains('disabled')) {
-                            const modal = document.getElementById('ftthModal');
-                            if (modal) {
-                                modal.style.display = 'block';
-                                const lb = document.getElementById('ftth_loopback');
-                                if (lb) lb.focus();
+                            if (tabId === 'ftth-home' && ftthHomeTab && typeof window.showFtthHomeSubTab === 'function') {
+                                window.showFtthHomeSubTab(ftthHomeTab);
                             }
                         }
                     });
                 });
+
+                // FTTH BNG is now under FTTH HOME only (no Mikrotik entry)
 
                 // Event listeners for new tabs
                 const generateCCRBtn = document.getElementById('generateCCR');
@@ -19933,7 +20129,7 @@ Ready for translation!`);
                 const root = resolveProgressTrackerRoot();
                 if (!root) return;
 
-                if (root.id === 'ftth-pane') {
+                if (root.id === 'ftth-pane' || root.id === 'ftth-home-pane') {
                     const anchor = root.querySelector('#ftth_progress_anchor');
                     if (anchor && anchor.parentNode && anchor.nextSibling !== tracker) {
                         anchor.parentNode.insertBefore(tracker, anchor.nextSibling);
@@ -20882,8 +21078,10 @@ Ready for translation!`);
                         unauth: (document.getElementById(`ftth_unauth_${sfx}`) || {}).value || '',
                         olt_network: (document.getElementById(`ftth_olt_network_${sfx}`) || {}).value || '',
                         olt_network2: (document.getElementById(`ftth_olt_network2_${sfx}`) || {}).value || '',
+                        olt_network100g: (document.getElementById(`ftth_olt_network100g_${sfx}`) || {}).value || '',
                         olt_lag1: (document.getElementById(`ftth_olt_lag1_${sfx}`) || {}).value || '',
                         olt_lag2: (document.getElementById(`ftth_olt_lag2_${sfx}`) || {}).value || '',
+                        olt_lag100g: (document.getElementById(`ftth_olt_lag100g_${sfx}`) || {}).value || '',
                         location: (document.getElementById(`ftth_location_${sfx}`) || {}).value || '',
                         routeros: (document.getElementById(`ftth_routeros_${sfx}`) || {}).value || '7.19.4',
                         identity: (document.getElementById(`ftth_identity_${sfx}`) || {}).value || ''
@@ -20911,8 +21109,10 @@ Ready for translation!`);
                     (document.getElementById(`ftth_unauth_${sfx}`) || {}).value = p.unauth || '';
                     (document.getElementById(`ftth_olt_network_${sfx}`) || {}).value = p.olt_network || '';
                     (document.getElementById(`ftth_olt_network2_${sfx}`) || {}).value = p.olt_network2 || '';
+                    (document.getElementById(`ftth_olt_network100g_${sfx}`) || {}).value = p.olt_network100g || '';
                     (document.getElementById(`ftth_olt_lag1_${sfx}`) || {}).value = p.olt_lag1 || '';
                     (document.getElementById(`ftth_olt_lag2_${sfx}`) || {}).value = p.olt_lag2 || '';
+                    (document.getElementById(`ftth_olt_lag100g_${sfx}`) || {}).value = p.olt_lag100g || '';
                     (document.getElementById(`ftth_location_${sfx}`) || {}).value = p.location || '';
                     (document.getElementById(`ftth_routeros_${sfx}`) || {}).value = p.routeros || '7.19.4';
                     (document.getElementById(`ftth_identity_${sfx}`) || {}).value = p.identity || '';
@@ -20933,6 +21133,173 @@ Ready for translation!`);
         })();
 
         // ========================================
+        // FTTH HOME (OLT CONFIG + BNG SUB TABS)
+        // ========================================
+
+        function moveFtthPaneIntoHome() {
+            const ftthPane = document.getElementById('ftth-pane');
+            const bngSection = document.getElementById('ftth-home-bng-section');
+            if (!ftthPane || !bngSection) return;
+
+            const content = ftthPane.querySelector('.container') || ftthPane.querySelector('.dashboard-container') || ftthPane.firstElementChild;
+            if (!content) return;
+            bngSection.appendChild(content);
+            ftthPane.remove();
+        }
+
+        window.showFtthHomeSubTab = function (tabKey) {
+            const sections = document.querySelectorAll('#ftth-home-pane .ftth-home-section');
+            const items = document.querySelectorAll('#ftth-home-pane .ftth-home-dropdown-item');
+            const labelEl = document.getElementById('ftthHomeDropdownLabel');
+            const heroEl = document.getElementById('ftth-home-hero');
+
+            sections.forEach(section => {
+                const isActive = section.id === `ftth-home-${tabKey}-section`;
+                section.classList.toggle('active', isActive);
+                section.style.display = isActive ? 'block' : 'none';
+            });
+
+            items.forEach(item => {
+                const isActive = item.dataset.ftthHomeTab === tabKey;
+                item.classList.toggle('active', isActive);
+                if (isActive && labelEl) {
+                    labelEl.textContent = item.textContent.trim();
+                }
+            });
+
+            if (heroEl) {
+                heroEl.style.display = tabKey === 'olt' ? 'block' : 'none';
+            }
+
+            if (window.repositionProgressTracker) window.repositionProgressTracker();
+        };
+
+        function initFtthHomeTabs() {
+            moveFtthPaneIntoHome();
+            const dropdown = document.getElementById('ftthHomeDropdown');
+            const toggle = document.getElementById('ftthHomeDropdownToggle');
+            const items = document.querySelectorAll('#ftth-home-pane .ftth-home-dropdown-item');
+
+            if (toggle && dropdown) {
+                toggle.addEventListener('click', () => {
+                    const isOpen = dropdown.classList.toggle('open');
+                    toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+                });
+            }
+
+            items.forEach(item => {
+                item.addEventListener('click', () => {
+                    window.showFtthHomeSubTab(item.dataset.ftthHomeTab || 'olt');
+                    if (dropdown) {
+                        dropdown.classList.remove('open');
+                        if (toggle) toggle.setAttribute('aria-expanded', 'false');
+                    }
+                });
+            });
+
+            document.addEventListener('click', (event) => {
+                if (!dropdown || !dropdown.classList.contains('open')) return;
+                if (!dropdown.contains(event.target)) {
+                    dropdown.classList.remove('open');
+                    if (toggle) toggle.setAttribute('aria-expanded', 'false');
+                }
+            });
+
+            window.showFtthHomeSubTab('olt');
+        }
+
+        window.generateFtthHomeZip = async function () {
+            const gatewayIp = document.getElementById('ftth_home_gateway_ip')?.value.trim();
+            const primaryIp = document.getElementById('ftth_home_primary_ip')?.value.trim();
+            const oltName = document.getElementById('ftth_home_olt_name')?.value.trim() || '';
+            const statusEl = document.getElementById('ftth_home_status');
+
+            if (!gatewayIp || !primaryIp) {
+                if (statusEl) statusEl.textContent = 'Gateway IP and Primary IP are required.';
+                return;
+            }
+
+            const parseIpv4 = (value, label) => {
+                let ip = value;
+                if (value.includes('/')) {
+                    const parts = value.split('/');
+                    ip = parts[0].trim();
+                    const cidr = (parts[1] || '').trim();
+                    if (cidr !== '29') {
+                        throw new Error(`${label} must be /29`);
+                    }
+                }
+                const octets = ip.split('.');
+                if (octets.length !== 4 || octets.some(o => o === '' || Number(o) > 255 || Number(o) < 0 || !/^\d+$/.test(o))) {
+                    throw new Error(`${label} must be a valid IPv4 address`);
+                }
+                return ip;
+            };
+
+            let normalizedGatewayIp;
+            let normalizedPrimaryIp;
+            try {
+                normalizedGatewayIp = parseIpv4(gatewayIp, 'Gateway IP');
+                normalizedPrimaryIp = parseIpv4(primaryIp, 'Primary IP');
+            } catch (err) {
+                if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+                return;
+            }
+
+            if (statusEl) statusEl.textContent = 'Generating package...';
+
+            try {
+                const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : (window.AI_API_BASE || '/api');
+                const targetUrl = `${apiBase.replace(/\/+$/, '')}/ftth-home/mf2-package`;
+                const response = await fetch(targetUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        gateway_ip: normalizedGatewayIp,
+                        primary_ip: normalizedPrimaryIp,
+                        olt_name: oltName
+                    })
+                });
+
+                if (!response.ok) {
+                    let errorText = `Request failed (${response.status})`;
+                    const contentType = response.headers.get('content-type') || '';
+                    if (contentType.includes('application/json')) {
+                        const payload = await response.json().catch(() => ({}));
+                        if (payload && payload.error) errorText = payload.error;
+                    } else {
+                        const raw = await response.text().catch(() => '');
+                        if (raw) errorText = raw;
+                    }
+                    throw new Error(errorText);
+                }
+
+                const blob = await response.blob();
+                const safeName = (oltName || 'MF2_package').replace(/[^A-Za-z0-9._-]+/g, '_');
+                const downloadName = `MF2_${safeName}.zip`;
+
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = downloadName;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(link.href);
+
+                if (statusEl) statusEl.textContent = 'Package downloaded.';
+            } catch (err) {
+                if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+            }
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initFtthHomeTabs();
+        });
+        window.addEventListener('load', () => {
+            if (typeof initFtthHomeTabs === 'function') initFtthHomeTabs();
+        });
+
+        // ========================================
         // FTTH BNG CONFIGURATION FUNCTIONS
         // ========================================
 
@@ -20947,16 +21314,25 @@ Ready for translation!`);
         }
 
         function getFtthOltName(suffix, group) {
-            const suffixInput = group === 2
-                ? document.getElementById(`ftth_olt_lag2_${suffix}`)?.value.trim()
-                : document.getElementById(`ftth_olt_lag1_${suffix}`)?.value.trim();
-            const tag = group === 2 ? 'MF2-2' : 'MF2-1';
+            let suffixInput = '';
+            let tag = 'MF2-1';
+            if (group === '100g') {
+                suffixInput = document.getElementById(`ftth_olt_lag100g_${suffix}`)?.value.trim();
+                tag = 'MF2-100G';
+            } else if (group === 2) {
+                suffixInput = document.getElementById(`ftth_olt_lag2_${suffix}`)?.value.trim();
+                tag = 'MF2-2';
+            } else {
+                suffixInput = document.getElementById(`ftth_olt_lag1_${suffix}`)?.value.trim();
+            }
             return buildFtthOltName(suffixInput, tag);
         }
 
         window.updateFtthOltLagName = function (suffix, group) {
             const fullName = getFtthOltName(suffix, group);
-            const selector = group === 2 ? '[data-olt-group="2"]' : '[data-olt-group="1"]';
+            const selector = group === '100g'
+                ? '[data-olt-group="100g"]'
+                : (group === 2 ? '[data-olt-group="2"]' : '[data-olt-group="1"]');
             const container = document.getElementById(`ftth_olt_ports_${suffix}`);
             if (!container) return;
             container.querySelectorAll(`${selector} .ftth-port-comment`).forEach((input) => {
@@ -21103,18 +21479,29 @@ Ready for translation!`);
             const container = document.getElementById(`ftth_olt_ports_${suffix}`);
             if (!container) return;
 
-            const groupId = group === 2 ? '2' : '1';
-            container.querySelectorAll(`[data-olt-group="${groupId}"]`).forEach(el => el.remove());
+            const groupId = group === '100g' ? '100g' : (group === 2 ? '2' : '1');
+            if (groupId === '100g') {
+                container.querySelectorAll('.uplink-item').forEach(el => el.remove());
+            } else {
+                container.querySelectorAll('[data-olt-group="100g"]').forEach(el => el.remove());
+                container.querySelectorAll(`[data-olt-group="${groupId}"]`).forEach(el => el.remove());
+            }
 
-            const ports = groupId === '2'
-                ? ['sfp28-7', 'sfp28-8', 'sfp28-9', 'sfp28-10']
-                : ['sfp28-3', 'sfp28-4', 'sfp28-5', 'sfp28-6'];
-            const oltName = getFtthOltName(suffix, groupId === '2' ? 2 : 1);
+            const ports = groupId === '100g'
+                ? ['qsfp28-1-1', 'qsfp28-2-1']
+                : (groupId === '2'
+                    ? ['sfp28-7', 'sfp28-8', 'sfp28-9', 'sfp28-10']
+                    : ['sfp28-3', 'sfp28-4', 'sfp28-5', 'sfp28-6']);
+            const oltName = getFtthOltName(suffix, groupId === '100g' ? '100g' : (groupId === '2' ? 2 : 1));
             ports.forEach((port, index) => {
                 const portDiv = document.createElement('div');
                 portDiv.className = 'uplink-item';
                 portDiv.dataset.oltGroup = groupId;
                 portDiv.style.cssText = 'margin-bottom: 10px; padding: 15px; background: var(--input-bg); border-radius: 4px; border: 1px solid var(--border-color);';
+                const speedOptions = groupId === '100g'
+                    ? '<option value="100G-baseCR4" selected>100G-baseCR4</option>'
+                    : '<option value="auto">Auto</option><option value="10G-baseSR-LR">10G-baseSR-LR</option><option value="10G-baseCR">10G-baseCR</option>';
+                const speedDisabled = groupId === '100g' ? 'disabled' : '';
                 portDiv.innerHTML = `
                     <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; align-items: center;">
                         <div>
@@ -21123,10 +21510,8 @@ Ready for translation!`);
                         </div>
                         <div>
                             <label>Speed:</label>
-                            <select class="ftth-port-speed">
-                                <option value="auto">Auto</option>
-                                <option value="10G-baseSR-LR">10G-baseSR-LR</option>
-                                <option value="10G-baseCR">10G-baseCR</option>
+                            <select class="ftth-port-speed" ${speedDisabled}>
+                                ${speedOptions}
                             </select>
                         </div>
                         <div>
@@ -21184,8 +21569,10 @@ Ready for translation!`);
             const unauth = document.getElementById(`ftth_unauth_${suffix}`)?.value.trim();
             const oltNetwork = document.getElementById(`ftth_olt_network_${suffix}`)?.value.trim();
             const oltNetwork2 = document.getElementById(`ftth_olt_network2_${suffix}`)?.value.trim();
+            const oltNetwork100g = document.getElementById(`ftth_olt_network100g_${suffix}`)?.value.trim();
             const oltLag1 = document.getElementById(`ftth_olt_lag1_${suffix}`)?.value.trim();
             const oltLag2 = document.getElementById(`ftth_olt_lag2_${suffix}`)?.value.trim();
+            const oltLag100g = document.getElementById(`ftth_olt_lag100g_${suffix}`)?.value.trim();
             const routerosVersion = document.getElementById(`ftth_routeros_${suffix}`)?.value.trim();
             const uplinks = collectFtthUplinks(suffix);
             const uplinkIp = uplinks.find(u => u.type === 'routed' && u.ip)?.ip || '';
@@ -21213,7 +21600,6 @@ Ready for translation!`);
             if (!oltNetwork) errors.push('OLT Network is required');
             else if (!validateCIDR(oltNetwork, 29)) errors.push('OLT Network must be a /29 (e.g., 10.246.46.88/29)');
 
-            if (!oltLag1) errors.push('OLT LAG Name 1 is required');
             if (oltNetwork2 && !validateCIDR(oltNetwork2, 29)) errors.push('OLT Network 2 must be a /29 (e.g., 10.25.251.24/29)');
             if (oltLag2 && !oltNetwork2) errors.push('OLT Network 2 is required when OLT LAG Name 2 is provided');
             if (oltNetwork2 && !oltLag2) errors.push('OLT LAG Name 2 is required when OLT Network 2 is provided');
@@ -21230,15 +21616,30 @@ Ready for translation!`);
             }
 
             // Check if OLT ports are configured
+            const lag1Ports = Array.from(document.querySelectorAll(`#ftth_olt_ports_${suffix} [data-olt-group="1"]`));
             const lag2Ports = Array.from(document.querySelectorAll(`#ftth_olt_ports_${suffix} [data-olt-group="2"]`));
-            if (window.ftthOltPortsCount[suffix] < 4) {
-                errors.push('Please add OLT LAG 1 ports (4 total ports)');
-            }
-            if (lag2Ports.length > 0 && !oltLag2) {
-                errors.push('OLT LAG Name 2 is required when LAG 2 ports are added');
-            }
-            if (oltLag2 && lag2Ports.length < 4) {
-                errors.push('Please add OLT LAG 2 ports (4 total ports)');
+            const lag100gPorts = Array.from(document.querySelectorAll(`#ftth_olt_ports_${suffix} [data-olt-group="100g"]`));
+            const use100g = !!oltLag100g || lag100gPorts.length > 0;
+
+            if (use100g) {
+                if (!oltLag100g) errors.push('OLT LAG Name (200G) is required when 200G ports are added');
+                if (!oltNetwork100g) errors.push('OLT Network (200G) is required when using 200G ports');
+                if (oltNetwork100g && !validateCIDR(oltNetwork100g, 29)) errors.push('OLT Network (200G) must be a /29 (e.g., 10.246.9.80/29)');
+                if (oltLag1 || oltLag2) errors.push('OLT LAG Name 1/2 must be empty when using 200G ports');
+                if (oltNetwork2) errors.push('OLT Network 2 should be empty when using 200G ports');
+                if (lag1Ports.length > 0 || lag2Ports.length > 0) errors.push('Remove LAG 1/2 ports when using 200G ports');
+                if (lag100gPorts.length !== 2) errors.push('Please add OLT LAG 200G ports (2 total ports)');
+            } else {
+                if (!oltLag1) errors.push('OLT LAG Name 1 is required');
+                if (lag1Ports.length < 4) {
+                    errors.push('Please add OLT LAG 1 ports (4 total ports)');
+                }
+                if (lag2Ports.length > 0 && !oltLag2) {
+                    errors.push('OLT LAG Name 2 is required when LAG 2 ports are added');
+                }
+                if (oltLag2 && lag2Ports.length < 4) {
+                    errors.push('Please add OLT LAG 2 ports (4 total ports)');
+                }
             }
 
             if (errors.length > 0) {
@@ -21277,8 +21678,10 @@ Ready for translation!`);
                 unauth_network: document.getElementById(`ftth_unauth_${suffix}`)?.value.trim(),
                 olt_network: document.getElementById(`ftth_olt_network_${suffix}`)?.value.trim(),
                 olt_network_secondary: document.getElementById(`ftth_olt_network2_${suffix}`)?.value.trim(),
+                olt_network_100g: document.getElementById(`ftth_olt_network100g_${suffix}`)?.value.trim(),
                 olt_name_primary: getFtthOltName(suffix, 1),
                 olt_name_secondary: getFtthOltName(suffix, 2),
+                olt_name_100g: getFtthOltName(suffix, '100g'),
                 uplinks: collectFtthUplinks(suffix),
                 olt_ports: []
             };
@@ -21503,11 +21906,13 @@ Ready for translation!`);
                 `ftth_cgnat_private_${suffix}`,
                 `ftth_cgnat_public_${suffix}`,
                 `ftth_unauth_${suffix}`,
-                `ftth_olt_network_${suffix}`,
-                `ftth_olt_network2_${suffix}`,
-                `ftth_olt_lag1_${suffix}`,
-                `ftth_olt_lag2_${suffix}`
-            ];
+                        `ftth_olt_network_${suffix}`,
+                        `ftth_olt_network2_${suffix}`,
+                        `ftth_olt_network100g_${suffix}`,
+                        `ftth_olt_lag1_${suffix}`,
+                        `ftth_olt_lag2_${suffix}`,
+                        `ftth_olt_lag100g_${suffix}`
+                    ];
 
             inputs.forEach(id => {
                 const el = document.getElementById(id);
@@ -21719,7 +22124,7 @@ Ready for translation!`);
                     sopStatus: aviatNormalizeStatus(r.sopStatus),
                     username: r.username || ''
                 };
-                if (!['success', 'error'].includes(normalized.status)) {
+                if (!['success', 'error', 'processing'].includes(normalized.status)) {
                     if (normalized.firmwareStatus === 'loading') {
                         normalized.status = 'loading';
                     } else if (normalized.firmwareStatus === 'scheduled') {
@@ -21964,7 +22369,12 @@ Ready for translation!`);
 
             function computeActivationAt(timeStr) {
                 if (!timeStr) return null;
-                const [hour, minute] = timeStr.split(':').map(v => parseInt(v, 10));
+                const match = /^(\d{1,2}):(\d{2})$/.exec(timeStr);
+                if (!match) return null;
+                const hour = parseInt(match[1], 10);
+                const minute = parseInt(match[2], 10);
+                if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+                if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
                 const now = new Date();
                 const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
                 if (target <= now) {
@@ -21982,6 +22392,7 @@ Ready for translation!`);
                 const activationTime = document.getElementById('activationTime').value;
                 const activationMode = document.getElementById('activationMode').value;
                 const firmwareTarget = document.getElementById('firmwareTarget').value;
+                const activationAt = activationMode === 'scheduled' ? computeActivationAt(activationTime) : null;
 
                 const tasks = [];
                 if (doFirmware) tasks.push('firmware');
@@ -21994,12 +22405,16 @@ Ready for translation!`);
                     aviatAddLog('No tasks selected', 'warning');
                     return null;
                 }
+                if (activationMode === 'scheduled' && !activationAt) {
+                    aviatAddLog('Activation time is required for scheduled mode', 'warning');
+                    return null;
+                }
 
                 return {
                     tasks,
                     maintenance_params: {
                         activation_time: activationMode === 'scheduled' ? activationTime : null,
-                        activation_at: activationMode === 'scheduled' ? computeActivationAt(activationTime) : null,
+                        activation_at: activationAt,
                         activate_now: activationMode === 'immediate',
                         activation_mode: activationMode,
                         firmware_target: firmwareTarget,
@@ -22017,6 +22432,7 @@ Ready for translation!`);
                 const activationTime = document.getElementById('activationTime').value;
                 const activationMode = document.getElementById('activationMode').value;
                 const firmwareTarget = document.getElementById('firmwareTarget').value;
+                const activationAt = activationMode === 'scheduled' ? computeActivationAt(activationTime) : null;
 
                 const remainingTasks = [];
                 if (doBuffer) remainingTasks.push('buffer');
@@ -22024,18 +22440,23 @@ Ready for translation!`);
                 if (doPassword) remainingTasks.push('password');
                 if (doSOP) remainingTasks.push('sop');
 
+                if (activationMode === 'scheduled' && !activationAt) {
+                    aviatAddLog('Activation time is required for scheduled mode', 'warning');
+                    return null;
+                }
+
                 return {
                     ips,
                     remaining_tasks: remainingTasks,
                     maintenance_params: {
                         activation_time: activationMode === 'scheduled' ? activationTime : null,
-                        activation_at: activationMode === 'scheduled' ? computeActivationAt(activationTime) : null,
+                        activation_at: activationAt,
                         activate_now: false,
                         activation_mode: activationMode,
                         firmware_target: firmwareTarget,
                         firmware_uri: null
                     },
-                    activation_at: activationMode === 'scheduled' ? computeActivationAt(activationTime) : null,
+                    activation_at: activationAt,
                     username: aviatGetUsername()
                 };
             }
@@ -22118,6 +22539,11 @@ Ready for translation!`);
                 try {
                     const now = new Date();
                     const scheduledIps = aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'scheduled').map(r => r.ip);
+                    if (scheduledIps.length === 0) {
+                        aviatAddLog('No scheduled devices to activate', 'warning');
+                        aviatResetRunButton();
+                        return;
+                    }
                     scheduledIps.forEach(ip => {
                         const radio = aviatState.radios.find(r => r.ip === ip);
                         if (radio) {
@@ -22125,7 +22551,11 @@ Ready for translation!`);
                         }
                     });
                     aviatUpdateUI();
-                    const syncPayload = scheduledIps.length > 0 ? buildScheduledSyncPayload(scheduledIps) : null;
+                    const syncPayload = buildScheduledSyncPayload(scheduledIps);
+                    if (!syncPayload) {
+                        aviatResetRunButton();
+                        return;
+                    }
                     if (syncPayload) {
                         await aviatFetch('/scheduled/sync', {
                             method: 'POST',

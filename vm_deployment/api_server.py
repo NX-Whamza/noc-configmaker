@@ -35,6 +35,7 @@ import re
 import ipaddress
 import json
 import requests
+import zipfile
 from datetime import datetime, timedelta, timezone
 import time
 try:
@@ -10521,16 +10522,17 @@ def aviat_activate_scheduled():
     username = data.get("username")
 
     if request_ips:
-        to_activate = [
-            {
+        scheduled_map = {entry.get("ip"): entry for entry in aviat_scheduled_queue}
+        to_activate = []
+        for ip in request_ips:
+            scheduled_entry = scheduled_map.get(ip) or {}
+            to_activate.append({
                 "ip": ip,
-                "remaining_tasks": request_remaining,
-                "maintenance_params": request_maintenance,
-                "activation_at": request_activation_at,
-                "username": username,
-            }
-            for ip in request_ips
-        ]
+                "remaining_tasks": scheduled_entry.get("remaining_tasks", request_remaining),
+                "maintenance_params": scheduled_entry.get("maintenance_params", request_maintenance),
+                "activation_at": scheduled_entry.get("activation_at", request_activation_at),
+                "username": scheduled_entry.get("username") or username,
+            })
     else:
         to_activate = list(aviat_scheduled_queue)
 
@@ -10545,6 +10547,7 @@ def aviat_activate_scheduled():
     for entry in to_activate:
         _aviat_queue_upsert(entry["ip"], {
             "status": "processing",
+            "firmwareStatus": "processing",
             "username": entry.get("username") or username or "aviat-tool",
         })
     _aviat_save_shared_queue()
@@ -10816,6 +10819,90 @@ def generate_ftth_bng():
             'error': str(e),
             'details': error_details
         }), 500
+
+
+@app.route('/api/ftth-home/mf2-package', methods=['POST'])
+def generate_ftth_home_mf2_package():
+    """Generate MF2 ZIP with updated gateway and primary IP in 2-ihub-startup 831.xml."""
+    data = request.get_json() or {}
+    gateway_ip = str(data.get('gateway_ip', '')).strip()
+    primary_ip = str(data.get('primary_ip', '')).strip()
+    olt_name = str(data.get('olt_name', '')).strip()
+
+    if not gateway_ip or not primary_ip or not olt_name:
+        return jsonify({'error': 'gateway_ip, primary_ip, and olt_name are required'}), 400
+
+    try:
+        if '/' in gateway_ip:
+            interface = ipaddress.ip_interface(gateway_ip)
+            if interface.network.prefixlen != 29:
+                return jsonify({'error': 'gateway_ip must be a /29'}), 400
+            gateway_ip = str(interface.ip)
+        else:
+            ipaddress.ip_address(gateway_ip)
+    except ValueError:
+        return jsonify({'error': 'gateway_ip must be a valid IPv4 address'}), 400
+
+    primary_addr = None
+    try:
+        if '/' in primary_ip:
+            interface = ipaddress.ip_interface(primary_ip)
+            if interface.network.prefixlen != 29:
+                return jsonify({'error': 'primary_ip must be a /29'}), 400
+            primary_addr = str(interface.ip)
+        else:
+            ipaddress.ip_address(primary_ip)
+            primary_addr = primary_ip
+    except ValueError:
+        return jsonify({'error': 'primary_ip must be a valid IPv4 address'}), 400
+
+    base_dir = Path(__file__).parent / 'MF2'
+    if not base_dir.exists():
+        return jsonify({'error': 'MF2 template directory not found'}), 500
+
+    startup_path = base_dir / '2-ihub-startup 831.xml'
+    if not startup_path.exists():
+        return jsonify({'error': '2-ihub-startup 831.xml not found'}), 500
+
+    xml_text = startup_path.read_text(encoding='utf-8')
+    gateway_re = re.compile(
+        r'(<static-routes>.*?<next-hop>\s*<ip-address>)([^<]+)(</ip-address>)',
+        re.DOTALL
+    )
+    primary_re = re.compile(
+        r'(<ipv4>\s*<primary>\s*<address>)([^<]+)(</address>)',
+        re.DOTALL
+    )
+
+    if not gateway_re.search(xml_text):
+        return jsonify({'error': 'gateway ip-address tag not found in XML'}), 500
+    if not primary_re.search(xml_text):
+        return jsonify({'error': 'primary address tag not found in XML'}), 500
+
+    xml_text = gateway_re.sub(rf'\g<1>{gateway_ip}\g<3>', xml_text, count=1)
+    xml_text = primary_re.sub(rf'\g<1>{primary_addr}\g<3>', xml_text, count=1)
+
+    safe_olt = re.sub(r'[^A-Za-z0-9._-]+', '_', olt_name).strip('_') or 'MF2'
+    zip_name = f"MF2_{safe_olt}.zip"
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for file_path in base_dir.iterdir():
+            if not file_path.is_file():
+                continue
+            arcname = f"MF2/{file_path.name}"
+            if file_path.name == startup_path.name:
+                zipf.writestr(arcname, xml_text)
+            else:
+                zipf.write(file_path, arcname)
+
+    zip_buffer.seek(0)
+    return send_file(
+        zip_buffer,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=zip_name
+    )
 
 UI_DIR = Path(__file__).parent
 

@@ -67,6 +67,7 @@ class Config:
     ssh_port: int = int(os.getenv("SSH_PORT", "22"))
     ssh_timeout: int = 30
     command_timeout: int = 10
+    ssh_retries: int = int(os.getenv("SSH_RETRIES", "2"))
     
     # Parallel execution
     max_workers: int = int(os.getenv("MAX_WORKERS", "100"))
@@ -155,38 +156,45 @@ class AviatSSHClient:
         
     def connect(self) -> bool:
         """Establish SSH connection"""
-        try:
-            self.client = paramiko.SSHClient()
-            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            
-            self.client.connect(
-                hostname=self.ip,
-                port=self.port,
-                username=self.username,
-                password=self.password,
-                timeout=CONFIG.ssh_timeout,
-                look_for_keys=False,
-                allow_agent=False,
-            )
-            
-            # Get interactive shell
-            self.shell = self.client.invoke_shell(width=200, height=50)
-            self.shell.settimeout(CONFIG.command_timeout)
-            
-            # Wait for initial prompt and clear buffer
-            time.sleep(2)
-            self._read_until_prompt()
-            
-            return True
-            
-        except paramiko.AuthenticationException:
-            raise Exception(f"Authentication failed - check credentials")
-        except paramiko.SSHException as e:
-            raise Exception(f"SSH error: {e}")
-        except TimeoutError:
-            raise Exception(f"Connection timeout")
-        except Exception as e:
-            raise Exception(f"Connection failed: {e}")
+        last_error = None
+        retries = max(0, CONFIG.ssh_retries)
+        for attempt in range(retries + 1):
+            try:
+                self.client = paramiko.SSHClient()
+                self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+                self.client.connect(
+                    hostname=self.ip,
+                    port=self.port,
+                    username=self.username,
+                    password=self.password,
+                    timeout=CONFIG.ssh_timeout,
+                    look_for_keys=False,
+                    allow_agent=False,
+                )
+
+                # Get interactive shell
+                self.shell = self.client.invoke_shell(width=200, height=50)
+                self.shell.settimeout(CONFIG.command_timeout)
+
+                # Wait for initial prompt and clear buffer
+                time.sleep(2)
+                self._read_until_prompt()
+
+                return True
+            except paramiko.AuthenticationException:
+                raise Exception("Authentication failed - check credentials")
+            except (paramiko.SSHException, TimeoutError) as e:
+                last_error = e
+            except Exception as e:
+                last_error = e
+            if attempt < retries:
+                time.sleep(2 * (attempt + 1))
+        if isinstance(last_error, paramiko.SSHException):
+            raise Exception(f"SSH error: {last_error}")
+        if isinstance(last_error, TimeoutError):
+            raise Exception("Connection timeout")
+        raise Exception(f"Connection failed: {last_error}")
     
     def _read_until_prompt(self, timeout: float = 5.0, prompt_patterns: List[str] = None) -> str:
         """Read output until we see a prompt or timeout"""
@@ -566,34 +574,72 @@ def configure_buffer(client: AviatSSHClient, callback=None) -> Tuple[bool, str]:
 
 
 def _parse_version(version_output: str) -> Optional[str]:
-    match = re.search(
+    patterns = [
         r"(?:Version|Release)\s*:?\s*([0-9]+(?:\.[0-9]+){1,})",
+        r"\b([0-9]+\.[0-9]+\.[0-9]+)\([^)]+\)",
+        r"\b([0-9]+\.[0-9]+\.[0-9]+)\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, version_output, re.I)
+        if match:
+            parts = match.group(1).split(".")
+            return ".".join(parts[:3])
+    return None
+
+def _parse_active_version(version_output: str) -> Optional[str]:
+    patterns = [
+        r"software-status\s+active-version\s+([0-9]+(?:\.[0-9]+){1,})",
+        r"(?:active\s+(?:software\s+)?version|current\s+software\s+version)\s*[:=]?\s*([0-9]+(?:\.[0-9]+){1,})",
+        r"Active\s+Version\s*:\s*([0-9]+(?:\.[0-9]+){1,})",
+        r"Active\s+Version\s*:\s*([0-9]+(?:\.[0-9]+){1,})\([^)]+\)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, version_output, re.I)
+        if match:
+            parts = match.group(1).split(".")
+            return ".".join(parts[:3])
+
+    table_match = re.search(
+        r"^\s*\S+\s+([0-9]+\.[0-9]+\.[0-9]+)\([^)]+\)\s+([0-9]+\.[0-9]+\.[0-9]+)\([^)]+\)",
         version_output,
-        re.I,
+        re.I | re.M,
     )
-    if not match:
-        match = re.search(
-            r"active-version\s+([0-9]+(?:\.[0-9]+){1,})",
-            version_output,
-            re.I,
-        )
-    if not match:
-        match = re.search(r"\b([0-9]+\.[0-9]+\.[0-9]+)\b", version_output)
-    if not match:
-        return None
-    parts = match.group(1).split(".")
-    return ".".join(parts[:3])
+    if table_match:
+        return table_match.group(1)
+
+    return None
 
 def _parse_inactive_version(version_output: str) -> Optional[str]:
-    match = re.search(
-        r"inactive-version\s*[:=]?\s*([0-9]+(?:\.[0-9]+){1,})",
+    patterns = [
+        r"software-status\s+inactive-version\s+([0-9]+(?:\.[0-9]+){1,})",
+        r"(?:inactive\s+(?:software\s+)?version)\s*[:=]?\s*([0-9]+(?:\.[0-9]+){1,})",
+        r"Inactive\s+Version\s*:\s*([0-9]+(?:\.[0-9]+){1,})",
+        r"Inactive\s+Version\s*:\s*([0-9]+(?:\.[0-9]+){1,})\([^)]+\)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, version_output, re.I)
+        if match:
+            parts = match.group(1).split(".")
+            return ".".join(parts[:3])
+
+    table_match = re.search(
+        r"^\s*\S+\s+([0-9]+\.[0-9]+\.[0-9]+)\([^)]+\)\s+([0-9]+\.[0-9]+\.[0-9]+)\([^)]+\)",
         version_output,
-        re.I,
+        re.I | re.M,
     )
-    if not match:
-        return None
-    parts = match.group(1).split(".")
-    return ".".join(parts[:3])
+    if table_match:
+        return table_match.group(2)
+
+    return None
+
+
+def _is_invalid_output(output: str) -> bool:
+    lowered = output.lower()
+    return (
+        "invalid input" in lowered
+        or "syntax error" in lowered
+        or "unknown element" in lowered
+    )
 
 def _version_tuple(version: Optional[str]) -> Tuple[int, int, int]:
     if not version:
@@ -605,11 +651,20 @@ def _version_tuple(version: Optional[str]) -> Tuple[int, int, int]:
 
 def get_firmware_version(client: AviatSSHClient, callback=None) -> Optional[str]:
     log(f"  [{client.ip}] Checking firmware version...", "info", callback=callback)
-    output = client.send_command("show version")
-    version = _parse_version(output)
-    if not version:
-        output = client.send_command("show software-status")
-        version = _parse_version(output)
+    commands = [
+        "show software-status",
+        "show software-status active-version",
+        "show software status",
+        "show version",
+    ]
+    version = None
+    for command in commands:
+        output = client.send_command(command)
+        if _is_invalid_output(output):
+            continue
+        version = _parse_active_version(output) or _parse_version(output)
+        if version:
+            break
     if version:
         log(f"  [{client.ip}] Detected firmware {version}", "info", callback=callback)
     else:
@@ -619,11 +674,19 @@ def get_firmware_version(client: AviatSSHClient, callback=None) -> Optional[str]
 
 def get_inactive_firmware_version(client: AviatSSHClient, callback=None) -> Optional[str]:
     log(f"  [{client.ip}] Checking inactive firmware version...", "info", callback=callback)
-    output = client.send_command("show software-status inactive-version")
-    version = _parse_inactive_version(output)
-    if not version:
-        output = client.send_command("show software-status")
+    commands = [
+        "show software-status",
+        "show software-status inactive-version",
+        "show software status",
+    ]
+    version = None
+    for command in commands:
+        output = client.send_command(command)
+        if _is_invalid_output(output):
+            continue
         version = _parse_inactive_version(output)
+        if version:
+            break
     if version:
         log(f"  [{client.ip}] Inactive firmware {version}", "info", callback=callback)
     else:
@@ -631,15 +694,15 @@ def get_inactive_firmware_version(client: AviatSSHClient, callback=None) -> Opti
     return version
 
 
-def get_uptime_days(client: AviatSSHClient, callback=None) -> int:
+def get_uptime_days(client: AviatSSHClient, callback=None) -> Optional[int]:
     output = client.send_command("show uptime")
-    match = re.search(r"up\\s+(\\d+)\\s+day", output, re.I)
+    match = re.search(r"(?:uptime\s*[:=]?\s*|up\s+)(\d+)\s+day", output, re.I)
     if match:
         days = int(match.group(1))
-    else:
-        days = 0
-    log(f"  [{client.ip}] Uptime days: {days}", "info", callback=callback)
-    return days
+        log(f"  [{client.ip}] Uptime days: {days}", "info", callback=callback)
+        return days
+    log(f"  [{client.ip}] Uptime days: unknown", "warning", callback=callback)
+    return None
 
 
 def _first_valid_output(client: AviatSSHClient, commands: List[str]) -> str:
@@ -1031,6 +1094,92 @@ def wait_for_device_ready(
     return False
 
 
+def wait_for_device_ready_and_reconnect(
+    ip: str,
+    username: str,
+    password: str,
+    fallback_password: Optional[str] = None,
+    callback=None,
+    payload_size: Optional[int] = None,
+    check_interval: Optional[int] = None,
+    max_wait: Optional[int] = None,
+    initial_delay: int = 0,
+) -> Optional[AviatSSHClient]:
+    """Wait for reachability, then wait until SSH login succeeds."""
+    payload = payload_size if payload_size is not None else CONFIG.firmware_ping_payload
+    interval = check_interval if check_interval is not None else CONFIG.firmware_ping_check_interval
+    max_wait_seconds = max_wait if max_wait is not None else CONFIG.firmware_ping_max_wait
+    if initial_delay > 0:
+        log(
+            f"[{ip}] Waiting {initial_delay // 60} min before first availability check...",
+            "info",
+            callback=callback,
+        )
+        time.sleep(initial_delay)
+    start = time.time()
+    attempt = 1
+    ping_available = shutil.which("ping") is not None
+    if not ping_available:
+        log(
+            f"[{ip}] Ping binary not available; using TCP probe on port 22.",
+            "warning",
+            callback=callback,
+        )
+    while time.time() - start < max_wait_seconds:
+        reachable = False
+        try:
+            if ping_available:
+                result = subprocess.run(
+                    ["ping", "-c", "1", "-W", "2", "-s", str(payload), ip],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+                if result.returncode == 0:
+                    reachable = True
+        except Exception:
+            pass
+        if not reachable:
+            try:
+                with socket.create_connection((ip, 22), timeout=2):
+                    reachable = True
+            except Exception:
+                reachable = False
+        if reachable:
+            candidates = [(username, password)]
+            if fallback_password and fallback_password != password:
+                candidates.append((username, fallback_password))
+            for user, pwd in candidates:
+                try:
+                    client = AviatSSHClient(ip, username=user, password=pwd, port=CONFIG.ssh_port)
+                    client.connect()
+                    log(f"[{ip}] Device reachable after reboot; continuing.", "success", callback=callback)
+                    return client
+                except Exception:
+                    continue
+            log(
+                f"[{ip}] Reachable but SSH not ready; retrying in {interval // 60} min.",
+                "warning",
+                callback=callback,
+            )
+        else:
+            remaining = max_wait_seconds - int(time.time() - start)
+            next_check = (datetime.now() + timedelta(seconds=interval)).strftime("%H:%M")
+            log(
+                f"[{ip}] Availability check {attempt} failed; retrying in {interval // 60} min (next at {next_check}, remaining {max(0, remaining) // 60} min).",
+                "info",
+                callback=callback,
+            )
+            attempt += 1
+        time.sleep(interval)
+    log(
+        f"[{ip}] Device did not recover within {max_wait_seconds // 60} minutes.",
+        "error",
+        callback=callback,
+    )
+    return None
+
+
 # ============================================================================
 # MAIN PROCESSING
 # ============================================================================
@@ -1090,8 +1239,32 @@ def process_radio(
             if abort_if_needed():
                 return result
             current_version = result.firmware_version_before
+            inactive_version = get_inactive_firmware_version(client, callback=callback)
+            inactive_version = (inactive_version or "").strip()
+            ready_versions = {
+                CONFIG.firmware_baseline_version,
+                CONFIG.firmware_final_version,
+            }
+            if inactive_version in ready_versions and activation_mode == "scheduled":
+                log(
+                    f"[{ip}] Inactive firmware {inactive_version} already loaded; skipping download.",
+                    "info",
+                    callback=callback,
+                )
+                result.firmware_downloaded = True
+                result.firmware_scheduled = True
+                result.firmware_downloaded_version = inactive_version
+                result.status = "scheduled"
+                result.success = True
+                return result
             baseline_needed = _version_tuple(current_version) < _version_tuple(
                 CONFIG.firmware_baseline_version
+            )
+            already_baseline = (
+                not firmware_uri_override
+                and firmware_target == "baseline"
+                and _version_tuple(current_version)
+                >= _version_tuple(CONFIG.firmware_baseline_version)
             )
             already_final = (
                 not firmware_uri_override
@@ -1100,7 +1273,7 @@ def process_radio(
                 >= _version_tuple(CONFIG.firmware_final_version)
             )
             firmware_was_triggered = False
-            if already_final:
+            if already_final or already_baseline:
                 log(
                     f"[{ip}] Firmware already at {current_version}; skipping download.",
                     "info",
@@ -1166,19 +1339,17 @@ def process_radio(
                         break
                 if baseline_needed and step_name == "baseline" and activate_now:
                     client.close()
-                    if not wait_for_device_ready(
-                        ip,
-                        callback=callback,
-                        initial_delay=CONFIG.firmware_ping_check_interval,
-                    ):
-                        result.error = "Device did not recover within 60 minutes after activation"
-                        return result
-                    client = wait_for_reconnect(
+                    client = wait_for_device_ready_and_reconnect(
                         ip,
                         username=login_username,
                         password=login_password,
+                        fallback_password=CONFIG.default_password,
                         callback=callback,
+                        initial_delay=CONFIG.firmware_ping_check_interval,
                     )
+                    if not client:
+                        result.error = "Device did not recover within 60 minutes after activation"
+                        return result
                     waited_after_activation = True
                     current_version = get_firmware_version(client, callback=callback)
                     if _version_tuple(current_version) < _version_tuple(
@@ -1212,19 +1383,17 @@ def process_radio(
 
                 if firmware_was_triggered and activation_mode == "immediate" and not waited_after_activation:
                     client.close()
-                    if not wait_for_device_ready(
-                        ip,
-                        callback=callback,
-                        initial_delay=CONFIG.firmware_ping_check_interval,
-                    ):
-                        result.error = "Device did not recover within 60 minutes after activation"
-                        return result
-                    client = wait_for_reconnect(
+                    client = wait_for_device_ready_and_reconnect(
                         ip,
                         username=login_username,
                         password=login_password,
+                        fallback_password=CONFIG.default_password,
                         callback=callback,
+                        initial_delay=CONFIG.firmware_ping_check_interval,
                     )
+                    if not client:
+                        result.error = "Device did not recover within 60 minutes after activation"
+                        return result
                     current_version = get_firmware_version(client, callback=callback)
                     result.firmware_version_after = current_version
 
@@ -1259,7 +1428,7 @@ def process_radio(
                 result.firmware_version_after = current_version
             else:
                 uptime_days = get_uptime_days(client, callback=callback)
-                if uptime_days > 250:
+                if uptime_days is not None and uptime_days > 250:
                     log(
                         f"[{ip}] Uptime {uptime_days} days exceeds 250; rebooting before activation.",
                         "warning",
@@ -1270,34 +1439,33 @@ def process_radio(
                     except Exception:
                         pass
                     client.close()
-                    if not wait_for_device_ready(ip, callback=callback):
-                        result.error = "Device did not recover after pre-activation reboot"
-                        return result
-                    client = wait_for_reconnect(
+                    client = wait_for_device_ready_and_reconnect(
                         ip,
                         username=login_username,
                         password=login_password,
+                        fallback_password=CONFIG.default_password,
                         callback=callback,
                     )
+                    if not client:
+                        result.error = "Device did not recover after pre-activation reboot"
+                        return result
                 success, msg = activate_firmware(client, callback=callback)
                 result.firmware_activated = success
                 if not success and not result.error:
                     result.error = msg
                     return result
                 client.close()
-                if not wait_for_device_ready(
-                    ip,
-                    callback=callback,
-                    initial_delay=CONFIG.firmware_ping_check_interval,
-                ):
-                    result.error = "Device did not recover within 60 minutes after activation"
-                    return result
-                client = wait_for_reconnect(
+                client = wait_for_device_ready_and_reconnect(
                     ip,
                     username=login_username,
                     password=login_password,
+                    fallback_password=CONFIG.default_password,
                     callback=callback,
+                    initial_delay=CONFIG.firmware_ping_check_interval,
                 )
+                if not client:
+                    result.error = "Device did not recover within 60 minutes after activation"
+                    return result
                 current_version = get_firmware_version(client, callback=callback)
                 if _version_tuple(current_version) < _version_tuple(
                     CONFIG.firmware_final_version
