@@ -654,6 +654,8 @@ def get_firmware_version(client: AviatSSHClient, callback=None) -> Optional[str]
     commands = [
         "show software-status",
         "show software-status active-version",
+        "show software-status status",
+        "show software-status loading-uri",
         "show software status",
         "show version",
     ]
@@ -1245,7 +1247,16 @@ def process_radio(
                 CONFIG.firmware_baseline_version,
                 CONFIG.firmware_final_version,
             }
-            if inactive_version in ready_versions and activation_mode == "scheduled":
+            if _version_tuple(current_version) >= _version_tuple(CONFIG.firmware_final_version):
+                log(
+                    f"[{ip}] Active firmware {current_version} already final; skipping download.",
+                    "info",
+                    callback=callback,
+                )
+                result.firmware_downloaded = True
+                result.firmware_activated = True
+                result.firmware_version_after = current_version
+            elif inactive_version in ready_versions and activation_mode == "scheduled":
                 log(
                     f"[{ip}] Inactive firmware {inactive_version} already loaded; skipping download.",
                     "info",

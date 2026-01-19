@@ -414,6 +414,7 @@ def _aviat_loading_check_loop():
                     def local_log(message, level):
                         _aviat_broadcast_log(message, level)
                     client = _aviat_connect_with_fallback(ip, callback=local_log)
+                    active_version = aviat_get_firmware_version(client, callback=local_log)
                     inactive_version = aviat_get_inactive_firmware_version(client, callback=local_log)
                     client.close()
                 except Exception as exc:
@@ -421,6 +422,26 @@ def _aviat_loading_check_loop():
                     still_loading.append(entry)
                     continue
                 inactive_version = (inactive_version or "").strip()
+                active_version = (active_version or "").strip()
+                target_version = (entry.get("target_version") or "").strip()
+                ready_versions = {
+                    AVIAT_CONFIG.firmware_baseline_version,
+                    AVIAT_CONFIG.firmware_final_version,
+                }
+                if target_version:
+                    ready_versions.add(target_version)
+
+                if active_version in ready_versions:
+                    _aviat_broadcast_log(
+                        f"[{ip}] Active firmware {active_version} already applied; removing from loading queue.",
+                        "success",
+                    )
+                    _aviat_queue_upsert(ip, {
+                        "status": "pending",
+                        "firmwareStatus": "success",
+                        "username": entry.get("username") or "aviat-tool",
+                    })
+                    continue
                 if (
                     not inactive_version
                     or inactive_version.lower() in ("none", "unknown", "0.0.0", "0")
@@ -440,13 +461,6 @@ def _aviat_loading_check_loop():
                     )
                     continue
                 inactive_version = version_match.group(1)
-                target_version = (entry.get("target_version") or "").strip()
-                ready_versions = {
-                    AVIAT_CONFIG.firmware_baseline_version,
-                    AVIAT_CONFIG.firmware_final_version,
-                }
-                if target_version:
-                    ready_versions.add(target_version)
                 if inactive_version in ready_versions:
                     _aviat_broadcast_log(
                         f"[{ip}] Firmware {inactive_version} loaded (inactive). Moving to scheduled queue.",
