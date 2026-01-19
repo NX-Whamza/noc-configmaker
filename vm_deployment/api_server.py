@@ -166,6 +166,7 @@ try:
         process_radios_parallel as aviat_process_radios_parallel,
         check_device_status as aviat_check_device_status,
         CONFIG as AVIAT_CONFIG,
+        get_firmware_version as aviat_get_firmware_version,
         get_inactive_firmware_version as aviat_get_inactive_firmware_version,
         AviatSSHClient,
     )
