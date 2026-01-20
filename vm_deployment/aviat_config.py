@@ -589,6 +589,7 @@ def _parse_version(version_output: str) -> Optional[str]:
 def _parse_active_version(version_output: str) -> Optional[str]:
     patterns = [
         r"software-status\s+active-version\s+([0-9]+(?:\.[0-9]+){1,})",
+        r"active-version\s+([0-9]+(?:\.[0-9]+){1,})",
         r"(?:active\s+(?:software\s+)?version|current\s+software\s+version)\s*[:=]?\s*([0-9]+(?:\.[0-9]+){1,})",
         r"Active\s+Version\s*:\s*([0-9]+(?:\.[0-9]+){1,})",
         r"Active\s+Version\s*:\s*([0-9]+(?:\.[0-9]+){1,})\([^)]+\)",
@@ -612,6 +613,7 @@ def _parse_active_version(version_output: str) -> Optional[str]:
 def _parse_inactive_version(version_output: str) -> Optional[str]:
     patterns = [
         r"software-status\s+inactive-version\s+([0-9]+(?:\.[0-9]+){1,})",
+        r"inactive-version\s+([0-9]+(?:\.[0-9]+){1,})",
         r"(?:inactive\s+(?:software\s+)?version)\s*[:=]?\s*([0-9]+(?:\.[0-9]+){1,})",
         r"Inactive\s+Version\s*:\s*([0-9]+(?:\.[0-9]+){1,})",
         r"Inactive\s+Version\s*:\s*([0-9]+(?:\.[0-9]+){1,})\([^)]+\)",
@@ -631,6 +633,23 @@ def _parse_inactive_version(version_output: str) -> Optional[str]:
         return table_match.group(2)
 
     return None
+
+
+def _parse_versions_from_status(version_output: str) -> Tuple[Optional[str], Optional[str]]:
+    active = _parse_active_version(version_output)
+    inactive = _parse_inactive_version(version_output)
+    if active or inactive:
+        return active, inactive
+
+    table_match = re.search(
+        r"^\s*\S+\s+([0-9]+\.[0-9]+\.[0-9]+)\([^)]+\)\s+([0-9]+\.[0-9]+\.[0-9]+)\([^)]+\)",
+        version_output,
+        re.I | re.M,
+    )
+    if table_match:
+        return table_match.group(1), table_match.group(2)
+
+    return None, None
 
 
 def _is_invalid_output(output: str) -> bool:
@@ -660,16 +679,22 @@ def get_firmware_version(client: AviatSSHClient, callback=None) -> Optional[str]
         "show version",
     ]
     version = None
+    last_output = ""
     for command in commands:
         output = client.send_command(command)
+        last_output = output
         if _is_invalid_output(output):
             continue
-        version = _parse_active_version(output) or _parse_version(output)
+        active, _inactive = _parse_versions_from_status(output)
+        version = active or _parse_version(output)
         if version:
             break
     if version:
         log(f"  [{client.ip}] Detected firmware {version}", "info", callback=callback)
     else:
+        tail = (last_output or "").strip().replace("\r", "")[-160:]
+        if tail:
+            log(f"  [{client.ip}] Firmware parse output tail: {tail}", "warning", callback=callback)
         log(f"  [{client.ip}] Failed to parse firmware version", "warning", callback=callback)
     return version
 
@@ -682,27 +707,71 @@ def get_inactive_firmware_version(client: AviatSSHClient, callback=None) -> Opti
         "show software status",
     ]
     version = None
+    last_output = ""
     for command in commands:
         output = client.send_command(command)
+        last_output = output
         if _is_invalid_output(output):
             continue
-        version = _parse_inactive_version(output)
+        _active, inactive = _parse_versions_from_status(output)
+        version = inactive or _parse_inactive_version(output)
         if version:
             break
     if version:
         log(f"  [{client.ip}] Inactive firmware {version}", "info", callback=callback)
     else:
+        tail = (last_output or "").strip().replace("\r", "")[-160:]
+        if tail:
+            log(f"  [{client.ip}] Inactive parse output tail: {tail}", "warning", callback=callback)
         log(f"  [{client.ip}] Failed to parse inactive firmware version", "warning", callback=callback)
     return version
 
 
 def get_uptime_days(client: AviatSSHClient, callback=None) -> Optional[int]:
-    output = client.send_command("show uptime")
+    output = _first_valid_output(
+        client,
+        [
+            "show uptime",
+            "show system uptime",
+            "show radio-carrier status",
+        ],
+    )
+    if not output:
+        log(f"  [{client.ip}] Uptime days: unknown", "warning", callback=callback)
+        return None
+
     match = re.search(r"(?:uptime\s*[:=]?\s*|up\s+)(\d+)\s+day", output, re.I)
     if match:
         days = int(match.group(1))
         log(f"  [{client.ip}] Uptime days: {days}", "info", callback=callback)
         return days
+
+    rc_match = re.search(r"active-rx-time\s*[:=]?\s*([^\r\n]+)", output, re.I)
+    if rc_match:
+        value = rc_match.group(1).strip()
+        days = None
+        day_match = re.search(r"(\d+)\s+day", value, re.I)
+        if day_match:
+            days = int(day_match.group(1))
+        elif value.isdigit():
+            seconds = int(value)
+            days = seconds // 86400
+        elif ":" in value:
+            parts = [p for p in value.split(":") if p.strip()]
+            try:
+                nums = [int(p) for p in parts]
+                if len(nums) == 4:
+                    d, h, m, s = nums
+                    days = d + (h / 24) + (m / 1440) + (s / 86400)
+                elif len(nums) == 3:
+                    h, m, s = nums
+                    days = (h / 24) + (m / 1440) + (s / 86400)
+            except ValueError:
+                days = None
+        if days is not None:
+            log(f"  [{client.ip}] Uptime days: {int(days)}", "info", callback=callback)
+            return int(days)
+
     log(f"  [{client.ip}] Uptime days: unknown", "warning", callback=callback)
     return None
 

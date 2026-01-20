@@ -17301,9 +17301,19 @@
                     parts[i] = parts[i]
                         .replace(/(^|\s)([A-Za-z0-9_.-]+)=\s+/g, '$1$2=')
                         .replace(/\s+/g, ' ')
+                        .replace(/([A-Za-z0-9_.-]+=[^\s"]+)(?=[A-Za-z0-9_.-]+=)/g, '$1 ')
                         .trim();
                 }
                 return parts.join('"');
+            }
+
+            function fixQuoteSpacing(line) {
+                if (!line.includes('"')) return line;
+                if (/\bsource\s*=\s*"/i.test(line)) return line;
+                let fixed = line;
+                fixed = fixed.replace(/(?<![=])"(?=[A-Za-z0-9_/.-])/g, '" ');
+                fixed = fixed.replace(/\s{2,}/g, ' ');
+                return fixed;
             }
 
             for (const raw of t.replace(/\r/g, '').split('\n')) {
@@ -17318,6 +17328,7 @@
                 if (/\bBREAK\b/i.test(line) && /-{5,}/.test(line)) continue;
 
                 let fixed = fixOutsideQuotes(line);
+                fixed = fixQuoteSpacing(fixed);
 
                 // Fix broken /user group policy quote wrapping, e.g. "sensitiv e" -> "sensitive"
                 if (/^\s*(set\s+read\s+policy=|add\s+name=\S+\s+policy=)/i.test(fixed) && fixed.includes('policy="')) {
