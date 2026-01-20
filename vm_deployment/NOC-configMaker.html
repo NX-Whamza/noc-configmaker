@@ -17289,7 +17289,9 @@
                 .replace(/\bdst-le\s+n\b/g, 'dst-len')
                 .replace(/\bblackh\s+ole\b/g, 'blackhole')
                 .replace(/\bbgp-communit\s+ies\b/g, 'bgp-communities')
-                .replace(/\bbgp-local-\s+pref\b/g, 'bgp-local-pref');
+                .replace(/\bbgp-local-\s+pref\b/g, 'bgp-local-pref')
+                .replace(/\bsensitivestart-date\b/g, 'sensitive start-date')
+                .replace(/\bstart-tim\s+e\b/g, 'start-time');
 
             const out = [];
             const seen = new Set();
