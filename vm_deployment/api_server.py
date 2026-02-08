@@ -778,6 +778,24 @@ ROUTERBOARD_INTERFACES = {
             'qsfpplus1-1, qsfpplus2-1': 'Ultra high-speed uplinks (100G)'
         }
     },
+
+    # RB1009 Series
+    'RB1009UG+S+': {
+        'model': 'RB1009UG+S+',
+        'series': 'RB1009',
+        'cpu': 'Tilera Tile-Gx9',
+        'ports': {
+            'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9'],
+            'sfp_plus_10g': ['sfp-sfpplus1']
+        },
+        'total_ports': 10,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Management',
+            'ether2-9': 'Customer/Sector connections',
+            'sfp-sfpplus1': 'Fiber uplink'
+        }
+    },
     
     # CRS Series (Switches)
     'CRS326-24G-2S+': {
@@ -1006,6 +1024,11 @@ def detect_device_from_config(config_text):
     # CCR2116-12G-4S+ has ether1-12 and sfp-sfpplus1-4
     if 'ether12' in config_text and 'sfp-sfpplus4' in config_text and 'sfp-sfpplus5' not in config_text:
         return 'CCR2116-12G-4S+'
+
+    # RB1009UG+S+ has ether1-9 and a single SFP+/combo port
+    if ('RB1009' in config_text or 'MT1009' in config_text or
+            ('ether9' in config_text and 'sfp-sfpplus1' in config_text and 'ether10' not in config_text)):
+        return 'RB1009UG+S+'
     
     # CCR2216 has sfp28-1 through sfp28-12
     if 'sfp28-12' in config_text:
@@ -4527,6 +4550,15 @@ Port Roles:
             target_has_sfp_sfpplus = any('sfp-sfpplus' in p for p in target_ports)
             source_has_ethernet = any(p.startswith('ether') for p in source_ports) or bool(re.search(r'\bether\d+', text))
             target_has_ethernet = any(p.startswith('ether') for p in target_ports)
+
+            # Normalize legacy combo port naming (RB1009 exports often use combo1)
+            if re.search(r'\bcombo\d+\b', text):
+                if target_ports and any(p.startswith('sfp-sfpplus') for p in target_ports):
+                    text = re.sub(r'\bcombo1\b', 'sfp-sfpplus1', text)
+                elif target_ports and any(p.startswith('sfp28-') for p in target_ports):
+                    text = re.sub(r'\bcombo1\b', 'sfp28-1', text)
+                elif target_ports and any(p.startswith('sfp') and not p.startswith('sfp-sfpplus') for p in target_ports):
+                    text = re.sub(r'\bcombo1\b', 'sfp1', text)
             
             source_ether_count = len([p for p in source_ports if p.startswith('ether')]) if source_ports else 0
             target_ether_count = len([p for p in target_ports if p.startswith('ether')]) if target_ports else 0
@@ -4568,7 +4600,7 @@ Port Roles:
             # If mapping is not required and we haven't returned, continue to check if interfaces need updating
             if not mapping_required:
                 # Check if any source interfaces don't exist in target
-                source_interfaces_in_text = set(re.findall(r'\b(ether\d+|sfp\d+|sfp-sfpplus\d+|sfp28-\d+|qsfp28-\d+-\d+|qsfpplus\d+-\d+)\b', text))
+                source_interfaces_in_text = set(re.findall(r'\b(ether\d+|sfp\d+|sfp-sfpplus\d+|sfp28-\d+|qsfp28-\d+-\d+|qsfpplus\d+-\d+|combo\d+)\b', text))
                 target_interface_set = set(target_ports) if target_ports else set()
                 if source_interfaces_in_text and target_interface_set:
                     interfaces_need_mapping = source_interfaces_in_text - target_interface_set
@@ -4677,7 +4709,7 @@ Port Roles:
             # Gather ALL used interface tokens in order of appearance (more comprehensive pattern)
             used = []
             # Match all interface patterns: etherN, sfpN, sfp-sfpplusN, sfp28-N, etc.
-            interface_pattern = r"\b(ether\d+|sfp\d+(?:-\d+)?|sfp-sfpplus\d+|sfp28-\d+|qsfp28-\d+-\d+|qsfpplus\d+-\d+|qsfp\d+(?:-\d+)?)\b"
+            interface_pattern = r"\b(ether\d+|sfp\d+(?:-\d+)?|sfp-sfpplus\d+|sfp28-\d+|qsfp28-\d+-\d+|qsfpplus\d+-\d+|qsfp\d+(?:-\d+)?|combo\d+)\b"
             for m in re.finditer(interface_pattern, text):
                 name = m.group(1)
                 if name not in used:
