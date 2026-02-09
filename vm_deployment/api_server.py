@@ -779,6 +779,61 @@ ROUTERBOARD_INTERFACES = {
         }
     },
 
+    # CCR1072 Series
+    'CCR1072-12G-4S+': {
+        'model': 'CCR1072-12G-4S+',
+        'series': 'CCR1072',
+        'cpu': 'Tilera Tile-Gx72',
+        'ports': {
+            'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6',
+                           'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12'],
+            'sfp_1g': ['sfp1', 'sfp2', 'sfp3', 'sfp4']
+        },
+        'total_ports': 16,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Management',
+            'ether2-12': 'Customer/Sector connections',
+            'sfp1-4': 'Fiber uplinks (1G)'
+        }
+    },
+
+    # RB5009 Series
+    'RB5009UG+S+': {
+        'model': 'RB5009UG+S+',
+        'series': 'RB5009',
+        'cpu': 'Marvell ARMADA 7040',
+        'ports': {
+            'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10'],
+            'sfp_plus_10g': ['sfp-sfpplus1']
+        },
+        'total_ports': 11,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Management',
+            'ether2-10': 'Customer/Sector connections',
+            'sfp-sfpplus1': 'Fiber uplink'
+        }
+    },
+
+    # RB2011 Series
+    'RB2011UiAS': {
+        'model': 'RB2011UiAS',
+        'series': 'RB2011',
+        'cpu': 'Atheros AR9344',
+        'ports': {
+            'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10'],
+            'sfp_1g': ['sfp1']
+        },
+        'total_ports': 11,
+        'management_port': 'ether1',
+        'typical_use': {
+            'ether1': 'Management',
+            'ether2-10': 'Customer/Sector connections',
+            'sfp1': 'Fiber uplink'
+        }
+    },
+
     # RB1009 Series
     'RB1009UG+S+': {
         'model': 'RB1009UG+S+',
@@ -853,6 +908,8 @@ def get_interface_type(interface_name):
     """Determine the type of interface from its name"""
     if interface_name.startswith('ether'):
         return 'ethernet_1g'
+    elif interface_name.startswith('combo'):
+        return 'sfp_plus_10g'
     elif interface_name.startswith('sfp-sfpplus'):
         return 'sfp_plus_10g'
     elif interface_name.startswith('sfp28'):
@@ -976,6 +1033,10 @@ def migrate_interface_config(config_text, interface_map):
     - Any other interface references
     """
     migrated_config = config_text
+
+    # Normalize legacy combo port naming (RB1009 exports often use combo1)
+    if re.search(r'\bcombo\d+\b', migrated_config):
+        migrated_config = re.sub(r'\bcombo1\b', 'sfp-sfpplus1', migrated_config)
     
     # Sort by length (longest first) to avoid partial replacements
     # e.g., replace "ether10" before "ether1"
@@ -1033,6 +1094,18 @@ def detect_device_from_config(config_text):
     # CCR2216 has sfp28-1 through sfp28-12
     if 'sfp28-12' in config_text:
         return 'CCR2216-1G-12XS-2XQ'
+
+    # RB5009UG+S+ has ether1-10 and sfp-sfpplus1
+    if 'RB5009' in config_text or ('ether10' in config_text and 'sfp-sfpplus1' in config_text and 'ether11' not in config_text):
+        return 'RB5009UG+S+'
+
+    # RB2011UiAS has ether1-10 and sfp1
+    if 'RB2011' in config_text or 'MT2011' in config_text or ('ether10' in config_text and 'sfp1' in config_text and 'sfp2' not in config_text and 'sfp-sfpplus' not in config_text):
+        return 'RB2011UiAS'
+
+    # RB1009UG+S+ has ether1-9 and sfp-sfpplus1 (combo)
+    if 'RB1009' in config_text or 'MT1009' in config_text or ('ether9' in config_text and 'sfp-sfpplus1' in config_text and 'ether10' not in config_text):
+        return 'RB1009UG+S+'
     
     return None
 
@@ -3348,6 +3421,11 @@ def translate_config():
                 device_info['type'] = 'rb2011'
                 device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'sfp1']
                 return device_info
+            if 'RB1009' in model_hint.upper() or 'RB1009' in text or 'MT1009' in text:
+                device_info['model'] = 'RB1009UG+S+'
+                device_info['type'] = 'rb1009'
+                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'sfp-sfpplus1']
+                return device_info
 
             # Fallback to interface-pattern heuristics.
             # CCR2216: Has sfp28-1 through sfp28-12 (12 sfp28 ports), NO sfp-sfpplus ports
@@ -3380,97 +3458,105 @@ def translate_config():
                 device_info['model'] = 'RB2011UiAS'
                 device_info['type'] = 'rb2011'
                 device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'sfp1']
+            elif 'RB1009' in text or 'MT1009' in text or ('ether9' in text and 'sfp-sfpplus1' in text and 'ether10' not in text and 'sfp28-' not in text):
+                device_info['model'] = 'RB1009UG+S+'
+                device_info['type'] = 'rb1009'
+                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'sfp-sfpplus1']
 
             return device_info
         
         def get_target_device_info(target_device):
             """Get target device information dynamically"""
-            device_database = {
-                'ccr1072': {
-                    'model': 'CCR1072-12G-4S+',
-                    'type': 'ccr1072',
-                    'ports': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp1', 'sfp2', 'sfp3', 'sfp4'],
-                    'management': 'ether1',
-                    'description': '12x Gigabit + 4x SFP (CCR1072)'
-                },
-                'ccr2004': {
-                    'model': 'CCR2004-1G-12S+2XS',
-                    'type': 'ccr2004',
-                    'ports': ['ether1', 'sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4', 'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8', 'sfp-sfpplus9', 'sfp-sfpplus10', 'sfp-sfpplus11', 'sfp-sfpplus12', 'sfp28-1', 'sfp28-2'],
-                    'management': 'ether1',
-                    'description': '1 Gigabit + 12 SFP+ + 2 SFP28'
-                },
-                'ccr2216': {
-                    'model': 'CCR2216-1G-12XS-2XQ',
-                    'type': 'ccr2216',
-                    # CCR2216: use only SFP28 ports for access; QSFP28 not used in our workflow
-                    'ports': ['ether1', 'sfp28-1', 'sfp28-2', 'sfp28-3', 'sfp28-4', 'sfp28-5', 'sfp28-6', 'sfp28-7', 'sfp28-8', 'sfp28-9', 'sfp28-10', 'sfp28-11', 'sfp28-12'],
-                    'management': 'ether1',
-                    'description': '1 Gigabit + 12 SFP28 + 2 QSFP28 (CCR2216)'
-                },
-                'ccr1036': {
-                    'model': 'CCR1036-12G-4S',
-                    'type': 'ccr1036',
-                    'ports': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp1', 'sfp2', 'sfp3', 'sfp4'],
-                    'management': 'ether1',
-                    'description': '12x Gigabit + 4x SFP (CCR1036)'
-                },
-                'ccr2116': {
-                    'model': 'CCR2116-12G-4S+',
-                    'type': 'ccr2116',
-                    'ports': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4'],
-                    'management': 'ether1',
-                    'description': '12x Gigabit + 4x SFP+ (CCR2116)'
-                },
-                'rb5009': {
-                    'model': 'RB5009UG+S+',
-                    'type': 'rb5009',
-                    'ports': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'sfp-sfpplus1'],
-                    'management': 'ether1',
-                    'description': '10x Gigabit + 1x SFP+ (RB5009)'
-                },
-                'rb2011': {
-                    'model': 'RB2011UiAS',
-                    'type': 'rb2011',
-                    'ports': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'sfp1'],
-                    'management': 'ether1',
-                    'description': '10x Gigabit + 1x SFP (RB2011)'
-                },
-                'rb1009': {
-                    'model': 'RB1009UG+S+',
-                    'type': 'rb1009',
-                    'ports': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'sfp-sfpplus1'],
-                    'management': 'ether1',
-                    'description': '9x Gigabit + 1x SFP+ (RB1009)'
-                }
+            def ports_list(specs):
+                ports = []
+                for group in specs.get('ports', {}).values():
+                    ports.extend(group)
+                return ports
+
+            aliases = {
+                'ccr1036': 'CCR1036-12G-4S',
+                'ccr1072': 'CCR1072-12G-4S+',
+                'ccr2004': 'CCR2004-1G-12S+2XS',
+                'ccr2004-1g-12s+2xs': 'CCR2004-1G-12S+2XS',
+                'ccr2004-16g-2s+': 'CCR2004-16G-2S+',
+                'ccr2116': 'CCR2116-12G-4S+',
+                'ccr2216': 'CCR2216-1G-12XS-2XQ',
+                'rb5009': 'RB5009UG+S+',
+                'rb2011': 'RB2011UiAS',
+                'rb1009': 'RB1009UG+S+',
+                'crs326': 'CRS326-24G-2S+',
+                'crs354': 'CRS354-48G-4S+2Q+'
             }
-            
-            key = (target_device or '').lower().strip()
-            if key in device_database:
-                return device_database[key]
-            
-            # Fallback detection
-            if '1072' in key:
-                return device_database['ccr1072']
-            if '2216' in key:
-                return device_database['ccr2216']
-            if '2116' in key:
-                return device_database['ccr2116']
-            if '2004' in key:
-                return device_database['ccr2004']
-            if '5009' in key:
-                return device_database['rb5009']
-            if '2011' in key:
-                return device_database['rb2011']
-            
-            # Default fallback
-            return device_database.get('ccr2004', {
+
+            key = (target_device or '').strip()
+            key_lower = key.lower()
+
+            # Direct match against ROUTERBOARD_INTERFACES
+            if key in ROUTERBOARD_INTERFACES:
+                specs = ROUTERBOARD_INTERFACES[key]
+                return {
+                    'model': specs['model'],
+                    'type': specs['series'].lower(),
+                    'ports': ports_list(specs),
+                    'management': specs.get('management_port', 'ether1'),
+                    'description': specs.get('series', 'Unknown')
+                }
+
+            # Alias match
+            alias_key = aliases.get(key_lower)
+            if alias_key and alias_key in ROUTERBOARD_INTERFACES:
+                specs = ROUTERBOARD_INTERFACES[alias_key]
+                return {
+                    'model': specs['model'],
+                    'type': specs['series'].lower(),
+                    'ports': ports_list(specs),
+                    'management': specs.get('management_port', 'ether1'),
+                    'description': specs.get('series', 'Unknown')
+                }
+
+            # Fallback by digits in key
+            if '1072' in key_lower:
+                alias_key = aliases['ccr1072']
+            elif '2216' in key_lower:
+                alias_key = aliases['ccr2216']
+            elif '2116' in key_lower:
+                alias_key = aliases['ccr2116']
+            elif '2004' in key_lower and '16g' in key_lower:
+                alias_key = aliases['ccr2004-16g-2s+']
+            elif '2004' in key_lower:
+                alias_key = aliases['ccr2004']
+            elif '1036' in key_lower:
+                alias_key = aliases['ccr1036']
+            elif '5009' in key_lower:
+                alias_key = aliases['rb5009']
+            elif '2011' in key_lower:
+                alias_key = aliases['rb2011']
+            elif '1009' in key_lower:
+                alias_key = aliases['rb1009']
+            elif 'crs326' in key_lower:
+                alias_key = aliases['crs326']
+            elif 'crs354' in key_lower:
+                alias_key = aliases['crs354']
+            else:
+                alias_key = aliases.get('ccr2004')
+
+            specs = ROUTERBOARD_INTERFACES.get(alias_key)
+            if specs:
+                return {
+                    'model': specs['model'],
+                    'type': specs['series'].lower(),
+                    'ports': ports_list(specs),
+                    'management': specs.get('management_port', 'ether1'),
+                    'description': specs.get('series', 'Unknown')
+                }
+
+            return {
                 'model': 'unknown',
                 'type': 'unknown',
                 'ports': ['ether1'],
                 'management': 'ether1',
                 'description': 'Unknown device'
-            })
+            }
         
         # SMART DETECT: Only skip AI if SAME EXACT device model AND same major version
         # CRITICAL: Device changes (e.g., CCR2004 → CCR2216) require AI translation for proper port mapping
