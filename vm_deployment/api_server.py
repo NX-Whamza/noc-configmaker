@@ -5706,6 +5706,77 @@ Port Roles:
             # Deterministic formatting + cleanup
             t = format_config_spacing(t)
             return t
+
+        def _enforce_target_interfaces(cfg_text: str) -> str:
+            """
+            Ensure all interface references exist on the target device.
+            Any interface token not in the target port set is remapped deterministically.
+            """
+            text = cfg_text or ''
+            target_ports = target_device_info.get('ports') or []
+            mgmt = (target_device_info.get('management') or 'ether1').strip() or 'ether1'
+            if not target_ports:
+                return text
+
+            target_set = set(target_ports)
+
+            # Build preferred destination pools (exclude management).
+            def _pool(prefix: str):
+                return [p for p in target_ports if p.startswith(prefix) and p != mgmt]
+
+            pool_sfp_plus = _pool('sfp-sfpplus')
+            pool_sfp28 = _pool('sfp28-')
+            pool_sfp = _pool('sfp')
+            pool_ether = [p for p in target_ports if p.startswith('ether') and p != mgmt]
+            pool_qsfp = _pool('qsfp')
+
+            dest_pool = pool_sfp_plus + pool_sfp28 + pool_sfp + pool_ether + pool_qsfp
+            if not dest_pool:
+                return text
+
+            # Collect interface tokens used in the config (ordered by appearance).
+            iface_pattern = r"\b(ether\d+|sfp\d+(?:-\d+)?|sfp-sfpplus\d+|sfp28-\d+|qsfp28-\d+-\d+|qsfpplus\d+-\d+|qsfp\d+(?:-\d+)?|combo\d+)\b"
+            seen = set()
+            used = []
+            for m in re.finditer(iface_pattern, text):
+                name = m.group(1)
+                if name not in seen:
+                    seen.add(name)
+                    used.append(name)
+
+            # Build mapping for invalid interfaces only.
+            mapping = {}
+            pool_idx = 0
+            for name in used:
+                if name == mgmt:
+                    continue
+                if name in target_set:
+                    continue
+                # Map legacy combo to first SFP if present
+                if name.startswith('combo'):
+                    if pool_sfp_plus:
+                        mapping[name] = pool_sfp_plus[0]
+                        continue
+                    if pool_sfp28:
+                        mapping[name] = pool_sfp28[0]
+                        continue
+                    if pool_sfp:
+                        mapping[name] = pool_sfp[0]
+                        continue
+                # Assign next available destination port
+                if pool_idx < len(dest_pool):
+                    mapping[name] = dest_pool[pool_idx]
+                    pool_idx += 1
+
+            if not mapping:
+                return text
+
+            # Replace tokens safely (longest first to avoid partial matches)
+            for src in sorted(mapping.keys(), key=len, reverse=True):
+                dst = mapping[src]
+                text = re.sub(rf"\b{re.escape(src)}\b", dst, text)
+
+            return text
         
         print(f"[DETECTED] Source: {source_syntax_info['version']} on {source_device_info['model']}")
         print(f"[TARGET] Converting to: {target_version} on {target_device_info['model']}")
@@ -5727,6 +5798,7 @@ Port Roles:
                 strict_preserve=True,
             )
             translated = _postprocess_translated(translated)
+            translated = _enforce_target_interfaces(translated)
             validation = validate_translation(source_config, translated)
             compliance_validation = None
 
