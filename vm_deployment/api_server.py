@@ -3318,6 +3318,13 @@ def translate_config():
                 syntax_info['parameter_style'] = 'dash'
             elif 'remote.address=' in config:
                 syntax_info['parameter_style'] = 'dot'
+
+            # Fallback: infer version from syntax if header is missing
+            if syntax_info['version'] == 'unknown':
+                if '/routing ospf interface-template' in config or '/routing bgp connection' in config or 'remote.address=' in config:
+                    syntax_info['version'] = '7.x'
+                elif '/routing ospf interface' in config or '/routing bgp peer' in config or '/interface ethernet' in config:
+                    syntax_info['version'] = '6.x'
             
             return syntax_info
         
@@ -5721,10 +5728,37 @@ Port Roles:
             )
             translated = _postprocess_translated(translated)
             validation = validate_translation(source_config, translated)
+            compliance_validation = None
+
+            # Apply compliance in strict mode if requested
+            if apply_compliance and HAS_COMPLIANCE:
+                print("[COMPLIANCE] Applying RFC-09-10-25 compliance standards (strict mode)...")
+                try:
+                    loopback_ip = None
+                    loopback_match = re.search(r'/ip address\s+add address=([0-9.]+/[0-9]+)\s+interface=loop0', translated, re.IGNORECASE)
+                    if not loopback_match:
+                        loopback_match = re.search(r'interface=loop0.*?address=([0-9.]+/[0-9]+)', translated, re.IGNORECASE)
+                    if loopback_match:
+                        loopback_ip = loopback_match.group(1)
+                    if not loopback_ip:
+                        source_loopback_match = re.search(r'/ip address\s+add address=([0-9.]+/[0-9]+)\s+interface=loop0', source_config, re.IGNORECASE)
+                        if source_loopback_match:
+                            loopback_ip = source_loopback_match.group(1)
+
+                    compliance_blocks = get_all_compliance_blocks(loopback_ip or "10.0.0.1/32")
+                    translated = inject_compliance_blocks(translated, compliance_blocks)
+                    compliance_validation = validate_compliance(translated)
+                except Exception as e:
+                    print(f"[COMPLIANCE ERROR] Failed to apply compliance in strict mode: {e}")
+                    compliance_validation = {'compliant': False, 'error': str(e)}
+
+            # Re-validate after compliance injection (if any)
+            validation = validate_translation(source_config, translated)
             return jsonify({
                 'success': True,
                 'translated_config': translated,
                 'validation': validation,
+                'compliance': compliance_validation,
                 'bypass_ai': True,
                 'strict_preserve': True,
                 'source_info': source_info,
