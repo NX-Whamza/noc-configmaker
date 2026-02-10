@@ -106,10 +106,10 @@ def main() -> int:
         "\n"
         "/interface ethernet\n"
         "set [ find default-name=qsfp28-1-1 ] disabled=yes\n"
-        "set [ find default-name=sfp28-3 ] comment=TEST\n"
+        "set [ find default-name=sfp28-3 ] comment=TX-TEST-BH\n"
         "\n"
         "/ip address\n"
-        "add address=10.42.2.57/29 interface=sfp28-3 network=10.42.2.56\n"
+        "add address=10.42.2.57/29 interface=sfp28-3 comment=TX-TEST-BH network=10.42.2.56\n"
         "\n"
         "/system identity\n"
         "set name=RTR-MT2216-AR1.TEST\n"
@@ -124,7 +124,7 @@ def main() -> int:
     _assert(data.get("success") is True, f"/api/translate-config success=true, got {data!r}")
     translated = data.get("translated_config") or ""
     _assert("qsfp28" not in translated, "Translated config still contains qsfp ports for CCR2004 target")
-    _assert("sfp-sfpplus3" in translated, "Translated config did not map sfp28-3 -> sfp-sfpplus3")
+    _assert("sfp-sfpplus4" in translated, "Translated config did not map sfp28-3 -> sfp-sfpplus4 (backhaul policy)")
     model = re.search(r"(?m)^#\s*model\s*=(.*)$", translated)
     _assert(model and "CCR2004" in model.group(1), "Translated config header model not updated to CCR2004")
     # Identity should be rewritten to avoid retaining source device digits (e.g., MT2216 -> MT2004)
@@ -193,9 +193,9 @@ def main() -> int:
     data = r.get_json() or {}
     _assert(data.get("success") is True, f"/api/translate-config (strict) success=true, got {data!r}")
     translated = data.get("translated_config") or ""
-    _assert("default-name=sfp28-7" in translated, "Strict translate did not map sfp-sfpplus7 -> sfp28-7 in ethernet tuning")
-    _assert("interface=sfp28-7" in translated, "Strict translate did not map IP address interface to sfp28-7")
-    _assert("vlan1000sfp28-7" in translated, "Strict translate did not rewrite embedded VLAN name vlan1000sfp-sfpplus7 -> vlan1000sfp28-7")
+    _assert("default-name=sfp28-4" in translated, "Strict translate did not map sfp-sfpplus7 -> sfp28-4 in ethernet tuning (backhaul policy)")
+    _assert("interface=sfp28-4" in translated, "Strict translate did not map IP address interface to sfp28-4")
+    _assert("vlan1000sfp28-4" in translated, "Strict translate did not rewrite embedded VLAN name vlan1000sfp-sfpplus7 -> vlan1000sfp28-4")
     _assert("/routing ospf area" in translated and "name=backbone-v2" in translated, "Strict translate lost OSPF area backbone-v2")
     _assert("/routing bgp connection" in translated and "tcp-md5-key=m8M5JwvdYM" in translated, "Strict translate lost BGP connection or tcp-md5-key")
     _assert("/ip firewall mangle" in translated and "action=return chain=CONN-MARK" in translated, "Strict translate lost mangle return chain scaffolding")

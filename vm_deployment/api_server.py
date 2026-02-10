@@ -5113,7 +5113,7 @@ Port Roles:
                     dst = mapping[src]
                     # Apply to ALL occurrences with word boundaries
                     # This updates: /interface ethernet set, /ip address interface=, /routing ospf interfaces=, bridge ports, etc.
-                    text = re.sub(rf"\b{re.escape(src)}\b", dst, text)
+                    text = re.sub(rf"(?<![A-Za-z0-9_-]){re.escape(src)}(?![A-Za-z0-9_-])", dst, text)
                     print(f"[INTERFACE MAPPING] Applied: {src} → {dst} (all occurrences)")
              
             # Also update embedded port tokens in common vlan interface name patterns
@@ -5141,11 +5141,11 @@ Port Roles:
                 # Convert sfp-sfpplusN to target format (if target uses sfp28-N)
                 if target_port_prefix == 'sfp28':
                     for i in range(1, 13):
-                        text = re.sub(rf"\bsfp\-sfpplus{i}\b", f"sfp28-{i}", text)
+                        text = re.sub(rf"(?<![A-Za-z0-9_-])sfp\-sfpplus{i}(?![A-Za-z0-9_-])", f"sfp28-{i}", text)
                 # Convert old SFP ports (sfp1, sfp2, etc.) to target format
                 if target_port_prefix in ['sfp28', 'sfp-sfpplus']:
                     for i in range(1, 5):
-                        old_pattern = rf"\bsfp{i}\b(?!\d)"
+                        old_pattern = rf"(?<![A-Za-z0-9_-])sfp{i}(?![A-Za-z0-9_-])"
                         new_port = f"sfp-sfpplus{i}" if target_port_prefix == 'sfp-sfpplus' else f"sfp28-{i}"
                         text = re.sub(old_pattern, new_port, text)
 
@@ -5824,11 +5824,45 @@ Port Roles:
             # Extract comments from /interface ethernet set lines (ordered) from both source and translated config
             source_entries = _extract_iface_entries(_normalize_iface_typos(source_config or ''))
             current_entries = _extract_iface_entries(text)
+            # Also gather interface comments from /ip address lines
+            ip_comment_map = {}
+            in_ip = False
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped.startswith('/'):
+                    in_ip = (stripped == '/ip address')
+                    continue
+                if not in_ip:
+                    continue
+                m_iface = re.search(r'interface=([^\s]+)', line)
+                m_comment = re.search(r'comment=([^\s\n"]+|"[^"]+")', line)
+                if not m_iface or not m_comment:
+                    continue
+                iface = m_iface.group(1).strip()
+                comment = m_comment.group(1).strip().strip('"')
+                ip_comment_map[iface] = comment
             source_by_comment = {}
             for e in source_entries:
                 if e.get('comment'):
                     key = e['comment'].strip().upper()
                     source_by_comment.setdefault(key, []).append(e['iface'])
+            # Include /ip address comments from source config
+            in_ip_src = False
+            for line in _normalize_iface_typos(source_config or '').splitlines():
+                stripped = line.strip()
+                if stripped.startswith('/'):
+                    in_ip_src = (stripped == '/ip address')
+                    continue
+                if not in_ip_src:
+                    continue
+                m_iface = re.search(r'interface=([^\s]+)', line)
+                m_comment = re.search(r'comment=([^\s\n"]+|"[^"]+")', line)
+                if not m_iface or not m_comment:
+                    continue
+                iface = m_iface.group(1).strip()
+                comment = m_comment.group(1).strip().strip('"')
+                key = comment.strip().upper()
+                source_by_comment.setdefault(key, []).append(iface)
 
             # Build preferred destination pools (exclude management).
             def _pool(prefix: str):
@@ -5939,6 +5973,8 @@ Port Roles:
                             # extract comment to classify
                             cm = re.search(r'comment=([^\\s\\n"]+|"[^"]+")', line)
                             comment = cm.group(1).strip().strip('"') if cm else ''
+                            if not comment and iface in ip_comment_map:
+                                comment = ip_comment_map.get(iface, '')
                             purpose = _classify_interface_purpose(comment, iface)
                             if purpose == 'switch':
                                 dest = _next_from(switch_pool) or _next_from(other_pool) or _next_from(qsfp_pool)
@@ -5955,6 +5991,8 @@ Port Roles:
                                     if src_iface not in mapping:
                                         mapping[src_iface] = dest
                                 line = m.group(1) + dest + m.group(3)
+                                # Remove renaming of physical ports to avoid clashes on target
+                                line = re.sub(r'\s+name=[^\s]+', '', line)
                         out_lines.append(line)
                         continue
                     out_lines.append(line)
@@ -5988,11 +6026,18 @@ Port Roles:
 
             # Replace remaining interface tokens using temporary placeholders to avoid cross-mapping.
             temp_map = {src: f"__TMP_PORT_{idx}__" for idx, src in enumerate(mapping.keys())}
+            # Use custom token boundaries because interface names include hyphens (e.g., sfp-sfpplus7).
             for src in sorted(temp_map.keys(), key=len, reverse=True):
-                text = re.sub(rf"\\b{re.escape(src)}\\b", temp_map[src], text)
+                text = re.sub(rf"(?<![A-Za-z0-9_-]){re.escape(src)}(?![A-Za-z0-9_-])", temp_map[src], text)
             for src, tmp in temp_map.items():
                 dst = mapping[src]
                 text = text.replace(tmp, dst)
+
+            # Update embedded port tokens in common VLAN interface naming patterns
+            # (e.g., vlan1000sfp-sfpplus7 -> vlan1000sfp28-4)
+            for src in sorted(mapping.keys(), key=len, reverse=True):
+                dst = mapping[src]
+                text = re.sub(rf"(?m)\b(vlan\d+[-_]?)" + re.escape(src) + r"(?!\d)\b", rf"\1{dst}", text)
 
             # Final safety pass: remap interface parameters explicitly (handles interface= and interfaces= lists).
             def _map_iface_list(val: str) -> str:
@@ -6049,8 +6094,6 @@ Port Roles:
                 strict_preserve=True,
             )
             translated = _postprocess_translated(translated)
-            translated = _enforce_target_interfaces(translated)
-            validation = validate_translation(source_config, translated)
             compliance_validation = None
 
             # Apply compliance in strict mode if requested
@@ -6075,6 +6118,8 @@ Port Roles:
                     print(f"[COMPLIANCE ERROR] Failed to apply compliance in strict mode: {e}")
                     compliance_validation = {'compliant': False, 'error': str(e)}
 
+            # Final interface policy enforcement (after compliance injection).
+            translated = _enforce_target_interfaces(translated)
             # Re-validate after compliance injection (if any)
             validation = validate_translation(source_config, translated)
             return jsonify({
@@ -6108,6 +6153,7 @@ Port Roles:
                 strict_preserve=strict_preserve,
             )
             translated = _postprocess_translated(translated)
+            translated = _enforce_target_interfaces(translated)
             validation = validate_translation(source_config, translated)
             return jsonify({
                 'success': True,
@@ -6133,6 +6179,7 @@ Port Roles:
                 strict_preserve=strict_preserve,
             )
             translated_fast = _postprocess_translated(translated_fast)
+            translated_fast = _enforce_target_interfaces(translated_fast)
             validation_fast = validate_translation(source_config, translated_fast)
             return jsonify({
                 'success': True,
@@ -6727,6 +6774,7 @@ Output (copy every line, update device model to {target_device.upper()}, preserv
             return t
 
         translated = _postprocess_translated(finalize_metadata(translated))
+        translated = _enforce_target_interfaces(translated)
 
         return jsonify({
             'success': True,
