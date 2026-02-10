@@ -17463,8 +17463,23 @@
                 addProgressLog('info', 'Normalizing line breaks and formatting');
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-                    throw new Error(errorData.error || `HTTP ${response.status}`);
+                    let errorMessage = `HTTP ${response.status}`;
+                    try {
+                        const errorData = await response.json();
+                        errorMessage = errorData.error || errorData.message || errorMessage;
+                    } catch (e) {
+                        try {
+                            const errorText = await response.text();
+                            if (errorText && errorText.trim()) {
+                                errorMessage = errorText.trim();
+                            } else {
+                                errorMessage = `${errorMessage} ${response.statusText || ''}`.trim();
+                            }
+                        } catch (e2) {
+                            errorMessage = `${errorMessage} ${response.statusText || ''}`.trim();
+                        }
+                    }
+                    throw new Error(errorMessage);
                 }
 
                 const data = await response.json();
@@ -20637,8 +20652,23 @@ Ready for translation!`);
                     });
 
                     if (!response.ok) {
-                        const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-                        throw new Error(error.error || `HTTP ${response.status}`);
+                        let errorMessage = `HTTP ${response.status}`;
+                        try {
+                            const errorData = await response.json();
+                            errorMessage = errorData.error || errorData.message || errorMessage;
+                        } catch (e) {
+                            try {
+                                const errorText = await response.text();
+                                if (errorText && errorText.trim()) {
+                                    errorMessage = errorText.trim();
+                                } else {
+                                    errorMessage = `${errorMessage} ${response.statusText || ''}`.trim();
+                                }
+                            } catch (e2) {
+                                errorMessage = `${errorMessage} ${response.statusText || ''}`.trim();
+                            }
+                        }
+                        throw new Error(errorMessage);
                     }
 
                     const data = await response.json();
