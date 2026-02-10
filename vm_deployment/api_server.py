@@ -6003,6 +6003,48 @@ Port Roles:
                     out_lines.append(line)
 
                 text = "\n".join(out_lines)
+
+                # Enforce management port: ensure "Management" comment lands on ether1 only.
+                lines = text.splitlines()
+                in_eth = False
+                mgmt_written = False
+                cleaned = []
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped.startswith('/'):
+                        in_eth = (stripped == '/interface ethernet')
+                        cleaned.append(line)
+                        continue
+                    if not in_eth:
+                        cleaned.append(line)
+                        continue
+                    m = eth_set_pattern.match(line)
+                    if not m:
+                        cleaned.append(line)
+                        continue
+                    iface = m.group(2)
+                    cm = re.search(r'comment=([^\s\n"]+|"[^"]+")', line)
+                    comment = cm.group(1).strip().strip('"') if cm else ''
+                    if 'MANAGEMENT' in (comment or '').upper() and iface != mgmt:
+                        # Move management label to ether1
+                        line = re.sub(r'(default-name=)[^\s\]]+', rf'\\1{mgmt}', line)
+                        iface = mgmt
+                    if iface == mgmt:
+                        if mgmt_written:
+                            continue
+                        mgmt_written = True
+                        if 'comment=' in line:
+                            line = re.sub(r'comment=([^\s\n"]+|"[^"]+")', 'comment="Management"', line)
+                        else:
+                            line = line.rstrip() + ' comment="Management"'
+                    else:
+                        # Strip stray management comment from non-mgmt ports
+                        if 'MANAGEMENT' in (comment or '').upper():
+                            line = re.sub(r'\s*comment=([^\s\n"]+|"[^"]+")', '', line)
+                    cleaned.append(line)
+                if in_eth and not mgmt_written:
+                    cleaned.append(f'set [ find default-name={mgmt} ] comment="Management"')
+                text = "\n".join(cleaned)
             else:
                 # Default: map only invalid interfaces in order
                 pool_idx = 0
