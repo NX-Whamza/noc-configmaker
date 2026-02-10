@@ -3515,7 +3515,6 @@ def translate_config():
             return device_info
         
         def get_target_device_info(target_device):
-def get_target_device_info(target_device):
             """Get target device information dynamically"""
             def ports_list(specs):
                 ports = []
