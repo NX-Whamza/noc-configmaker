@@ -3186,6 +3186,10 @@ def format_config_spacing(config_text):
     for raw_line in lines:
         line = raw_line.rstrip()
 
+        # Drop known export-only warnings that shouldn't be re-applied.
+        if line.strip().lower() == '# unsupported speed':
+            continue
+
         # Drop RouterOS visual separators / "BREAK" rules.
         # These are commonly inserted as visual dividers and are not intended to be applied.
         # Examples:
@@ -5679,6 +5683,11 @@ Port Roles:
             if target_model_full and target_model_full != 'unknown':
                 t = re.sub(r'(?m)^#\s*model\s*=.*$', f"# model ={target_model_full}", t)
 
+            # Normalize legacy speed tokens for RouterOS v7 targets.
+            if target_version.startswith('7.'):
+                t = t.replace('speed=1G-baseX', 'speed=1G-baseT-full')
+                t = t.replace('speed=10G-baseSR', 'speed=10G-baseSR-LR')
+
             # Rewrite identity to match target device family (e.g., MT1036 -> MT2004).
             def _format_identity_for_set(name: str) -> str:
                 s = (name or '').strip()
@@ -5720,6 +5729,36 @@ Port Roles:
 
             target_set = set(target_ports)
 
+            def _extract_iface_entries(config_text: str) -> list[dict]:
+                entries = []
+                eth_pattern = r'/interface ethernet\s+set\s+\[[^\]]*default-name=([^\]]+)\][^\n]*comment=([^\s\n"]+|"[^"]+")'
+                for m in re.finditer(eth_pattern, config_text, re.MULTILINE | re.DOTALL):
+                    iface = m.group(1).strip()
+                    comment = m.group(2).strip().strip('"')
+                    entries.append({'iface': iface, 'comment': comment})
+                return entries
+
+            def _classify_interface_purpose(comment: str, iface_name: str) -> str:
+                c = (comment or '').upper()
+                iface_upper = (iface_name or '').upper()
+                if any(k in c for k in ['BACKHAUL', 'BH', 'TX-', 'KS-', 'IL-', 'TOWER']):
+                    return 'backhaul'
+                if 'OLT' in c or 'NOKIA' in c:
+                    return 'olt'
+                if any(k in c for k in ['SWITCH', 'SW', 'NETONIX', 'WPS']):
+                    return 'switch'
+                if 'LTE' in c:
+                    return 'lte'
+                if 'TARANA' in c:
+                    return 'tarana'
+                if 'MANAGEMENT' in c or 'MGMT' in c or iface_upper == 'ETHER1':
+                    return 'management'
+                return 'unknown'
+
+            # Extract comments from /interface ethernet set lines (ordered) from both source and translated config
+            source_entries = _extract_iface_entries(source_config)
+            current_entries = _extract_iface_entries(text)
+
             # Build preferred destination pools (exclude management).
             def _pool(prefix: str):
                 return [p for p in target_ports if p.startswith(prefix) and p != mgmt]
@@ -5744,37 +5783,112 @@ Port Roles:
                     seen.add(name)
                     used.append(name)
 
-            # Build mapping for invalid interfaces only.
+            # Build mapping (policy-aware for CCR2004/CCR2216).
             mapping = {}
-            pool_idx = 0
-            for name in used:
-                if name == mgmt:
-                    continue
-                if name in target_set:
-                    continue
-                # Map legacy combo to first SFP if present
-                if name.startswith('combo'):
-                    if pool_sfp_plus:
-                        mapping[name] = pool_sfp_plus[0]
+
+            def _assign_ports(source_ifaces, port_pool):
+                assigned = {}
+                idx = 0
+                for iface in source_ifaces:
+                    if iface == mgmt:
                         continue
-                    if pool_sfp28:
-                        mapping[name] = pool_sfp28[0]
+                    if idx < len(port_pool):
+                        assigned[iface] = port_pool[idx]
+                        idx += 1
+                return assigned
+
+            target_type = (target_device_info.get('type') or '').lower()
+            if target_type in ['ccr2004', 'ccr2216']:
+                # Policy pools
+                if target_type == 'ccr2004':
+                    switch_pool = ['sfp-sfpplus1', 'sfp-sfpplus2']
+                    backhaul_pool = ['sfp-sfpplus4', 'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8',
+                                     'sfp-sfpplus9', 'sfp-sfpplus10', 'sfp-sfpplus11', 'sfp-sfpplus12', 'sfp28-1', 'sfp28-2']
+                    other_pool = ['sfp-sfpplus3'] + [p for p in dest_pool if p not in switch_pool + backhaul_pool]
+                else:
+                    switch_pool = ['sfp28-1', 'sfp28-2']
+                    backhaul_pool = ['sfp28-4', 'sfp28-5', 'sfp28-6', 'sfp28-7', 'sfp28-8', 'sfp28-9', 'sfp28-10', 'sfp28-11', 'sfp28-12']
+                    other_pool = ['sfp28-3'] + [p for p in dest_pool if p not in switch_pool + backhaul_pool]
+
+                # Rewrite /interface ethernet set lines directly to enforce policy.
+                used_dest = set()
+                mapping = {}
+                lines = text.splitlines()
+                out_lines = []
+                in_eth = False
+                eth_set_pattern = re.compile(r'^(\s*set\s+\[\s*find\s+default-name=)([^\s\]]+)(\s*\].*)$', re.IGNORECASE)
+
+                def _next_from(pool):
+                    for dest in pool:
+                        if dest not in used_dest:
+                            used_dest.add(dest)
+                            return dest
+                    return None
+
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped.startswith('/'):
+                        in_eth = (stripped == '/interface ethernet')
+                        out_lines.append(line)
                         continue
-                    if pool_sfp:
-                        mapping[name] = pool_sfp[0]
+                    if in_eth:
+                        m = eth_set_pattern.match(line)
+                        if m:
+                            iface = m.group(2)
+                            if iface == mgmt:
+                                out_lines.append(line)
+                                continue
+                            # extract comment to classify
+                            cm = re.search(r'comment=([^\\s\\n"]+|"[^"]+")', line)
+                            comment = cm.group(1).strip().strip('"') if cm else ''
+                            purpose = _classify_interface_purpose(comment, iface)
+                            if purpose == 'switch':
+                                dest = _next_from(switch_pool)
+                            elif purpose == 'backhaul':
+                                dest = _next_from(backhaul_pool)
+                            else:
+                                dest = _next_from(other_pool)
+                            if dest:
+                                mapping[iface] = dest
+                                line = m.group(1) + dest + m.group(3)
+                        out_lines.append(line)
                         continue
-                # Assign next available destination port
-                if pool_idx < len(dest_pool):
-                    mapping[name] = dest_pool[pool_idx]
-                    pool_idx += 1
+                    out_lines.append(line)
+
+                text = "\n".join(out_lines)
+            else:
+                # Default: map only invalid interfaces in order
+                pool_idx = 0
+                for name in used:
+                    if name == mgmt:
+                        continue
+                    if name in target_set:
+                        continue
+                    # Map legacy combo to first SFP if present
+                    if name.startswith('combo'):
+                        if pool_sfp_plus:
+                            mapping[name] = pool_sfp_plus[0]
+                            continue
+                        if pool_sfp28:
+                            mapping[name] = pool_sfp28[0]
+                            continue
+                        if pool_sfp:
+                            mapping[name] = pool_sfp[0]
+                            continue
+                    if pool_idx < len(dest_pool):
+                        mapping[name] = dest_pool[pool_idx]
+                        pool_idx += 1
 
             if not mapping:
                 return text
 
-            # Replace tokens safely (longest first to avoid partial matches)
-            for src in sorted(mapping.keys(), key=len, reverse=True):
+            # Replace remaining interface tokens using temporary placeholders to avoid cross-mapping.
+            temp_map = {src: f"__TMP_PORT_{idx}__" for idx, src in enumerate(mapping.keys())}
+            for src in sorted(temp_map.keys(), key=len, reverse=True):
+                text = re.sub(rf"\\b{re.escape(src)}\\b", temp_map[src], text)
+            for src, tmp in temp_map.items():
                 dst = mapping[src]
-                text = re.sub(rf"\b{re.escape(src)}\b", dst, text)
+                text = text.replace(tmp, dst)
 
             return text
         
