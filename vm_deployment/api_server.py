@@ -5821,6 +5821,9 @@ Port Roles:
                     return 'management'
                 return 'unknown'
 
+            def _normalize_comment_key(comment: str) -> str:
+                return re.sub(r'[^A-Z0-9]', '', (comment or '').upper())
+
             # Extract comments from /interface ethernet set lines (ordered) from both source and translated config
             source_entries = _extract_iface_entries(_normalize_iface_typos(source_config or ''))
             current_entries = _extract_iface_entries(text)
@@ -5844,7 +5847,7 @@ Port Roles:
             source_by_comment = {}
             for e in source_entries:
                 if e.get('comment'):
-                    key = e['comment'].strip().upper()
+                    key = _normalize_comment_key(e['comment'])
                     source_by_comment.setdefault(key, []).append(e['iface'])
             # Include /ip address comments from source config
             in_ip_src = False
@@ -5861,7 +5864,7 @@ Port Roles:
                     continue
                 iface = m_iface.group(1).strip()
                 comment = m_comment.group(1).strip().strip('"')
-                key = comment.strip().upper()
+                key = _normalize_comment_key(comment)
                 source_by_comment.setdefault(key, []).append(iface)
 
             # Build preferred destination pools (exclude management).
@@ -5976,7 +5979,9 @@ Port Roles:
                             if not comment and iface in ip_comment_map:
                                 comment = ip_comment_map.get(iface, '')
                             purpose = _classify_interface_purpose(comment, iface)
-                            if purpose == 'switch':
+                            if purpose == 'management':
+                                dest = mgmt
+                            elif purpose == 'switch':
                                 dest = _next_from(switch_pool) or _next_from(other_pool) or _next_from(qsfp_pool)
                             elif purpose == 'backhaul':
                                 dest = _next_from(backhaul_pool) or _next_from(other_pool) or _next_from(qsfp_pool)
@@ -5987,7 +5992,7 @@ Port Roles:
                             if dest:
                                 mapping[iface] = dest
                                 # Also map original source interfaces that used the same comment.
-                                for src_iface in source_by_comment.get(comment.strip().upper(), []):
+                                for src_iface in source_by_comment.get(_normalize_comment_key(comment), []):
                                     if src_iface not in mapping:
                                         mapping[src_iface] = dest
                                 line = m.group(1) + dest + m.group(3)
@@ -6054,17 +6059,52 @@ Port Roles:
             comment_to_iface = {}
             for e in _extract_iface_entries(text):
                 if e.get('comment'):
-                    key = e['comment'].strip().upper()
+                    key = _normalize_comment_key(e['comment'])
                     if key not in comment_to_iface:
                         comment_to_iface[key] = e['iface']
+            def _find_best_comment_iface(key: str) -> str | None:
+                if not key:
+                    return None
+                if key in comment_to_iface:
+                    return comment_to_iface[key]
+                for k, v in comment_to_iface.items():
+                    if key in k or k in key:
+                        return v
+                def _ed1(a: str, b: str) -> bool:
+                    if abs(len(a) - len(b)) > 1:
+                        return False
+                    if len(a) == len(b):
+                        diffs = sum(1 for i in range(len(a)) if a[i] != b[i])
+                        return diffs <= 1
+                    if len(a) + 1 == len(b):
+                        short, long = a, b
+                    else:
+                        short, long = b, a
+                    i = j = 0
+                    used = False
+                    while i < len(short) and j < len(long):
+                        if short[i] == long[j]:
+                            i += 1
+                            j += 1
+                        elif not used:
+                            used = True
+                            j += 1
+                        else:
+                            return False
+                    return True
+                for k, v in comment_to_iface.items():
+                    if _ed1(key, k):
+                        return v
+                return None
             for line in text.splitlines():
                 if 'interface=' in line or 'interfaces=' in line:
                     # Prefer comment-driven correction when present
                     cm = re.search(r'comment=([^\s\n"]+|"[^"]+")', line)
                     if cm:
-                        ckey = cm.group(1).strip().strip('"').upper()
-                        if ckey in comment_to_iface:
-                            line = re.sub(r'(\binterfaces?=)([^\s]+)', r'\1' + comment_to_iface[ckey], line)
+                        ckey = _normalize_comment_key(cm.group(1).strip().strip('"'))
+                        mapped_iface = _find_best_comment_iface(ckey)
+                        if mapped_iface:
+                            line = re.sub(r'(\binterfaces?=)([^\s]+)', r'\1' + mapped_iface, line)
                             remapped_lines.append(line)
                             continue
                     remapped_lines.append(_remap_iface_params(line))
