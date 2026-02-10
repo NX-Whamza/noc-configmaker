@@ -5767,6 +5767,14 @@ Port Roles:
             Any interface token not in the target port set is remapped deterministically.
             """
             text = cfg_text or ''
+            # Normalize known interface typos from source configs.
+            def _normalize_iface_typos(s: str) -> str:
+                if not s:
+                    return s
+                s = re.sub(r'\bsfp-fpplus(\d+)\b', r'sfp-sfpplus\1', s)
+                return s
+
+            text = _normalize_iface_typos(text)
             target_ports = target_device_info.get('ports') or []
             mgmt = (target_device_info.get('management') or 'ether1').strip() or 'ether1'
             if not target_ports:
@@ -5814,7 +5822,7 @@ Port Roles:
                 return 'unknown'
 
             # Extract comments from /interface ethernet set lines (ordered) from both source and translated config
-            source_entries = _extract_iface_entries(source_config)
+            source_entries = _extract_iface_entries(_normalize_iface_typos(source_config or ''))
             current_entries = _extract_iface_entries(text)
             source_by_comment = {}
             for e in source_entries:
