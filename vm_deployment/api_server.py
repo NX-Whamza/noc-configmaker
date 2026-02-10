@@ -5815,7 +5815,7 @@ Port Roles:
                     return 'power'
                 if 'LTE' in c:
                     return 'lte'
-                if 'TARANA' in c:
+                if 'TARANA' in c or any(k in c for k in ['ALPHA', 'BETA', 'GAMMA', 'DELTA']):
                     return 'tarana'
                 if 'MANAGEMENT' in c or 'MGMT' in c or iface_upper == 'ETHER1':
                     return 'management'
