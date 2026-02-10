@@ -3376,11 +3376,70 @@ def translate_config():
 
             text = config or ''
 
+            def _ports_list(specs):
+                ports = []
+                for group in specs.get('ports', {}).values():
+                    ports.extend(group)
+                return ports
+
+            def _normalize(s: str) -> str:
+                return re.sub(r'[^a-z0-9]+', '', (s or '').lower())
+
+            aliases = {
+                'ccr1036': 'CCR1036-12G-4S',
+                'ccr1072': 'CCR1072-12G-4S+',
+                'ccr2004': 'CCR2004-1G-12S+2XS',
+                'ccr2004-1g-12s+2xs': 'CCR2004-1G-12S+2XS',
+                'ccr2004-16g-2s+': 'CCR2004-16G-2S+',
+                'ccr2116': 'CCR2116-12G-4S+',
+                'ccr2216': 'CCR2216-1G-12XS-2XQ',
+                'rb5009': 'RB5009UG+S+',
+                'rb2011': 'RB2011UiAS',
+                'rb1009': 'RB1009UG+S+',
+                'crs326': 'CRS326-24G-2S+',
+                'crs354': 'CRS354-48G-4S+2Q+'
+            }
+
             # Prefer explicit RouterOS export header model.
             header_model = None
             hm = re.search(r'(?m)^\s*#\s*model\s*=\s*(.+?)\s*$', text)
             if hm:
                 header_model = hm.group(1).strip().strip('"').strip("'")
+
+            # Try direct model match
+            if header_model:
+                if header_model in ROUTERBOARD_INTERFACES:
+                    specs = ROUTERBOARD_INTERFACES[header_model]
+                    return {
+                        'model': specs['model'],
+                        'type': specs['series'].lower(),
+                        'ports': _ports_list(specs),
+                        'management': specs.get('management_port', 'ether1')
+                    }
+
+                # Try normalized match
+                norm_header = _normalize(header_model)
+                for model_key, specs in ROUTERBOARD_INTERFACES.items():
+                    if _normalize(model_key) == norm_header:
+                        return {
+                            'model': specs['model'],
+                            'type': specs['series'].lower(),
+                            'ports': _ports_list(specs),
+                            'management': specs.get('management_port', 'ether1')
+                        }
+
+                # Try alias match (including CCR2004-16G variant)
+                alias_key = aliases.get(_normalize(header_model))
+                if not alias_key and '2004' in norm_header and '16g' in norm_header:
+                    alias_key = aliases.get('ccr2004-16g-2s+')
+                if alias_key and alias_key in ROUTERBOARD_INTERFACES:
+                    specs = ROUTERBOARD_INTERFACES[alias_key]
+                    return {
+                        'model': specs['model'],
+                        'type': specs['series'].lower(),
+                        'ports': _ports_list(specs),
+                        'management': specs.get('management_port', 'ether1')
+                    }
 
             # Prefer identity-based detection (e.g., RTR-MT2004-..., RTR-MTCCR2216-...).
             ident_digits = None
@@ -3391,92 +3450,72 @@ def translate_config():
             # Resolve a canonical type/model if we can.
             model_hint = (header_model or '')
             digits_hint = None
-            dm = re.search(r'(?i)\b(?:CCR|RB)\s*(\d{3,4})\b', model_hint.replace('-', ' '))
+            dm = re.search(r'(?i)\b(?:CCR|RB|CRS)\s*(\d{3,4})\b', model_hint.replace('-', ' '))
             if dm:
                 digits_hint = dm.group(1)
             if not digits_hint:
                 digits_hint = ident_digits
 
-            if digits_hint == '2216' or ('CCR2216' in model_hint.upper()):
-                device_info['model'] = 'CCR2216-1G-12XS-2XQ'
-                device_info['type'] = 'ccr2216'
-                device_info['ports'] = ['ether1', 'sfp28-1', 'sfp28-2', 'sfp28-3', 'sfp28-4', 'sfp28-5', 'sfp28-6', 'sfp28-7', 'sfp28-8', 'sfp28-9', 'sfp28-10', 'sfp28-11', 'sfp28-12']
-                return device_info
-            if digits_hint == '2004' or ('CCR2004' in model_hint.upper()):
-                device_info['model'] = 'CCR2004-1G-12S+2XS'
-                device_info['type'] = 'ccr2004'
-                device_info['ports'] = ['ether1', 'sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4', 'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8', 'sfp-sfpplus9', 'sfp-sfpplus10', 'sfp-sfpplus11', 'sfp-sfpplus12', 'sfp28-1', 'sfp28-2']
-                return device_info
-            if digits_hint == '1072' or ('CCR1072' in model_hint.upper()):
-                device_info['model'] = 'CCR1072-12G-4S+'
-                device_info['type'] = 'ccr1072'
-                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp1', 'sfp2', 'sfp3', 'sfp4']
-                return device_info
-            if digits_hint == '1036' or ('CCR1036' in model_hint.upper()):
-                device_info['model'] = 'CCR1036-12G-4S'
-                device_info['type'] = 'ccr1036'
-                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp1', 'sfp2', 'sfp3', 'sfp4']
-                return device_info
-            if 'CCR2116' in model_hint.upper() or 'CCR2116' in text:
-                device_info['model'] = 'CCR2116-12G-4S+'
-                device_info['type'] = 'ccr2116'
-                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4']
-                return device_info
-            if 'RB5009' in model_hint.upper() or 'RB5009' in text:
-                device_info['model'] = 'RB5009UG+S+'
-                device_info['type'] = 'rb5009'
-                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'sfp-sfpplus1']
-                return device_info
-            if 'RB2011' in model_hint.upper() or 'RB2011' in text or 'MT2011' in text:
-                device_info['model'] = 'RB2011UiAS'
-                device_info['type'] = 'rb2011'
-                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'sfp1']
-                return device_info
-            if 'RB1009' in model_hint.upper() or 'RB1009' in text or 'MT1009' in text:
-                device_info['model'] = 'RB1009UG+S+'
-                device_info['type'] = 'rb1009'
-                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'sfp-sfpplus1']
-                return device_info
+            alias_key = None
+            if digits_hint == '2216':
+                alias_key = aliases['ccr2216']
+            elif digits_hint == '2116':
+                alias_key = aliases['ccr2116']
+            elif digits_hint == '2004':
+                if '16g' in (model_hint or '').lower() or '16g' in text.lower():
+                    alias_key = aliases['ccr2004-16g-2s+']
+                else:
+                    alias_key = aliases['ccr2004']
+            elif digits_hint == '1072':
+                alias_key = aliases['ccr1072']
+            elif digits_hint == '1036':
+                alias_key = aliases['ccr1036']
+            elif digits_hint == '5009':
+                alias_key = aliases['rb5009']
+            elif digits_hint == '2011':
+                alias_key = aliases['rb2011']
+            elif digits_hint == '1009':
+                alias_key = aliases['rb1009']
+            elif digits_hint == '326':
+                alias_key = aliases['crs326']
+            elif digits_hint == '354':
+                alias_key = aliases['crs354']
 
-            # Fallback to interface-pattern heuristics.
-            # CCR2216: Has sfp28-1 through sfp28-12 (12 sfp28 ports), NO sfp-sfpplus ports
-            # CCR2004: Has sfp-sfpplus1-12, plus sfp28-1, sfp28-2 (only 2 sfp28 ports)
-            if 'CCR2216' in text or 'MT2216' in text or (text.count('sfp28-') > 3 and 'sfp28-3' in text and 'sfp-sfpplus' not in text):
-                device_info['model'] = 'CCR2216-1G-12XS-2XQ'
-                device_info['type'] = 'ccr2216'
-                device_info['ports'] = ['ether1', 'sfp28-1', 'sfp28-2', 'sfp28-3', 'sfp28-4', 'sfp28-5', 'sfp28-6', 'sfp28-7', 'sfp28-8', 'sfp28-9', 'sfp28-10', 'sfp28-11', 'sfp28-12']
-            elif 'CCR1072' in text or ('sfp1' in text and 'sfp2' in text and 'sfp3' in text and 'sfp4' in text and 'sfp-sfpplus' not in text):
-                device_info['model'] = 'CCR1072-12G-4S+'
-                device_info['type'] = 'ccr1072'
-                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp1', 'sfp2', 'sfp3', 'sfp4']
-            elif 'CCR1036' in text:
-                device_info['model'] = 'CCR1036-12G-4S'
-                device_info['type'] = 'ccr1036'
-                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp1', 'sfp2', 'sfp3', 'sfp4']
-            elif 'CCR2004' in text or 'MT2004' in text or ('sfp-sfpplus' in text and 'sfp28-' not in text.replace('sfp28-1', '').replace('sfp28-2', '')):
-                device_info['model'] = 'CCR2004-1G-12S+2XS'
-                device_info['type'] = 'ccr2004'
-                device_info['ports'] = ['ether1', 'sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4', 'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8', 'sfp-sfpplus9', 'sfp-sfpplus10', 'sfp-sfpplus11', 'sfp-sfpplus12', 'sfp28-1', 'sfp28-2']
-            elif 'CCR2116' in text:
-                device_info['model'] = 'CCR2116-12G-4S+'
-                device_info['type'] = 'ccr2116'
-                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4']
-            elif 'RB5009' in text:
-                device_info['model'] = 'RB5009UG+S+'
-                device_info['type'] = 'rb5009'
-                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'sfp-sfpplus1']
-            elif 'RB2011' in text or 'MT2011' in text or ('ether10' in text and 'sfp1' in text and 'sfp2' not in text and 'sfp-sfpplus' not in text and 'sfp28-' not in text):
-                device_info['model'] = 'RB2011UiAS'
-                device_info['type'] = 'rb2011'
-                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'sfp1']
-            elif 'RB1009' in text or 'MT1009' in text or ('ether9' in text and 'sfp-sfpplus1' in text and 'ether10' not in text and 'sfp28-' not in text):
-                device_info['model'] = 'RB1009UG+S+'
-                device_info['type'] = 'rb1009'
-                device_info['ports'] = ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'sfp-sfpplus1']
+            if alias_key and alias_key in ROUTERBOARD_INTERFACES:
+                specs = ROUTERBOARD_INTERFACES[alias_key]
+                return {
+                    'model': specs['model'],
+                    'type': specs['series'].lower(),
+                    'ports': _ports_list(specs),
+                    'management': specs.get('management_port', 'ether1')
+                }
+
+            # Fallback: interface-pattern scoring across all known models.
+            iface_pattern = r"\b(ether\d+|sfp\d+(?:-\d+)?|sfp-sfpplus\d+|sfp28-\d+|qsfp28-\d+-\d+|qsfpplus\d+-\d+|qsfp\d+(?:-\d+)?|combo\d+)\b"
+            found_ifaces = set(re.findall(iface_pattern, text))
+            if found_ifaces:
+                best = None
+                best_score = -1
+                best_ports = -1
+                for model_key, specs in ROUTERBOARD_INTERFACES.items():
+                    ports = set(_ports_list(specs))
+                    score = len(found_ifaces & ports)
+                    if score > best_score or (score == best_score and specs.get('total_ports', 0) > best_ports):
+                        best_score = score
+                        best_ports = specs.get('total_ports', 0)
+                        best = specs
+                if best and best_score > 0:
+                    return {
+                        'model': best['model'],
+                        'type': best['series'].lower(),
+                        'ports': _ports_list(best),
+                        'management': best.get('management_port', 'ether1')
+                    }
 
             return device_info
         
         def get_target_device_info(target_device):
+def get_target_device_info(target_device):
             """Get target device information dynamically"""
             def ports_list(specs):
                 ports = []
