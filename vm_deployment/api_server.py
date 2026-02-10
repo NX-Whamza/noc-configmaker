@@ -4780,8 +4780,12 @@ Port Roles:
                     return 'olt'
                 
                 # Switch detection
-                if any(keyword in comment_upper for keyword in ['SWITCH', 'SW']):
+                if any(keyword in comment_upper for keyword in ['SWITCH', 'SW', 'NETONIX']):
                     return 'switch'
+
+                # Power/UPS detection
+                if any(keyword in comment_upper for keyword in ['UPS', 'ICT', 'POWER', 'WPS']):
+                    return 'power'
                 
                 # LTE detection
                 if 'LTE' in comment_upper:
@@ -5378,8 +5382,11 @@ Port Roles:
             mgmt_port = target_device_info.get('management', '')
             
             if target_ports and source_ports:
-                print(f"[INTERFACE] Dynamic mapping: {len(source_ports)} source → {len(target_ports)} target ports")
-                translated = map_interfaces_dynamically(translated, source_ports, target_ports, mgmt_port, target_device_info.get('type',''))
+                if strict_preserve:
+                    print(f"[INTERFACE] strict_preserve: defer mapping ({len(source_ports)} source -> {len(target_ports)} target ports)")
+                else:
+                    print(f"[INTERFACE] Dynamic mapping: {len(source_ports)} source -> {len(target_ports)} target ports")
+                    translated = map_interfaces_dynamically(translated, source_ports, target_ports, mgmt_port, target_device_info.get('type',''))
             
             # 7. Postprocessing (non-strict mode only).
             # Strict mode is intended for "Upgrade Existing": preserve structure and lines exactly.
@@ -5731,10 +5738,21 @@ Port Roles:
 
             def _extract_iface_entries(config_text: str) -> list[dict]:
                 entries = []
-                eth_pattern = r'/interface ethernet\s+set\s+\[[^\]]*default-name=([^\]]+)\][^\n]*comment=([^\s\n"]+|"[^"]+")'
-                for m in re.finditer(eth_pattern, config_text, re.MULTILINE | re.DOTALL):
-                    iface = m.group(1).strip()
-                    comment = m.group(2).strip().strip('"')
+                lines = (config_text or '').splitlines()
+                in_eth = False
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped.startswith('/'):
+                        in_eth = (stripped == '/interface ethernet')
+                        continue
+                    if not in_eth:
+                        continue
+                    m_iface = re.search(r'default-name=([^\s\]]+)', line)
+                    m_comment = re.search(r'comment=([^\s\n"]+|"[^"]+")', line)
+                    if not m_iface or not m_comment:
+                        continue
+                    iface = m_iface.group(1).strip()
+                    comment = m_comment.group(1).strip().strip('"')
                     entries.append({'iface': iface, 'comment': comment})
                 return entries
 
@@ -5745,8 +5763,10 @@ Port Roles:
                     return 'backhaul'
                 if 'OLT' in c or 'NOKIA' in c:
                     return 'olt'
-                if any(k in c for k in ['SWITCH', 'SW', 'NETONIX', 'WPS']):
+                if any(k in c for k in ['SWITCH', 'SW', 'NETONIX']):
                     return 'switch'
+                if any(k in c for k in ['UPS', 'ICT', 'POWER', 'WPS']):
+                    return 'power'
                 if 'LTE' in c:
                     return 'lte'
                 if 'TARANA' in c:
@@ -5758,6 +5778,11 @@ Port Roles:
             # Extract comments from /interface ethernet set lines (ordered) from both source and translated config
             source_entries = _extract_iface_entries(source_config)
             current_entries = _extract_iface_entries(text)
+            source_by_comment = {}
+            for e in source_entries:
+                if e.get('comment'):
+                    key = e['comment'].strip().upper()
+                    source_by_comment.setdefault(key, []).append(e['iface'])
 
             # Build preferred destination pools (exclude management).
             def _pool(prefix: str):
@@ -5804,19 +5829,46 @@ Port Roles:
                     switch_pool = ['sfp-sfpplus1', 'sfp-sfpplus2']
                     backhaul_pool = ['sfp-sfpplus4', 'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8',
                                      'sfp-sfpplus9', 'sfp-sfpplus10', 'sfp-sfpplus11', 'sfp-sfpplus12', 'sfp28-1', 'sfp28-2']
-                    other_pool = ['sfp-sfpplus3'] + [p for p in dest_pool if p not in switch_pool + backhaul_pool]
+                    power_pool = ['sfp-sfpplus3']
                 else:
                     switch_pool = ['sfp28-1', 'sfp28-2']
                     backhaul_pool = ['sfp28-4', 'sfp28-5', 'sfp28-6', 'sfp28-7', 'sfp28-8', 'sfp28-9', 'sfp28-10', 'sfp28-11', 'sfp28-12']
-                    other_pool = ['sfp28-3'] + [p for p in dest_pool if p not in switch_pool + backhaul_pool]
+                    power_pool = ['sfp28-3']
+                # Reserve backhaul ports first so non-backhaul devices can't steal sfp28-4+
+                backhaul_needed = 0
+                lines = text.splitlines()
+                in_eth_scan = False
+                eth_set_pattern = re.compile(r'^(\s*set\s+\[\s*find\s+default-name=)([^\s\]]+)(\s*\].*)$', re.IGNORECASE)
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped.startswith('/'):
+                        in_eth_scan = (stripped == '/interface ethernet')
+                        continue
+                    if not in_eth_scan:
+                        continue
+                    m_scan = eth_set_pattern.match(line)
+                    if not m_scan:
+                        continue
+                    iface_scan = m_scan.group(2)
+                    if iface_scan == mgmt:
+                        continue
+                    cm_scan = re.search(r'comment=([^\s\n"]+|"[^"]+")', line)
+                    comment_scan = cm_scan.group(1).strip().strip('"') if cm_scan else ''
+                    if _classify_interface_purpose(comment_scan, iface_scan) == 'backhaul':
+                        backhaul_needed += 1
+
+                reserved_backhaul = backhaul_pool[:backhaul_needed]
+                remaining_backhaul = [p for p in backhaul_pool if p not in reserved_backhaul]
+                non_qsfp = [p for p in dest_pool if not p.startswith('qsfp')]
+                extra_pool = [p for p in non_qsfp if p not in switch_pool + backhaul_pool + power_pool]
+                other_pool = remaining_backhaul + extra_pool
+                qsfp_pool = [p for p in dest_pool if p.startswith('qsfp')]
 
                 # Rewrite /interface ethernet set lines directly to enforce policy.
                 used_dest = set()
                 mapping = {}
-                lines = text.splitlines()
                 out_lines = []
                 in_eth = False
-                eth_set_pattern = re.compile(r'^(\s*set\s+\[\s*find\s+default-name=)([^\s\]]+)(\s*\].*)$', re.IGNORECASE)
 
                 def _next_from(pool):
                     for dest in pool:
@@ -5843,13 +5895,19 @@ Port Roles:
                             comment = cm.group(1).strip().strip('"') if cm else ''
                             purpose = _classify_interface_purpose(comment, iface)
                             if purpose == 'switch':
-                                dest = _next_from(switch_pool)
+                                dest = _next_from(switch_pool) or _next_from(other_pool) or _next_from(qsfp_pool)
                             elif purpose == 'backhaul':
-                                dest = _next_from(backhaul_pool)
+                                dest = _next_from(backhaul_pool) or _next_from(other_pool) or _next_from(qsfp_pool)
+                            elif purpose == 'power':
+                                dest = _next_from(power_pool) or _next_from(other_pool) or _next_from(qsfp_pool)
                             else:
-                                dest = _next_from(other_pool)
+                                dest = _next_from(other_pool) or _next_from(power_pool) or _next_from(qsfp_pool)
                             if dest:
                                 mapping[iface] = dest
+                                # Also map original source interfaces that used the same comment.
+                                for src_iface in source_by_comment.get(comment.strip().upper(), []):
+                                    if src_iface not in mapping:
+                                        mapping[src_iface] = dest
                                 line = m.group(1) + dest + m.group(3)
                         out_lines.append(line)
                         continue
@@ -5889,6 +5947,39 @@ Port Roles:
             for src, tmp in temp_map.items():
                 dst = mapping[src]
                 text = text.replace(tmp, dst)
+
+            # Final safety pass: remap interface parameters explicitly (handles interface= and interfaces= lists).
+            def _map_iface_list(val: str) -> str:
+                parts = [p.strip() for p in val.split(',')]
+                return ','.join(mapping.get(p, p) for p in parts if p)
+
+            def _remap_iface_params(line: str) -> str:
+                def _repl(m):
+                    return m.group(1) + _map_iface_list(m.group(2))
+                line = re.sub(r'(\\binterfaces?=)([^\\s]+)', _repl, line)
+                return line
+
+            remapped_lines = []
+            comment_to_iface = {}
+            for e in _extract_iface_entries(text):
+                if e.get('comment'):
+                    key = e['comment'].strip().upper()
+                    if key not in comment_to_iface:
+                        comment_to_iface[key] = e['iface']
+            for line in text.splitlines():
+                if 'interface=' in line or 'interfaces=' in line:
+                    # Prefer comment-driven correction when present
+                    cm = re.search(r'comment=([^\s\n"]+|"[^"]+")', line)
+                    if cm:
+                        ckey = cm.group(1).strip().strip('"').upper()
+                        if ckey in comment_to_iface:
+                            line = re.sub(r'(\binterfaces?=)([^\s]+)', r'\1' + comment_to_iface[ckey], line)
+                            remapped_lines.append(line)
+                            continue
+                    remapped_lines.append(_remap_iface_params(line))
+                else:
+                    remapped_lines.append(line)
+            text = "\n".join(remapped_lines)
 
             return text
         
