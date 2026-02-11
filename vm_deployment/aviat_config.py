@@ -1395,6 +1395,19 @@ def process_radio(
         if "firmware" in tasks or "all" in tasks or "sop" in tasks:
             result.firmware_version_before = get_firmware_version(client, callback=callback)
 
+        # Optional uptime gate for firmware/activation tasks
+        if any(t in tasks for t in ("firmware", "activate", "all")):
+            try:
+                uptime_days = get_uptime_days(client, callback=callback)
+            except Exception as err:
+                log(f"[{ip}] Uptime check failed (ignored): {err}", "warning", callback=callback)
+                uptime_days = None
+            if uptime_days is not None and uptime_days > 250:
+                result.status = "reboot_required"
+                result.error = f"Uptime {uptime_days} days exceeds 250; reboot required before upgrade."
+                log(f"[{ip}] {result.error}", "warning", callback=callback)
+                return result
+
         # 0. Firmware download / scheduling
         if "firmware" in tasks or "all" in tasks:
             if abort_if_needed():
@@ -1597,32 +1610,7 @@ def process_radio(
                 result.firmware_activated = True
                 result.firmware_version_after = current_version
             else:
-                try:
-                    uptime_days = get_uptime_days(client, callback=callback)
-                except Exception as err:
-                    log(f"[{ip}] Uptime check failed (ignored): {err}", "warning", callback=callback)
-                    uptime_days = None
-                if uptime_days is not None and uptime_days > 250:
-                    log(
-                        f"[{ip}] Uptime {uptime_days} days exceeds 250; rebooting before activation.",
-                        "warning",
-                        callback=callback,
-                    )
-                    try:
-                        client.send_command("reboot", timeout=5)
-                    except Exception:
-                        pass
-                    client.close()
-                    client = wait_for_device_ready_and_reconnect(
-                        ip,
-                        username=login_username,
-                        password=login_password,
-                        fallback_password=CONFIG.default_password,
-                        callback=callback,
-                    )
-                    if not client:
-                        result.error = "Device did not recover after pre-activation reboot"
-                        return result
+                # Uptime gating handled earlier; no reboot here.
                 success, msg = activate_firmware(client, callback=callback)
                 result.firmware_activated = success
                 if not success and not result.error:

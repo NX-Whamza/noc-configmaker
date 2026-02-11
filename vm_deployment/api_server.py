@@ -211,6 +211,8 @@ aviat_scheduled_queue = []
 AVIAT_SCHEDULED_STORE = Path(__file__).resolve().parent / "aviat_scheduled_queue.json"
 aviat_loading_queue = []
 AVIAT_LOADING_STORE = Path(__file__).resolve().parent / "aviat_loading_queue.json"
+aviat_reboot_queue = []
+AVIAT_REBOOT_STORE = Path(__file__).resolve().parent / "aviat_reboot_queue.json"
 aviat_activation_lock = threading.Lock()
 aviat_loading_lock = threading.Lock()
 AVIAT_AUTO_ACTIVATE = os.getenv("AVIAT_AUTO_ACTIVATE", "true").lower() in ("1", "true", "yes")
@@ -264,6 +266,26 @@ def _aviat_save_loading_queue():
 
 _aviat_load_loading_queue()
 
+def _aviat_load_reboot_queue():
+    if not AVIAT_REBOOT_STORE.exists():
+        return
+    try:
+        with AVIAT_REBOOT_STORE.open("r") as handle:
+            data = json.load(handle)
+        if isinstance(data, list):
+            aviat_reboot_queue.extend(data)
+    except Exception:
+        pass
+
+def _aviat_save_reboot_queue():
+    try:
+        with AVIAT_REBOOT_STORE.open("w") as handle:
+            json.dump(aviat_reboot_queue, handle)
+    except Exception:
+        pass
+
+_aviat_load_reboot_queue()
+
 def _aviat_load_shared_queue():
     if not AVIAT_SHARED_QUEUE_STORE.exists():
         return
@@ -309,6 +331,8 @@ def _aviat_queue_remove(ip):
 def _aviat_status_from_result(result):
     status = (result or {}).get("status")
     success = result.get("success")
+    if status == "reboot_required":
+        return "reboot_required"
     if status in ("scheduled", "manual", "loading"):
         return status
     if status == "aborted":
@@ -383,6 +407,25 @@ def _aviat_connect_with_fallback(ip, callback=None):
     if callback:
         callback(f"[{ip}] Connected with default password", "info")
     return client
+
+def _aviat_reboot_device(ip, callback=None):
+    client = None
+    try:
+        client = _aviat_connect_with_fallback(ip, callback=callback)
+        client.send_command("reboot", timeout=5)
+        if callback:
+            callback(f"[{ip}] Reboot command sent.", "info")
+        return True, None
+    except Exception as e:
+        if callback:
+            callback(f"[{ip}] Reboot failed: {e}", "error")
+        return False, str(e)
+    finally:
+        if client:
+            try:
+                client.close()
+            except Exception:
+                pass
 
 
 def _aviat_loading_check_loop():
@@ -11082,8 +11125,22 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
                     "firmwareStatus": "scheduled",
                     "username": username or "aviat-tool",
                 })
+            elif res.get("status") == "reboot_required":
+                aviat_reboot_queue.append({
+                    "ip": res["ip"],
+                    "reason": res.get("error") or "Uptime exceeds limit",
+                    "remaining_tasks": remaining_tasks,
+                    "maintenance_params": maintenance_params,
+                    "username": username or "aviat-tool",
+                    "started_at": datetime.utcnow().isoformat() + "Z",
+                })
+                _aviat_queue_upsert(res["ip"], {
+                    "status": "reboot_required",
+                    "username": username or "aviat-tool",
+                })
         _aviat_save_scheduled_queue()
         _aviat_save_loading_queue()
+        _aviat_save_reboot_queue()
 
     if aviat_tasks.get(task_id, {}).get('abort'):
         remaining = [ip for ip in ips if ip not in [r['ip'] for r in results]]
@@ -11108,11 +11165,27 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
         aviat_tasks[task_id]['status'] = 'aborted'
     else:
         aviat_tasks[task_id]['status'] = 'completed'
+
+    # Ensure reboot-required devices are captured even outside scheduled mode.
+    for res in results:
+        if res.get("status") == "reboot_required":
+            if not any(e.get("ip") == res.get("ip") for e in aviat_reboot_queue):
+                aviat_reboot_queue.append({
+                    "ip": res.get("ip"),
+                    "reason": res.get("error") or "Uptime exceeds limit",
+                    "remaining_tasks": _aviat_clean_remaining_tasks([t for t in task_types if t != "all"]),
+                    "maintenance_params": maintenance_params,
+                    "username": username or "aviat-tool",
+                    "started_at": datetime.utcnow().isoformat() + "Z",
+                })
+    _aviat_save_reboot_queue()
+
     aviat_tasks[task_id]['results'] = results
     for res in results:
         _aviat_queue_update_from_result(res, username=username)
         _log_aviat_activity(res)
     _aviat_save_shared_queue()
+    _aviat_save_reboot_queue()
 
     if task_id in aviat_log_queues:
         aviat_log_queues[task_id].put(None)
@@ -11282,6 +11355,60 @@ def aviat_get_loading():
     return jsonify({
         "loading": [item.get("ip") for item in aviat_loading_queue]
     })
+
+
+@app.route('/api/aviat/reboot-required', methods=['GET'])
+def aviat_get_reboot_required():
+    if not HAS_AVIAT:
+        return jsonify({'error': 'Aviat backend not available'}), 503
+    return jsonify({
+        "reboot_required": aviat_reboot_queue
+    })
+
+
+@app.route('/api/aviat/reboot-required/run', methods=['POST'])
+def aviat_run_reboot_required():
+    if not HAS_AVIAT:
+        return jsonify({'error': 'Aviat backend not available'}), 503
+    data = request.json or {}
+    request_ips = data.get("ips") or []
+    username = data.get("username") or "aviat-tool"
+
+    if request_ips:
+        target_entries = [e for e in aviat_reboot_queue if e.get("ip") in set(request_ips)]
+    else:
+        target_entries = list(aviat_reboot_queue)
+
+    if not target_entries:
+        return jsonify({"error": "No reboot-required devices"}), 400
+
+    for entry in target_entries:
+        _aviat_queue_upsert(entry["ip"], {
+            "status": "rebooting",
+            "username": username,
+        })
+    _aviat_save_shared_queue()
+
+    def reboot_task():
+        for entry in target_entries:
+            ip = entry.get("ip")
+            if not ip:
+                continue
+            def log_cb(message, level):
+                _aviat_broadcast_log(message, level)
+            success, err = _aviat_reboot_device(ip, callback=log_cb)
+            if success:
+                _aviat_queue_upsert(ip, {"status": "pending", "username": username})
+            else:
+                _aviat_queue_upsert(ip, {"status": "error", "username": username, "error": err})
+            # remove from reboot queue
+            aviat_reboot_queue[:] = [e for e in aviat_reboot_queue if e.get("ip") != ip]
+        _aviat_save_shared_queue()
+        _aviat_save_reboot_queue()
+
+    thread = threading.Thread(target=reboot_task)
+    thread.start()
+    return jsonify({"status": "rebooting", "count": len(target_entries)})
 
 
 @app.route('/api/aviat/scheduled/sync', methods=['POST'])
