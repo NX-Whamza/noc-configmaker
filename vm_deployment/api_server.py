@@ -1405,6 +1405,178 @@ def apply_ros6_to_ros7_syntax(config_text):
                 _add_area_in_block,
                 migrated
             )
+        # Populate missing networks= for interface-template entries from /ip address
+        # Build interface -> network/prefix map using address + network fields.
+        ip_iface_map = {}
+        net_iface_map = {}
+        for m in re.finditer(r"(?m)^/ip/address\s+add\s+address=([0-9.]+)/(\d+)\s+[^\n]*?interface=([^\s]+)\s+[^\n]*?network=([0-9.]+)", migrated):
+            ip, prefix, iface, net = m.group(1), m.group(2), m.group(3), m.group(4)
+            ip_iface_map[iface] = f"{net}/{prefix}"
+            net_iface_map[f"{net}/{prefix}"] = iface
+        # Add networks= where missing
+        def _add_networks_from_ip(m):
+            line = m.group(0)
+            if " networks=" in line:
+                return line
+            iface_match = re.search(r"interfaces=([^\s]+)", line)
+            if not iface_match:
+                return line
+            iface = iface_match.group(1)
+            net = ip_iface_map.get(iface)
+            if not net:
+                return line
+            return line + f" networks={net}"
+        migrated = re.sub(r"(?m)^/routing/ospf interface-template\s+add\b[^\n]*$", _add_networks_from_ip, migrated)
+        # Add interfaces= where only networks= exists (map from /ip address network)
+        def _add_interfaces_from_net(m):
+            line = m.group(0)
+            if " interfaces=" in line:
+                return line
+            net_match = re.search(r"networks=([^\s]+)", line)
+            if not net_match:
+                return line
+            iface = net_iface_map.get(net_match.group(1))
+            if not iface:
+                return line
+            return line + f" interfaces={iface}"
+        migrated = re.sub(r"(?m)^/routing/ospf interface-template\s+add\b[^\n]*$", _add_interfaces_from_net, migrated)
+        # Also add interfaces= for block-style interface-template add lines
+        def _add_interfaces_in_block(match):
+            body = match.group(1)
+            out = []
+            for ln in body.splitlines():
+                if not ln.strip().startswith("add "):
+                    out.append(ln)
+                    continue
+                if " interfaces=" in ln:
+                    out.append(ln)
+                    continue
+                net_match = re.search(r"networks=([^\s]+)", ln)
+                if not net_match:
+                    out.append(ln)
+                    continue
+                iface = net_iface_map.get(net_match.group(1))
+                if not iface:
+                    out.append(ln)
+                    continue
+                out.append(ln + f" interfaces={iface}")
+            return "/routing/ospf interface-template\n" + "\n".join(out) + "\n"
+        migrated = re.sub(r"(?ms)^/routing/ospf interface-template\s*\n((?:add[^\n]*\n)+)", _add_interfaces_in_block, migrated)
+        # Drop duplicate interface-template add lines
+        def _dedupe_interface_template(match):
+            body = match.group(1)
+            seen = set()
+            out = []
+            for ln in body.splitlines():
+                key = re.sub(r"\s+", " ", ln.strip())
+                if not key:
+                    continue
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(ln)
+            return "/routing/ospf interface-template\n" + "\n".join(out) + "\n"
+        migrated = re.sub(r"(?ms)^/routing/ospf interface-template\s*\n((?:add[^\n]*\n)+)", _dedupe_interface_template, migrated)
+
+        # Consolidate all interface-template entries into a single block
+        def _consolidate_interface_templates(text):
+            lines = text.splitlines()
+            new_lines = []
+            in_block = False
+            collected = []
+
+            for ln in lines:
+                if ln.startswith("/routing/ospf interface-template"):
+                    m_inline = re.match(r"^/routing/ospf interface-template\s+add\s+(.*)$", ln)
+                    if m_inline:
+                        collected.append("add " + m_inline.group(1).strip())
+                    in_block = True
+                    continue
+
+                if in_block:
+                    if ln.startswith("add "):
+                        collected.append(ln.strip())
+                        continue
+                    if ln.startswith("/"):
+                        in_block = False
+                        new_lines.append(ln)
+                        continue
+                    if ln.strip() == "" or ln.lstrip().startswith("#"):
+                        continue
+                    continue
+
+                new_lines.append(ln)
+
+            if not collected:
+                return "\n".join(new_lines)
+
+            area_match = re.search(r"(?m)^/routing/ospf area\s*\nadd\s+[^\n]*\bname=([^\s]+)", text)
+            default_area = area_match.group(1) if area_match else "backbone"
+            def _tokenize_params(line):
+                return re.findall(r'(?:[^\s"]+|"[^"]*")+', line)
+
+            normalized = []
+            seen = set()
+            best_by_key = {}
+            order = []
+            for ln in collected:
+                if " area=" not in ln:
+                    ln = ln.replace("add ", f"add area={default_area} ", 1)
+                if " interfaces=" not in ln:
+                    net_match = re.search(r"networks=([^\s]+)", ln)
+                    if net_match:
+                        iface = net_iface_map.get(net_match.group(1))
+                        if iface:
+                            ln = ln + f" interfaces={iface}"
+                key = re.sub(r"\s+", " ", ln.strip())
+                if key in seen:
+                    continue
+                seen.add(key)
+                iface_val = (re.search(r"interfaces=([^\s]+)", ln) or [None, ""])[1]
+                net_val = (re.search(r"networks=([^\s]+)", ln) or [None, ""])[1]
+                pair_key = f"{iface_val}|{net_val}"
+                if pair_key in best_by_key:
+                    existing = best_by_key[pair_key]
+                    existing_tokens = _tokenize_params(existing)
+                    new_tokens = _tokenize_params(ln.strip())
+                    if existing_tokens and existing_tokens[0] == "add":
+                        existing_tokens = existing_tokens[1:]
+                    if new_tokens and new_tokens[0] == "add":
+                        new_tokens = new_tokens[1:]
+                    for tok in new_tokens:
+                        if tok not in existing_tokens:
+                            existing_tokens.append(tok)
+                    best_by_key[pair_key] = "add " + " ".join(existing_tokens)
+                    continue
+                best_by_key[pair_key] = ln.strip()
+                order.append(pair_key)
+
+            for pk in order:
+                normalized.append(best_by_key[pk])
+
+            block = ["/routing/ospf interface-template"] + normalized
+
+            inserted = False
+            for i, ln in enumerate(new_lines):
+                if ln.strip() == "/routing/ospf area":
+                    j = i + 1
+                    # skip any add lines that belong to area block
+                    while j < len(new_lines) and (new_lines[j].startswith("add ") or new_lines[j].strip() == ""):
+                        j += 1
+                    new_lines = new_lines[:j] + block + new_lines[j:]
+                    inserted = True
+                    break
+            if not inserted:
+                for i, ln in enumerate(new_lines):
+                    if ln.startswith("/routing/ospf instance"):
+                        new_lines = new_lines[:i+1] + block + new_lines[i+1:]
+                        inserted = True
+                        break
+            if not inserted:
+                new_lines = block + new_lines
+            return "\n".join(new_lines)
+
+        migrated = _consolidate_interface_templates(migrated)
 
     if re.search(r"(?m)^/interface/vpls\s", migrated):
         migrated = migrated.replace("cisco-style-id=", "cisco-static-id=")
