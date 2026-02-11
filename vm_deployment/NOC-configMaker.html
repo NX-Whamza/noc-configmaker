@@ -22301,7 +22301,7 @@ Ready for translation!`);
                             </div>
                             <div style="display: flex; gap: 6px; align-items: center;">
                                 ${licenseIssue ? `<button class="aviat-btn secondary" onclick="aviatShowPrecheck('License', '${r.licenseDetail || ''}', '${r.ip}')">License</button>` : ''}
-                                ${stpIssue ? `<button class="aviat-btn secondary" onclick="aviatShowPrecheck('STP', '${r.stpDetail || ''}', '${r.ip}')">STP</button>` : ''}
+                                ${stpIssue ? `<button class="aviat-btn secondary" onclick="aviatFixStp('${r.ip}')">Fix STP</button>` : ''}
                                 ${subnetIssue ? `<button class="aviat-btn secondary" onclick="aviatShowPrecheck('Subnet', '${r.subnetDetail || ''}', '${r.ip}')">Subnet</button>` : ''}
                                 ${canReboot ? `<button class="aviat-btn" onclick="aviatRebootRequired('${r.ip}')" ${disabled || isRebooting ? 'disabled' : ''}>Reboot</button>` : ''}
                                 <button class="aviat-btn secondary" onclick="aviatRunSingle('${r.ip}')" ${disabled}>Run</button>
@@ -22630,6 +22630,24 @@ Ready for translation!`);
                     ? `${type} check failed for ${ip}: ${value}`
                     : `${type} check failed for ${ip}.`;
                 alert(message);
+            };
+
+            window.aviatFixStp = async function (ip) {
+                try {
+                    const response = await aviatFetchWithTimeout('/fix-stp', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ip })
+                    }, 20000);
+                    const data = await parseAviatJson(response);
+                    if (!response.ok) {
+                        throw new Error(data.error || `STP fix failed (${response.status})`);
+                    }
+                    aviatAddLog(`STP disabled on ${ip}`, 'success');
+                    aviatRefreshStatus({ quiet: true });
+                } catch (err) {
+                    aviatAddLog(`STP fix failed for ${ip}: ${err.message}`, 'error');
+                }
             };
 
             async function aviatRunAll() {

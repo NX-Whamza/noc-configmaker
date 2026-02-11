@@ -11642,6 +11642,32 @@ def aviat_check_status():
     return jsonify({'results': results})
 
 
+@app.route('/api/aviat/fix-stp', methods=['POST'])
+def aviat_fix_stp():
+    if not HAS_AVIAT:
+        return jsonify({'error': 'Aviat backend not available'}), 503
+    data = request.json or {}
+    ip = data.get("ip")
+    if not ip:
+        return jsonify({"error": "Missing ip"}), 400
+
+    def log_cb(message, level):
+        _aviat_broadcast_log(message, level)
+
+    try:
+        client = _aviat_connect_with_fallback(ip, callback=log_cb)
+        client.send_command("config terminal", timeout=8)
+        client.send_command("spanning-tree administrative-status down", timeout=8)
+        client.send_command("commit", timeout=10)
+        client.send_command("exit", timeout=5)
+        client.close()
+        _aviat_broadcast_log(f"[{ip}] STP administrative-status set to down.", "success")
+        return jsonify({"status": "ok"})
+    except Exception as exc:
+        _aviat_broadcast_log(f"[{ip}] STP fix failed: {exc}", "error")
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route('/api/aviat/abort/<task_id>', methods=['POST'])
 def aviat_abort_task(task_id):
     if not HAS_AVIAT:
