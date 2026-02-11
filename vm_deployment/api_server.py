@@ -11315,17 +11315,19 @@ def aviat_activate_scheduled():
     client_hour = data.get("client_hour")
     client_minute = data.get("client_minute")
 
-    if client_hour is not None:
-        try:
-            client_hour = int(client_hour)
-            if not (2 <= client_hour < 5):
+    # Only enforce activation window when force is explicitly disabled.
+    if not force:
+        if client_hour is not None:
+            try:
+                client_hour = int(client_hour)
+                if not (2 <= client_hour < 5):
+                    return jsonify({"error": "Outside activation window (2:00 AM - 5:00 AM)"}), 400
+            except Exception:
+                pass
+        else:
+            now = datetime.now()
+            if not (2 <= now.hour < 5):
                 return jsonify({"error": "Outside activation window (2:00 AM - 5:00 AM)"}), 400
-        except Exception:
-            pass
-    else:
-        now = datetime.now()
-        if not (2 <= now.hour < 5):
-            return jsonify({"error": "Outside activation window (2:00 AM - 5:00 AM)"}), 400
 
     if not aviat_scheduled_queue and not request_ips:
         return jsonify({"error": "No scheduled devices"}), 400
