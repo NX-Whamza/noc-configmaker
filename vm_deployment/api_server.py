@@ -1347,6 +1347,7 @@ def apply_ros6_to_ros7_syntax(config_text):
             migrated
         )
         # Also handle block-style interface-template sections
+        # Normalize block-style interface-template sections
         if re.search(r"(?m)^/routing/ospf interface-template\s*$", migrated):
             def _fix_ospf_block(match):
                 body = match.group(1)
@@ -1379,6 +1380,31 @@ def apply_ros6_to_ros7_syntax(config_text):
                     migrated = migrated[:insert_at] + "\n" + area_block + migrated[insert_at:]
                 else:
                     migrated = area_block + migrated
+        # Ensure all interface-template add lines include area when an area exists.
+        if re.search(r"(?m)^/routing/ospf area\b", migrated):
+            # Prefer explicit area name if present; fallback to backbone
+            area_match = re.search(r"(?m)^/routing/ospf area\s*\nadd\s+[^\n]*\bname=([^\s]+)", migrated)
+            default_area = area_match.group(1) if area_match else "backbone"
+            def _ensure_iface_area(m):
+                line = m.group(0)
+                if " area=" in line:
+                    return line
+                return line.replace("add ", f"add area={default_area} ", 1)
+            migrated = re.sub(r"(?m)^/routing/ospf interface-template\s+add\b[^\n]*$", _ensure_iface_area, migrated)
+            # Also add area= for block-style add lines inside interface-template sections
+            def _add_area_in_block(match):
+                body = match.group(1)
+                out = []
+                for ln in body.splitlines():
+                    if ln.strip().startswith("add ") and " area=" not in ln:
+                        ln = ln.replace("add ", f"add area={default_area} ", 1)
+                    out.append(ln)
+                return "/routing/ospf interface-template\n" + "\n".join(out) + "\n"
+            migrated = re.sub(
+                r"(?ms)^/routing/ospf interface-template\s*\n((?:add[^\n]*\n)+)",
+                _add_area_in_block,
+                migrated
+            )
 
     if re.search(r"(?m)^/interface/vpls\s", migrated):
         migrated = migrated.replace("cisco-style-id=", "cisco-static-id=")
