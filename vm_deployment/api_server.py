@@ -168,6 +168,7 @@ try:
         CONFIG as AVIAT_CONFIG,
         get_firmware_version as aviat_get_firmware_version,
         get_inactive_firmware_version as aviat_get_inactive_firmware_version,
+        get_uptime_days as aviat_get_uptime_days,
         AviatSSHClient,
         wait_for_device_ready_and_reconnect,
     )
@@ -494,13 +495,45 @@ def _aviat_loading_check_loop():
                         _aviat_broadcast_log(message, level)
                     client = _aviat_connect_with_fallback(ip, callback=local_log)
                     active_version = aviat_get_firmware_version(client, callback=local_log)
-                    inactive_version = aviat_get_inactive_firmware_version(client, callback=local_log)
+                    inactive_raw = aviat_get_inactive_firmware_version(client, callback=local_log)
+                    # Enforce reboot-first if uptime exceeds threshold
+                    try:
+                        uptime_days = aviat_get_uptime_days(client, callback=local_log)
+                    except Exception:
+                        uptime_days = None
                     client.close()
                 except Exception as exc:
                     _aviat_broadcast_log(f"[{ip}] Loading check failed: {exc}", "warning")
                     still_loading.append(entry)
                     continue
-                inactive_version = _aviat_extract_version(inactive_version)
+                if uptime_days is not None and uptime_days > 250:
+                    _aviat_broadcast_log(
+                        f"[{ip}] Uptime {uptime_days} days exceeds 250; reboot required before upgrade.",
+                        "warning",
+                    )
+                    if not any(e.get("ip") == ip for e in aviat_reboot_queue):
+                        aviat_reboot_queue.append({
+                            "ip": ip,
+                            "reason": f"Uptime {uptime_days} days exceeds 250; reboot required before upgrade.",
+                            "remaining_tasks": entry.get("remaining_tasks", []),
+                            "maintenance_params": entry.get("maintenance_params", {}),
+                            "username": entry.get("username") or "aviat-tool",
+                            "started_at": datetime.utcnow().isoformat() + "Z",
+                        })
+                    _aviat_queue_upsert(ip, {
+                        "status": "reboot_required",
+                        "username": entry.get("username") or "aviat-tool",
+                    })
+                    _aviat_save_reboot_queue()
+                    continue
+                if isinstance(inactive_raw, str) and inactive_raw.lower() == "loadok":
+                    _aviat_broadcast_log(
+                        f"[{ip}] Firmware loadOk detected; moving to scheduled queue.",
+                        "success",
+                    )
+                    to_schedule.append(entry)
+                    continue
+                inactive_version = _aviat_extract_version(inactive_raw)
                 active_version = _aviat_extract_version(active_version)
                 target_version = _aviat_extract_version(entry.get("target_version"))
                 ready_versions = {
@@ -11585,6 +11618,9 @@ def aviat_check_status():
         firmware_ok = bool(res.get("firmware") and str(res.get("firmware")).startswith("6."))
         snmp_ok = bool(res.get("snmp_ok"))
         buffer_ok = bool(res.get("buffer_ok"))
+        license_ok = res.get("license_ok")
+        stp_ok = res.get("stp_ok")
+        subnet_ok = res.get("subnet_ok")
         status = "success" if firmware_ok and snmp_ok and buffer_ok else "pending"
         if res.get("error"):
             status = "error"
@@ -11594,6 +11630,12 @@ def aviat_check_status():
             "snmpStatus": "success" if snmp_ok else "pending",
             "bufferStatus": "success" if buffer_ok else "pending",
             "sopStatus": "success" if firmware_ok and snmp_ok and buffer_ok else "pending",
+            "licenseStatus": "success" if license_ok is True else ("error" if license_ok is False else "pending"),
+            "stpStatus": "success" if stp_ok is True else ("error" if stp_ok is False else "pending"),
+            "subnetStatus": "success" if subnet_ok is True else ("error" if subnet_ok is False else "pending"),
+            "licenseDetail": res.get("license_detail"),
+            "stpDetail": res.get("stp_detail"),
+            "subnetDetail": res.get("subnet_actual"),
         })
     _aviat_save_shared_queue()
 

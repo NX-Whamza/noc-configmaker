@@ -46,6 +46,7 @@ secure_data/
 *.log
 temp/
 cache/
+AviatSubnetChecker/
 
 # Secrets
 .env

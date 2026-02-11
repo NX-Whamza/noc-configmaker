@@ -745,11 +745,14 @@ def get_inactive_firmware_version(client: AviatSSHClient, callback=None) -> Opti
     ]
     version = None
     last_output = ""
+    load_ok = False
     for command in commands:
         output = client.send_command(command)
         last_output = output
         if _is_invalid_output(output):
             continue
+        if re.search(r"\bloadok\b", output, re.I):
+            load_ok = True
         _active, inactive = _parse_versions_from_status(output)
         version = inactive or _parse_inactive_version(output)
         if version:
@@ -757,6 +760,9 @@ def get_inactive_firmware_version(client: AviatSSHClient, callback=None) -> Opti
     if version:
         log(f"  [{client.ip}] Inactive firmware {version}", "info", callback=callback)
     else:
+        if load_ok:
+            log(f"  [{client.ip}] Inactive firmware loadOk detected", "info", callback=callback)
+            return "loadOk"
         tail = (last_output or "").strip().replace("\r", "")[-160:]
         if tail:
             log(f"  [{client.ip}] Inactive parse output tail: {tail}", "warning", callback=callback)
@@ -926,6 +932,61 @@ def _get_buffer_output(client: AviatSSHClient) -> str:
             "show running-config",
         ],
     )
+
+
+def _get_subnet_output(client: AviatSSHClient) -> str:
+    command = os.getenv("AVIAT_SUBNET_COMMAND", "show interface vlan1 | begin subnet")
+    return _first_valid_output(client, [command, "show interface vlan1", "show interface"])
+
+
+def check_subnet_mask(client: AviatSSHClient) -> Tuple[Optional[bool], str]:
+    expected = os.getenv("AVIAT_EXPECTED_MASK", "255.255.255.248")
+    output = _get_subnet_output(client)
+    if not output:
+        return None, "No output"
+    match = re.search(r"(?:subnet\s+mask|subnet-mask|mask)\s+([0-9.]+)", output, re.I)
+    if not match:
+        return None, "Mask not found"
+    actual = match.group(1)
+    return actual == expected, actual
+
+
+def check_license_bundles(client: AviatSSHClient) -> Tuple[Optional[bool], str]:
+    output = _first_valid_output(
+        client,
+        ["show licensing bundles", "show licensing", "show licensing licenses"],
+    )
+    if not output:
+        return None, "No output"
+    bundles = []
+    for line in output.splitlines():
+        line = line.strip()
+        if not line or line.lower() in ("bundle", "entity", "name"):
+            continue
+        if re.match(r"^-{3,}$", line):
+            continue
+        if re.match(r"^[A-Za-z0-9-]+$", line):
+            if line.lower() != "trial":
+                bundles.append(line)
+    if bundles:
+        return True, ", ".join(sorted(set(bundles)))
+    if "trial" in output.lower():
+        return False, "trial"
+    return None, "Unknown"
+
+
+def check_stp_disabled(client: AviatSSHClient) -> Tuple[Optional[bool], str]:
+    expected = os.getenv("AVIAT_STP_EXPECTED", "disabled").lower()
+    output = _first_valid_output(client, ["show spanning-tree", "show spanning tree"])
+    if not output:
+        return None, "No output"
+    lowered = output.lower()
+    if expected in ("disabled", "shutdown", "off"):
+        if "shutdown" in lowered or "disabled" in lowered or "off" in lowered:
+            return True, "disabled"
+        if "enabled" in lowered or "forwarding" in lowered:
+            return False, "enabled"
+    return None, "Unknown"
 
 
 def trigger_firmware_download(
@@ -1132,6 +1193,12 @@ def check_device_status(ip: str, callback=None) -> Dict[str, Any]:
         "firmware": None,
         "snmp_ok": False,
         "buffer_ok": False,
+        "subnet_ok": None,
+        "subnet_actual": None,
+        "license_ok": None,
+        "license_detail": None,
+        "stp_ok": None,
+        "stp_detail": None,
         "error": None,
     }
     try:
@@ -1167,6 +1234,15 @@ def check_device_status(ip: str, callback=None) -> Dict[str, Any]:
             buffer_output,
             re.I,
         ) is not None
+        subnet_ok, subnet_actual = check_subnet_mask(client)
+        result["subnet_ok"] = subnet_ok
+        result["subnet_actual"] = subnet_actual
+        license_ok, license_detail = check_license_bundles(client)
+        result["license_ok"] = license_ok
+        result["license_detail"] = license_detail
+        stp_ok, stp_detail = check_stp_disabled(client)
+        result["stp_ok"] = stp_ok
+        result["stp_detail"] = stp_detail
     except Exception as e:
         result["error"] = str(e)
     finally:

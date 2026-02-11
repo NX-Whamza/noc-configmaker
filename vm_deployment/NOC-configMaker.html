@@ -22195,6 +22195,12 @@ Ready for translation!`);
                     snmpStatus: aviatNormalizeStatus(r.snmpStatus),
                     bufferStatus: aviatNormalizeStatus(r.bufferStatus),
                     sopStatus: aviatNormalizeStatus(r.sopStatus),
+                    licenseStatus: aviatNormalizeStatus(r.licenseStatus),
+                    stpStatus: aviatNormalizeStatus(r.stpStatus),
+                    subnetStatus: aviatNormalizeStatus(r.subnetStatus),
+                    licenseDetail: r.licenseDetail,
+                    stpDetail: r.stpDetail,
+                    subnetDetail: r.subnetDetail,
                     username: r.username || ''
                 };
                 if (!['success', 'error', 'processing', 'reboot_required', 'reboot_pending', 'rebooting'].includes(normalized.status)) {
@@ -22271,9 +22277,15 @@ Ready for translation!`);
                     const snmpStatus = aviatNormalizeStatus(r.snmpStatus);
                     const bufferStatus = aviatNormalizeStatus(r.bufferStatus);
                     const sopStatus = aviatNormalizeStatus(r.sopStatus);
+                    const licenseStatus = aviatNormalizeStatus(r.licenseStatus);
+                    const stpStatus = aviatNormalizeStatus(r.stpStatus);
+                    const subnetStatus = aviatNormalizeStatus(r.subnetStatus);
                     const canReboot = ['reboot_required', 'reboot_pending'].includes(mainStatus);
                     const isRebooting = mainStatus === 'rebooting';
                     const disabled = mainStatus === 'processing' ? 'disabled' : '';
+                    const licenseIssue = licenseStatus === 'error';
+                    const stpIssue = stpStatus === 'error';
+                    const subnetIssue = subnetStatus === 'error';
                     return `
                         <div class="aviat-queue-item">
                             <div>
@@ -22288,6 +22300,9 @@ Ready for translation!`);
                                 </div>
                             </div>
                             <div style="display: flex; gap: 6px; align-items: center;">
+                                ${licenseIssue ? `<button class="aviat-btn secondary" onclick="aviatShowPrecheck('License', '${r.licenseDetail || ''}', '${r.ip}')">License</button>` : ''}
+                                ${stpIssue ? `<button class="aviat-btn secondary" onclick="aviatShowPrecheck('STP', '${r.stpDetail || ''}', '${r.ip}')">STP</button>` : ''}
+                                ${subnetIssue ? `<button class="aviat-btn secondary" onclick="aviatShowPrecheck('Subnet', '${r.subnetDetail || ''}', '${r.ip}')">Subnet</button>` : ''}
                                 ${canReboot ? `<button class="aviat-btn" onclick="aviatRebootRequired('${r.ip}')" ${disabled || isRebooting ? 'disabled' : ''}>Reboot</button>` : ''}
                                 <button class="aviat-btn secondary" onclick="aviatRunSingle('${r.ip}')" ${disabled}>Run</button>
                                 <button class="aviat-btn danger" onclick="aviatRemoveRadio('${r.ip}')" ${disabled}>Remove</button>
@@ -22607,6 +22622,14 @@ Ready for translation!`);
                     aviatUpdateUI();
                     aviatAddLog(`Reboot failed for ${ip}: ${err.message}`, 'error');
                 }
+            };
+
+            window.aviatShowPrecheck = function (type, detail, ip) {
+                const value = (detail || '').trim();
+                const message = value
+                    ? `${type} check failed for ${ip}: ${value}`
+                    : `${type} check failed for ${ip}.`;
+                alert(message);
             };
 
             async function aviatRunAll() {
