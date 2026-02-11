@@ -22,6 +22,7 @@ import json
 import subprocess
 import socket
 import shutil
+import requests
 from datetime import datetime, timedelta
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -49,6 +50,9 @@ try:
     import websockets.sync.client as ws_client
 except Exception:
     ws_client = None
+
+UPTIME_CHECK_TIMEOUT = int(os.getenv("AVIAT_UPTIME_CHECK_TIMEOUT", "5"))
+LOGIN_TIMEOUT = int(os.getenv("AVIAT_WEB_LOGIN_TIMEOUT", "10"))
 
 
 # ============================================================================
