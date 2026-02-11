@@ -1458,6 +1458,9 @@ def process_radio(
 ) -> RadioResult:
     """Process a single radio with core maintenance tasks"""
     result = RadioResult(ip=ip)
+    stages = []
+    def stage(label: str):
+        stages.append(label)
     client = None
     maintenance_params = maintenance_params or {}
     firmware_target = maintenance_params.get("firmware_target", "final")
@@ -1488,6 +1491,7 @@ def process_radio(
             log(f"[{ip}] Connected with new password", "success", callback=callback)
             login_username = CONFIG.default_username
             login_password = CONFIG.new_password
+            stage("CONNECTED(new)")
         except Exception:
             log(f"[{ip}] Retrying with default password...", "info", callback=callback)
             client = AviatSSHClient(ip, username=CONFIG.default_username, password=CONFIG.default_password)
@@ -1495,6 +1499,7 @@ def process_radio(
             log(f"[{ip}] Connected with default password", "success", callback=callback)
             login_username = CONFIG.default_username
             login_password = CONFIG.default_password
+            stage("CONNECTED(default)")
 
         if "firmware" in tasks or "all" in tasks or "sop" in tasks:
             result.firmware_version_before = get_firmware_version(client, callback=callback)
@@ -1510,7 +1515,10 @@ def process_radio(
                 result.status = "reboot_required"
                 result.error = f"Uptime {uptime_days} days exceeds 250; reboot required before upgrade."
                 log(f"[{ip}] {result.error}", "warning", callback=callback)
+                stage("REBOOT_REQUIRED")
+                log(f"[{ip}] WORKFLOW: " + " -> ".join(stages), "warning", callback=callback)
                 return result
+            stage("UPTIME_OK")
 
         # 0. Firmware download / scheduling
         if "firmware" in tasks or "all" in tasks:
@@ -1532,6 +1540,7 @@ def process_radio(
                 result.firmware_downloaded = True
                 result.firmware_activated = True
                 result.firmware_version_after = current_version
+                stage("FIRMWARE_SKIP_FINAL")
             elif inactive_version in ready_versions and activation_mode == "scheduled":
                 log(
                     f"[{ip}] Inactive firmware {inactive_version} already loaded; skipping download.",
@@ -1543,6 +1552,9 @@ def process_radio(
                 result.firmware_downloaded_version = inactive_version
                 result.status = "scheduled"
                 result.success = True
+                stage("FIRMWARE_INACTIVE_READY")
+                stage("SCHEDULED")
+                log(f"[{ip}] WORKFLOW: " + " -> ".join(stages), "info", callback=callback)
                 return result
             baseline_needed = _version_tuple(current_version) < _version_tuple(
                 CONFIG.firmware_baseline_version
@@ -1569,6 +1581,7 @@ def process_radio(
                 result.firmware_downloaded = True
                 result.firmware_activated = True
                 result.firmware_version_after = current_version
+                stage("FIRMWARE_SKIP_TARGET")
             else:
                 if firmware_uri_override:
                     steps = [("override", firmware_uri_override)]
@@ -1604,6 +1617,7 @@ def process_radio(
                     else:
                         version = None
                     firmware_was_triggered = True
+                    stage(f"FIRMWARE_TRIGGER_{step_name}")
                     success, msg = trigger_firmware_download(
                         client,
                         uri,
@@ -1656,6 +1670,8 @@ def process_radio(
                     )
                     result.status = "manual"
                     result.success = True
+                    stage("MANUAL_ACTIVATION")
+                    log(f"[{ip}] WORKFLOW: " + " -> ".join(stages), "info", callback=callback)
                     return result
 
                 if firmware_was_triggered and activation_mode == "scheduled":
@@ -1666,6 +1682,8 @@ def process_radio(
                     )
                     result.status = "loading"
                     result.success = True
+                    stage("LOADING")
+                    log(f"[{ip}] WORKFLOW: " + " -> ".join(stages), "info", callback=callback)
                     return result
 
                 if firmware_was_triggered and activation_mode == "immediate" and not waited_after_activation:
@@ -1713,6 +1731,7 @@ def process_radio(
                 )
                 result.firmware_activated = True
                 result.firmware_version_after = current_version
+                stage("ACTIVATE_SKIP_FINAL")
             else:
                 # Uptime gating handled earlier; no reboot here.
                 success, msg = activate_firmware(client, callback=callback)
@@ -1720,6 +1739,7 @@ def process_radio(
                 if not success and not result.error:
                     result.error = msg
                     return result
+                stage("ACTIVATE")
                 client.close()
                 client = wait_for_device_ready_and_reconnect(
                     ip,
@@ -1771,6 +1791,7 @@ def process_radio(
                     callback=callback,
                 )
                 result.password_changed = True
+                stage("PASSWORD_SKIP")
             else:
                 if abort_if_needed():
                     return result
@@ -1778,6 +1799,7 @@ def process_radio(
                 result.password_changed = success
                 if not success:
                     result.error = msg
+                stage("PASSWORD_SET" if success else "PASSWORD_FAIL")
 
         # 2. Configure SNMP
         if "snmp" in tasks or "all" in tasks:
@@ -1787,6 +1809,7 @@ def process_radio(
             result.snmp_configured = success
             if not success and not result.error:
                 result.error = msg
+            stage("SNMP_SET" if success else "SNMP_FAIL")
 
         # 3. Run Buffer Script
         if "buffer" in tasks or "all" in tasks:
@@ -1795,6 +1818,7 @@ def process_radio(
             success, msg = configure_buffer(client, callback=callback)
             result.buffer_configured = success
             if not success and not result.error: result.error = msg
+            stage("BUFFER_SET" if success else "BUFFER_SKIP_OR_FAIL")
 
         # 4. SOP checks (skip until firmware final is active)
         if "sop" in tasks or "all" in tasks:
@@ -1809,6 +1833,7 @@ def process_radio(
                 result.sop_checked = False
                 result.sop_passed = True
                 fw_for_sop = None
+                stage("SOP_SKIP_LOADING")
             else:
                 fw_for_sop = result.firmware_version_after or result.firmware_version_before
             if fw_for_sop and _version_tuple(fw_for_sop) < _version_tuple(CONFIG.firmware_final_version):
@@ -1819,6 +1844,7 @@ def process_radio(
                 )
                 result.sop_checked = False
                 result.sop_passed = True
+                stage("SOP_SKIP_FW")
             else:
                 if fw_for_sop is not None:
                     passed, results = run_sop_checks(client, callback=callback)
@@ -1827,6 +1853,7 @@ def process_radio(
                     result.sop_results = results
                     if not passed and not result.error:
                         result.error = "SOP checks failed"
+                    stage("SOP_OK" if passed else "SOP_FAIL")
 
         if "firmware" in tasks or "all" in tasks or "sop" in tasks:
             result.firmware_version_after = get_firmware_version(client, callback=callback)
@@ -1858,6 +1885,8 @@ def process_radio(
         
     status = "SUCCESS" if result.success else "FAILED"
     log(f"[{ip}] {status} (took {result.duration:.1f}s)", "success" if result.success else "error", callback=callback)
+    if stages:
+        log(f"[{ip}] WORKFLOW: " + " -> ".join(stages), "info", callback=callback)
     
     return result
 
