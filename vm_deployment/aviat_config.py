@@ -733,6 +733,10 @@ def get_uptime_days(client: AviatSSHClient, callback=None) -> Optional[int]:
         [
             "show uptime",
             "show system uptime",
+            "show system status",
+            "show system",
+            "show status",
+            "show version",
             "show radio-carrier status",
         ],
     )
@@ -745,6 +749,26 @@ def get_uptime_days(client: AviatSSHClient, callback=None) -> Optional[int]:
         days = int(match.group(1))
         log(f"  [{client.ip}] Uptime days: {days}", "info", callback=callback)
         return days
+
+    # Try to parse common "Up Time" strings with hh:mm:ss or d:hh:mm:ss
+    up_line = re.search(r"(?:uptime|up time|system up time)\s*[:=]?\s*([0-9: ]+)", output, re.I)
+    if up_line:
+        raw = up_line.group(1).strip()
+        parts = [p for p in re.split(r"\s*:\s*", raw) if p]
+        try:
+            nums = [int(p) for p in parts]
+            if len(nums) == 4:
+                d, h, m, s = nums
+                days = d + (h / 24) + (m / 1440) + (s / 86400)
+                log(f"  [{client.ip}] Uptime days: {int(days)}", "info", callback=callback)
+                return int(days)
+            if len(nums) == 3:
+                h, m, s = nums
+                days = (h / 24) + (m / 1440) + (s / 86400)
+                log(f"  [{client.ip}] Uptime days: {int(days)}", "info", callback=callback)
+                return int(days)
+        except Exception:
+            pass
 
     rc_match = re.search(r"active-rx-time\s*[:=]?\s*([^\r\n]+)", output, re.I)
     if rc_match:
@@ -1507,7 +1531,11 @@ def process_radio(
                 result.firmware_activated = True
                 result.firmware_version_after = current_version
             else:
-                uptime_days = get_uptime_days(client, callback=callback)
+                try:
+                    uptime_days = get_uptime_days(client, callback=callback)
+                except Exception as err:
+                    log(f"[{ip}] Uptime check failed (ignored): {err}", "warning", callback=callback)
+                    uptime_days = None
                 if uptime_days is not None and uptime_days > 250:
                     log(
                         f"[{ip}] Uptime {uptime_days} days exceeds 250; rebooting before activation.",
