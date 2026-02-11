@@ -45,6 +45,11 @@ except ImportError:
     print("Error: paramiko not installed. Run: pip install paramiko")
     sys.exit(1)
 
+try:
+    import websockets.sync.client as ws_client
+except Exception:
+    ws_client = None
+
 
 # ============================================================================
 # CONFIGURATION - Edit these values as needed
@@ -728,73 +733,130 @@ def get_inactive_firmware_version(client: AviatSSHClient, callback=None) -> Opti
 
 
 def get_uptime_days(client: AviatSSHClient, callback=None) -> Optional[int]:
-    output = _first_valid_output(
-        client,
-        [
-            "show uptime",
-            "show system uptime",
-            "show system status",
-            "show system",
-            "show status",
-            "show version",
-            "show radio-carrier status",
-        ],
-    )
-    if not output:
-        log(f"  [{client.ip}] Uptime days: unknown", "warning", callback=callback)
+    def _web_get_uptime_seconds() -> Optional[int]:
+        try:
+            if ws_client is None:
+                return None
+            session = requests.Session()
+            login_req = session.post(
+                f"http://{client.ip}/wtmlogin",
+                data={"username": client.username or "admin", "password": client.password},
+                timeout=LOGIN_TIMEOUT,
+            )
+            if login_req.status_code != 200:
+                return None
+            sesh = login_req.cookies.get("sesh")
+            if not sesh:
+                return None
+            with ws_client.connect(
+                f"ws://{client.ip}/ie10fix",
+                additional_headers={"cookie": f"sesh={sesh}"},
+                subprotocols=["aurora_channel"],
+            ) as ws:
+                ws.send(
+                    """{"token":"%s","message":{"command":6,"data":{"token":"%s"}}}"""
+                    % (sesh.split("-")[0], sesh)
+                )
+                ws.send(bytes.fromhex("0100000001") + b"""{"key":"system_status_1","pluginId":52,"channelId":1}""")
+                t = time.monotonic()
+                while time.monotonic() - t < UPTIME_CHECK_TIMEOUT:
+                    msg = ws.recv()
+                    if not isinstance(msg, bytes):
+                        continue
+                    uptime = re.match(br"4\x00\x01\x00\x01(\d+)$", msg)
+                    if not uptime:
+                        continue
+                    try:
+                        return int(uptime.group(1))
+                    except Exception:
+                        return None
+        except Exception:
+            return None
         return None
 
-    match = re.search(r"(?:uptime\s*[:=]?\s*|up\s+)(\d+)\s+day", output, re.I)
-    if match:
-        days = int(match.group(1))
-        log(f"  [{client.ip}] Uptime days: {days}", "info", callback=callback)
-        return days
-
-    # Try to parse common "Up Time" strings with hh:mm:ss or d:hh:mm:ss
-    up_line = re.search(r"(?:uptime|up time|system up time)\s*[:=]?\s*([0-9: ]+)", output, re.I)
-    if up_line:
-        raw = up_line.group(1).strip()
-        parts = [p for p in re.split(r"\s*:\s*", raw) if p]
-        try:
-            nums = [int(p) for p in parts]
-            if len(nums) == 4:
-                d, h, m, s = nums
-                days = d + (h / 24) + (m / 1440) + (s / 86400)
-                log(f"  [{client.ip}] Uptime days: {int(days)}", "info", callback=callback)
-                return int(days)
-            if len(nums) == 3:
-                h, m, s = nums
-                days = (h / 24) + (m / 1440) + (s / 86400)
-                log(f"  [{client.ip}] Uptime days: {int(days)}", "info", callback=callback)
-                return int(days)
-        except Exception:
-            pass
-
-    rc_match = re.search(r"active-rx-time\s*[:=]?\s*([^\r\n]+)", output, re.I)
-    if rc_match:
-        value = rc_match.group(1).strip()
-        days = None
-        day_match = re.search(r"(\d+)\s+day", value, re.I)
-        if day_match:
-            days = int(day_match.group(1))
-        elif value.isdigit():
-            seconds = int(value)
-            days = seconds // 86400
-        elif ":" in value:
-            parts = [p for p in value.split(":") if p.strip()]
+    def _parse_uptime_days(output: str) -> Optional[int]:
+        if not output:
+            return None
+        # Explicit "X day(s)" in uptime line.
+        match = re.search(r"(?:uptime\s*[:=]?\s*|up\s+)(\d+)\s+day", output, re.I)
+        if match:
+            return int(match.group(1))
+        # "Up Time: d:hh:mm:ss" or "Up Time: hh:mm:ss"
+        up_line = re.search(r"(?:uptime|up time|system up time)\s*[:=]?\s*([0-9: ]+)", output, re.I)
+        if up_line:
+            raw = up_line.group(1).strip()
+            parts = [p for p in re.split(r"\s*:\s*", raw) if p]
             try:
                 nums = [int(p) for p in parts]
                 if len(nums) == 4:
                     d, h, m, s = nums
-                    days = d + (h / 24) + (m / 1440) + (s / 86400)
-                elif len(nums) == 3:
+                    return int(d + (h / 24) + (m / 1440) + (s / 86400))
+                if len(nums) == 3:
                     h, m, s = nums
-                    days = (h / 24) + (m / 1440) + (s / 86400)
-            except ValueError:
-                days = None
-        if days is not None:
-            log(f"  [{client.ip}] Uptime days: {int(days)}", "info", callback=callback)
-            return int(days)
+                    return int((h / 24) + (m / 1440) + (s / 86400))
+            except Exception:
+                pass
+        # "X days, Y hours, Z minutes"
+        long_match = re.search(r"(\d+)\s+day(?:s)?[, ]+\s*(\d+)\s+hour", output, re.I)
+        if long_match:
+            d = int(long_match.group(1))
+            return d
+        # Parse active-rx-time field
+        rc_match = re.search(r"active-rx-time\s*[:=]?\s*([^\r\n]+)", output, re.I)
+        if rc_match:
+            value = rc_match.group(1).strip()
+            day_match = re.search(r"(\d+)\s+day", value, re.I)
+            if day_match:
+                return int(day_match.group(1))
+            if value.isdigit():
+                seconds = int(value)
+                return seconds // 86400
+            if ":" in value:
+                parts = [p for p in value.split(":") if p.strip()]
+                try:
+                    nums = [int(p) for p in parts]
+                    if len(nums) == 4:
+                        d, h, m, s = nums
+                        return int(d + (h / 24) + (m / 1440) + (s / 86400))
+                    if len(nums) == 3:
+                        h, m, s = nums
+                        return int((h / 24) + (m / 1440) + (s / 86400))
+                except Exception:
+                    pass
+        return None
+
+    commands = [
+        "show uptime",
+        "show system uptime",
+        "show system status",
+        "show system information",
+        "show system",
+        "show status",
+        "show version",
+        "show radio-carrier status",
+    ]
+
+    # Try twice to handle transient CLI output quirks.
+    for _ in range(2):
+        for cmd in commands:
+            try:
+                output = client.send_command(cmd)
+            except Exception:
+                continue
+            if _is_invalid_output(output):
+                continue
+            days = _parse_uptime_days(output)
+            if days is not None:
+                log(f"  [{client.ip}] Uptime days: {days}", "info", callback=callback)
+                return days
+        time.sleep(0.2)
+
+    # Final fallback: web UI uptime (works on 2.11.x devices).
+    web_seconds = _web_get_uptime_seconds()
+    if web_seconds is not None:
+        days = int(web_seconds // 86400)
+        log(f"  [{client.ip}] Uptime days: {days}", "info", callback=callback)
+        return days
 
     log(f"  [{client.ip}] Uptime days: unknown", "warning", callback=callback)
     return None
