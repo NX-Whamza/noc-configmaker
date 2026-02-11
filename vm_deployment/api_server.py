@@ -6004,15 +6004,38 @@ Port Roles:
 
                 text = "\n".join(out_lines)
 
+                # Add fallback mappings for any remaining invalid interfaces (e.g., bridge ports)
+                used_updated = []
+                seen_updated = set()
+                for m in re.finditer(iface_pattern, text):
+                    name = m.group(1)
+                    if name not in seen_updated:
+                        seen_updated.add(name)
+                        used_updated.append(name)
+                fallback_pool = other_pool + backhaul_pool + power_pool + switch_pool + qsfp_pool
+                for iface in used_updated:
+                    if iface == mgmt:
+                        continue
+                    if iface in target_set:
+                        continue
+                    if iface in mapping:
+                        continue
+                    dest = _next_from(fallback_pool)
+                    if dest:
+                        mapping[iface] = dest
+
                 # Enforce management port: ensure "Management" comment lands on ether1 only.
                 lines = text.splitlines()
                 in_eth = False
                 mgmt_written = False
+                saw_eth_section = False
                 cleaned = []
                 for line in lines:
                     stripped = line.strip()
                     if stripped.startswith('/'):
                         in_eth = (stripped == '/interface ethernet')
+                        if in_eth:
+                            saw_eth_section = True
                         cleaned.append(line)
                         continue
                     if not in_eth:
@@ -6042,8 +6065,19 @@ Port Roles:
                         if 'MANAGEMENT' in (comment or '').upper():
                             line = re.sub(r'\s*comment=([^\s\n"]+|"[^"]+")', '', line)
                     cleaned.append(line)
-                if in_eth and not mgmt_written:
-                    cleaned.append(f'set [ find default-name={mgmt} ] comment="Management"')
+                if not mgmt_written:
+                    if saw_eth_section:
+                        inserted = False
+                        updated = []
+                        for i, line in enumerate(cleaned):
+                            updated.append(line)
+                            if (not inserted) and line.strip() == '/interface ethernet':
+                                updated.append(f'set [ find default-name={mgmt} ] comment="Management"')
+                                inserted = True
+                        cleaned = updated
+                    else:
+                        cleaned.append('/interface ethernet')
+                        cleaned.append(f'set [ find default-name={mgmt} ] comment="Management"')
                 text = "\n".join(cleaned)
             else:
                 # Default: map only invalid interfaces in order
