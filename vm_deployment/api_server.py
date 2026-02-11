@@ -5451,14 +5451,30 @@ Port Roles:
                     print(f"[SYNTAX] Ensuring ROS7 syntax correctness")
                 
                 # BGP: peer → connection (if still using old syntax)
-                if '/routing bgp peer' in translated:
+                if '/routing bgp peer' in translated or '/routing bgp instance' in translated:
+                    # instance → template (ROS7)
+                    translated = re.sub(r'(?m)^/routing bgp instance\b', '/routing bgp template', translated)
+                    # peer → connection
                     translated = translated.replace('/routing bgp peer', '/routing bgp connection')
-                    print(f"[SYNTAX] Updated BGP: peer → connection")
+                    print(f"[SYNTAX] Updated BGP: instance→template, peer→connection")
                     # Parameter conversions
                     translated = translated.replace(' remote-address=', ' remote.address=')
                     translated = translated.replace(' remote-as=', ' remote.as=')
                     translated = translated.replace(' update-source=', ' local.address=')
                     translated = translated.replace(' local-address=', ' local.address=')
+                    # Ensure template default line exists for ROS6 set default
+                    translated = re.sub(
+                        r'(?m)^/routing bgp template\s+set\s+\[\s*find\s+default=yes\s*\]\s+',
+                        '/routing bgp template set default ',
+                        translated
+                    )
+                    # Ensure connection lines include templates=default
+                    def _ensure_templates_default(m):
+                        line = m.group(0)
+                        if 'templates=' not in line:
+                            line += ' templates=default'
+                        return line
+                    translated = re.sub(r'(?m)^/routing bgp connection\s+add\b[^\n]*$', _ensure_templates_default, translated)
                 
                 # OSPF: interface → interface-template, instance syntax
                 if '/routing ospf network' in translated:
@@ -5472,6 +5488,14 @@ Port Roles:
                         translated
                     )
                     print(f"[SYNTAX] Updated OSPF: interface → interface-template")
+                # ROS6 instance "set default" → ROS7 instance "add name=default-v2"
+                if re.search(r'(?m)^/routing ospf instance\s+set\s+\[\s*find\s+default=yes\s*\]', translated):
+                    translated = re.sub(
+                        r'(?m)^/routing ospf instance\s+set\s+\[\s*find\s+default=yes\s*\]\s+([^\n]*)$',
+                        r'/routing ospf instance add name=default-v2 \1',
+                        translated
+                    )
+                    print(f"[SYNTAX] Updated OSPF: instance default→add name=default-v2")
                 
                 # OSPF parameter changes: ONLY rewrite inside the OSPF interface-template section.
                 # Do NOT touch other sections like /ip address (they use interface= and network=).
@@ -5529,6 +5553,14 @@ Port Roles:
                                 translated,
                                 count=1
                             )
+                # Ensure all OSPF area add lines have instance=default-v2 on ROS7
+                if re.search(r'(?m)^/routing ospf area\s+add\b', translated):
+                    def _ensure_area_instance(m):
+                        line = m.group(0)
+                        if 'instance=' not in line:
+                            line += ' instance=default-v2'
+                        return line
+                    translated = re.sub(r'(?m)^/routing ospf area\s+add\b[^\n]*$', _ensure_area_instance, translated)
             
             # 6. Interface mapping (hardware changes only)
             target_ports = target_device_info.get('ports', [])
