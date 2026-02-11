@@ -1079,9 +1079,14 @@ def activate_firmware(client: AviatSSHClient, callback=None) -> Tuple[bool, str]
     output = client.send_command("software activate", timeout=15)
     log(f"  [{client.ip}]   > software activate", "info", callback=callback)
     lowered = (output or "").lower()
-    if not re.search(r"\bactivat(ing|ion)\b", lowered) and "resp activating" not in lowered:
-        tail = (output or "").strip().replace("\r", "")[-200:]
-        return False, f"Firmware activation failed: {tail}"
+    if "are you sure" in lowered or "[no,yes]" in lowered:
+        confirm = client.send_command("yes", timeout=15)
+        output = (output or "") + "\n" + (confirm or "")
+        lowered = output.lower()
+    if re.search(r"\b(activat(ing|ion)|scheduled|reboot|restarting)\b", lowered) or "resp activating" in lowered:
+        return True, "Firmware activation started"
+    tail = (output or "").strip().replace("\r", "")[-200:]
+    return False, f"Firmware activation failed: {tail}"
     return True, "Firmware activation started"
 
 

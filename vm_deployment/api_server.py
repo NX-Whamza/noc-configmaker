@@ -649,8 +649,8 @@ def _aviat_activate_entries(task_id, to_activate, username=None):
 
     def run_activation(entry):
         ip = entry["ip"]
-        remaining_tasks = _aviat_clean_remaining_tasks(entry.get("remaining_tasks", []))
-        full_tasks = ["activate"] + remaining_tasks
+        # Activation should be isolated; do not re-run other steps.
+        full_tasks = ["activate"]
         result = aviat_process_radio(
             ip,
             full_tasks,
