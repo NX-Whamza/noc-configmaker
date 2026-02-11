@@ -683,12 +683,35 @@ def _parse_versions_from_status(version_output: str) -> Tuple[Optional[str], Opt
 
 
 def _is_invalid_output(output: str) -> bool:
+    if not output or not output.strip():
+        return True
     lowered = output.lower()
-    return (
+    if (
         "invalid input" in lowered
         or "syntax error" in lowered
         or "unknown element" in lowered
-    )
+    ):
+        return True
+    stripped = re.sub(r"\s+", " ", lowered).strip()
+    return stripped in ("% no entries found.", "no entries found.", "no entries found")
+
+
+def _extract_version_from_text(text: str) -> Optional[str]:
+    if not text:
+        return None
+    match = re.search(r"([0-9]+(?:\.[0-9]+){1,3})", text)
+    if not match:
+        return None
+    parts = match.group(1).split(".")[:3]
+    if _is_plausible_version(parts):
+        return ".".join(parts)
+    return None
+
+
+def _is_ip_like_version(version: Optional[str], ip: Optional[str]) -> bool:
+    if not version or not ip:
+        return False
+    return ip.startswith(f"{version}.")
 
 def _version_tuple(version: Optional[str]) -> Tuple[int, int, int]:
     if not version:
@@ -719,6 +742,8 @@ def get_firmware_version(client: AviatSSHClient, callback=None) -> Optional[str]
                 continue
             active, _inactive = _parse_versions_from_status(output)
             version = active or _parse_version(output)
+            if version and _is_ip_like_version(version, client.ip):
+                version = None
             if version and version != "0.0.0":
                 break
         if version and version != "0.0.0":
@@ -757,6 +782,13 @@ def get_inactive_firmware_version(client: AviatSSHClient, callback=None) -> Opti
         version = inactive or _parse_inactive_version(output)
         if version:
             break
+    if not version and load_ok:
+        try:
+            loading_output = client.send_command("show software-status loading-uri")
+            if not _is_invalid_output(loading_output):
+                version = _extract_version_from_text(loading_output)
+        except Exception:
+            pass
     if version:
         log(f"  [{client.ip}] Inactive firmware {version}", "info", callback=callback)
     else:
@@ -1541,6 +1573,26 @@ def process_radio(
                 result.firmware_activated = True
                 result.firmware_version_after = current_version
                 stage("FIRMWARE_SKIP_FINAL")
+            elif inactive_version.lower() == "loadok" and activation_mode in ("scheduled", "manual"):
+                log(
+                    f"[{ip}] Inactive firmware loadOk detected; skipping download.",
+                    "info",
+                    callback=callback,
+                )
+                result.firmware_downloaded = True
+                result.firmware_downloaded_version = inactive_version
+                if activation_mode == "scheduled":
+                    result.firmware_scheduled = True
+                    result.status = "scheduled"
+                    result.success = True
+                    stage("FIRMWARE_INACTIVE_READY")
+                    stage("SCHEDULED")
+                else:
+                    result.status = "manual"
+                    result.success = True
+                    stage("MANUAL_ACTIVATION")
+                log(f"[{ip}] WORKFLOW: " + " -> ".join(stages), "info", callback=callback)
+                return result
             elif inactive_version in ready_versions and activation_mode == "scheduled":
                 log(
                     f"[{ip}] Inactive firmware {inactive_version} already loaded; skipping download.",
