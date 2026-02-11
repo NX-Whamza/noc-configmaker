@@ -169,6 +169,7 @@ try:
         get_firmware_version as aviat_get_firmware_version,
         get_inactive_firmware_version as aviat_get_inactive_firmware_version,
         AviatSSHClient,
+        wait_for_device_ready_and_reconnect,
     )
     HAS_AVIAT = True
 except Exception:
@@ -11397,11 +11398,56 @@ def aviat_run_reboot_required():
             def log_cb(message, level):
                 _aviat_broadcast_log(message, level)
             success, err = _aviat_reboot_device(ip, callback=log_cb)
-            if success:
+            if not success:
+                # Don't fail the workflow outright; keep it in reboot queue for retry.
+                _aviat_queue_upsert(ip, {"status": "reboot_pending", "username": username, "error": err})
+                continue
+
+            _aviat_queue_upsert(ip, {"status": "rebooting", "username": username})
+
+            # Wait for device to come back before continuing tasks
+            try:
+                client = wait_for_device_ready_and_reconnect(
+                    ip,
+                    username=AVIAT_CONFIG.default_username,
+                    password=AVIAT_CONFIG.default_password,
+                    fallback_password=AVIAT_CONFIG.new_password,
+                    callback=log_cb,
+                )
+                if client:
+                    try:
+                        client.close()
+                    except Exception:
+                        pass
+                else:
+                    raise TimeoutError("Device did not return after reboot.")
+            except Exception as e:
+                # Keep in reboot queue; do not mark failed.
+                _aviat_queue_upsert(ip, {"status": "reboot_pending", "username": username, "error": str(e)})
+                continue
+
+            # Continue remaining tasks after reboot
+            remaining = _aviat_clean_remaining_tasks(entry.get("remaining_tasks", []))
+            maintenance_params = entry.get("maintenance_params", {}) or {}
+            if not remaining:
                 _aviat_queue_upsert(ip, {"status": "pending", "username": username})
             else:
-                _aviat_queue_upsert(ip, {"status": "error", "username": username, "error": err})
-            # remove from reboot queue
+                try:
+                    result = aviat_process_radio(
+                        ip,
+                        remaining,
+                        callback=log_cb,
+                        maintenance_params=maintenance_params,
+                    )
+                    res_dict = _aviat_result_dict(result, username=username)
+                    _aviat_queue_update_from_result(res_dict, username=username)
+                    _log_aviat_activity(res_dict)
+                except Exception as e:
+                    # Don't mark failed due to transient reconnect issues.
+                    _aviat_queue_upsert(ip, {"status": "reboot_pending", "username": username, "error": str(e)})
+                    continue
+
+            # remove from reboot queue on success
             aviat_reboot_queue[:] = [e for e in aviat_reboot_queue if e.get("ip") != ip]
         _aviat_save_shared_queue()
         _aviat_save_reboot_queue()
