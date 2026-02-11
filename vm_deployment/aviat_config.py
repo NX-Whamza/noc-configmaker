@@ -775,6 +775,8 @@ def get_inactive_firmware_version(client: AviatSSHClient, callback=None) -> Opti
         output = client.send_command(command)
         last_output = output
         if _is_invalid_output(output):
+            if re.search(r"\bloadok\b", output, re.I):
+                load_ok = True
             continue
         if re.search(r"\bloadok\b", output, re.I):
             load_ok = True
@@ -782,6 +784,8 @@ def get_inactive_firmware_version(client: AviatSSHClient, callback=None) -> Opti
         version = inactive or _parse_inactive_version(output)
         if version:
             break
+    if not load_ok and last_output and re.search(r"\bloadok\b", last_output, re.I):
+        load_ok = True
     if not version and load_ok:
         try:
             loading_output = client.send_command("show software-status loading-uri")
@@ -1076,15 +1080,17 @@ def wait_until_activation(
 
 def activate_firmware(client: AviatSSHClient, callback=None) -> Tuple[bool, str]:
     log(f"  [{client.ip}] Activating firmware...", "info", callback=callback)
-    output = client.send_command("software activate", timeout=15)
+    output = client.send_command("software activate", wait_for=['#', '>', ':', ']', '?'], timeout=20)
     log(f"  [{client.ip}]   > software activate", "info", callback=callback)
     lowered = (output or "").lower()
-    if "are you sure" in lowered or "[no,yes]" in lowered:
-        confirm = client.send_command("yes", timeout=15)
+    if "are you sure" in lowered or "[no,yes]" in lowered or "proceed" in lowered:
+        confirm = client.send_command("yes", wait_for=['#', '>', ':', ']', '?'], timeout=20)
         output = (output or "") + "\n" + (confirm or "")
         lowered = output.lower()
     if re.search(r"\b(activat(ing|ion)|scheduled|reboot|restarting)\b", lowered) or "resp activating" in lowered:
         return True, "Firmware activation started"
+    if not (output or "").strip():
+        return True, "Activation initiated (no response)"
     tail = (output or "").strip().replace("\r", "")[-200:]
     return False, f"Firmware activation failed: {tail}"
     return True, "Firmware activation started"
