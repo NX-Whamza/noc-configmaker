@@ -364,6 +364,22 @@ def _aviat_substatus(flag, scheduled=False, loading=False):
         return "scheduled"
     return "success" if flag else "pending"
 
+
+def _aviat_extract_version(value):
+    if not value:
+        return None
+    match = re.search(r"\b(\d+\.\d+\.\d+)\b", str(value))
+    return match.group(1) if match else None
+
+
+def _aviat_version_tuple(version):
+    if not version:
+        return (0, 0, 0)
+    parts = [int(p) for p in re.findall(r"\d+", str(version))[:3]]
+    while len(parts) < 3:
+        parts.append(0)
+    return tuple(parts)
+
 def _aviat_queue_update_from_result(result, username=None):
     if not result:
         return
@@ -484,17 +500,27 @@ def _aviat_loading_check_loop():
                     _aviat_broadcast_log(f"[{ip}] Loading check failed: {exc}", "warning")
                     still_loading.append(entry)
                     continue
-                inactive_version = (inactive_version or "").strip()
-                active_version = (active_version or "").strip()
-                target_version = (entry.get("target_version") or "").strip()
+                inactive_version = _aviat_extract_version(inactive_version)
+                active_version = _aviat_extract_version(active_version)
+                target_version = _aviat_extract_version(entry.get("target_version"))
                 ready_versions = {
-                    AVIAT_CONFIG.firmware_baseline_version,
-                    AVIAT_CONFIG.firmware_final_version,
+                    _aviat_extract_version(AVIAT_CONFIG.firmware_baseline_version),
+                    _aviat_extract_version(AVIAT_CONFIG.firmware_final_version),
                 }
                 if target_version:
                     ready_versions.add(target_version)
 
-                if active_version in ready_versions:
+                # If inactive firmware is ready, move to scheduled (activation) regardless of active version.
+                if inactive_version and inactive_version in ready_versions:
+                    _aviat_broadcast_log(
+                        f"[{ip}] Firmware {inactive_version} loaded (inactive). Moving to scheduled queue.",
+                        "success",
+                    )
+                    to_schedule.append(entry)
+                    continue
+
+                # If active firmware already meets target (or final), remove from loading queue.
+                if target_version and active_version and _aviat_version_tuple(active_version) >= _aviat_version_tuple(target_version):
                     _aviat_broadcast_log(
                         f"[{ip}] Active firmware {active_version} already applied; removing from loading queue.",
                         "success",
@@ -505,9 +531,20 @@ def _aviat_loading_check_loop():
                         "username": entry.get("username") or "aviat-tool",
                     })
                     continue
+                if active_version and _aviat_version_tuple(active_version) >= _aviat_version_tuple(AVIAT_CONFIG.firmware_final_version):
+                    _aviat_broadcast_log(
+                        f"[{ip}] Active firmware {active_version} already final; removing from loading queue.",
+                        "success",
+                    )
+                    _aviat_queue_upsert(ip, {
+                        "status": "pending",
+                        "firmwareStatus": "success",
+                        "username": entry.get("username") or "aviat-tool",
+                    })
+                    continue
                 if (
                     not inactive_version
-                    or inactive_version.lower() in ("none", "unknown", "0.0.0", "0")
+                    or str(inactive_version).lower() in ("none", "unknown", "0.0.0", "0")
                 ):
                     still_loading.append(entry)
                     _aviat_broadcast_log(
@@ -515,27 +552,11 @@ def _aviat_loading_check_loop():
                         "warning",
                     )
                     continue
-                version_match = re.search(r"\b(\d+\.\d+\.\d+)\b", inactive_version)
-                if not version_match:
-                    still_loading.append(entry)
-                    _aviat_broadcast_log(
-                        f"[{ip}] Inactive firmware version invalid; keeping in loading queue.",
-                        "warning",
-                    )
-                    continue
-                inactive_version = version_match.group(1)
-                if inactive_version in ready_versions:
-                    _aviat_broadcast_log(
-                        f"[{ip}] Firmware {inactive_version} loaded (inactive). Moving to scheduled queue.",
-                        "success",
-                    )
-                    to_schedule.append(entry)
-                else:
-                    still_loading.append(entry)
-                    _aviat_broadcast_log(
-                        f"[{ip}] Firmware still loading; next check in {AVIAT_LOADING_CHECK_INTERVAL // 60} min.",
-                        "info",
-                    )
+                still_loading.append(entry)
+                _aviat_broadcast_log(
+                    f"[{ip}] Firmware still loading; next check in {AVIAT_LOADING_CHECK_INTERVAL // 60} min.",
+                    "info",
+                )
 
             if failed:
                 for entry in failed:
