@@ -11446,7 +11446,8 @@ def aviat_run_reboot_required():
                 continue
 
             # Continue remaining tasks after reboot
-            remaining = _aviat_clean_remaining_tasks(entry.get("remaining_tasks", []))
+            # Reboot-required entries already store full remaining tasks (including firmware/activate).
+            remaining = entry.get("remaining_tasks", [])
             maintenance_params = entry.get("maintenance_params", {}) or {}
             if not remaining:
                 _aviat_queue_upsert(ip, {"status": "pending", "username": username})

@@ -582,6 +582,17 @@ def configure_buffer(client: AviatSSHClient, callback=None) -> Tuple[bool, str]:
         return False, str(e)
 
 
+def _is_plausible_version(parts: List[str]) -> bool:
+    try:
+        nums = [int(p) for p in parts]
+    except Exception:
+        return False
+    # Aviat versions are small (e.g., 2.11.11, 6.1.0). Filter IP-like tokens.
+    if any(n > 50 for n in nums):
+        return False
+    return True
+
+
 def _parse_version(version_output: str) -> Optional[str]:
     patterns = [
         r"(?:Version|Release)\s*:?\s*([0-9]+(?:\.[0-9]+){1,})",
@@ -592,7 +603,8 @@ def _parse_version(version_output: str) -> Optional[str]:
         match = re.search(pattern, version_output, re.I)
         if match:
             parts = match.group(1).split(".")
-            return ".".join(parts[:3])
+            if _is_plausible_version(parts[:3]):
+                return ".".join(parts[:3])
     return None
 
 def _parse_active_version(version_output: str) -> Optional[str]:
@@ -607,7 +619,8 @@ def _parse_active_version(version_output: str) -> Optional[str]:
         match = re.search(pattern, version_output, re.I)
         if match:
             parts = match.group(1).split(".")
-            return ".".join(parts[:3])
+            if _is_plausible_version(parts[:3]):
+                return ".".join(parts[:3])
 
     table_match = re.search(
         r"^\s*\S+\s+([0-9]+\.[0-9]+\.[0-9]+)\([^)]+\)\s+([0-9]+\.[0-9]+\.[0-9]+)\([^)]+\)",
@@ -615,7 +628,9 @@ def _parse_active_version(version_output: str) -> Optional[str]:
         re.I | re.M,
     )
     if table_match:
-        return table_match.group(1)
+        parts = table_match.group(1).split(".")
+        if _is_plausible_version(parts[:3]):
+            return ".".join(parts[:3])
 
     return None
 
@@ -631,7 +646,8 @@ def _parse_inactive_version(version_output: str) -> Optional[str]:
         match = re.search(pattern, version_output, re.I)
         if match:
             parts = match.group(1).split(".")
-            return ".".join(parts[:3])
+            if _is_plausible_version(parts[:3]):
+                return ".".join(parts[:3])
 
     table_match = re.search(
         r"^\s*\S+\s+([0-9]+\.[0-9]+\.[0-9]+)\([^)]+\)\s+([0-9]+\.[0-9]+\.[0-9]+)\([^)]+\)",
@@ -656,7 +672,12 @@ def _parse_versions_from_status(version_output: str) -> Tuple[Optional[str], Opt
         re.I | re.M,
     )
     if table_match:
-        return table_match.group(1), table_match.group(2)
+        active_parts = table_match.group(1).split(".")
+        inactive_parts = table_match.group(2).split(".")
+        active = ".".join(active_parts[:3]) if _is_plausible_version(active_parts[:3]) else None
+        inactive = ".".join(inactive_parts[:3]) if _is_plausible_version(inactive_parts[:3]) else None
+        if active or inactive:
+            return active, inactive
 
     return None, None
 
@@ -1703,7 +1724,17 @@ def process_radio(
         if "sop" in tasks or "all" in tasks:
             if abort_if_needed():
                 return result
-            fw_for_sop = result.firmware_version_after or result.firmware_version_before
+            if result.status in ("loading", "scheduled", "manual"):
+                log(
+                    f"[{ip}] Skipping SOP checks while firmware is {result.status}.",
+                    "warning",
+                    callback=callback,
+                )
+                result.sop_checked = False
+                result.sop_passed = True
+                fw_for_sop = None
+            else:
+                fw_for_sop = result.firmware_version_after or result.firmware_version_before
             if fw_for_sop and _version_tuple(fw_for_sop) < _version_tuple(CONFIG.firmware_final_version):
                 log(
                     f"[{ip}] Skipping SOP checks until firmware {CONFIG.firmware_final_version}+ is active.",
@@ -1713,12 +1744,13 @@ def process_radio(
                 result.sop_checked = False
                 result.sop_passed = True
             else:
-                passed, results = run_sop_checks(client, callback=callback)
-                result.sop_checked = True
-                result.sop_passed = passed
-                result.sop_results = results
-                if not passed and not result.error:
-                    result.error = "SOP checks failed"
+                if fw_for_sop is not None:
+                    passed, results = run_sop_checks(client, callback=callback)
+                    result.sop_checked = True
+                    result.sop_passed = passed
+                    result.sop_results = results
+                    if not passed and not result.error:
+                        result.error = "SOP checks failed"
 
         if "firmware" in tasks or "all" in tasks or "sop" in tasks:
             result.firmware_version_after = get_firmware_version(client, callback=callback)
