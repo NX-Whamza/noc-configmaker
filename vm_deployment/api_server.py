@@ -9151,12 +9151,24 @@ def admin_reset_user_password():
 
         c.execute('SELECT id FROM users WHERE email = ?', (email,))
         user = c.fetchone()
-        if not user:
-            conn.close()
-            return jsonify({'success': False, 'error': 'User not found'}), 404
 
         effective_password = new_password or DEFAULT_PASSWORD
         new_password_hash = hash_password(effective_password)
+
+        if not user:
+            # Create user on admin reset if they don't exist yet
+            c.execute('''INSERT INTO users (email, password_hash, display_name, first_login)
+                         VALUES (?, ?, ?, ?)''',
+                      (email, new_password_hash, email.split('@')[0], 1 if require_change else 0))
+            conn.commit()
+            conn.close()
+            return jsonify({
+                'success': True,
+                'message': 'User created and password set',
+                'temporaryPassword': effective_password if not new_password else None,
+                'requirePasswordChange': require_change
+            })
+
         c.execute('''UPDATE users
                      SET password_hash = ?,
                          first_login = ?,
