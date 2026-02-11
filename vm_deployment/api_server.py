@@ -321,10 +321,25 @@ def _aviat_queue_upsert(ip, updates=None):
     entry["updated_at"] = datetime.utcnow().isoformat() + "Z"
     return entry
 
+def _aviat_expand_tasks(task_types):
+    if not task_types:
+        return []
+    tasks = list(task_types)
+    if "all" in tasks:
+        return ["firmware", "password", "snmp", "buffer", "sop", "activate"]
+    return [t for t in tasks if t]
+
+
 def _aviat_clean_remaining_tasks(task_types):
     if not task_types:
         return []
-    return [task for task in task_types if task not in ("firmware", "activate")]
+    # For scheduled/loaded flows, firmware + activate already handled.
+    return [task for task in _aviat_expand_tasks(task_types) if task not in ("firmware", "activate")]
+
+
+def _aviat_remaining_tasks_for_reboot(task_types):
+    # For reboot-required flows, keep firmware/activate so the upgrade continues after reboot.
+    return _aviat_expand_tasks(task_types)
 
 def _aviat_queue_remove(ip):
     aviat_shared_queue[:] = [e for e in aviat_shared_queue if e.get("ip") != ip]
@@ -413,7 +428,10 @@ def _aviat_reboot_device(ip, callback=None):
     client = None
     try:
         client = _aviat_connect_with_fallback(ip, callback=callback)
-        client.send_command("reboot", timeout=5)
+        # Aviat WTM uses "restart" with confirmation.
+        output = client.send_command("restart", wait_for=['?', ':', '#', '>', ']'], timeout=8)
+        if "Are you sure" in output or "no,yes" in output or "[no,yes]" in output:
+            client.send_command("yes", wait_for=['#', '>', ']'], timeout=5)
         if callback:
             callback(f"[{ip}] Reboot command sent.", "info")
         return True, None
@@ -11130,7 +11148,7 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
                 aviat_reboot_queue.append({
                     "ip": res["ip"],
                     "reason": res.get("error") or "Uptime exceeds limit",
-                    "remaining_tasks": remaining_tasks,
+                    "remaining_tasks": _aviat_remaining_tasks_for_reboot(task_types),
                     "maintenance_params": maintenance_params,
                     "username": username or "aviat-tool",
                     "started_at": datetime.utcnow().isoformat() + "Z",
@@ -11174,7 +11192,7 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
                 aviat_reboot_queue.append({
                     "ip": res.get("ip"),
                     "reason": res.get("error") or "Uptime exceeds limit",
-                    "remaining_tasks": _aviat_clean_remaining_tasks([t for t in task_types if t != "all"]),
+                    "remaining_tasks": _aviat_remaining_tasks_for_reboot(task_types),
                     "maintenance_params": maintenance_params,
                     "username": username or "aviat-tool",
                     "started_at": datetime.utcnow().isoformat() + "Z",
@@ -11413,6 +11431,7 @@ def aviat_run_reboot_required():
                     password=AVIAT_CONFIG.default_password,
                     fallback_password=AVIAT_CONFIG.new_password,
                     callback=log_cb,
+                    initial_delay=int(os.environ.get("AVIAT_REBOOT_INITIAL_DELAY", "60")),
                 )
                 if client:
                     try:

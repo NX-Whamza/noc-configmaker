@@ -689,23 +689,30 @@ def get_firmware_version(client: AviatSSHClient, callback=None) -> Optional[str]
     ]
     version = None
     last_output = ""
-    for command in commands:
-        output = client.send_command(command)
-        last_output = output
-        if _is_invalid_output(output):
-            continue
-        active, _inactive = _parse_versions_from_status(output)
-        version = active or _parse_version(output)
-        if version:
+    retries = 2
+    for attempt in range(retries + 1):
+        for command in commands:
+            output = client.send_command(command)
+            last_output = output
+            if _is_invalid_output(output):
+                continue
+            active, _inactive = _parse_versions_from_status(output)
+            version = active or _parse_version(output)
+            if version and version != "0.0.0":
+                break
+        if version and version != "0.0.0":
             break
-    if version:
+        if attempt < retries:
+            log(f"  [{client.ip}] Firmware version not ready; retrying...", "warning", callback=callback)
+            time.sleep(2)
+    if version and version != "0.0.0":
         log(f"  [{client.ip}] Detected firmware {version}", "info", callback=callback)
-    else:
-        tail = (last_output or "").strip().replace("\r", "")[-160:]
-        if tail:
-            log(f"  [{client.ip}] Firmware parse output tail: {tail}", "warning", callback=callback)
-        log(f"  [{client.ip}] Failed to parse firmware version", "warning", callback=callback)
-    return version
+        return version
+    tail = (last_output or "").strip().replace("\r", "")[-160:]
+    if tail:
+        log(f"  [{client.ip}] Firmware parse output tail: {tail}", "warning", callback=callback)
+    log(f"  [{client.ip}] Failed to parse firmware version", "warning", callback=callback)
+    return None
 
 
 def get_inactive_firmware_version(client: AviatSSHClient, callback=None) -> Optional[str]:
