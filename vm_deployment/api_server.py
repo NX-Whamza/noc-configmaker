@@ -1283,6 +1283,7 @@ def apply_ros6_to_ros7_syntax(config_text):
         (r'/interface ethernet', '/interface/ethernet'),
         (r'/interface vlan', '/interface/vlan'),
         (r'/interface bonding', '/interface/bonding'),
+        (r'/interface vpls', '/interface/vpls'),
         (r'/ip address', '/ip/address'),
         (r'/ip route', '/ip/route'),
         (r'/ip firewall', '/ip/firewall'),
@@ -1308,7 +1309,53 @@ def apply_ros6_to_ros7_syntax(config_text):
     
     for old_speed, new_speed in speed_changes:
         migrated = migrated.replace(old_speed, new_speed)
-    
+
+    # Routing syntax changes (ROS6 → ROS7)
+    # - BGP: instance/peer → template/connection + dot params
+    # - OSPF: interface/network → interface-template
+    # - VPLS: cisco-style-id → cisco-static-id, remote-peer → peer
+    if re.search(r"(?m)^/routing/bgp\s", migrated):
+        migrated = re.sub(r"(?m)^/routing/bgp instance\b", "/routing/bgp template", migrated)
+        migrated = migrated.replace("/routing/bgp peer", "/routing/bgp connection")
+        migrated = migrated.replace(" remote-address=", " remote.address=")
+        migrated = migrated.replace(" remote-as=", " remote.as=")
+        migrated = migrated.replace(" update-source=", " local.address=")
+        migrated = migrated.replace(" local-address=", " local.address=")
+        migrated = re.sub(
+            r'(?m)^/routing/bgp template\s+set\s+\[\s*find\s+default=yes\s*\]\s+',
+            "/routing/bgp template set default ",
+            migrated
+        )
+
+    if re.search(r"(?m)^/routing/ospf\s", migrated):
+        migrated = re.sub(r"(?m)^/routing/ospf interface\b", "/routing/ospf interface-template", migrated)
+        migrated = migrated.replace("/routing/ospf network", "/routing/ospf interface-template")
+        migrated = re.sub(
+            r'(?m)^/routing/ospf instance\s+set\s+\[\s*find\s+default=yes\s*\]\s+([^\n]*)$',
+            r'/routing/ospf instance add name=default-v2 \1',
+            migrated
+        )
+        def _ensure_ospf_area_instance(m):
+            line = m.group(0)
+            if "instance=" in line:
+                return line
+            return line.replace("add ", "add instance=default-v2 ", 1)
+        migrated = re.sub(r"(?m)^/routing/ospf area\s+add\b[^\n]*$", _ensure_ospf_area_instance, migrated)
+        migrated = re.sub(
+            r"(?m)^/routing/ospf interface-template\s+add\b[^\n]*$",
+            lambda m: m.group(0).replace(" interface=", " interfaces=").replace(" network=", " networks="),
+            migrated
+        )
+
+    if re.search(r"(?m)^/interface/vpls\s", migrated):
+        migrated = migrated.replace("cisco-style-id=", "cisco-static-id=")
+        migrated = re.sub(
+            r"(?m)^/interface/vpls\s+add\b([^\n]*?)\bcisco-style=yes\b",
+            lambda m: m.group(0).replace("cisco-style=yes", "").strip(),
+            migrated
+        )
+        migrated = migrated.replace(" remote-peer=", " peer=")
+
     return migrated
 
 
