@@ -10993,7 +10993,7 @@ def get_activity():
 
 def _aviat_should_log(result):
     status = (result or {}).get('status')
-    if status in ('scheduled', 'manual', 'aborted', 'loading'):
+    if status in ('scheduled', 'manual', 'aborted', 'loading', 'reboot_required', 'reboot_pending', 'rebooting'):
         return False
     return True
 

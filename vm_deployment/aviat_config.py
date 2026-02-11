@@ -1699,23 +1699,35 @@ def process_radio(
             result.buffer_configured = success
             if not success and not result.error: result.error = msg
 
-        # 4. SOP checks
+        # 4. SOP checks (skip until firmware final is active)
         if "sop" in tasks or "all" in tasks:
             if abort_if_needed():
                 return result
-            passed, results = run_sop_checks(client, callback=callback)
-            result.sop_checked = True
-            result.sop_passed = passed
-            result.sop_results = results
-            if not passed and not result.error:
-                result.error = "SOP checks failed"
+            fw_for_sop = result.firmware_version_after or result.firmware_version_before
+            if fw_for_sop and _version_tuple(fw_for_sop) < _version_tuple(CONFIG.firmware_final_version):
+                log(
+                    f"[{ip}] Skipping SOP checks until firmware {CONFIG.firmware_final_version}+ is active.",
+                    "warning",
+                    callback=callback,
+                )
+                result.sop_checked = False
+                result.sop_passed = True
+            else:
+                passed, results = run_sop_checks(client, callback=callback)
+                result.sop_checked = True
+                result.sop_passed = passed
+                result.sop_results = results
+                if not passed and not result.error:
+                    result.error = "SOP checks failed"
 
         if "firmware" in tasks or "all" in tasks or "sop" in tasks:
             result.firmware_version_after = get_firmware_version(client, callback=callback)
             
         # Overall success check
         result.success = True
-        if ("firmware" in tasks or "all" in tasks) and not result.firmware_downloaded:
+        if ("firmware" in tasks or "all" in tasks) and not (
+            result.firmware_downloaded or result.firmware_activated or result.firmware_scheduled or result.status in ("loading", "scheduled", "manual")
+        ):
             result.success = False
         if ("password" in tasks or "all" in tasks) and not result.password_changed:
             result.success = False
@@ -1723,7 +1735,7 @@ def process_radio(
             result.success = False
         if ("buffer" in tasks or "all" in tasks) and not result.buffer_configured:
             result.success = False
-        if ("sop" in tasks or "all" in tasks) and not result.sop_passed:
+        if ("sop" in tasks or "all" in tasks) and result.sop_checked and not result.sop_passed:
             result.success = False
             
         result.output = client.output_buffer
