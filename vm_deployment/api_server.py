@@ -1346,6 +1346,39 @@ def apply_ros6_to_ros7_syntax(config_text):
             lambda m: m.group(0).replace(" interface=", " interfaces=").replace(" network=", " networks="),
             migrated
         )
+        # Also handle block-style interface-template sections
+        if re.search(r"(?m)^/routing/ospf interface-template\s*$", migrated):
+            def _fix_ospf_block(match):
+                body = match.group(1)
+                lines = []
+                for ln in body.splitlines():
+                    if ln.strip().startswith("add "):
+                        ln = ln.replace(" interface=", " interfaces=").replace(" network=", " networks=")
+                    lines.append(ln)
+                return "/routing/ospf interface-template\n" + "\n".join(lines) + "\n"
+            migrated = re.sub(
+                r"(?ms)^/routing/ospf interface-template\s*\n((?:add[^\n]*\n)+)",
+                _fix_ospf_block,
+                migrated
+            )
+        # Ensure /routing ospf area exists for any referenced area=...
+        area_names = re.findall(r"(?m)^add\s+[^\n]*\barea=([^\s]+)", migrated)
+        if area_names:
+            unique_areas = []
+            for a in area_names:
+                if a not in unique_areas:
+                    unique_areas.append(a)
+            if not re.search(r"(?m)^/routing/ospf area\b", migrated):
+                area_block = "/routing/ospf area\n" + "\n".join(
+                    [f"add instance=default-v2 name={a}" for a in unique_areas]
+                ) + "\n"
+                # Insert after ospf instance if present, else prepend
+                m_inst = re.search(r"(?m)^/routing/ospf instance[^\n]*$", migrated)
+                if m_inst:
+                    insert_at = m_inst.end()
+                    migrated = migrated[:insert_at] + "\n" + area_block + migrated[insert_at:]
+                else:
+                    migrated = area_block + migrated
 
     if re.search(r"(?m)^/interface/vpls\s", migrated):
         migrated = migrated.replace("cisco-style-id=", "cisco-static-id=")
