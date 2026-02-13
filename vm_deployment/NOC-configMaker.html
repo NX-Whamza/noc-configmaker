@@ -3093,7 +3093,21 @@
                             <label><input type="checkbox" id="mtFeatureTachyon"> Tachyon</label>
                             <label><input type="checkbox" id="mtFeatureTarana"> Tarana</label>
                             <label><input type="checkbox" id="mtFeature6ghz"> 6 GHz</label>
+                            <label><input type="checkbox" id="mtFeatureUbWave"> UB WAVE</label>
                             <label><input type="checkbox" id="mtFeatureContractor"> Contractor Login</label>
+                        </div>
+                        <div id="mtTowerFeatureSubnets" class="section" style="margin-top: 12px; display: none;">
+                            <h3 style="margin-top: 0;">Feature Subnets</h3>
+                            <div class="device-selection-grid">
+                                <div id="mt6ghzSubnetRow" style="display:none;">
+                                    <label for="mt6ghzSubnet">6 GHz Subnet</label>
+                                    <input type="text" id="mt6ghzSubnet" placeholder="10.246.22.224/29">
+                                </div>
+                                <div id="mtUbWaveSubnetRow" style="display:none;">
+                                    <label for="mtUbWaveSubnet">UB WAVE Subnet</label>
+                                    <input type="text" id="mtUbWaveSubnet" placeholder="10.246.39.160/29">
+                                </div>
+                            </div>
                         </div>
 
                         <div class="section" style="margin-top: 20px;">
@@ -12610,6 +12624,25 @@
                 setCheck('enableContractorLogin', document.getElementById('mtFeatureContractor')?.checked);
             }
 
+            function syncMtFeatureSubnetVisibility() {
+                const isTower = getSelectedMtConfigType() === 'tower';
+                const is6 = !!document.getElementById('mtFeature6ghz')?.checked;
+                const isTachyon = !!document.getElementById('mtFeatureTachyon')?.checked;
+                const isUbWave = !!document.getElementById('mtFeatureUbWave')?.checked;
+
+                const section = document.getElementById('mtTowerFeatureSubnets');
+                const sixRow = document.getElementById('mt6ghzSubnetRow');
+                const ubRow = document.getElementById('mtUbWaveSubnetRow');
+
+                const showSix = isTower && (is6 || isTachyon);
+                const showUb = isTower && isUbWave;
+                const showSection = showSix || showUb;
+
+                if (section) section.style.display = showSection ? 'block' : 'none';
+                if (sixRow) sixRow.style.display = showSix ? 'block' : 'none';
+                if (ubRow) ubRow.style.display = showUb ? 'block' : 'none';
+            }
+
             function syncMtConfigTypeUI() {
                 const type = getSelectedMtConfigType();
                 const bng2Fields = document.getElementById('mtBng2Fields');
@@ -12633,6 +12666,7 @@
                     `;
                 }
                 refreshModernPortOptions();
+                syncMtFeatureSubnetVisibility();
             }
 
             function addModernBackhaulRow(seed = {}) {
@@ -12906,6 +12940,13 @@
                     idoClearBtn.addEventListener('click', () => writeIdoOutput(''));
                     idoClearBtn.dataset.bound = '1';
                 }
+                ['mtFeatureTachyon', 'mtFeature6ghz', 'mtFeatureUbWave'].forEach((id) => {
+                    const cb = document.getElementById(id);
+                    if (cb && !cb.dataset.bound) {
+                        cb.addEventListener('change', syncMtFeatureSubnetVisibility);
+                        cb.dataset.bound = '1';
+                    }
+                });
 
                 const rows = document.querySelectorAll('#mtBackhaulRows .mt-backhaul-row');
                 if (rows.length === 0) {
@@ -12948,6 +12989,7 @@
                 if (legacyGenerate) legacyGenerate.style.display = 'none';
 
                 syncMtConfigTypeUI();
+                syncMtFeatureSubnetVisibility();
                 refreshIdoCapabilities();
                 switchMode('new');
             }
@@ -13029,8 +13071,22 @@
                 const switches = readModernSwitches();
                 const stateCode = ((siteName.match(/\.([A-Z]{2})[-.]/) || [])[1] || 'KS').toUpperCase();
                 const rosVer = (document.getElementById('mtRouterOSVersion')?.value || '7.19.4').trim();
+                const isTarana = !!(document.getElementById('mtFeatureTarana')?.checked || document.getElementById('enableTarana')?.checked);
+                const is326 = !!(document.getElementById('mtFeatureCrs326')?.checked || document.getElementById('enableSWT')?.checked);
+                const isTachyon = !!(document.getElementById('mtFeatureTachyon')?.checked || document.getElementById('enableTachyon')?.checked);
+                const is6ghz = !!(document.getElementById('mtFeature6ghz')?.checked || document.getElementById('enable6GHz')?.checked);
+                const isUbWave = !!document.getElementById('mtFeatureUbWave')?.checked;
+                const sixGhzSubnet = ensureCIDR((document.getElementById('mt6ghzSubnet')?.value || '').trim(), 29);
+                const ubWaveSubnet = ensureCIDR((document.getElementById('mtUbWaveSubnet')?.value || '').trim(), 29);
 
-                return {
+                if ((is6ghz || isTachyon) && !sixGhzSubnet) {
+                    throw new Error('6 GHz is enabled. Please provide a valid 6 GHz Subnet.');
+                }
+                if (isUbWave && !ubWaveSubnet) {
+                    throw new Error('UB WAVE is enabled. Please provide a valid UB WAVE Subnet.');
+                }
+
+                const payload = {
                     router_type: routerType,
                     backhauls,
                     switches,
@@ -13049,12 +13105,16 @@
                     peer_2_name: peers[1]?.name || 'PEER2',
                     peer_2_address: peers[1]?.remote || '10.2.0.108',
                     ros_ver: rosVer,
-                    is_tarana: !!(document.getElementById('mtFeatureTarana')?.checked || document.getElementById('enableTarana')?.checked),
-                    is_326: !!(document.getElementById('mtFeatureCrs326')?.checked || document.getElementById('enableSWT')?.checked),
-                    is_tachyon: !!(document.getElementById('mtFeatureTachyon')?.checked || document.getElementById('enableTachyon')?.checked),
-                    is_6ghz: !!(document.getElementById('mtFeature6ghz')?.checked || document.getElementById('enable6GHz')?.checked),
+                    is_tarana: isTarana,
+                    is_326: is326,
+                    is_tachyon: isTachyon,
+                    is_6ghz: is6ghz,
+                    is_ub_wave: isUbWave,
                     enable_contractor_login: !!(document.getElementById('mtFeatureContractor')?.checked || document.getElementById('enableContractorLogin')?.checked)
                 };
+                if (is6ghz || isTachyon) payload["6ghz_subnet"] = sixGhzSubnet;
+                if (isUbWave) payload["ub_wave_subnet"] = ubWaveSubnet;
+                return payload;
             }
 
             function buildBng2BackendPayload() {
