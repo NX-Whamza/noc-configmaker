@@ -54,6 +54,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from ftth_renderer import render_ftth_config
 from typing import Optional
 
+# Ensure local module imports work regardless of process working directory.
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _THIS_DIR not in sys.path:
+    sys.path.insert(0, _THIS_DIR)
+
 # JWT support (optional - install with: pip install PyJWT)
 try:
     import jwt
@@ -74,8 +79,14 @@ try:
     HAS_MT_CONFIG_GEN = True
     MT_CONFIG_GEN_ERROR: Optional[str] = None
 except Exception as _mt_err:
-    HAS_MT_CONFIG_GEN = False
-    MT_CONFIG_GEN_ERROR = str(_mt_err)
+    try:
+        from vm_deployment.mt_config_gen.mt_tower import MTTowerConfig
+        from vm_deployment.mt_config_gen.mt_bng2 import MTBNG2Config
+        HAS_MT_CONFIG_GEN = True
+        MT_CONFIG_GEN_ERROR = None
+    except Exception:
+        HAS_MT_CONFIG_GEN = False
+        MT_CONFIG_GEN_ERROR = str(_mt_err)
 
 try:
     from engineering_compliance import apply_engineering_compliance, extract_loopback_ip

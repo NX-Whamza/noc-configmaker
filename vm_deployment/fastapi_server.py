@@ -7,6 +7,7 @@ without breaking existing routes while we continue native FastAPI migration incr
 """
 
 import os
+import sys
 from urllib.parse import urljoin
 import requests
 from typing import Any, Dict, Type
@@ -16,9 +17,18 @@ from fastapi.middleware.wsgi import WSGIMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 
+# Ensure local imports resolve when launched from repo root or service wrappers.
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _THIS_DIR not in sys.path:
+    sys.path.insert(0, _THIS_DIR)
+
 from api_server import app as flask_app
-from mt_config_gen.mt_tower import MTTowerConfig
-from mt_config_gen.mt_bng2 import MTBNG2Config
+try:
+    from mt_config_gen.mt_tower import MTTowerConfig
+    from mt_config_gen.mt_bng2 import MTBNG2Config
+except Exception:
+    from vm_deployment.mt_config_gen.mt_tower import MTTowerConfig
+    from vm_deployment.mt_config_gen.mt_bng2 import MTBNG2Config
 from ido_adapter import (
     apply_compliance as ido_apply_compliance,
     get_compliance as ido_get_compliance,
