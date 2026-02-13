@@ -170,7 +170,8 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            height: 35px;
+            min-height: 35px;
+            height: auto;
         }
 
         .header-logo {
@@ -199,6 +200,65 @@
             gap: 2px;
             flex: 1;
             padding: 0 8px;
+            overflow: visible;
+            white-space: nowrap;
+            scrollbar-width: none;
+            min-width: 0;
+        }
+
+        .main-nav::-webkit-scrollbar {
+            display: none;
+        }
+
+        .nav-overflow {
+            position: relative;
+            display: none;
+            margin: 0 8px;
+        }
+
+        .nav-overflow .nav-toggle {
+            display: inline-flex;
+        }
+
+        .nav-toggle {
+            display: none;
+            width: 38px;
+            height: 34px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--container-bg);
+            color: var(--text-color);
+            cursor: pointer;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            line-height: 1;
+            z-index: 1003;
+        }
+
+        .nav-overflow.open .nav-toggle {
+            border-color: var(--sidebar-active);
+        }
+
+        .nav-overflow-menu {
+            position: absolute;
+            top: calc(100% + 6px);
+            right: 0;
+            min-width: 280px;
+            max-width: min(90vw, 420px);
+            max-height: 70vh;
+            overflow-y: auto;
+            background: var(--container-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+            padding: 8px;
+            z-index: 1005;
+            display: none;
+        }
+
+        .nav-overflow.open .nav-overflow-menu {
+            display: block;
         }
 
         .nav-item {
@@ -214,6 +274,10 @@
             text-transform: uppercase;
             letter-spacing: 0.2px;
             white-space: nowrap;
+            flex: 0 0 auto;
+            margin: 0;
+            box-shadow: none;
+            transform: none;
         }
 
         .nav-item:hover {
@@ -229,6 +293,8 @@
             display: flex;
             align-items: center;
             gap: 5px;
+            flex: 0 0 auto;
+            position: relative;
         }
 
         .nav-item.dropdown>button {
@@ -243,10 +309,31 @@
             text-transform: uppercase;
             letter-spacing: 0.2px;
             white-space: nowrap;
+            width: auto;
+            min-width: max-content;
+            display: inline-flex;
+            align-items: center;
+            pointer-events: auto;
+            position: relative;
+            z-index: 2;
+            margin: 0;
+            box-shadow: none;
+            transform: none;
+            overflow: visible;
         }
 
         .nav-item.dropdown>button:hover {
             background: rgba(255, 255, 255, 0.1);
+            transform: none;
+            box-shadow: none;
+        }
+
+        .nav-item.dropdown.dropdown-open>button,
+        .nav-item.dropdown.active>button {
+            background: transparent;
+            color: var(--sidebar-active);
+            text-decoration: underline;
+            text-underline-offset: 3px;
         }
 
         .nav-item.dropdown:not(.active)>button {
@@ -268,9 +355,15 @@
             margin-top: 2px;
         }
 
-        .nav-item.dropdown:hover .dropdown-menu,
-        .dropdown-menu:hover {
+        .nav-item.dropdown.dropdown-open .dropdown-menu {
             display: block;
+        }
+
+        @media (min-width: 1801px) {
+            .nav-item.dropdown:hover .dropdown-menu,
+            .dropdown-menu:hover {
+                display: block;
+            }
         }
 
         .dropdown-menu a {
@@ -300,6 +393,36 @@
         .dropdown-menu a.disabled {
             opacity: 0.5;
             cursor: not-allowed;
+        }
+
+        .nav-overflow-menu .nav-item {
+            display: block;
+            width: 100%;
+            text-align: left;
+            border-radius: 6px;
+        }
+
+        .nav-overflow-menu .nav-item.dropdown {
+            display: block;
+        }
+
+        .nav-overflow-menu .nav-item.dropdown>button {
+            width: 100%;
+            text-align: left;
+            border-radius: 6px;
+        }
+
+        .nav-overflow-menu .nav-item.in-overflow .dropdown-menu {
+            position: static;
+            display: none;
+            min-width: 100%;
+            box-shadow: none;
+            margin-top: 6px;
+            border-radius: 6px;
+        }
+
+        .nav-overflow-menu .nav-item.in-overflow.dropdown-open .dropdown-menu {
+            display: block;
         }
 
         .user-section {
@@ -336,6 +459,47 @@
             border-radius: 8px;
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
             transition: all 0.3s ease;
+        }
+
+        .ido-tools-card {
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 14px;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .ido-tools-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .ido-tools-input-grid {
+            margin-top: 12px;
+            display: grid;
+            grid-template-columns: 1.2fr 1fr 1fr;
+            gap: 10px;
+        }
+
+        .ido-tools-actions {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .ido-tools-output {
+            margin-top: 10px;
+            width: 100%;
+            min-height: 220px;
+            font-family: monospace;
+            background: #0f1218;
+            color: #d4d7dd;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px;
         }
 
         .ftth-home-tabs {
@@ -2195,6 +2359,16 @@
             #aviat-backhaul-pane .aviat-card {
                 padding: 14px;
             }
+
+            .header-logo .subtitle {
+                display: none;
+            }
+
+            .container {
+                max-width: calc(100vw - 20px);
+                margin: 10px;
+                padding: 20px;
+            }
         }
 
         #aviat-backhaul-pane {
@@ -2229,6 +2403,40 @@
             #aviat-backhaul-pane .container {
                 padding: 18px;
             }
+
+            .user-section {
+                display: none;
+            }
+
+            .ido-tools-input-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .content-pane [style*="grid-template-columns"] {
+                grid-template-columns: 1fr !important;
+            }
+        }
+
+        @media (max-width: 1800px) {
+            .header-logo {
+                min-width: 0;
+                border-right: none;
+            }
+
+            .header-logo>div>div>div {
+                font-size: 11px !important;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .ido-tools-input-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .container {
+                margin: 6px;
+                padding: 14px;
+            }
         }
     </style>
 </head>
@@ -2252,11 +2460,11 @@
             </div>
             <nav class="main-nav">
                 <button class="nav-item active" data-tab="home">HOME</button>
-                <div class="nav-item dropdown">
+                <div class="nav-item dropdown" data-default-tab="tower">
                     <button>MIKROTIK CONFIG </button>
                     <div class="dropdown-menu">
                         <a data-tab="tower">
-                             Tower Config
+                             MikroTik Config Generator
                             <span class="desc">Full BGP/OSPF/MPLS for tower sites</span>
                         </a>
                         <a data-tab="enterprise">
@@ -2285,7 +2493,8 @@
                         </a>
                     </div>
                 </div>
-                <div class="nav-item dropdown">
+                <button class="nav-item" data-tab="ido-tools">IDO TOOLS</button>
+                <div class="nav-item dropdown" data-default-tab="nokia7250-maker">
                     <button>NOKIA CONFIG <span style="font-size: 10px;"></span></button>
                     <div class="dropdown-menu">
                         <a data-tab="nokia7250-maker">
@@ -2321,6 +2530,12 @@
                 <button class="nav-item" id="adminNavBtn" data-tab="admin-panel" style="background: #d35400;">
                     ADMIN</button>
             </nav>
+            <div class="nav-overflow" id="navOverflow">
+                <button class="nav-toggle" id="navToggleBtn" aria-label="More navigation" aria-expanded="false">
+                    &#9776;
+                </button>
+                <div class="nav-overflow-menu" id="navOverflowMenu"></div>
+            </div>
             <div class="user-section">
                 <span id="userEmailDisplay"
                     style="color: #bbb; font-size: 9px; margin-right: 10px; text-transform: uppercase;"></span>
@@ -2687,17 +2902,223 @@
                             testing. Do not use generated configurations in production environments without thorough
                             review.</p>
                     </div>
-                    <h1> Tower Configuration Generator</h1>
-                    <p style="text-align: center; color: var(--text-color);">Nextlink-compliant tower site configuration
-                        with standardized port assignments, BGP/OSPF/MPLS, and AI-powered validation.</p>
+                    <h1> MikroTik Config Generator</h1>
+                    <p style="text-align: center; color: var(--text-color); max-width: 900px; margin: 0 auto;">
+                        This tool generates configuration files, along with corresponding port maps, for MikroTik routers.
+                        To use the tool, select the config type, then either upload a JSON/CSV file containing parameters, or enter manually.
+                        At least one backhaul is required to generate a configuration file.
+                    </p>
                     <p
                         style="text-align: center; color: var(--text-color-secondary); font-size: 14px; margin-top: 10px;">
                          <a href="javascript:void(0);" onclick="togglePolicyReference();"
                             style="color: #FF9800; text-decoration: underline;">View Policy Reference</a> for port
                         assignments and configuration details.</p>
 
+                    <!-- Simplified Tower UI (FastAPI backend-first) -->
+                    <div id="towerModernForm" class="section"
+                        style="background: var(--container-bg); border-left: 4px solid var(--button-bg); padding: 20px; margin-top: 20px;">
+                        <h2 style="margin-top: 0;">Tower Configuration Generator</h2>
+                        <p style="margin-top: 0; color: var(--text-color-secondary);">
+                            Backend-driven form for MikroTik tower configs. Legacy tower form sections are hidden.
+                        </p>
+                        <div style="display:none; gap:10px; margin: 6px 0 14px 0;">
+                            <button type="button" id="topNewModeBtn" onclick="switchMode('new')"
+                                style="padding:10px 14px; margin:0; font-size:14px;">New Device</button>
+                            <button type="button" id="topUpgradeModeBtn" onclick="switchMode('upgrade')"
+                                style="padding:10px 14px; margin:0; font-size:14px;">Upgrade Existing</button>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="mtConfigType">Config Type</label>
+                            <select id="mtConfigType" style="max-width: 320px;">
+                                <option value="tower" selected>Tower Config</option>
+                                <option value="bng2">BNG2 Config</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="mtTemplateFile">CSV/JSON File Upload (optional)</label>
+                            <input type="file" id="mtTemplateFile" accept=".csv,.json">
+                        </div>
+
+                        <div class="section-subtle" style="margin: 8px 0 12px 0;">
+                            IDO utilities moved to dedicated <strong>IDO TOOLS</strong> tab.
+                        </div>
+
+                        <div class="device-selection-grid">
+                            <div>
+                                <label for="mtSiteName">Site Name</label>
+                                <input type="text" id="mtSiteName" placeholder="HALLETTSVILLE-NW-1">
+                            </div>
+                            <div>
+                                <label for="mtLatitude">Latitude</label>
+                                <input type="text" id="mtLatitude" placeholder="29.08256">
+                            </div>
+                            <div>
+                                <label for="mtLongitude">Longitude</label>
+                                <input type="text" id="mtLongitude" placeholder="-96.72243">
+                            </div>
+                            <div>
+                                <label for="mtAsn">ASN</label>
+                                <input type="text" id="mtAsn" value="26077" placeholder="26077">
+                            </div>
+                            <div>
+                                <label for="mtBgpPeer1Name">BGP Peer 1 Name</label>
+                                <input type="text" id="mtBgpPeer1Name" value="CR7" placeholder="CR7">
+                            </div>
+                            <div>
+                                <label for="mtBgpPeer1Address">BGP Peer 1 Address</label>
+                                <input type="text" id="mtBgpPeer1Address" value="10.2.0.107/32" placeholder="10.2.0.107/32">
+                            </div>
+                            <div>
+                                <label for="mtBgpPeer2Name">BGP Peer 2 Name</label>
+                                <input type="text" id="mtBgpPeer2Name" value="CR8" placeholder="CR8">
+                            </div>
+                            <div>
+                                <label for="mtBgpPeer2Address">BGP Peer 2 Address</label>
+                                <input type="text" id="mtBgpPeer2Address" value="10.2.0.108/32" placeholder="10.2.0.108/32">
+                            </div>
+                            <div>
+                                <label for="mtLoopbackSubnet">Loopback Subnet</label>
+                                <input type="text" id="mtLoopbackSubnet" placeholder="10.25.0.46/32">
+                            </div>
+                            <div>
+                                <label for="mtCpeSubnet">CPE Subnet</label>
+                                <input type="text" id="mtCpeSubnet" placeholder="10.45.40.0/22">
+                            </div>
+                            <div>
+                                <label for="mtUnauthSubnet">Unauth Subnet</label>
+                                <input type="text" id="mtUnauthSubnet" placeholder="10.145.40.0/22">
+                            </div>
+                            <div>
+                                <label for="mtCgnatPrivate">CGNAT Private</label>
+                                <input type="text" id="mtCgnatPrivate" placeholder="100.64.112.0/22">
+                            </div>
+                            <div>
+                                <label for="mtCgnatPublic">CGNAT Public</label>
+                                <input type="text" id="mtCgnatPublic" placeholder="142.147.123.163/32">
+                            </div>
+                            <div>
+                                <label for="mtRouterModel">Router Model</label>
+                                <select id="mtRouterModel">
+                                    <option value="ccr2004" selected>CCR2004</option>
+                                    <option value="ccr1036">CCR1036</option>
+                                    <option value="ccr1072">CCR1072</option>
+                                    <option value="rb1009">RB1009</option>
+                                    <option value="ccr2216">CCR2216</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="mtRouterOSVersion">RouterOS Version</label>
+                                <select id="mtRouterOSVersion">
+                                    <option value="7.19.4" selected>7.19.4</option>
+                                    <option value="7.20.2">7.20.2</option>
+                                    <option value="7.21.0">7.21.0</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div id="mtBng2Fields" class="section" style="display:none; margin-top: 15px;">
+                            <h3 style="margin-top:0;">BNG2 Parameters</h3>
+                            <div class="device-selection-grid">
+                                <div>
+                                    <label for="mtBng2OspfArea">OSPF Area</label>
+                                    <input type="text" id="mtBng2OspfArea" value="248" placeholder="248">
+                                </div>
+                                <div>
+                                    <label for="mtBng2StateCode">State Code</label>
+                                    <input type="text" id="mtBng2StateCode" value="KS" placeholder="KS">
+                                </div>
+                                <div>
+                                    <label for="mtBng2Gateway">Gateway Subnet</label>
+                                    <input type="text" id="mtBng2Gateway" placeholder="10.248.80.208/30">
+                                </div>
+                                <div>
+                                    <label for="mtBng2SwitchIp">Switch IP Subnet</label>
+                                    <input type="text" id="mtBng2SwitchIp" placeholder="10.248.249.8/29">
+                                </div>
+                                <div>
+                                    <label for="mtBng2Ip1">BNG IP 1</label>
+                                    <input type="text" id="mtBng2Ip1" value="10.249.0.200" placeholder="10.249.0.200">
+                                </div>
+                                <div>
+                                    <label for="mtBng2Ip2">BNG IP 2</label>
+                                    <input type="text" id="mtBng2Ip2" value="10.249.0.201" placeholder="10.249.0.201">
+                                </div>
+                                <div>
+                                    <label for="mtBng2Vpls1000">VPLS 1000 ID</label>
+                                    <input type="text" id="mtBng2Vpls1000" placeholder="1248">
+                                </div>
+                                <div>
+                                    <label for="mtBng2Vpls2000">VPLS 2000 ID</label>
+                                    <input type="text" id="mtBng2Vpls2000" placeholder="2248">
+                                </div>
+                                <div>
+                                    <label for="mtBng2Vpls3000">VPLS 3000 ID</label>
+                                    <input type="text" id="mtBng2Vpls3000" placeholder="3248">
+                                </div>
+                                <div>
+                                    <label for="mtBng2Vpls4000">VPLS 4000 ID</label>
+                                    <input type="text" id="mtBng2Vpls4000" placeholder="4248">
+                                </div>
+                                <div>
+                                    <label for="mtBng2MplsMtu">MPLS MTU</label>
+                                    <input type="text" id="mtBng2MplsMtu" value="9000" placeholder="9000">
+                                </div>
+                                <div>
+                                    <label for="mtBng2VplsL2Mtu">VPLS L2 MTU</label>
+                                    <input type="text" id="mtBng2VplsL2Mtu" value="1580" placeholder="1580">
+                                </div>
+                                <div>
+                                    <label for="mtBng2TaranaSubnet">Tarana Subnet</label>
+                                    <input type="text" id="mtBng2TaranaSubnet" placeholder="10.248.249.8/29">
+                                </div>
+                                <div>
+                                    <label for="mtBng2TaranaSectors">Tarana Sector Count</label>
+                                    <input type="number" id="mtBng2TaranaSectors" value="3" min="1" max="4">
+                                </div>
+                                <div>
+                                    <label for="mtBng2BbuS1">BBU S1 Subnet (LTE)</label>
+                                    <input type="text" id="mtBng2BbuS1" placeholder="10.248.86.0/29">
+                                </div>
+                                <div>
+                                    <label for="mtBng2BbuMgmt">BBU Mgmt Subnet (LTE)</label>
+                                    <input type="text" id="mtBng2BbuMgmt" placeholder="10.248.86.8/29">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="features" style="margin-top: 10px;">
+                            <label><input type="checkbox" id="mtFeatureCrs326"> CRS326</label>
+                            <label><input type="checkbox" id="mtFeatureTachyon"> Tachyon</label>
+                            <label><input type="checkbox" id="mtFeatureTarana"> Tarana</label>
+                            <label><input type="checkbox" id="mtFeature6ghz"> 6 GHz</label>
+                            <label><input type="checkbox" id="mtFeatureContractor"> Contractor Login</label>
+                        </div>
+
+                        <div class="section" style="margin-top: 20px;">
+                            <h3 style="margin-top: 0;">Backhauls</h3>
+                            <div id="mtBackhaulRows"></div>
+                            <div class="uplink-buttons">
+                                <button type="button" id="mtAddBackhaulBtn">+ Add Backhaul</button>
+                            </div>
+                        </div>
+
+                        <div class="section" style="margin-top: 20px;">
+                            <h3 style="margin-top: 0;">Switch Uplinks (Policy: sfp-sfpplus1-2)</h3>
+                            <div id="mtSwitchRows"></div>
+                            <div class="uplink-buttons">
+                                <button type="button" id="mtAddSwitchBtn">+ Add Switch</button>
+                            </div>
+                        </div>
+
+                        <div class="generate-section">
+                            <button id="mtGenerateBtn" onclick="generateConfig()">Generate Config Script</button>
+                        </div>
+                    </div>
+
                     <!-- Mode Selection -->
-                    <div class="section"
+                    <div id="towerModeSelectorSection" class="section"
                         style="background: var(--container-bg); border-left: 4px solid var(--button-bg); padding: 20px;">
                         <div style="display: flex; gap: 15px; margin-bottom: 15px;">
                             <label
@@ -3119,7 +3540,7 @@
                                             </select>
                                             <div style="margin-top:6px; display:flex; gap:6px;">
                                                 <select id="tower_tarana_alpha_speed" style="width:60%;">
-                                                    <option value="10G-baseCR">10G-baseCR</option>
+                                                    <option value="10G-baseSR-LR">10G-baseSR-LR</option>
                                                     <option value="10G-baseSR-LR">10G-baseSR/LR</option>
                                                     <option value="1G-baseT-full">1G-baseT-full</option>
                                                     <option value="auto">Auto-Negotiate</option>
@@ -3138,7 +3559,7 @@
                                             </select>
                                             <div style="margin-top:6px; display:flex; gap:6px;">
                                                 <select id="tower_tarana_beta_speed" style="width:60%;">
-                                                    <option value="10G-baseCR">10G-baseCR</option>
+                                                    <option value="10G-baseSR-LR">10G-baseSR-LR</option>
                                                     <option value="10G-baseSR-LR">10G-baseSR/LR</option>
                                                     <option value="1G-baseT-full">1G-baseT-full</option>
                                                     <option value="auto">Auto-Negotiate</option>
@@ -3157,7 +3578,7 @@
                                             </select>
                                             <div style="margin-top:6px; display:flex; gap:6px;">
                                                 <select id="tower_tarana_gamma_speed" style="width:60%;">
-                                                    <option value="10G-baseCR">10G-baseCR</option>
+                                                    <option value="10G-baseSR-LR">10G-baseSR-LR</option>
                                                     <option value="10G-baseSR-LR">10G-baseSR/LR</option>
                                                     <option value="1G-baseT-full">1G-baseT-full</option>
                                                     <option value="auto">Auto-Negotiate</option>
@@ -3177,7 +3598,7 @@
                                             </select>
                                             <div style="margin-top:6px; display:flex; gap:6px;">
                                                 <select id="tower_tarana_delta_speed" style="width:60%;">
-                                                    <option value="10G-baseCR">10G-baseCR</option>
+                                                    <option value="10G-baseSR-LR">10G-baseSR-LR</option>
                                                     <option value="10G-baseSR-LR">10G-baseSR/LR</option>
                                                     <option value="1G-baseT-full">1G-baseT-full</option>
                                                     <option value="auto">Auto-Negotiate</option>
@@ -3329,12 +3750,8 @@
                                             <label for="portUplink1Speed">Speed:</label>
                                             <select id="portUplink1Speed" name="portUplinkSpeed">
                                                 <option value="auto">Auto</option>
-                                                <option value="1Gbps">1Gbps</option>
-                                                <option value="10Gbps">10Gbps</option>
                                                 <option value="1G-baseT-full">1G-baseT-full</option>
-                                                <option value="1G-baseX">1G-baseX</option>
-                                                <option value="10G-baseSR-LR">10G-baseSR/LR</option>
-                                                <option value="10G-baseCR">10G-baseCR</option>
+                                                <option value="10G-baseSR-LR">10G-baseSR-LR</option>
                                             </select>
                                         </div>
                                         <div>
@@ -3373,12 +3790,8 @@
                                         </div>
                                         <div><label>Speed:</label><select name="portUplinkSpeed">
                                                 <option value="auto">Auto</option>
-                                                <option value="1Gbps">1Gbps</option>
-                                                <option value="10Gbps">10Gbps</option>
                                                 <option value="1G-baseT-full">1G-baseT-full</option>
-                                                <option value="1G-baseX">1G-baseX</option>
-                                                <option value="10G-baseSR-LR">10G-baseSR/LR</option>
-                                                <option value="10G-baseCR">10G-baseCR</option>
+                                                <option value="10G-baseSR-LR">10G-baseSR-LR</option>
                                             </select></div>
                                         <div><label>Comment:</label><input type="text" name="portUplinkComment"
                                                 placeholder="TX-LAGRANGE-FC-1"></div>
@@ -3393,7 +3806,7 @@
                             <div class="uplink-buttons">
                                 <button id="addPortUplinkBtn">Add Port/Uplink</button>
                                 <button type="button" id="btnAutoPopulateNetonix">Auto-populate Switch Uplinks (1,2 @
-                                    1Gbps)</button>
+                                    1G-baseT-full)</button>
                             </div>
                             <div
                                 style="margin-top: 15px; padding: 10px; background: #2a4a2a; border-radius: 5px; font-size: 14px;">
@@ -3608,6 +4021,44 @@
                         </div>
                     </div>
                     <!-- End mainForm -->
+                </div>
+            </div>
+
+            <!-- IDO TOOLS TAB -->
+            <div class="content-pane" id="ido-tools-pane">
+                <div class="container">
+                    <h1>IDO Tools Space</h1>
+                    <p style="color: var(--text-color-secondary); margin-bottom: 16px;">
+                        Integrated non-site-checker IDO capabilities (proxy-enabled): BH/AP/UPS/RPC/Switch/Generic/Ping/Waveconfig/7250.
+                    </p>
+
+                    <div class="ido-tools-card" id="idoToolsSpace">
+                        <div class="ido-tools-header">
+                            <div>
+                                <div style="font-weight:700;">IDO Operations</div>
+                                <div style="font-size:13px; color:var(--text-color-secondary);">
+                                    Use this tab for live helper actions without mixing it into MikroTik config generation.
+                                </div>
+                            </div>
+                            <button type="button" id="idoRefreshCapabilitiesBtn" class="btn-secondary" style="min-width:180px;">Refresh IDO Status</button>
+                        </div>
+                        <div id="idoCapabilitiesSummary" style="margin-top:10px; font-size:13px; color:var(--text-color-secondary);">
+                            IDO status not loaded.
+                        </div>
+                        <div class="ido-tools-input-grid">
+                            <input type="text" id="idoTargetIp" placeholder="Target IP (e.g. 10.247.62.131)">
+                            <input type="text" id="idoDeviceType" placeholder="Device Type (e.g. AV4200, CNEP3K)">
+                            <input type="text" id="idoLinkType" placeholder="Link Type (optional)">
+                        </div>
+                        <div class="ido-tools-actions">
+                            <button type="button" id="idoPingBtn" class="btn-secondary">Ping</button>
+                            <button type="button" id="idoGenericInfoBtn" class="btn-secondary">Generic Device Info</button>
+                            <button type="button" id="idoBhRunBtn" class="btn-secondary">BH Running Config</button>
+                            <button type="button" id="idoApRunBtn" class="btn-secondary">AP Running Config</button>
+                            <button type="button" id="idoClearOutBtn" class="btn-secondary">Clear Output</button>
+                        </div>
+                        <textarea id="idoToolsOutput" class="ido-tools-output" readonly placeholder="IDO tool output will appear here..."></textarea>
+                    </div>
                 </div>
             </div>
 
@@ -4897,7 +5348,7 @@
                                 <label for="configTypeFilter">Filter by Type:</label>
                                 <select id="configTypeFilter" style="width: 100%; padding: 10px;">
                                     <option value="">All Types</option>
-                                    <option value="tower">Tower Config</option>
+                                    <option value="tower">MikroTik Config Generator</option>
                                     <option value="enterprise">Non-MPLS Enterprise</option>
                                     <option value="mpls-enterprise">MPLS Enterprise</option>
                                 </select>
@@ -6828,25 +7279,13 @@
                 '7.16.2': 'new',
                 '7.19.4': 'new'
             };
-            return routerOSVersions[version] || 'classic';
+            return routerOSVersions[version] || 'new';
         }
 
         // Get Speed Syntax based on RouterOS version
         function getSpeedSyntax(routerOSVersion, port) {
-            const versionType = getRouterOSVersionType(routerOSVersion);
-
-            if (versionType === 'new') {
-                // RouterOS 7.16.2+ syntax - Nextlink standard is 1G-baseT-full for 1G links
-                // Use 1G-baseT-full for both copper and SFP+ 1G profiles unless user overrides
-                return '1G-baseT-full';
-            } else {
-                // RouterOS classic syntax (7.11.2 and below)
-                if (port.includes('sfp') || port.includes('qsfp')) {
-                    return '1Gbps'; // SFP speed (no duplex parameter)
-                } else {
-                    return '1Gbps'; // Ethernet speed (no duplex parameter)
-                }
-            }
+            // Frontend standard for 7.19.4+ is always new syntax.
+            return '1G-baseT-full';
         }
 
         // Enterprise Feeding Device Selection Handler
@@ -6890,34 +7329,19 @@
                 return;
             }
 
-            const versionType = getRouterOSVersionType(selectedVersion);
-
             // Clear existing options
             speedSelect.innerHTML = '<option value="auto">Auto Negotiation</option>';
-
-            if (versionType === 'new') {
-                // RouterOS 7.16.1+ (New syntax: 7.16.2, 7.19.4)
-                speedSelect.innerHTML += `
-                    <option value="1G-baseT-full">1G-baseT-full</option>
-                    <option value="1G-baseSX-full">1G-baseSX-full</option>
-                    <option value="1G-baseLX-full">1G-baseLX-full</option>
-                    <option value="10G-baseSR-full">10G-baseSR-full</option>
-                    <option value="10G-baseLR-full">10G-baseLR-full</option>
-                    <option value="10G-baseCR">10G-baseCR</option>
-                    <option value="10G-baseT-full">10G-baseT-full</option>
-                    <option value="25G-baseCR">25G-baseCR</option>
-                `;
-                console.log(`RouterOS ${selectedVersion} - Using new speed syntax (e.g., 1G-baseT-full)`);
-            } else {
-                // RouterOS 7.11.2 and below (classic syntax: 6.45.2, 6.49.2, 7.11.2)
-                speedSelect.innerHTML += `
-                    <option value="10Mbps">10Mbps</option>
-                    <option value="100Mbps">100Mbps</option>
-                    <option value="1Gbps">1Gbps</option>
-                    <option value="10Gbps">10Gbps</option>
-                `;
-                console.log(`RouterOS ${selectedVersion} - Using classic speed syntax (e.g., 10Gbps)`);
-            }
+            speedSelect.innerHTML += `
+                <option value="1G-baseT-full">1G-baseT-full</option>
+                <option value="1G-baseSX-full">1G-baseSX-full</option>
+                <option value="1G-baseLX-full">1G-baseLX-full</option>
+                <option value="10G-baseSR-full">10G-baseSR-full</option>
+                <option value="10G-baseLR-full">10G-baseLR-full</option>
+                <option value="10G-baseSR-LR">10G-baseSR-LR</option>
+                <option value="10G-baseT-full">10G-baseT-full</option>
+                <option value="25G-baseCR">25G-baseCR</option>
+            `;
+            console.log(`RouterOS ${selectedVersion} - Using 7.19.4+ speed syntax`);
         }
 
         // Enterprise Config Device Selection Handler
@@ -7328,7 +7752,7 @@
                     }
                     // Special handling for sfp-sfpplus14 (FTTH site host)
                     if (port.port === 'sfp-sfpplus14' && port.comment && port.comment.toLowerCase().includes('ftth')) {
-                        line += ` auto-negotiation=no speed=1G-baseX`;
+                        line += ` auto-negotiation=no speed=1G-baseT-full`;
                     }
                     // Special handling for uplink ports
                     if (port.port === uplink1 || port.port === uplink2) {
@@ -7821,7 +8245,7 @@
 
                 // Determine speed syntax based on RouterOS version
                 const versionType = getRouterOSVersionType(routerOSVersion);
-                const speedSyntax = versionType === 'new' ? '10G-baseSR-LR' : '10Gbps';
+                const speedSyntax = '10G-baseSR-LR';
 
                 // Get shared key from infrastructure or use placeholder
                 const sharedKey = getInfrastructureValue('sharedKeys.ospfBgpMd5', 'CHANGE_ME');
@@ -8142,7 +8566,7 @@
 
                     // Determine speed syntax based on RouterOS version
                     const versionType = getRouterOSVersionType(routerOSVersion);
-                    const speedSyntax = versionType === 'new' ? '10G-baseSR-LR' : '10Gbps';
+                    const speedSyntax = '10G-baseSR-LR';
 
                     // Interface Bridge (MT309/CCR2004 have no bridge1500)
                     config += `/interface bridge\n`;
@@ -9479,7 +9903,7 @@
 
                 // Fill values with preset data
                 if (selPort) selPort.value = preset.port ?? (selPort.options[0] ? selPort.options[0].value : '');
-                if (selSpeed) selSpeed.value = preset.speed ?? '1Gbps';
+                if (selSpeed) selSpeed.value = preset.speed ?? '1G-baseT-full';
                 if (inpComment) inpComment.value = preset.comment ?? '';
                 if (selBridge) selBridge.value = preset.bridge ?? '';
                 if (inpMtu) inpMtu.value = preset.mtu ?? '';
@@ -9522,7 +9946,7 @@
                 taranaPorts.forEach(({ port, comment }) => {
                     addPort({
                         port: port,
-                        speed: '10Gbps',
+                        speed: '10G-baseSR-LR',
                         comment: comment,
                         mtu: '1500',
                         l2mtu: '1592'
@@ -9562,7 +9986,7 @@
                         port,
                         type: 'switch',
                         bridge: 'lan-bridge',
-                        speed: '1Gbps',
+                        speed: '1G-baseT-full',
                         comment: `Switch Uplink #${idx + 1}`
                     });
                 });
@@ -9957,6 +10381,8 @@
                 const contentPanes = document.querySelectorAll('.content-pane');
                 const navItems = document.querySelectorAll('.nav-item');
                 const dropdownLinks = document.querySelectorAll('.dropdown-menu a');
+                const navOverflow = document.getElementById('navOverflow');
+                const navToggleBtn = document.getElementById('navToggleBtn');
 
                 // Hide all panes
                 contentPanes.forEach(p => p.classList.remove('active'));
@@ -10332,6 +10758,13 @@
                         viewCompletedConfig(id);
                     }
                 }
+
+                // Close open nav/dropdowns after selection
+                if (navOverflow) navOverflow.classList.remove('open');
+                if (navToggleBtn) navToggleBtn.setAttribute('aria-expanded', 'false');
+                document.querySelectorAll('.nav-item.dropdown').forEach(el => {
+                    el.classList.remove('dropdown-open');
+                });
             };
 
             window.updateRecentActivity = function () {
@@ -10756,8 +11189,130 @@
             });
 
             function initializeEventHandlers() {
+                if (typeof setupModernTowerForm === 'function') {
+                    setupModernTowerForm();
+                }
+
+                const header = document.querySelector('.top-header');
+                const mainNav = document.querySelector('.main-nav');
+                const navOverflow = document.getElementById('navOverflow');
+                const navOverflowMenu = document.getElementById('navOverflowMenu');
+                const navToggleBtn = document.getElementById('navToggleBtn');
+
+                if (mainNav && navOverflowMenu) {
+                    Array.from(mainNav.children)
+                        .filter(el => el.classList && el.classList.contains('nav-item'))
+                        .forEach((el, idx) => {
+                            if (!el.dataset.navOrder) el.dataset.navOrder = String(idx);
+                        });
+                }
+
+                function restoreNavOrder() {
+                    if (!mainNav || !navOverflowMenu) return;
+                    const allItems = [
+                        ...Array.from(mainNav.children),
+                        ...Array.from(navOverflowMenu.children),
+                    ].filter(el => el.classList && el.classList.contains('nav-item'));
+                    allItems
+                        .sort((a, b) => Number(a.dataset.navOrder || 0) - Number(b.dataset.navOrder || 0))
+                        .forEach(el => {
+                            el.classList.remove('in-overflow');
+                            mainNav.appendChild(el);
+                        });
+                }
+
+                function closeOverflowMenu() {
+                    if (navOverflow) navOverflow.classList.remove('open');
+                    if (navToggleBtn) navToggleBtn.setAttribute('aria-expanded', 'false');
+                }
+
+                function relayoutHeaderNav() {
+                    if (!mainNav || !navOverflow || !navOverflowMenu || !navToggleBtn) return;
+                    restoreNavOrder();
+                    closeOverflowMenu();
+                    navOverflowMenu.innerHTML = '';
+                    navOverflow.style.display = 'none';
+
+                    let guard = 0;
+                    while (mainNav.scrollWidth > mainNav.clientWidth && guard < 100) {
+                        navOverflow.style.display = 'block';
+                        const navItems = Array.from(mainNav.children)
+                            .filter(el => el.classList && el.classList.contains('nav-item'));
+                        if (navItems.length <= 1) break;
+                        const moveItem = navItems[navItems.length - 1];
+                        moveItem.classList.remove('dropdown-open');
+                        moveItem.classList.add('in-overflow');
+                        navOverflowMenu.prepend(moveItem);
+                        guard += 1;
+                    }
+
+                    if (navOverflowMenu.children.length > 0) {
+                        navOverflow.style.display = 'block';
+                    } else {
+                        navOverflow.style.display = 'none';
+                    }
+                }
+
+                if (navToggleBtn && navOverflow && !navToggleBtn.dataset.boundNavToggle) {
+                    navToggleBtn.dataset.boundNavToggle = '1';
+                    navToggleBtn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const willOpen = !navOverflow.classList.contains('open');
+                        navOverflow.classList.toggle('open', willOpen);
+                        navToggleBtn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+                    });
+                }
+
+                // Dropdown behavior (works in top nav and overflow nav)
+                document.querySelectorAll('.nav-item.dropdown').forEach(parent => {
+                    if (parent.dataset.boundNavDropdown) return;
+                    parent.dataset.boundNavDropdown = '1';
+                    parent.addEventListener('click', (e) => {
+                        const clickedLink = e.target.closest('.dropdown-menu a');
+                        if (clickedLink) return;
+                        const clickedToggle = e.target.closest('button');
+                        if (!clickedToggle && e.target !== parent) return;
+                        if (clickedToggle && !parent.contains(clickedToggle)) return;
+
+                        e.preventDefault();
+                        e.stopPropagation();
+
+                        const willOpen = !parent.classList.contains('dropdown-open');
+                        document.querySelectorAll('.nav-item.dropdown').forEach(el => {
+                            if (el !== parent) el.classList.remove('dropdown-open');
+                        });
+                        parent.classList.toggle('dropdown-open', willOpen);
+                    });
+                });
+
+                if (!window.__navDocClickBound) {
+                    window.__navDocClickBound = true;
+                    document.addEventListener('click', (e) => {
+                        if (!header) return;
+                        if (!header.contains(e.target)) closeOverflowMenu();
+                        document.querySelectorAll('.nav-item.dropdown')
+                            .forEach(el => el.classList.remove('dropdown-open'));
+                    });
+                }
+
+                if (!window.__navResizeBound) {
+                    window.__navResizeBound = true;
+                    window.addEventListener('resize', () => {
+                        relayoutHeaderNav();
+                    });
+                }
+
+                setTimeout(relayoutHeaderNav, 0);
+                if (!window.__navLoadBound) {
+                    window.__navLoadBound = true;
+                    window.addEventListener('load', relayoutHeaderNav);
+                }
+
                 // Header navigation - button clicks
                 document.querySelectorAll('.nav-item[data-tab]').forEach(item => {
+                    if (item.dataset.boundNavItem) return;
+                    item.dataset.boundNavItem = '1';
                     item.addEventListener('click', () => {
                         const tabId = item.getAttribute('data-tab');
                         navigateToTab(tabId);
@@ -10766,6 +11321,8 @@
 
                 // Dropdown menu navigation
                 document.querySelectorAll('.dropdown-menu a[data-tab]').forEach(link => {
+                    if (link.dataset.boundNavLink) return;
+                    link.dataset.boundNavLink = '1';
                     link.addEventListener('click', (e) => {
                         e.preventDefault();
                         if (!link.classList.contains('disabled')) {
@@ -11634,10 +12191,10 @@
 
                 // Default mappings (per model family)
                 const defaults = {
-                    CCR2004: { alpha: 'sfp-sfpplus8', beta: 'sfp-sfpplus9', gamma: 'sfp-sfpplus10', delta: 'sfp-sfpplus11', speed: '10G-baseCR', mtu: 1500 },
-                    CCR2216: { alpha: 'sfp28-1', beta: 'sfp28-2', gamma: 'sfp28-3', delta: 'sfp28-4', speed: '10G-baseCR', mtu: 1500 },
+                    CCR2004: { alpha: 'sfp-sfpplus8', beta: 'sfp-sfpplus9', gamma: 'sfp-sfpplus10', delta: 'sfp-sfpplus11', speed: '10G-baseSR-LR', mtu: 1500 },
+                    CCR2216: { alpha: 'sfp28-1', beta: 'sfp28-2', gamma: 'sfp28-3', delta: 'sfp28-4', speed: '10G-baseSR-LR', mtu: 1500 },
                     CCR1036: { alpha: 'sfp1', beta: 'sfp2', gamma: 'sfp3', delta: 'sfp4', speed: '1G-baseT-full', mtu: 1500 },
-                    RB5009: { alpha: 'sfp-sfpplus6', beta: 'sfp-sfpplus7', gamma: 'sfp-sfpplus8', delta: '', speed: '10G-baseCR', mtu: 1500 },
+                    RB5009: { alpha: 'sfp-sfpplus6', beta: 'sfp-sfpplus7', gamma: 'sfp-sfpplus8', delta: '', speed: '10G-baseSR-LR', mtu: 1500 },
                     RB1009: { alpha: 'sfp1', beta: 'sfp2', gamma: 'sfp3', delta: '', speed: '1G-baseT-full', mtu: 1500 }
                 };
 
@@ -11876,24 +12433,839 @@
             }
 
             function getTowerBaseFilename() {
-                const siteName = (document.getElementById('siteName')?.value || 'mikrotik').trim() || 'mikrotik';
-                const targetDevice = document.getElementById('targetDevice')?.value || 'ccr2004';
+                const siteName = (document.getElementById('mtSiteName')?.value || document.getElementById('siteName')?.value || 'mikrotik').trim() || 'mikrotik';
+                const targetDevice = (document.getElementById('mtRouterModel')?.value || document.getElementById('targetDevice')?.value || 'ccr2004').trim();
                 const timestamp = new Date().toISOString().split('T')[0];
                 return `${siteName}-${targetDevice}-${timestamp}`;
             }
 
-            async function fetchPortMapFromConfig(configText) {
-                const apiBase = (typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api';
-                const response = await fetch(`${apiBase}/extract-port-map`, {
+            // Cache for backend-generated artifacts so downloads use authoritative backend output.
+            window.__mtBackendArtifacts = window.__mtBackendArtifacts || { portMapText: '', source: '' };
+
+            function normalizeRouterModelToLegacy(value) {
+                const v = String(value || '').trim().toLowerCase();
+                if (!v) return '';
+                if (v.includes('ccr1036') || v.includes('mt1036')) return 'ccr1036';
+                if (v.includes('ccr1072') || v.includes('mt1072')) return 'ccr1072';
+                if (v.includes('ccr2004') || v.includes('mt2004')) return 'ccr2004';
+                if (v.includes('ccr2216') || v.includes('mt2216')) return 'ccr2216';
+                if (v.includes('rb1009') || v.includes('mt1009')) return 'rb1009';
+                if (v.includes('rb5009')) return 'rb5009';
+                if (v.includes('rb2011')) return 'rb2011';
+                return v;
+            }
+
+            function mapRouterModelForBng2(value) {
+                const v = String(value || '').trim().toLowerCase();
+                if (v.includes('7535')) return '7535';
+                if (v.includes('7316')) return '7316';
+                return 'MT2004';
+            }
+
+            function getSelectedMtConfigType() {
+                const el = document.getElementById('mtConfigType');
+                const v = (el?.value || 'tower').trim().toLowerCase();
+                return (v === 'bng2') ? 'bng2' : 'tower';
+            }
+
+            function getMtModelPortPolicy(modelValue, configType) {
+                const model = String(modelValue || '').trim().toLowerCase();
+                const type = String(configType || 'tower').trim().toLowerCase();
+
+                if (type === 'bng2') {
+                    if (model.includes('7535') || model.includes('7316')) {
+                        return {
+                            switchPorts: ['ether1', 'ether2'],
+                            backhaulPorts: ['ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8'],
+                            managementPort: 'ether1'
+                        };
+                    }
+                    return {
+                        switchPorts: ['sfp-sfpplus1', 'sfp-sfpplus2'],
+                        backhaulPorts: [
+                            'sfp-sfpplus4', 'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7',
+                            'sfp-sfpplus8', 'sfp-sfpplus9', 'sfp-sfpplus10', 'sfp-sfpplus11',
+                            'sfp-sfpplus12', 'sfp28-1', 'sfp28-2'
+                        ],
+                        managementPort: 'ether1'
+                    };
+                }
+
+                if (model.includes('ccr2216') || model.includes('mt2216')) {
+                    return {
+                        switchPorts: ['sfp28-1', 'sfp28-2'],
+                        backhaulPorts: [
+                            'sfp28-4', 'sfp28-5', 'sfp28-6', 'sfp28-7', 'sfp28-8', 'sfp28-9',
+                            'sfp28-10', 'sfp28-11', 'sfp28-12',
+                            'qsfp28-1-1', 'qsfp28-1-2', 'qsfp28-1-3', 'qsfp28-1-4',
+                            'qsfp28-2-1', 'qsfp28-2-2', 'qsfp28-2-3', 'qsfp28-2-4'
+                        ],
+                        managementPort: 'ether1'
+                    };
+                }
+                if (model.includes('ccr1036') || model.includes('mt1036') || model.includes('ccr1072') || model.includes('mt1072')) {
+                    return {
+                        switchPorts: ['sfp1', 'sfp2'],
+                        backhaulPorts: ['sfp3', 'sfp4', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12'],
+                        managementPort: 'ether1'
+                    };
+                }
+                if (model.includes('rb1009') || model.includes('mt1009')) {
+                    return {
+                        switchPorts: ['ether2', 'ether3'],
+                        backhaulPorts: ['sfp-sfpplus1', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10'],
+                        managementPort: 'ether1'
+                    };
+                }
+                return {
+                    switchPorts: ['sfp-sfpplus1', 'sfp-sfpplus2'],
+                    backhaulPorts: [
+                        'sfp-sfpplus4', 'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7',
+                        'sfp-sfpplus8', 'sfp-sfpplus9', 'sfp-sfpplus10', 'sfp-sfpplus11',
+                        'sfp-sfpplus12', 'sfp28-1', 'sfp28-2'
+                    ],
+                    managementPort: 'ether1'
+                };
+            }
+
+            function getCurrentMtPortPolicy() {
+                const model = document.getElementById('mtRouterModel')?.value || 'ccr2004';
+                const type = getSelectedMtConfigType();
+                return getMtModelPortPolicy(model, type);
+            }
+
+            function readModernBackhauls() {
+                const rows = Array.from(document.querySelectorAll('#mtBackhaulRows .mt-backhaul-row'));
+                return rows
+                    .map((row, idx) => ({
+                        name: (row.querySelector('[data-field=\"name\"]')?.value || `Backhaul-${idx + 1}`).trim(),
+                        subnet: ensureCIDR((row.querySelector('[data-field=\"subnet\"]')?.value || '').trim(), 30),
+                        port: (row.querySelector('[data-field=\"port\"]')?.value || '').trim(),
+                        bandwidth: (row.querySelector('[data-field=\"bandwidth\"]')?.value || 'auto').trim(),
+                        master: !!row.querySelector('[data-field=\"master\"]')?.checked
+                    }))
+                    .filter((x) => x.subnet && x.port);
+            }
+
+            function readModernSwitches() {
+                const rows = Array.from(document.querySelectorAll('#mtSwitchRows .mt-switch-row'));
+                return rows
+                    .map((row, idx) => ({
+                        name: (row.querySelector('[data-field="name"]')?.value || `Switch-${idx + 1}`).trim(),
+                        port: (row.querySelector('[data-field="port"]')?.value || '').trim(),
+                        speed: (row.querySelector('[data-field="speed"]')?.value || '1G-baseT-full').trim(),
+                        comment: (row.querySelector('[data-field="comment"]')?.value || '').trim()
+                    }))
+                    .filter((x) => x.name && x.port);
+            }
+
+            function syncModernTowerFormToLegacy() {
+                const siteName = document.getElementById('mtSiteName')?.value?.trim();
+                const loopback = document.getElementById('mtLoopbackSubnet')?.value?.trim();
+                const cpe = document.getElementById('mtCpeSubnet')?.value?.trim();
+                const unauth = document.getElementById('mtUnauthSubnet')?.value?.trim();
+                const cgnPriv = document.getElementById('mtCgnatPrivate')?.value?.trim();
+                const cgnPub = document.getElementById('mtCgnatPublic')?.value?.trim();
+                const lat = document.getElementById('mtLatitude')?.value?.trim();
+                const lon = document.getElementById('mtLongitude')?.value?.trim();
+                const asn = document.getElementById('mtAsn')?.value?.trim();
+                const model = normalizeRouterModelToLegacy(document.getElementById('mtRouterModel')?.value || '');
+                const rosVersion = document.getElementById('mtRouterOSVersion')?.value?.trim();
+                const peer1Name = (document.getElementById('mtBgpPeer1Name')?.value || 'CR7').trim();
+                const peer1Addr = ensureCIDR(document.getElementById('mtBgpPeer1Address')?.value || '10.2.0.107/32', 32);
+                const peer2Name = (document.getElementById('mtBgpPeer2Name')?.value || 'CR8').trim();
+                const peer2Addr = ensureCIDR(document.getElementById('mtBgpPeer2Address')?.value || '10.2.0.108/32', 32);
+
+                const bgpPeers = JSON.stringify([
+                    { name: peer1Name, remote: peer1Addr },
+                    { name: peer2Name, remote: peer2Addr }
+                ]);
+
+                const setIf = (id, value) => {
+                    const el = document.getElementById(id);
+                    if (el && value !== undefined && value !== null && String(value).trim() !== '') el.value = value;
+                };
+                const setCheck = (id, checked) => {
+                    const el = document.getElementById(id);
+                    if (el) el.checked = !!checked;
+                };
+
+                setIf('siteName', siteName);
+                setIf('routerId', loopback ? loopback.split('/')[0] : '');
+                setIf('cpeRange', cpe);
+                setIf('unauthRange', unauth);
+                setIf('cgnatRange', cgnPriv);
+                setIf('natPublicIP', cgnPub);
+                setIf('siteLatitude', lat);
+                setIf('siteLongitude', lon);
+                setIf('bgpAS', asn);
+                setIf('bgpPeers', bgpPeers);
+                setIf('targetDevice', model);
+                setIf('targetRouterOS', rosVersion);
+
+                setCheck('enableSWT', document.getElementById('mtFeatureCrs326')?.checked);
+                setCheck('enableTachyon', document.getElementById('mtFeatureTachyon')?.checked);
+                setCheck('enableTarana', document.getElementById('mtFeatureTarana')?.checked);
+                setCheck('enable6GHz', document.getElementById('mtFeature6ghz')?.checked);
+                setCheck('enableContractorLogin', document.getElementById('mtFeatureContractor')?.checked);
+            }
+
+            function syncMtConfigTypeUI() {
+                const type = getSelectedMtConfigType();
+                const bng2Fields = document.getElementById('mtBng2Fields');
+                const routerModel = document.getElementById('mtRouterModel');
+                if (bng2Fields) bng2Fields.style.display = type === 'bng2' ? 'block' : 'none';
+                if (!routerModel) return;
+
+                if (type === 'bng2') {
+                    routerModel.innerHTML = `
+                        <option value="mt2004" selected>MT2004</option>
+                        <option value="7535">Nokia 7535</option>
+                        <option value="7316">Nokia 7316</option>
+                    `;
+                } else {
+                    routerModel.innerHTML = `
+                        <option value="ccr2004" selected>CCR2004</option>
+                        <option value="ccr1036">CCR1036</option>
+                        <option value="ccr1072">CCR1072</option>
+                        <option value="rb1009">RB1009</option>
+                        <option value="ccr2216">CCR2216</option>
+                    `;
+                }
+                refreshModernPortOptions();
+            }
+
+            function addModernBackhaulRow(seed = {}) {
+                const host = document.getElementById('mtBackhaulRows');
+                if (!host) return;
+                const policy = getCurrentMtPortPolicy();
+                const backhaulOptions = (policy.backhaulPorts || []).map((p) => `<option value="${p}">${p}</option>`).join('');
+                const row = document.createElement('div');
+                row.className = 'mt-backhaul-row';
+                row.style.display = 'grid';
+                row.style.gridTemplateColumns = '2fr 2fr 1.2fr 1.2fr auto auto';
+                row.style.gap = '10px';
+                row.style.marginBottom = '10px';
+                row.innerHTML = `
+                    <input data-field="name" type="text" placeholder="Backhaul Name" value="${seed.name || ''}">
+                    <input data-field="subnet" type="text" placeholder="10.36.1.53/30" value="${seed.subnet || ''}">
+                    <select data-field="port">${backhaulOptions}</select>
+                    <select data-field="bandwidth">
+                        <option value="auto">Auto</option>
+                        <option value="1G-baseT-full">1G-baseT-full</option>
+                        <option value="10G-baseSR-LR">10G-baseSR-LR</option>
+                    </select>
+                    <label style="display:flex;align-items:center;gap:6px;white-space:nowrap;"><input data-field="master" type="checkbox"> Master</label>
+                    <button type="button" class="remove-btn">Remove</button>
+                `;
+                const portEl = row.querySelector('[data-field="port"]');
+                if (portEl && seed.port) portEl.value = seed.port;
+                const speedEl = row.querySelector('[data-field="bandwidth"]');
+                if (speedEl && seed.bandwidth) speedEl.value = seed.bandwidth;
+                const masterEl = row.querySelector('[data-field="master"]');
+                if (masterEl) masterEl.checked = !!seed.master;
+                row.querySelector('.remove-btn')?.addEventListener('click', () => row.remove());
+                host.appendChild(row);
+            }
+
+            function addModernSwitchRow(seed = {}) {
+                const host = document.getElementById('mtSwitchRows');
+                if (!host) return;
+                const policy = getCurrentMtPortPolicy();
+                const switchOptions = (policy.switchPorts || []).map((p) => `<option value="${p}">${p}</option>`).join('');
+                const row = document.createElement('div');
+                row.className = 'mt-switch-row';
+                row.style.display = 'grid';
+                row.style.gridTemplateColumns = '2fr 1.2fr 1.2fr 2fr auto';
+                row.style.gap = '10px';
+                row.style.marginBottom = '10px';
+                row.innerHTML = `
+                    <input data-field="name" type="text" placeholder="Switch Name" value="${seed.name || ''}">
+                    <select data-field="port">${switchOptions}</select>
+                    <select data-field="speed">
+                        <option value="1G-baseT-full">1G-baseT-full</option>
+                        <option value="auto">Auto</option>
+                        <option value="10G-baseSR-LR">10G-baseSR-LR</option>
+                    </select>
+                    <input data-field="comment" type="text" placeholder="Netonix Uplink" value="${seed.comment || ''}">
+                    <button type="button" class="remove-btn">Remove</button>
+                `;
+                const portEl = row.querySelector('[data-field="port"]');
+                if (portEl && seed.port) portEl.value = seed.port;
+                const speedEl = row.querySelector('[data-field="speed"]');
+                if (speedEl && seed.speed) speedEl.value = seed.speed;
+                row.querySelector('.remove-btn')?.addEventListener('click', () => row.remove());
+                host.appendChild(row);
+            }
+
+            function refreshModernPortOptions() {
+                const policy = getCurrentMtPortPolicy();
+                const backhaulOptions = (policy.backhaulPorts || []).map((p) => `<option value="${p}">${p}</option>`).join('');
+                const switchOptions = (policy.switchPorts || []).map((p) => `<option value="${p}">${p}</option>`).join('');
+
+                document.querySelectorAll('#mtBackhaulRows .mt-backhaul-row [data-field="port"]').forEach((sel) => {
+                    const prev = sel.value;
+                    sel.innerHTML = backhaulOptions;
+                    if ((policy.backhaulPorts || []).includes(prev)) sel.value = prev;
+                });
+                document.querySelectorAll('#mtSwitchRows .mt-switch-row [data-field="port"]').forEach((sel) => {
+                    const prev = sel.value;
+                    sel.innerHTML = switchOptions;
+                    if ((policy.switchPorts || []).includes(prev)) sel.value = prev;
+                });
+            }
+
+            async function refreshIdoCapabilities() {
+                const summary = document.getElementById('idoCapabilitiesSummary');
+                if (!summary) return;
+                try {
+                    const apiBase = (typeof resolveApiBase === 'function' ? resolveApiBase() : ((typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api'));
+                    const resp = await fetch(`${apiBase}/ido/capabilities`);
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const data = await resp.json();
+                    const configured = data?.configured ? 'Configured' : 'Not Configured';
+                    const backend = data?.backend_url || 'N/A';
+                    const excluded = Array.isArray(data?.excluded) ? data.excluded.join(', ') : '/api/sites';
+                    summary.textContent = `Status: ${configured} | Backend: ${backend} | Excluded: ${excluded}`;
+                } catch (err) {
+                    summary.textContent = `IDO status check failed: ${err.message}`;
+                }
+            }
+
+            function writeIdoOutput(text, append = false) {
+                const out = document.getElementById('idoToolsOutput');
+                if (!out) return;
+                if (append) {
+                    out.value = `${out.value}\n${text}`.trim();
+                } else {
+                    out.value = String(text || '');
+                }
+                out.scrollTop = out.scrollHeight;
+            }
+
+            function getIdoInputValues() {
+                return {
+                    ip: (document.getElementById('idoTargetIp')?.value || '').trim(),
+                    deviceType: (document.getElementById('idoDeviceType')?.value || '').trim(),
+                    linkType: (document.getElementById('idoLinkType')?.value || '').trim()
+                };
+            }
+
+            async function callIdoProxy(targetPath, params = {}) {
+                const apiBase = (typeof resolveApiBase === 'function' ? resolveApiBase() : ((typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api'));
+                const query = new URLSearchParams(params);
+                const url = `${apiBase}/ido/proxy/${targetPath}${query.toString() ? `?${query}` : ''}`;
+                const resp = await fetch(url);
+                const text = await resp.text();
+                if (!resp.ok) {
+                    throw new Error(`IDO proxy failed (${resp.status}): ${text}`);
+                }
+                try {
+                    return JSON.stringify(JSON.parse(text), null, 2);
+                } catch (_) {
+                    return text;
+                }
+            }
+
+            async function runIdoAction(action) {
+                const { ip, deviceType, linkType } = getIdoInputValues();
+                if (!ip && action !== 'capabilities') {
+                    throw new Error('Target IP is required for this action.');
+                }
+                if (!deviceType && ['generic', 'bh', 'ap'].includes(action)) {
+                    throw new Error('Device Type is required for this action.');
+                }
+
+                let result = '';
+                if (action === 'ping') {
+                    result = await callIdoProxy('api/ping', { ip_address: ip, ping_count: 4 });
+                } else if (action === 'generic') {
+                    result = await callIdoProxy('api/generic/device_info', { ip_address: ip, device_type: deviceType, run_tests: false });
+                } else if (action === 'bh') {
+                    result = await callIdoProxy('api/bh/running_config', { ip_address: ip, device_type: deviceType });
+                } else if (action === 'ap') {
+                    result = await callIdoProxy('api/ap/running_config', { ip_address: ip, device_type: deviceType, link_type: linkType || 'dummy' });
+                }
+                writeIdoOutput(result);
+            }
+
+            function parseCidrNetwork(cidr) {
+                const [ip, pfxRaw] = String(cidr || '').split('/');
+                const pfx = Number(pfxRaw);
+                const parts = String(ip || '').split('.').map((x) => Number(x));
+                if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 0 || n > 255) || Number.isNaN(pfx) || pfx < 0 || pfx > 32) {
+                    return null;
+                }
+                const ipInt = ((parts[0] << 24) >>> 0) + ((parts[1] << 16) >>> 0) + ((parts[2] << 8) >>> 0) + (parts[3] >>> 0);
+                const mask = pfx === 0 ? 0 : ((0xffffffff << (32 - pfx)) >>> 0);
+                const netInt = ipInt & mask;
+                return `${(netInt >>> 24) & 255}.${(netInt >>> 16) & 255}.${(netInt >>> 8) & 255}.${netInt & 255}`;
+            }
+
+            function validateAddressNetworkConsistency(configText) {
+                const issues = [];
+                const lines = String(configText || '').split('\n');
+                const rx = /^\s*add\s+address=([0-9.]+\/\d+)\s+[^\n]*\bnetwork=([0-9.]+)/;
+                for (const line of lines) {
+                    const m = line.match(rx);
+                    if (!m) continue;
+                    const expected = parseCidrNetwork(m[1]);
+                    const actual = m[2];
+                    if (expected && expected !== actual) {
+                        issues.push(`Network mismatch: ${m[1]} should use network=${expected} (found ${actual})`);
+                    }
+                }
+                return issues;
+            }
+
+            const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+            async function cautiousPostRenderValidation(configType, configText) {
+                addProgressLog('info', 'Validation 1/4: checking required routing sections');
+                updateProgressPercent(70);
+                await pause(350);
+                validateRenderedDynamicRouting(configType, configText);
+
+                addProgressLog('info', 'Validation 2/4: checking IP/network consistency');
+                updateProgressPercent(78);
+                await pause(350);
+                const issues = validateAddressNetworkConsistency(configText);
+                if (issues.length) {
+                    throw new Error(`Address/network consistency failed:\n- ${issues.join('\n- ')}`);
+                }
+
+                addProgressLog('info', 'Validation 3/4: checking compliance stamp');
+                updateProgressPercent(86);
+                await pause(350);
+                if (!String(configText || '').includes('# ENGINEERING-COMPLIANCE-APPLIED')) {
+                    throw new Error('Compliance marker is missing from rendered output.');
+                }
+
+                addProgressLog('info', 'Validation 4/4: final safety review');
+                updateProgressPercent(94);
+                await pause(350);
+            }
+
+            function setupModernTowerForm() {
+                const typeSel = document.getElementById('mtConfigType');
+                if (typeSel && !typeSel.dataset.bound) {
+                    typeSel.addEventListener('change', syncMtConfigTypeUI);
+                    typeSel.dataset.bound = '1';
+                }
+                const modelSel = document.getElementById('mtRouterModel');
+                if (modelSel && !modelSel.dataset.bound) {
+                    modelSel.addEventListener('change', refreshModernPortOptions);
+                    modelSel.dataset.bound = '1';
+                }
+
+                const addBtn = document.getElementById('mtAddBackhaulBtn');
+                if (addBtn && !addBtn.dataset.bound) {
+                    addBtn.addEventListener('click', () => addModernBackhaulRow());
+                    addBtn.dataset.bound = '1';
+                }
+                const addSwitchBtn = document.getElementById('mtAddSwitchBtn');
+                if (addSwitchBtn && !addSwitchBtn.dataset.bound) {
+                    addSwitchBtn.addEventListener('click', () => addModernSwitchRow());
+                    addSwitchBtn.dataset.bound = '1';
+                }
+                const idoRefreshBtn = document.getElementById('idoRefreshCapabilitiesBtn');
+                if (idoRefreshBtn && !idoRefreshBtn.dataset.bound) {
+                    idoRefreshBtn.addEventListener('click', refreshIdoCapabilities);
+                    idoRefreshBtn.dataset.bound = '1';
+                }
+                const idoPingBtn = document.getElementById('idoPingBtn');
+                if (idoPingBtn && !idoPingBtn.dataset.bound) {
+                    idoPingBtn.addEventListener('click', async () => {
+                        try { writeIdoOutput('Running ping...'); await runIdoAction('ping'); } catch (e) { writeIdoOutput(e.message); }
+                    });
+                    idoPingBtn.dataset.bound = '1';
+                }
+                const idoGenericBtn = document.getElementById('idoGenericInfoBtn');
+                if (idoGenericBtn && !idoGenericBtn.dataset.bound) {
+                    idoGenericBtn.addEventListener('click', async () => {
+                        try { writeIdoOutput('Loading generic device info...'); await runIdoAction('generic'); } catch (e) { writeIdoOutput(e.message); }
+                    });
+                    idoGenericBtn.dataset.bound = '1';
+                }
+                const idoBhBtn = document.getElementById('idoBhRunBtn');
+                if (idoBhBtn && !idoBhBtn.dataset.bound) {
+                    idoBhBtn.addEventListener('click', async () => {
+                        try { writeIdoOutput('Loading BH running config...'); await runIdoAction('bh'); } catch (e) { writeIdoOutput(e.message); }
+                    });
+                    idoBhBtn.dataset.bound = '1';
+                }
+                const idoApBtn = document.getElementById('idoApRunBtn');
+                if (idoApBtn && !idoApBtn.dataset.bound) {
+                    idoApBtn.addEventListener('click', async () => {
+                        try { writeIdoOutput('Loading AP running config...'); await runIdoAction('ap'); } catch (e) { writeIdoOutput(e.message); }
+                    });
+                    idoApBtn.dataset.bound = '1';
+                }
+                const idoClearBtn = document.getElementById('idoClearOutBtn');
+                if (idoClearBtn && !idoClearBtn.dataset.bound) {
+                    idoClearBtn.addEventListener('click', () => writeIdoOutput(''));
+                    idoClearBtn.dataset.bound = '1';
+                }
+
+                const rows = document.querySelectorAll('#mtBackhaulRows .mt-backhaul-row');
+                if (rows.length === 0) {
+                    const policy = getCurrentMtPortPolicy();
+                    const firstBackhaulPort = (policy.backhaulPorts && policy.backhaulPorts.length) ? policy.backhaulPorts[0] : 'sfp-sfpplus4';
+                    addModernBackhaulRow({ name: 'BH-1', subnet: '', port: firstBackhaulPort, bandwidth: 'auto', master: true });
+                }
+                const switchRows = document.querySelectorAll('#mtSwitchRows .mt-switch-row');
+                if (switchRows.length === 0) {
+                    const policy = getCurrentMtPortPolicy();
+                    const firstSwitchPort = (policy.switchPorts && policy.switchPorts.length) ? policy.switchPorts[0] : 'sfp-sfpplus1';
+                    addModernSwitchRow({ name: 'SWT-1', port: firstSwitchPort, speed: '1G-baseT-full', comment: 'Switch Uplink #1' });
+                }
+
+                // Keep mode selector visible so "Upgrade Existing" remains accessible.
+                document.querySelectorAll('input[name="configMode"]').forEach((radio) => {
+                    const section = radio.closest('.section');
+                    if (section) section.style.display = '';
+                });
+
+                const legacyMainForm = document.getElementById('mainForm');
+                if (!legacyMainForm) return;
+
+                // Move mode selector above the modern form so "Upgrade Existing" is immediately visible.
+                const modeSection = document.getElementById('towerModeSelectorSection');
+                const modernForm = document.getElementById('towerModernForm');
+                if (modeSection && modernForm && modeSection.nextElementSibling !== modernForm) {
+                    modernForm.parentNode.insertBefore(modeSection, modernForm);
+                }
+                if (modeSection) modeSection.style.display = '';
+
+                legacyMainForm.querySelectorAll('.section').forEach((section) => {
+                    const title = section.querySelector('h2')?.textContent?.trim() || '';
+                    if (title !== 'Generated Configuration') {
+                        section.style.display = 'none';
+                    }
+                });
+
+                const legacyGenerate = legacyMainForm.querySelector('.generate-section');
+                if (legacyGenerate) legacyGenerate.style.display = 'none';
+
+                syncMtConfigTypeUI();
+                refreshIdoCapabilities();
+                switchMode('new');
+            }
+
+            document.addEventListener('DOMContentLoaded', setupModernTowerForm);
+
+            function mapTargetDeviceToMtRouterType(targetDevice) {
+                const normalized = normalizeRouterModelToLegacy(targetDevice);
+                const map = {
+                    rb1009: 'MT1009',
+                    ccr1036: 'MT1036',
+                    ccr1072: 'MT1072',
+                    ccr2004: 'MT2004',
+                    ccr2216: 'MT2216'
+                };
+                return map[normalized] || null;
+            }
+
+            function ensureCIDR(value, fallbackPrefix = 32) {
+                const raw = String(value || '').trim();
+                if (!raw) return '';
+                return raw.includes('/') ? raw : `${raw}/${fallbackPrefix}`;
+            }
+
+            function parseBgpPeersSafe(raw) {
+                try {
+                    const peers = JSON.parse(raw || '[]');
+                    return Array.isArray(peers) ? peers : [];
+                } catch (e) {
+                    return [];
+                }
+            }
+
+            function collectTowerBackhaulsForBackend() {
+                const modernBackhauls = readModernBackhauls();
+                if (modernBackhauls.length > 0) {
+                    const withMaster = modernBackhauls.some((x) => x.master)
+                        ? modernBackhauls
+                        : modernBackhauls.map((x, idx) => ({ ...x, master: idx === 0 }));
+                    return withMaster;
+                }
+
+                const rows = Array.from(document.querySelectorAll('#portConfigs .uplink-item:not(#portUplinkTemplate):not(#portTemplate)'));
+                const candidates = rows
+                    .map((row, idx) => {
+                        const type = row.querySelector('select[name="portUplinkType"]')?.value || 'routed';
+                        const ip = (row.querySelector('input[name="portUplinkIp"]')?.value || '').trim();
+                        const name = (row.querySelector('input[name="portUplinkComment"]')?.value || `Backhaul-${idx + 1}`).trim();
+                        const port = (row.querySelector('select[name="portUplinkPort"]')?.value || '').trim();
+                        const speed = (row.querySelector('select[name="portUplinkSpeed"]')?.value || 'auto').trim();
+                        return { type, ip, name, port, speed };
+                    })
+                    .filter((x) => x.type === 'routed' && x.ip && x.port);
+
+                return candidates.map((bh, idx) => ({
+                    name: bh.name,
+                    subnet: ensureCIDR(bh.ip, 30),
+                    master: idx === 0,
+                    port: bh.port,
+                    bandwidth: bh.speed || 'auto'
+                }));
+            }
+
+            function buildTowerBackendPayload() {
+                const siteName = (document.getElementById('mtSiteName')?.value || document.getElementById('siteName')?.value || '').trim();
+                const loopbackRaw = (document.getElementById('mtLoopbackSubnet')?.value || document.getElementById('routerId')?.value || '').trim();
+                const routerId = ensureCIDR(loopbackRaw, 32);
+                const targetDevice = normalizeRouterModelToLegacy((document.getElementById('mtRouterModel')?.value || document.getElementById('targetDevice')?.value || '').trim());
+                const cpeRange = ensureCIDR((document.getElementById('mtCpeSubnet')?.value || document.getElementById('cpeRange')?.value || '').trim(), 22);
+                const unauthRange = ensureCIDR((document.getElementById('mtUnauthSubnet')?.value || document.getElementById('unauthRange')?.value || '').trim(), 22);
+                const cgnatRange = ensureCIDR((document.getElementById('mtCgnatPrivate')?.value || document.getElementById('cgnatRange')?.value || '').trim(), 22);
+                const natPublicIP = (document.getElementById('mtCgnatPublic')?.value || document.getElementById('natPublicIP')?.value || '').trim();
+                const latitude = (document.getElementById('mtLatitude')?.value || document.getElementById('siteLatitude')?.value || '').trim();
+                const longitude = (document.getElementById('mtLongitude')?.value || document.getElementById('siteLongitude')?.value || '').trim();
+                const asn = (document.getElementById('mtAsn')?.value || document.getElementById('bgpAS')?.value || '').trim();
+                const peers = parseBgpPeersSafe((document.getElementById('bgpPeers')?.value || '').trim());
+                const routerType = mapTargetDeviceToMtRouterType(targetDevice);
+                const backhauls = collectTowerBackhaulsForBackend();
+                const switches = readModernSwitches();
+                const stateCode = ((siteName.match(/\.([A-Z]{2})[-.]/) || [])[1] || 'KS').toUpperCase();
+                const rosVer = (document.getElementById('mtRouterOSVersion')?.value || '7.19.4').trim();
+
+                return {
+                    router_type: routerType,
+                    backhauls,
+                    switches,
+                    loopback_subnet: routerId,
+                    cpe_subnet: cpeRange,
+                    unauth_subnet: unauthRange,
+                    cgn_priv: cgnatRange,
+                    cgn_pub: natPublicIP,
+                    tower_name: siteName || 'RTR-MIKROTIK',
+                    latitude,
+                    longitude,
+                    state_code: stateCode,
+                    asn: asn || '26077',
+                    peer_1_name: peers[0]?.name || 'PEER1',
+                    peer_1_address: peers[0]?.remote || '10.2.0.107',
+                    peer_2_name: peers[1]?.name || 'PEER2',
+                    peer_2_address: peers[1]?.remote || '10.2.0.108',
+                    ros_ver: rosVer,
+                    is_tarana: !!(document.getElementById('mtFeatureTarana')?.checked || document.getElementById('enableTarana')?.checked),
+                    is_326: !!(document.getElementById('mtFeatureCrs326')?.checked || document.getElementById('enableSWT')?.checked),
+                    is_tachyon: !!(document.getElementById('mtFeatureTachyon')?.checked || document.getElementById('enableTachyon')?.checked),
+                    is_6ghz: !!(document.getElementById('mtFeature6ghz')?.checked || document.getElementById('enable6GHz')?.checked),
+                    enable_contractor_login: !!(document.getElementById('mtFeatureContractor')?.checked || document.getElementById('enableContractorLogin')?.checked)
+                };
+            }
+
+            function buildBng2BackendPayload() {
+                const siteName = (document.getElementById('mtSiteName')?.value || '').trim();
+                const loopIp = ensureCIDR((document.getElementById('mtLoopbackSubnet')?.value || '').trim(), 32);
+                const latitude = (document.getElementById('mtLatitude')?.value || '').trim();
+                const longitude = (document.getElementById('mtLongitude')?.value || '').trim();
+                const stateCode = ((document.getElementById('mtBng2StateCode')?.value || '').trim() || 'KS').toUpperCase();
+                const backhauls = collectTowerBackhaulsForBackend();
+                const routerRaw = (document.getElementById('mtRouterModel')?.value || 'mt2004').trim();
+
+                return {
+                    router_type: mapRouterModelForBng2(routerRaw),
+                    loop_ip: loopIp,
+                    tower_name: siteName || 'RTR-BNG2',
+                    gateway: ensureCIDR((document.getElementById('mtBng2Gateway')?.value || '').trim(), 29),
+                    latitude,
+                    longitude,
+                    state_code: stateCode,
+                    bng_1_ip: (document.getElementById('mtBng2Ip1')?.value || '10.249.0.200').trim(),
+                    bng_2_ip: (document.getElementById('mtBng2Ip2')?.value || '10.249.0.201').trim(),
+                    ospf_area: (document.getElementById('mtBng2OspfArea')?.value || '248').trim(),
+                    vlan_1000_cisco: (document.getElementById('mtBng2Vpls1000')?.value || '').trim(),
+                    vlan_2000_cisco: (document.getElementById('mtBng2Vpls2000')?.value || '').trim(),
+                    vlan_3000_cisco: (document.getElementById('mtBng2Vpls3000')?.value || '').trim(),
+                    vlan_4000_cisco: (document.getElementById('mtBng2Vpls4000')?.value || '').trim(),
+                    mpls_mtu: (document.getElementById('mtBng2MplsMtu')?.value || '9000').trim(),
+                    vpls_l2_mtu: (document.getElementById('mtBng2VplsL2Mtu')?.value || '1580').trim(),
+                    is_switchless: !!document.getElementById('mtFeatureTachyon')?.checked,
+                    switch_ip: ensureCIDR((document.getElementById('mtBng2SwitchIp')?.value || '').trim(), 29),
+                    is_lte: !!document.getElementById('mtFeature6ghz')?.checked,
+                    bbu_s1_subnet: ensureCIDR((document.getElementById('mtBng2BbuS1')?.value || '').trim(), 29),
+                    bbu_mgmt_subnet: ensureCIDR((document.getElementById('mtBng2BbuMgmt')?.value || '').trim(), 29),
+                    is_tarana: !!document.getElementById('mtFeatureTarana')?.checked,
+                    tarana_subnet: ensureCIDR((document.getElementById('mtBng2TaranaSubnet')?.value || '').trim(), 29),
+                    tarana_sector_count: parseInt(document.getElementById('mtBng2TaranaSectors')?.value || '3', 10),
+                    tarana_sector_start: 0,
+                    is_326: !!document.getElementById('mtFeatureCrs326')?.checked,
+                    is_6ghz: !!document.getElementById('mtFeature6ghz')?.checked,
+                    enable_contractor_login: !!document.getElementById('mtFeatureContractor')?.checked,
+                    backhauls
+                };
+            }
+
+            function buildMtBackendPayload(configType) {
+                return configType === 'bng2' ? buildBng2BackendPayload() : buildTowerBackendPayload();
+            }
+
+            function validateTowerPortPolicy(configType, payload, switches) {
+                if (configType !== 'tower') return;
+                const backhaulPorts = (payload.backhauls || []).map((b) => String(b.port || '').trim()).filter(Boolean);
+                const switchPorts = (switches || []).map((s) => String(s.port || '').trim()).filter(Boolean);
+                const portUsage = new Map();
+                const errors = [];
+
+                const policy = getCurrentMtPortPolicy();
+                const allowedSwitchPorts = new Set(policy.switchPorts || []);
+                const allowedBackhaulPorts = new Set(policy.backhaulPorts || []);
+                const managementPort = policy.managementPort || 'ether1';
+                const taranaEnabled = !!document.getElementById('mtFeatureTarana')?.checked;
+                const taranaReserved = new Set(['sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8']);
+
+                for (const p of switchPorts) {
+                    if (!allowedSwitchPorts.has(p)) {
+                        errors.push(`Switch uplink port ${p} is invalid for this router model.`);
+                    }
+                    if (portUsage.has(p)) {
+                        errors.push(`Port collision detected: ${p} is used more than once.`);
+                    }
+                    portUsage.set(p, 'switch');
+                }
+
+                for (const p of backhaulPorts) {
+                    if (!allowedBackhaulPorts.has(p) || p === managementPort) {
+                        errors.push(`Backhaul port ${p} is invalid for this router model.`);
+                    }
+                    if (taranaEnabled && taranaReserved.has(p)) {
+                        errors.push(`Tarana is enabled, so ${p} is reserved for Tarana gear.`);
+                    }
+                    if (portUsage.has(p)) {
+                        errors.push(`Port collision detected: ${p} is assigned to both switch and backhaul.`);
+                    }
+                    portUsage.set(p, 'backhaul');
+                }
+
+                if (errors.length) {
+                    throw new Error(`Tower Config Policy violation:\n- ${errors.join('\n- ')}`);
+                }
+            }
+
+            async function ensureComplianceInOutput(configText, payload) {
+                if (String(configText || '').includes('# ENGINEERING-COMPLIANCE-APPLIED')) {
+                    return configText;
+                }
+                const apiBase = (typeof resolveApiBase === 'function' ? resolveApiBase() : ((typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api'));
+                const loopback = (payload?.loopback_subnet || payload?.loop_ip || '10.0.0.1').toString();
+                const loopbackIp = loopback.split('/')[0];
+                const resp = await fetch(`${apiBase}/ido/compliance?loopback_ip=${encodeURIComponent(loopbackIp)}`);
+                if (!resp.ok) {
+                    return configText;
+                }
+                const data = await resp.json();
+                const compliance = data?.compliance ? String(data.compliance) : '';
+                if (!compliance) {
+                    return configText;
+                }
+                return `${String(configText || '').trim()}\n\n# ENGINEERING-COMPLIANCE-APPLIED\n${compliance}\n`;
+            }
+
+            function sanitizeMtConfigOutput(configText) {
+                let text = String(configText || '');
+                // Remove known legacy junk line that occasionally appeared in old compliance templates.
+                text = text.replace(/^.*is expanded at runtime from vetted compliance reference blocks\..*$/gim, '');
+                // Remove accidental duplicate switch section appended by older UI builds.
+                text = text.replace(/\n# SWITCH UPLINK ASSIGNMENTS[\s\S]*?(?=\n\/[a-z]|\n# ENGINEERING-COMPLIANCE-APPLIED|\s*$)/g, '\n');
+                return text.replace(/\n{3,}/g, '\n\n').trim() + '\n';
+            }
+
+            function validateRenderedDynamicRouting(configType, configText) {
+                if (configType !== 'tower') return;
+                const required = [
+                    '/routing ospf instance',
+                    '/routing ospf area',
+                    '/routing ospf interface-template',
+                    '/routing bgp template',
+                    '/routing bgp connection'
+                ];
+                const missing = required.filter((s) => !String(configText || '').includes(s));
+                if (missing.length) {
+                    throw new Error(`Rendered Tower config is missing required dynamic-routing sections: ${missing.join(', ')}`);
+                }
+            }
+
+            function appendSwitchCommands(configText, switches) {
+                if (!Array.isArray(switches) || switches.length === 0) return configText;
+                const lines = [];
+                lines.push('/interface ethernet');
+                switches.forEach((sw, idx) => {
+                    const name = (sw.name || `SWT-${idx + 1}`).replace(/"/g, '');
+                    const port = sw.port || '';
+                    const comment = (sw.comment || `${name} Uplink`).replace(/"/g, '');
+                    if (port) {
+                        lines.push(`set [ find default-name=${port} ] comment="${comment}"`);
+                    }
+                });
+                return `${String(configText || '').trim()}\n\n# SWITCH UPLINK ASSIGNMENTS\n${lines.join('\n')}\n`;
+            }
+
+            async function tryGenerateTowerFromBackend() {
+                const apiBase = (typeof resolveApiBase === 'function' ? resolveApiBase() : ((typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api'));
+                const configType = getSelectedMtConfigType();
+                const payload = buildMtBackendPayload(configType);
+                const switches = readModernSwitches();
+                payload.apply_compliance = true;
+
+                if (configType === 'tower') {
+                    if (!payload.router_type || !payload.loopback_subnet || !payload.cpe_subnet || !payload.unauth_subnet || !payload.cgn_priv || !payload.cgn_pub) {
+                        return null;
+                    }
+                } else if (configType === 'bng2') {
+                    if (!payload.router_type || !payload.loop_ip || !payload.gateway || !payload.switch_ip || !payload.ospf_area) {
+                        return null;
+                    }
+                }
+                if (!Array.isArray(payload.backhauls) || payload.backhauls.length === 0) {
+                    return null;
+                }
+                validateTowerPortPolicy(configType, payload, switches);
+
+                const configResp = await fetch(`${apiBase}/mt/${configType}/config`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ config_content: configText })
+                    body: JSON.stringify(payload)
                 });
-                const data = await response.json();
-                if (!response.ok) {
-                    throw new Error(data.error || 'Failed to extract port map');
+                const configData = await configResp.json();
+                if (!configResp.ok) {
+                    const msg = typeof configData === 'string' ? configData : (configData?.detail || configData?.error || 'Tower backend generation failed');
+                    throw new Error(msg);
                 }
-                return data.port_map_text || '';
+                let configText = typeof configData === 'string' ? configData : JSON.stringify(configData, null, 2);
+                if (configType === 'bng2' && !configText.includes('/interface vpls')) {
+                    throw new Error('BNG2 backend response is invalid (missing /interface vpls section).');
+                }
+                configText = await ensureComplianceInOutput(configText, payload);
+                configText = sanitizeMtConfigOutput(configText);
+                validateRenderedDynamicRouting(configType, configText);
+
+                const portMapResp = await fetch(`${apiBase}/mt/${configType}/portmap`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const portMapData = await portMapResp.json();
+                if (!portMapResp.ok) {
+                    const msg = typeof portMapData === 'string' ? portMapData : (portMapData?.detail || portMapData?.error || 'Tower backend port-map generation failed');
+                    throw new Error(msg);
+                }
+
+                return {
+                    configText,
+                    portMapText: typeof portMapData === 'string' ? portMapData : JSON.stringify(portMapData, null, 2),
+                    payload,
+                    configType
+                };
+            }
+
+            async function fetchPortMapFromConfig(configText) {
+                if (window.__mtBackendArtifacts?.portMapText) {
+                    return window.__mtBackendArtifacts.portMapText;
+                }
+                throw new Error('Port map is only available from MikroTik backend generation. Please regenerate config.');
             }
 
             async function downloadPortMap() {
@@ -13186,722 +14558,56 @@
                 return config;
             }
             // Make functions globally accessible for onclick handlers
-            window.generateConfig = function () {
+            window.generateConfig = async function () {
+                if (typeof syncModernTowerFormToLegacy === 'function') {
+                    syncModernTowerFormToLegacy();
+                }
+
+                const siteName = (document.getElementById('mtSiteName')?.value || document.getElementById('siteName')?.value || '').trim();
+                const targetDevice = normalizeRouterModelToLegacy((document.getElementById('mtRouterModel')?.value || document.getElementById('targetDevice')?.value || 'ccr2004').trim());
+                const targetRouterOS = (document.getElementById('mtRouterOSVersion')?.value || document.getElementById('targetRouterOS')?.value || 'RouterOS v7').trim();
+                const mtType = getSelectedMtConfigType();
+
                 try {
-                    // Show MUSHU-style live progress tracker
-                    showProgressTracker('Tower Configuration Generation');
-                    updateProgressStep('Initializing and gathering input parameters...');
+                    const startedAt = Date.now();
+                    const minVisibleMs = 5000;
+                    showProgressTracker('MikroTik Config Generation');
+                    updateProgressStep('Validating inputs...');
                     updateProgressPercent(5);
-                    addProgressLog('info', 'Starting Tower config generation');
+                    addProgressLog('info', 'Starting backend generation');
 
-                    const siteName = document.getElementById('siteName').value.trim();
-                    const routerId = document.getElementById('routerId').value.trim();
-                    const targetDevice = document.getElementById('targetDevice').value || 'ccr2004';
-                    const currentDevice = document.getElementById('currentDevice').value;
-                    const currentRouterOS = document.getElementById('currentRouterOS').value;
-                    const targetRouterOS = document.getElementById('targetRouterOS').value;
+                    window.__mtBackendArtifacts = { portMapText: '', source: '' };
 
-                    addProgressLog('info', `Site: ${siteName}, Device: ${targetDevice}, RouterOS: ${targetRouterOS}`);
-
-                    // Get device configuration
-                    const deviceConfig = DEVICE_CONFIGS[targetDevice] || DEVICE_CONFIGS.ccr2004;
-                    const systemName = document.getElementById('systemName').value.trim() || `RTR-${deviceConfig.name}-1.${siteName}`;
-                    const lanBridgeIP = document.getElementById('lanBridgeIP').value.trim();
-                    const ospfArea = document.getElementById('ospfArea').value === 'custom'
-                        ? document.getElementById('ospfAreaCustom').value.trim()
-                        : document.getElementById('ospfArea').value;
-                    const ospfAreaId = document.getElementById('ospfAreaId').value.trim();
-                    const bgpPeersJson = document.getElementById('bgpPeers').value.trim();
-                    const bgpAS = document.getElementById('bgpAS').value.trim();
-                    const configType = document.getElementById('configType').value;
-                    const isLegacySimple = configType === 'simple-baseline';
-                    const isOutOfState = configType === 'out-of-state';
-                    const isInState = configType === 'in-state';
-                    const enableVPLS = document.getElementById('enableVPLS').checked;
-                    const enableMPLS = document.getElementById('enableMPLS').checked;
-                    const enableDHCP = document.getElementById('enableDHCP').checked;
-                    const enableTarana = document.getElementById('enableTarana').checked;
-                    const enableSWT = document.getElementById('enableSWT').checked;
-                    const disableUnusedPorts = document.getElementById('disableUnusedPorts')?.checked === true;
-
-                    // Hidden fields are auto-managed; still, enforce safe defaults to avoid blank keys/DNS/community.
-                    let sharedKey = document.getElementById('sharedKey').value.trim();
-                    if (!sharedKey) {
-                        sharedKey = getInfrastructureValue('sharedKeys.ospfBgpMd5', 'm8M5JwvdYM') || 'm8M5JwvdYM';
-                        document.getElementById('sharedKey').value = sharedKey;
+                    if (!siteName) {
+                        throw new Error('Site Name is required.');
+                    }
+                    if (!/^7\./.test(targetRouterOS)) {
+                        throw new Error('RouterOS 7.19.4 or newer is required.');
+                    }
+                    if (mtType === 'bng2') {
+                        const v1000 = (document.getElementById('mtBng2Vpls1000')?.value || '').trim();
+                        const v2000 = (document.getElementById('mtBng2Vpls2000')?.value || '').trim();
+                        const v3000 = (document.getElementById('mtBng2Vpls3000')?.value || '').trim();
+                        const v4000 = (document.getElementById('mtBng2Vpls4000')?.value || '').trim();
+                        if (!v1000 || !v2000 || !v3000 || !v4000) {
+                            throw new Error('BNG2 requires VPLS 1000/2000/3000/4000 IDs.');
+                        }
                     }
 
-                    let dnsServers = document.getElementById('dnsServers').value.trim();
-                    if (!dnsServers) {
-                        dnsServers = (typeof getDNSList === 'function' ? getDNSList() : '142.147.112.3,142.147.112.19');
-                        document.getElementById('dnsServers').value = dnsServers;
+                    updateProgressStep('Generating via MikroTik backend templates...');
+                    updateProgressPercent(30);
+                    const backendResult = await tryGenerateTowerFromBackend();
+                    if (!backendResult?.configText) {
+                        throw new Error('Missing required fields for backend template generation.');
                     }
+                    addProgressLog('info', 'Backend render completed. Running cautious live validation...');
+                    await cautiousPostRenderValidation(backendResult.configType || 'tower', backendResult.configText);
 
-                    const dhcpSecret = document.getElementById('dhcpSecret').value.trim();
-
-                    let snmpCommunity = document.getElementById('snmpCommunity').value.trim();
-                    if (!snmpCommunity || snmpCommunity.toUpperCase() === 'CHANGE_ME') {
-                        const suffix = Math.random().toString(36).slice(2, 10);
-                        snmpCommunity = `NX${suffix}`;
-                        document.getElementById('snmpCommunity').value = snmpCommunity;
-                    }
-                    const natPublicIPRaw = document.getElementById('natPublicIP').value.trim();
-                    const siteLatitude = document.getElementById('siteLatitude').value.trim();
-                    const siteLongitude = document.getElementById('siteLongitude').value.trim();
-
-                    // Get IP range variables (needed early for RFC compliance)
-                    const cgnatRange = document.getElementById('cgnatRange').value.trim();
-                    const unauthRange = document.getElementById('unauthRange').value.trim();
-                    const vlan4000Range = document.getElementById('vlan4000Range').value.trim();
-
-                    if (!siteName || !routerId) {
-                        addProgressLog('error', 'Missing required fields: Site Name or Router ID');
-                        completeProgressTracker(false);
-                        alert('Please fill in Site Name and Router ID!');
-                        return;
-                    }
-
-                    updateProgressPercent(10);
-                    updateProgressStep('Validating input parameters and gathering VLAN data...');
-                    addProgressLog('success', 'All required fields validated');
-
-                    // Get VLAN data once for reuse
-                    const vlanRows = Array.from(document.querySelectorAll('#vlanInterfaces .vlan-item:not(#vlanTemplate)'))
-                        .map(item => ({
-                            parent: item.querySelector('select[name="vlanParent"]')?.value,
-                            vid: item.querySelector('input[name="vlanId"]')?.value,
-                            comment: item.querySelector('input[name="vlanComment"]')?.value,
-                            bridge: item.querySelector('input[name="vlanBridge"]')?.value || 'lan-bridge'
-                        }))
-                        .filter(v => v.parent && v.vid);
-
-                    // Deduplicate VLANs with same parent and VID
-                    const seen = new Set();
-                    let uniqueVlans = vlanRows.filter(v => {
-                        const key = `${v.parent}|${v.vid}`;
-                        if (seen.has(key)) return false;
-                        seen.add(key);
-                        return true;
-                    });
-
-                    // If no VLANs were defined in the UI, auto-add Nextlink tower baseline VLANs (In-State).
-                    // This avoids "minimal config" generation and matches real tower defaults (1000/2000/3000/4000).
-                    if (isInState && uniqueVlans.length === 0) {
-                        const allPorts = [...(deviceConfig.ports || []), ...(deviceConfig.sfpPorts || [])].filter(p => p && p !== 'ether1');
-                        const preferredTrunks = ['sfp-sfpplus2', 'sfp-sfpplus3', 'sfp2', 'sfp3', 'sfp-sfpplus1', 'sfp1'];
-                        const trunks = [];
-                        preferredTrunks.forEach(p => { if (allPorts.includes(p) && !trunks.includes(p)) trunks.push(p); });
-                        allPorts.forEach(p => { if (!trunks.includes(p)) trunks.push(p); });
-                        const trunkPorts = trunks.slice(0, 2);
-
-                        const baseVlans = [
-                            { vid: '1000', bridge: 'bridge1000', comment: 'VLAN1000-DYNAMIC' },
-                            { vid: '2000', bridge: 'bridge2000', comment: 'VLAN2000-STATIC' },
-                            { vid: '3000', bridge: 'bridge3000', comment: 'VLAN3000-INFRA' },
-                            { vid: '4000', bridge: 'bridge4000', comment: 'VLAN4000-CPE' },
-                        ];
-
-                        trunkPorts.forEach(parent => {
-                            baseVlans.forEach(v => uniqueVlans.push({ parent, vid: v.vid, comment: v.comment, bridge: v.bridge }));
-                        });
-
-                        addProgressLog('info', `Auto-added baseline VLANs on trunks: ${trunkPorts.join(', ')}`);
-                    }
-                    // Collect direct portbridge assignments early so we only create needed bridges
-                    const portBridgeAssignmentsEarly = Array.from(
-                        document.querySelectorAll('#portConfigs .uplink-item:not(#portTemplate)')
-                    ).map(item => {
-                        const port = item.querySelector('select[name="portName"]')?.value?.trim();
-                        const bridge = item.querySelector('select[name="portBridge"]')?.value?.trim();
-                        return { port, bridge };
-                    }).filter(x => x.port && x.bridge);
-
-                    // Work out which bridges we actually need
-                    const bridgesNeeded = new Set(
-                        uniqueVlans.map(v => v.bridge).filter(Boolean)
-                    );
-                    portBridgeAssignmentsEarly.forEach(({ bridge }) => bridgesNeeded.add(bridge));
-
-                    // Nextlink tower baseline bridges are always present in In-State configs, even if no ports are assigned yet.
-                    if (isInState) {
-                        ['bridge1000', 'bridge2000', 'bridge3000', 'bridge4000'].forEach(b => bridgesNeeded.add(b));
-                    }
-
-                    // Only add lan-bridge if the LAN Bridge IP is set
-                    if (lanBridgeIP) bridgesNeeded.add('lan-bridge');
-                    // Only add nat-public-bridge if the NAT Public IP is set
-                    if (natPublicIPRaw) bridgesNeeded.add('nat-public-bridge');
-
-                    // Add Tarana bridges if Tarana is enabled
-                    if (enableTarana) {
-                        bridgesNeeded.add('bridge1000');
-                        bridgesNeeded.add('bridge2000');
-                        bridgesNeeded.add('bridge3000');
-                    }
-
-                    // Always keep loopback pseudo-bridge (loop0) as in current build
-                    const needsLoop = true;
-
-                    updateProgressPercent(20);
-                    updateProgressStep('Building configuration header and RFC compliance baseline...');
-                    addProgressLog('info', `Generating for: ${deviceConfig.name}`);
-
-                    // Generate device-specific configuration header
-                    let config = generateConfigHeader(siteName, targetDevice, currentDevice, currentRouterOS, targetRouterOS, deviceConfig);
-
-                    // Add configuration based on type
-                    if (isInState) {
-                        // In-state: Full RFC compliance baseline
-                        config = addRFCComplianceBaseline(config, routerId, snmpCommunity, dhcpSecret, enableMPLS, unauthRange, cgnatRange, vlan4000Range);
-                    } else {
-                        // Out-of-state / simple-baseline: Simple bridge/DHCP configuration
-                        config = addOutOfStateConfiguration(config, routerId, snmpCommunity, lanBridgeIP, natPublicIPRaw, siteLatitude, siteLongitude);
-                    }
-
-                    if (isInState) {
-                        updateProgressPercent(30);
-                        updateProgressStep('Configuring interfaces, bridges, and port mappings...');
-                        addProgressLog('info', `Creating ${bridgesNeeded.size} bridges`);
-
-                        // 1. Interface Bridge (only create bridges actually referenced/needed)
-                        if (isInState) {
-                            config += `/interface bridge\n`;
-                            if (needsLoop) {
-                                config += `add fast-forward=no name=loop0\n`;
-                            }
-                            if (bridgesNeeded.has('lan-bridge')) {
-                                config += `add fast-forward=no name=lan-bridge priority=0x1\n`;
-                            }
-                            if (bridgesNeeded.has('nat-public-bridge')) {
-                                config += `add fast-forward=no name=nat-public-bridge\n`;
-                            }
-                            // Create only VLAN bridges that are referenced anywhere
-                            ['bridge1000', 'bridge2000', 'bridge3000', 'bridge4000', 'bridge999249'].forEach(b => {
-                                if (bridgesNeeded.has(b)) {
-                                    if (b === 'bridge999249') {
-                                        config += `add comment=m-VPLS name=bridge999249 port-cost-mode=short priority=0x7000 protocol-mode=mstp vlan-filtering=yes\n`;
-                                    } else {
-                                        config += `add name=${b}\n`;
-                                    }
-                                }
-                            });
-
-                            // --- Consolidated ethernet emission (ordered & de-duped) ---
-                            const configuredPorts = new Set();
-
-                            // Seed from Uplink inputs - process all uplinks dynamically (OLD STRUCTURE: #uplinks)
-                            const ethMap = new Map(); // port -> {comment, speed, mtu, l2mtu}
-                            const allUplinkElementsEth = document.querySelectorAll('#uplinks .uplink-item:not(#uplinkTemplate)');
-                            allUplinkElementsEth.forEach((element, index) => {
-                                const port = element.querySelector('select[id*="NewPort"]')?.value;
-                                if (!port || port === 'ether1') return; // ether1 is reserved for management only
-                                const comment = element.querySelector('input[id*="Comment"]')?.value || `Uplink-${index + 1}`;
-                                const speed = element.querySelector('select[id*="Speed"]')?.value || '1Gbps';
-                                ethMap.set(port, { comment, speed, mtu: '', l2mtu: '' });
-                            });
-
-                            // NEW STRUCTURE: #portConfigs with portUplinkType
-                            const newPortUplinkElementsEth = document.querySelectorAll('#portConfigs .uplink-item:not(#portUplinkTemplate)');
-                            newPortUplinkElementsEth.forEach((element, index) => {
-                                const port = element.querySelector('select[name="portUplinkPort"]')?.value;
-                                if (!port || port === 'ether1') return; // don't override ether1 Management
-                                const comment = element.querySelector('input[name="portUplinkComment"]')?.value || `Port-${index + 1}`;
-                                const speed = element.querySelector('select[name="portUplinkSpeed"]')?.value || 'auto';
-                                ethMap.set(port, { comment, speed, mtu: '', l2mtu: '' });
-                            });
-
-                            // Merge Port Config rows (OLD STRUCTURE - for backward compatibility)
-                            const portConfigs = Array.from(document.querySelectorAll('#portConfigs .uplink-item:not(#portTemplate):not(#portUplinkTemplate)'))
-                                .map(item => ({
-                                    port: item.querySelector('select[name="portName"]')?.value,
-                                    speed: item.querySelector('select[name="portSpeed"]')?.value,
-                                    comment: item.querySelector('input[name="portComment"]')?.value || '',
-                                    bridge: item.querySelector('select[name="portBridge"]')?.value,
-                                    mtu: item.querySelector('input[name="portMtu"]')?.value,
-                                    l2mtu: item.querySelector('input[name="portL2Mtu"]')?.value
-                                }))
-                                .filter(pc => pc.port && pc.port !== 'ether1');
-
-                            portConfigs.forEach(pc => {
-                                const prev = ethMap.get(pc.port) || {};
-                                ethMap.set(pc.port, {
-                                    comment: pc.comment || prev.comment || '',
-                                    speed: (pc.speed && pc.speed !== '') ? pc.speed : (prev.speed || ''),
-                                    mtu: (pc.mtu != null && pc.mtu !== '') ? pc.mtu : (prev.mtu || ''),
-                                    l2mtu: (pc.l2mtu != null && pc.l2mtu !== '') ? pc.l2mtu : (prev.l2mtu || '')
-                                });
-                            });
-
-                            // Ordering: ether1, sfp-sfpplusN, sfp28-N, then the rest alpha
-                            function portRank(p) {
-                                if (p === 'ether1') return [0, 1];
-                                let m = /^sfp-sfpplus(\d+)$/.exec(p);
-                                if (m) return [1, Number(m[1]) || 0];
-                                m = /^sfp28-(\d+)$/.exec(p);
-                                if (m) return [2, Number(m[1]) || 0];
-                                return [3, p];
-                            }
-
-                            const entries = Array.from(ethMap.entries()).sort((a, b) => {
-                                const ra = portRank(a[0]);
-                                const rb = portRank(b[0]);
-                                if (ra[0] !== rb[0]) return ra[0] - rb[0];
-                                if (typeof ra[1] === 'number' && typeof rb[1] === 'number') return ra[1] - rb[1];
-                                return String(ra[1]).localeCompare(String(rb[1]));
-                            });
-
-                            // Emit section once, in order
-                            config += `/interface ethernet\n`;
-                            // Only configure ether1 if the device has ether1 port
-                            if (deviceConfig.ports.includes('ether1')) {
-                                config += `set [ find default-name=ether1 ] auto-negotiation=yes comment="Management"\n`;
-                            }
-
-                            entries.forEach(([port, pc]) => {
-                                const autoNegPart =
-                                    pc.speed ? (pc.speed === 'auto' ? ' auto-negotiation=yes' : ' auto-negotiation=no') : '';
-                                const speedPart = pc.speed && pc.speed !== 'auto' ? ` speed=${pc.speed}` : '';
-                                const mtuPart = (pc.mtu != null && pc.mtu !== '') ? ` mtu=${pc.mtu}` : '';
-                                const l2mtuPart = (pc.l2mtu != null && pc.l2mtu !== '') ? ` l2mtu=${pc.l2mtu}` : '';
-                                const commentPart = pc.comment ? ` comment="${pc.comment}"` : '';
-                                config += `set [ find default-name=${port} ]${autoNegPart}${commentPart}${speedPart}${mtuPart}${l2mtuPart}\n`;
-                                configuredPorts.add(port);
-                            });
-
-                            // Optional: disable unused ports for security/power savings (OFF by default to avoid breaking live parity).
-                            if (disableUnusedPorts) {
-                                const allDevicePorts = [...deviceConfig.ports, ...deviceConfig.sfpPorts];
-                                allDevicePorts.forEach(port => {
-                                    if (!configuredPorts.has(port) && port !== 'ether1') {
-                                        config += `set [ find default-name=${port} ] disabled=yes\n`;
-                                    }
-                                });
-                            }
-                        }
-
-                        // 3. Interface VLAN (in-state only)
-                        if (isInState && uniqueVlans.length) {
-                            config += `/interface vlan\n`;
-                            uniqueVlans.forEach(v => {
-                                const vlanName = `vlan${v.vid}-${v.parent}`;
-                                const commentStr = v.comment ? ` comment="${v.comment}"` : '';
-                                config += `add interface=${v.parent} name=${vlanName} vlan-id=${v.vid}${commentStr}\n`;
-                            });
-                        }
-
-                        // 4. Interface VPLS (in-state only)
-                        if (isInState && enableVPLS) {
-                            const vplsRows = Array.from(document.querySelectorAll('#vplsInstances .vpls-item:not(#vplsTemplate)'))
-                                .map(item => ({
-                                    name: item.querySelector('input[name="vplsName"]')?.value,
-                                    peer: item.querySelector('input[name="vplsPeer"]')?.value,
-                                    staticId: item.querySelector('input[name="vplsStaticId"]')?.value
-                                }))
-                                .filter(v => v.name && v.peer && v.staticId);
-
-                            if (vplsRows.length) {
-                                config += `/interface vpls\n`;
-                                vplsRows.forEach(v => {
-                                    config += `add arp=enabled cisco-static-id=${v.staticId} disabled=no mtu=1500 name=${v.name} peer=${v.peer} pw-control-word=disabled pw-l2mtu=1580 pw-type=raw-ethernet\n`;
-                                });
-
-                                // If Tarana is enabled, reapply defaults for the new device (after tarana selects populated)
-                                if (document.getElementById('enableTarana')?.checked) {
-                                    applyTaranaDefaults();
-                                }
-                            }
-                        }
-
-                        // 5. DHCP Configuration (consolidated function call)
-                        config = addDHCPConfiguration(config, enableDHCP, routerId, dnsServers, dhcpSecret);
-
-                        // 6. Routing Configuration  
-                        // Only emit BGP when MPLS is not enabled
-                        if (!enableMPLS) {
-                            if (deviceConfig.bgpSyntax === 'v7') {
-                                config += `/routing bgp template\nset default as=${bgpAS} disabled=no output.network=bgp-networks router-id=${routerId} routing-table=main\n`;
-                            } else {
-                                config += `/routing bgp instance\nset default as=${bgpAS} router-id=${routerId}\n`;
-                            }
-                        }
-
-                        if (deviceConfig.ospfSyntax === 'v7') {
-                            config += `/routing ospf instance\nadd disabled=no name=default-v2 router-id=${routerId}\n`;
-                            config += `/routing ospf area\nadd area-id=${ospfAreaId} disabled=no instance=default-v2 name=${ospfArea}\n`;
-                        } else {
-                            config += `/routing ospf instance\nset [ find default=yes ] router-id=${routerId}\n`;
-                        }
-
-                        // 7. SNMP Community
-                        config += `/snmp community\nset [ find default=yes ] read-access=no\nadd addresses=::/0 name=${snmpCommunity}\n`;
-
-                        // 8. System Logging Action (dynamic syslog server)
-                        const syslogServerTower = getSyslogServer();
-                        if (syslogServerTower) {
-                            config += `/system logging action\nset 0 memory-lines=1000\nset 1 disk-lines-per-file=10000 disk-file-count=3\nadd name=syslog remote=${syslogServerTower} src-address=${routerId} target=remote\n`;
-                        } else {
-                            config += `/system logging action\nset 0 memory-lines=1000\nset 1 disk-lines-per-file=10000 disk-file-count=3\n`;
-                        }
-
-                        // Collect direct portbridge assignments from the Port Configuration section
-                        const portBridgeAssignments = Array.from(
-                            document.querySelectorAll('#portConfigs .uplink-item:not(#portTemplate)')
-                        ).map(item => {
-                            const port = item.querySelector('select[name="portName"]')?.value?.trim();
-                            const bridge = item.querySelector('select[name="portBridge"]')?.value?.trim();
-                            return { port, bridge };
-                        }).filter(x => x.port && x.bridge && x.bridge !== '');
-
-                        // 9. Interface Bridge Port
-                        if (uniqueVlans.length || portBridgeAssignments.length) {
-                            config += `/interface bridge port\n`;
-
-                            // Add VLAN interface bridge assignments
-                            uniqueVlans.forEach(v => {
-                                const vlanName = `vlan${v.vid}-${v.parent}`;
-                                config += `add bridge=${v.bridge} interface=${vlanName}\n`;
-                            });
-
-                            // Add direct port bridge assignments from port configuration
-                            portBridgeAssignments.forEach(({ port, bridge }) => {
-                                config += `add bridge=${bridge} interface=${port}\n`;
-                            });
-                        }
-
-                        // 10. IP Settings
-                        config += `/ip firewall connection tracking\nset udp-timeout=30s\n`;
-                        config += `/ip settings\nset max-neighbor-entries=8192\n`;
-                        config += `/ipv6 settings\nset disable-ipv6=yes max-neighbor-entries=8192\n`;
-
-                        updateProgressPercent(45);
-                        updateProgressStep('Assigning IP addresses and configuring routing...');
-                        addProgressLog('info', 'Configuring IP addressing scheme');
-
-                        // 11. IP Addresses
-                        config += `/ip address\n`;
-                        config += `add address=${routerId} interface=loop0 network=${routerId}\n`;
-                        // LAN address only if LAN IP provided and lan-bridge exists
-                        if (lanBridgeIP && bridgesNeeded.has('lan-bridge')) {
-                            const _lanNet = calculateNetwork(lanBridgeIP);
-                            config += `add address=${lanBridgeIP} interface=lan-bridge network=${_lanNet}\n`;
-                        }
-                        // NAT public address only if provided and nat-public-bridge exists
-                        if (natPublicIPRaw && bridgesNeeded.has('nat-public-bridge')) {
-                            const natPublicIP = natPublicIPRaw.includes('/') ? natPublicIPRaw : `${natPublicIPRaw}/32`;
-                            const _natNet = calculateNetwork(natPublicIP);
-                            config += `add address=${natPublicIP} interface=nat-public-bridge network=${_natNet}\n`;
-                        }
-
-                        updateProgressPercent(75);
-                        updateProgressStep('Configuring Tarana sectors and wireless settings...');
-                        addProgressLog('info', 'Processing Tarana sector configuration');
-
-                        // If Tarana optional feature is enabled, append Tarana sector configuration
-                        if (enableTarana) {
-                            try {
-                                const tAlpha = document.getElementById('tower_tarana_alpha')?.value;
-                                const tBeta = document.getElementById('tower_tarana_beta')?.value;
-                                const tGamma = document.getElementById('tower_tarana_gamma')?.value;
-                                const tDelta = document.getElementById('tower_tarana_delta')?.value;
-                                const unicornSubnet = document.getElementById('tower_unicornmgmt_subnet')?.value.trim();
-
-                                const taranaBlock = generateTowerTaranaBlock({
-                                    alpha: tAlpha,
-                                    beta: tBeta,
-                                    gamma: tGamma,
-                                    delta: tDelta,
-                                    unicornSubnet
-                                }, deviceConfig);
-
-                                config += `\n################################\n###       TARANA SECTORS     ###\n################################\n\n`;
-                                config += taranaBlock;
-                            } catch (err) {
-                                console.error('Tarana generation error', err);
-                            }
-                        }
-
-                        // Uplink addresses - process all uplinks dynamically (OLD STRUCTURE: #uplinks)
-                        const allUplinkElementsAddr = document.querySelectorAll('#uplinks .uplink-item:not(#uplinkTemplate)');
-                        allUplinkElementsAddr.forEach((element, index) => {
-                            // Try multiple selectors to find the IP input
-                            const ip = element.querySelector('input[placeholder*="IP/Net"]')?.value ||
-                                element.querySelector('input[id*="Ip"]')?.value ||
-                                element.querySelector('input[placeholder*="Backhaul IP"]')?.value;
-                            const port = element.querySelector('select[id*="NewPort"]')?.value;
-                            const comment = element.querySelector('input[id*="Comment"]')?.value || `Uplink-${index + 1}`;
-
-                            if (ip && port) {
-                                const network = calculateNetwork(ip);
-                                config += `add address=${ip} comment="${comment}" interface=${port} network=${network}\n`;
-                            }
-                        });
-
-                        // NEW STRUCTURE: #portConfigs with portUplinkType="routed"
-                        const newPortUplinkElementsAddr = document.querySelectorAll('#portConfigs .uplink-item:not(#portUplinkTemplate)');
-                        newPortUplinkElementsAddr.forEach((element, index) => {
-                            const portType = element.querySelector('select[name="portUplinkType"]')?.value;
-                            if (portType === 'routed') {
-                                const port = element.querySelector('select[name="portUplinkPort"]')?.value;
-                                const ip = element.querySelector('input[name="portUplinkIp"]')?.value;
-                                const comment = element.querySelector('input[name="portUplinkComment"]')?.value || `Uplink-${index + 1}`;
-
-                                if (ip && port) {
-                                    const network = calculateNetwork(ip);
-                                    config += `add address=${ip} comment="${comment}" interface=${port} network=${network}\n`;
-                                }
-                            }
-                        });
-
-                        // Additional IP addresses for DHCP pools
-                        if (enableDHCP) {
-                            const cgnatRange = document.getElementById('cgnatRange').value.trim();
-                            const unauthRange = document.getElementById('unauthRange').value.trim();
-                            const vlan4000Range = document.getElementById('vlan4000Range').value.trim();
-
-                            if (cgnatRange && cgnatRange.includes('/')) {
-                                const [cgnatNet, cgnatCidr] = cgnatRange.split('/');
-                                const cgnatGateway = cgnatNet.split('.').map((octet, i) => i === 3 ? '1' : octet).join('.');
-                                const cgnatNetwork = calculateNetwork(cgnatRange);
-                                config += `add address=${cgnatGateway}/${cgnatCidr} interface=lan-bridge network=${cgnatNetwork}\n`;
-                            }
-                            if (unauthRange && unauthRange.includes('/')) {
-                                const [unauthNet, unauthCidr] = unauthRange.split('/');
-                                const unauthGateway = unauthNet.split('.').map((octet, i) => i === 3 ? '1' : octet).join('.');
-                                const unauthNetwork = calculateNetwork(unauthRange);
-                                config += `add address=${unauthGateway}/${unauthCidr} interface=lan-bridge network=${unauthNetwork}\n`;
-                            }
-                            if (document.getElementById('enableSWT').checked && vlan4000Range && vlan4000Range.includes('/')) {
-                                const [vlan4000Net, vlan4000Cidr] = vlan4000Range.split('/');
-                                const vlan4000Gateway = vlan4000Net.split('.').map((octet, i) => i === 3 ? '1' : octet).join('.');
-                                const vlan4000Network = calculateNetwork(vlan4000Range);
-                                config += `add address=${vlan4000Gateway}/${vlan4000Cidr} interface=bridge4000 network=${vlan4000Network}\n`;
-                            }
-                        }
-
-                        // 12. IP DNS
-                        config += `/ip dns\nset max-udp-packet-size=512 servers=${dnsServers}\n`;
-
-                        // 13. Firewall Configuration
-                        // In-state runs RFC baseline which already owns filter/raw/nat; only add address-lists to keep references valid.
-                        config = addFirewallConfiguration(config, enableDHCP, enableMPLS, isInState ? { listsOnly: true } : {});
-
-                        // 14. IP Service
-                        // Handled by the selected baseline (RFC hardening or out-of-state), so we don't override ports/toggles here.
-                        // 15. MPLS Configuration (consolidated function call)
-                        config = addMPLSConfiguration(config, enableMPLS, uplinkCount, deviceConfig);
-                        updateProgressPercent(60);
-                        updateProgressStep('Configuring routing protocols (BGP/OSPF)...');
-                        addProgressLog('info', 'Setting up dynamic routing');
-
-                        // 16. Routing BGP Connection (only when MPLS is OFF)
-                        if (!enableMPLS) {
-                            if (deviceConfig.bgpSyntax === 'v7') {
-                                config += `/routing bgp connection\n`;
-                                try {
-                                    const peers = JSON.parse(bgpPeersJson);
-                                    peers.forEach(peer => {
-                                        config += `add cisco-vpls-nlri-len-fmt=auto-bits connect=yes disabled=no listen=yes local.address=${routerId} .role=ibgp multihop=yes name=${peer.name} remote.address=${peer.remote} .as=${bgpAS} .port=179 tcp-md5-key=${sharedKey} templates=default\n`;
-                                    });
-                                } catch (e) {
-                                    config += `# Error parsing BGP peers JSON; add manually\n`;
-                                }
-                            } else {
-                                config += `/routing bgp peer\n`;
-                                try {
-                                    const peers = JSON.parse(bgpPeersJson);
-                                    peers.forEach(peer => {
-                                        config += `add in-filter=bgr-a-bgp-in-filter multihop=yes name=${peer.name} remote-address=${peer.remote} remote-as=${bgpAS} tcp-md5-key=${sharedKey} ttl=default update-source=loop0\n`;
-                                    });
-                                } catch (e) {
-                                    config += `# Error parsing BGP peers JSON; add manually\n`;
-                                }
-                            }
-                        } else {
-                            config += `# BGP omitted (MPLS selected)\n`;
-                        }
-
-                        // 17. Routing OSPF Interface Configuration
-                        if (deviceConfig.ospfSyntax === 'v7') {
-                            config += `/routing ospf interface-template\n`;
-                            config += `add area=${ospfArea} disabled=no interfaces=loop0 networks=${routerId}/32 passive priority=1\n`;
-
-                            // OSPF LAN template only if we actually have a LAN Bridge IP + lan-bridge
-                            if (lanBridgeIP && bridgesNeeded.has('lan-bridge')) {
-                                const lanNetwork = calculateNetwork(lanBridgeIP);
-                                const lanCidr = lanBridgeIP.split('/')[1];
-                                config += `add area=${ospfArea} disabled=no interfaces=lan-bridge networks=${lanNetwork}/${lanCidr} priority=1\n`;
-                            }
-
-                            // Process all uplinks dynamically (OLD STRUCTURE: #uplinks)
-                            const allUplinkElementsOSPF = document.querySelectorAll('#uplinks .uplink-item:not(#uplinkTemplate)');
-                            allUplinkElementsOSPF.forEach((element, index) => {
-                                const ip = element.querySelector('input[placeholder*="IP/Net"], input[id*="Ip"]')?.value;
-                                const port = element.querySelector('select[id*="NewPort"]')?.value;
-                                const comment = element.querySelector('input[id*="Comment"]')?.value || `Uplink-${index + 1}`;
-                                const cost = element.querySelector('input[id*="Cost"]')?.value || 10;
-
-                                if (ip && port) {
-                                    const network = calculateNetwork(ip);
-                                    const cidr = ip.split('/')[1];
-                                    config += `add area=${ospfArea} auth=md5 auth-id=1 auth-key=${sharedKey} comment="${comment}" cost=${cost} disabled=no interfaces=${port} networks=${network}/${cidr} priority=1 type=ptp\n`;
-                                }
-                            });
-
-                            // NEW STRUCTURE: #portConfigs with portUplinkType="routed"
-                            const newPortUplinkElementsOSPF = document.querySelectorAll('#portConfigs .uplink-item:not(#portUplinkTemplate)');
-                            newPortUplinkElementsOSPF.forEach((element, index) => {
-                                const portType = element.querySelector('select[name="portUplinkType"]')?.value;
-                                if (portType === 'routed') {
-                                    const port = element.querySelector('select[name="portUplinkPort"]')?.value;
-                                    const ip = element.querySelector('input[name="portUplinkIp"]')?.value;
-                                    const comment = element.querySelector('input[name="portUplinkComment"]')?.value || `Uplink-${index + 1}`;
-                                    const cost = element.querySelector('input[name="portUplinkCost"]')?.value || 10;
-
-                                    if (ip && port) {
-                                        const network = calculateNetwork(ip);
-                                        const cidr = ip.split('/')[1];
-                                        config += `add area=${ospfArea} auth=md5 auth-id=1 auth-key=${sharedKey} comment="${comment}" cost=${cost} disabled=no interfaces=${port} networks=${network}/${cidr} priority=1 type=ptp\n`;
-                                    }
-                                }
-                            });
-                        } else {
-                            // RouterOS v6 syntax
-                            config += `/routing ospf interface\n`;
-                            config += `add authentication=md5 authentication-key=${sharedKey} comment=loop0 interface=loop0 network-type=point-to-point\n`;
-
-                            // Process all uplinks dynamically (including those added via "Add Uplink" button)
-                            const allUplinkElementsOSPF = document.querySelectorAll('#uplinks .uplink-item:not(#uplinkTemplate)');
-                            allUplinkElementsOSPF.forEach((element, index) => {
-                                const ip = element.querySelector('input[placeholder*="IP/Net"], input[id*="Ip"]')?.value;
-                                const port = element.querySelector('select[id*="NewPort"]')?.value;
-                                const comment = element.querySelector('input[id*="Comment"]')?.value || `Uplink-${index + 1}`;
-
-                                if (ip && port) {
-                                    config += `add authentication=md5 authentication-key=${sharedKey} comment="${comment}" interface=${port} network-type=point-to-point\n`;
-                                }
-                            });
-
-                            config += `/routing ospf network\n`;
-                            config += `add area=backbone comment=loop0 network=${routerId}/32\n`;
-
-                            // OSPF LAN network only if we actually have a LAN Bridge IP + lan-bridge
-                            if (lanBridgeIP && bridgesNeeded.has('lan-bridge')) {
-                                const lanNetwork = calculateNetwork(lanBridgeIP);
-                                const lanCidr = lanBridgeIP.split('/')[1];
-                                config += `add area=backbone comment=LAN network=${lanNetwork}/${lanCidr}\n`;
-                            }
-
-                            // Process all uplinks for network configuration
-                            allUplinkElementsOSPF.forEach((element, index) => {
-                                const ip = element.querySelector('input[placeholder*="IP/Net"], input[id*="Ip"]')?.value;
-                                const port = element.querySelector('select[id*="NewPort"]')?.value;
-                                const comment = element.querySelector('input[id*="Comment"]')?.value || `Uplink-${index + 1}`;
-
-                                if (ip && port) {
-                                    const network = calculateNetwork(ip);
-                                    const cidr = ip.split('/')[1];
-                                    config += `add area=backbone comment="${comment}" network=${network}/${cidr}\n`;
-                                }
-                            });
-                        }
-                    } else {
-                        addProgressLog('info', 'Out-of-state/simple baseline selected: generating baseline-only config');
-                        updateProgressPercent(60);
-                        updateProgressStep('Baseline configuration generated');
-                    }
-
-                    // 18. SNMP
-                    config += `/snmp\nset enabled=yes src-address=${routerId} trap-community=${snmpCommunity}\n`;
-
-                    // 19. System Configuration
-                    config += `/system clock\nset time-zone-name=America/Chicago\n`;
-                    config += `/system identity\nset name=${systemName}\n`;
-                    // 20. System Logging
-                    config += `/system logging\n`;
-                    config += `add action=syslog topics=critical\n`;
-                    config += `add action=syslog topics=error\n`;
-                    config += `add action=syslog topics=warning\n`;
-                    config += `add action=disk topics=critical\n`;
-                    config += `add action=disk topics=error\n`;
-                    config += `add action=disk topics=warning\n`;
-                    config += `add action=memory topics=critical\n`;
-                    config += `add action=memory topics=error\n`;
-                    config += `add action=memory topics=warning\n`;
-                    config += `set 0 action=echo\n`;
-
-                    // 21. System NTP Client
-                    config += `/system ntp client\nset enabled=yes\n`;
-                    config += `/system ntp client servers\n`;
-                    const ntpServers = getNTPServer();
-                    // Always add default NTP servers
-                    ntpServers.defaults.forEach(server => {
-                        config += `add address=${server}\n`;
-                    });
-                    // Add custom NTP server if configured
-                    if (ntpServers.custom) {
-                        config += `add address=${ntpServers.custom}\n`;
-                    }
-
-                    // 22. System RouterBoard Settings
-                    config += `/system routerboard settings\nset auto-upgrade=yes\n`;
-
-                    // 23. System Watchdog
-                    config += `/system watchdog\nset watchdog-timer=yes\n`;
-
-                    // 24. User AAA (RADIUS login is enabled only when login servers are configured)
-                    const loginRadius = (typeof getRADIUSLoginServers === 'function') ? getRADIUSLoginServers() : [];
-                    const hasLoginRadius = Array.isArray(loginRadius) && loginRadius.some(s => s && s.address && s.secret);
-                    config += `/user aaa\nset use-radius=${hasLoginRadius ? 'yes' : 'no'}\n`;
-
-                    // Add dynamic configurations for user-selected features (in-state only)
-                    if (isInState) {
-                        config = addDynamicConfigurations(config, enableTarana, enableSWT, enableVPLS, enableMPLS, enableDHCP, lanBridgeIP, cgnatRange, unauthRange, vlan4000Range, routerId, sharedKey);
-                    }
-
-                    // Add device-specific optimizations
-                    config = generateDeviceSpecificConfig(config, deviceConfig, targetDevice);
-
-                    // Add System Scripts (Backup and Monitoring) - in-state only
-                    if (isInState) {
-                        config += `# SYSTEM SCRIPTS\n`;
-                        config += `/system scheduler\n`;
-                        config += `add interval=1d name=nightly on-event="/system script run \"backup\"\\r\\n    \\n/system script run \"dhcp-count\"\\r\\n    \\n" policy=ftp,reboot,read,write,policy,test,password,sniff,sensitive start-date=2013-06-21 start-time=00:00:00\n\n`;
-
-                        config += `/system script\n`;
-                        // Backup script - only include if backup is configured
-                        if (typeof NEXTLINK_INFRASTRUCTURE !== 'undefined' &&
-                            NEXTLINK_INFRASTRUCTURE.backup &&
-                            NEXTLINK_INFRASTRUCTURE.backup.enabled &&
-                            NEXTLINK_INFRASTRUCTURE.backup.ftpHost &&
-                            NEXTLINK_INFRASTRUCTURE.backup.ftpUser &&
-                            NEXTLINK_INFRASTRUCTURE.backup.ftpPassword) {
-                            const backup = NEXTLINK_INFRASTRUCTURE.backup;
-                            config += `add dont-require-permissions=no name=backups owner=root policy=ftp,reboot,read,write,policy,test,password,sniff,sensitive source="# automated backup 2 External ftp\\r\\n    \\n\\r\\n    \\n# ftp configuration\\r\\n    \\n:local ftphost \"${backup.ftpHost}\"\\r\\n    \\n:local ftpuser \"${backup.ftpUser}\"\\r\\n    \\n:local ftppassword \"${backup.ftpPassword}\"\\r\\n    \\n:local ftppath \"${backup.ftpPath || 'backups'}\"\\r\\n    \\n\\r\\n    \\n# months array\\r\\n    \\n:local months (\"jan\",\"feb\",\"mar\",\"apr\",\"may\",\"jun\",\"jul\",\"aug\",\"sep\",\"oct\",\"nov\",\"dec\");\\r\\n    \\n\\r\\n    \\n# get time\\r\\n    \\n:local ts [/system clock get time]\\r\\n    \\n:set ts ([:pick \\$ts 0 2].[:pick \\$ts 3 5].[:pick \\$ts 6 8])\\r\\n    \\n\\r\\n    \\n# get Date\\r\\n    \\n:local ds [/system clock get date]\\r\\n    \\n# convert name of month to number\\r\\n    \\n:local month [ :pick \\$ds 0 3 ];\\r\\n    \\n:local mm ([ :find \\$months \\$month -1 ] + 1);\\r\\n    \\n:if (\\$mm < 10) do={ :set mm (\"0\" . \\$mm); }\\r\\n    \\n# set \\$ds to format YYYY-MM-DD\\r\\n    \\n:set ds ([:pick \\$ds 7 11] . \\$mm . [:pick \\$ds 4 6])\\r\\n    \\n\\r\\n    \\n\\r\\n    \\n# file name for system backup - file name will be servername-date-time.backup\\r\\n    \\n:local fname1 ([/system identity get name].\"-\".\\$ds.\"-\".\\$ts.\".backup\")\\r\\n    \\n# file name for config export - file name will be servername-date-time.rsc\\r\\n    \\n:local fname2 ([/system identity get name].\"-\".\\$ds.\"-\".\\$ts.\".rsc\")\\r\\n    \\n\\r\\n    \\n# backup the data\\r\\n    \\n\\r\\n    \\n/system backup save name=\\$fname1\\r\\n    \\n:log info message=\"System backup finished (1/2).\";\\r\\n    \\n/export compact file=\\$fname2\\r\\n    \\n:log info message=\"Config export finished (2/2).\"\\r\\n    \\n\\r\\n    \\n\\r\\n    \\n# upload the system backup\\r\\n    \\n:log info message=\"Uploading system backup (1/2).\"\\r\\n    \\n/tool fetch address=\"\\$ftphost\" src-path=\\$fname1 user=\"\\$ftpuser\" mode=ftp password=\"\\$ftppassword\" dst-path=\"\\$ftppath/\\$fname1\" upload=yes\\r\\n    \\n# upload the config export\\r\\n    \\n:log info message=\"Uploading config export (2/2).\"\\r\\n    \\n/tool fetch address=\"\\$ftphost\" src-path=\\$fname2 user=\"\\$ftpuser\" mode=ftp password=\"\\$ftppassword\" dst-path=\"\\$ftppath/\\$fname2\" upload=yes\\r\\n    \\n\\r\\n    \\n# delay time to finish the upload - increase it if your backup file is big\\r\\n    \\n:delay 60s;\\r\\n    \\n# find and remove old backup files\\r\\n    \\n:foreach i in=[/file find] do={ :if ([:typeof [:find [/file get \\$i name] \"RTR-\"]]!=\"nil\") do={/file remove \\$i}; }\\r\\n    \\n:log info message=\"Configuration backup finished.\";"\n`;
-                        }
-                        config += `add dont-require-permissions=no name=dhcp-count owner=root policy=ftp,reboot,read,write,policy,test,password,sniff,sensitive,romon source="# List stats for IP -> Pool\\r\\n    \\n#\\r\\n    \\n# criticalthreshold = output pool display in red if pool used is above this %\\r\\n    \\n# warnthreshold = output pool display in gold if pool used is above this %\\r\\n    \\n\\r\\n    \\n:local criticalthreshold 85\\r\\n    \\n:local warnthreshold 70\\r\\n    \\n\\r\\n    \\n# Internal processing below...\\r\\n    \\n# ----------------------------------\\r\\n    \\n/ip pool {\\r\\n    \\n   :local poolname\\r\\n    \\n   :local pooladdresses\\r\\n    \\n   :local poolused\\r\\n    \\n   :local poolpercent\\r\\n    \\n   :local minaddress\\r\\n    \\n   :local maxaddress\\r\\n    \\n   :local findindex\\r\\n    \\n   :local tmpint\\r\\n    \\n   :local maxindex\\r\\n    \\n   :local line\\r\\n    \\n\\r\\n    \\n   :put (\"IP Pool Statistics\")\\r\\n    \\n   :put (\"------------------\")\\r\\n    \\n\\r\\n    \\n# Iterate through IP Pools\\r\\n    \\n   :foreach p in=[find] do={\\r\\n    \\n\\r\\n    \\n      :set poolname [get \\$p name]\\r\\n    \\n      :set pooladdresses 0\\r\\n    \\n      :set poolused 0\\r\\n    \\n      :set line \"\"\\r\\n    \\n\\r\\n    \\n      :set line (\"     \" . \\$poolname)\\r\\n    \\n\\r\\n    \\n#   Iterate through current pool's IP ranges\\r\\n    \\n      :foreach r in=[:toarray [get \\$p range]] do={\\r\\n    \\n\\r\\n    \\n#      Get min and max addresses\\r\\n    \\n         :set findindex [:find [:tostr \\$r] \"-\"]\\r\\n    \\n         :if ([:len \\$findindex] > 0) do={\\r\\n    \\n            :set minaddress [:pick [:tostr \\$r] 0 \\$findindex]\\r\\n    \\n            :set maxaddress [:pick [:tostr \\$r] (\\$findindex + 1) [:len [:tostr \\$r]]]\\r\\n    \\n         } else={\\r\\n    \\n            :set minaddress [:tostr \\$r]\\r\\n    \\n            :set maxaddress [:tostr \\$r]\\r\\n    \\n         }\\r\\n    \\n\\r\\n    \\n#       Convert to array of octets (replace '.' with ',')\\r\\n    \\n         :for x from=0 to=([:len [:tostr \\$minaddress]] - 1) do={\\r\\n    \\n            :if ([:pick [:tostr \\$minaddress] \\$x (\\$x + 1)] = \".\") do={\\r\\n    \\n               :set minaddress ([:pick [:tostr \\$minaddress] 0 \\$x] . \",\" . \\\\\\r\\n    \\n                                       [:pick [:tostr \\$minaddress] (\\$x + 1) [:len [:tostr \\$minaddress]]]) }\\r\\n    \\n         }\\r\\n    \\n         :for x from=0 to=([:len [:tostr \\$maxaddress]] - 1) do={\\r\\n    \\n            :if ([:pick [:tostr \\$maxaddress] \\$x (\\$x + 1)] = \".\") do={\\r\\n    \\n               :set maxaddress ([:pick [:tostr \\$maxaddress] 0 \\$x] . \",\" . \\\\\\r\\n    \\n                                       [:pick [:tostr \\$maxaddress] (\\$x + 1) [:len [:tostr \\$maxaddress]]]) }\\r\\n    \\n         }\\r\\n    \\n\\r\\n    \\n#      Calculate available addresses for current range\\r\\n    \\n         :if ([:len [:toarray \\$minaddress]] = [:len [:toarray \\$maxaddress]]) do={\\r\\n    \\n            :set maxindex ([:len [:toarray \\$minaddress]] - 1)\\r\\n    \\n            :for x from=\\$maxindex to=0 step=-1 do={\\r\\n    \\n#             Calculate 256^(\\$maxindex - \\$x)\\r\\n    \\n               :set tmpint 1\\r\\n    \\n               :if ((\\$maxindex - \\$x) > 0) do={\\r\\n    \\n                  :for y from=1 to=(\\$maxindex - \\$x) do={ :set tmpint (256 * \\$tmpint) }\\r\\n    \\n               }\\r\\n    \\n               :set tmpint (\\$tmpint * ([:tonum [:pick [:toarray \\$maxaddress] \\$x]] - \\\\\\r\\n    \\n                                                    [:tonum [:pick [:toarray \\$minaddress] \\$x]]) )\\r\\n    \\n               :set pooladdresses (\\$pooladdresses + \\$tmpint)\\r\\n    \\n#         for x\\r\\n    \\n            }\\r\\n    \\n\\r\\n    \\n#      if len array \\$minaddress = \\$maxaddress\\r\\n    \\n         }\\r\\n    \\n\\r\\n    \\n#      Add current range to total pool's available addresses\\r\\n    \\n         :set pooladdresses (\\$pooladdresses + 1)\\r\\n    \\n\\r\\n    \\n#   foreach r\\r\\n    \\n      }\\r\\n    \\n\\r\\n    \\n#   Now, we have the available address for all ranges in this pool\\r\\n    \\n#   Get the number of used addresses for this pool\\r\\n    \\n      :set poolused [:len [used find pool=[:tostr \\$poolname]]]\\r\\n    \\n      :set poolpercent ((\\$poolused * 100) / \\$pooladdresses)\\r\\n    \\n\\r\\n    \\n#   Output information\\r\\n    \\n      :set line ([:tostr \\$line] . \"  [\" . \\$poolused . \"/\" . \\$pooladdresses . \"]\")\\r\\n    \\n      :set line ([:tostr \\$line] . \"  \" . \\$poolpercent . \" % used\")\\r\\n    \\n\\r\\n    \\n#   Set colored display for used thresholds\\r\\n    \\n      :if ( [:tonum \\$poolpercent] > \\$criticalthreshold ) do={\\r\\n    \\n         :log error (\"IP Pool \" . \\$poolname . \" is \" . \\$poolpercent . \"% full\")\\r\\n    \\n         :put ([:terminal style varname] . \\$line)\\r\\n    \\n         :local Subject ([/system identity get name] . \" DHCP pool \\$poolname is at \\$poolpercent % Full\")\\r\\n    \\n         :local Body (\"\\$poolused of \\$pooladdresses used\")\\r\\n    \\n         :if ([:len [/tool e-mail find where to="${typeof NEXTLINK_INFRASTRUCTURE !== 'undefined' && NEXTLINK_INFRASTRUCTURE.emailAlerts && NEXTLINK_INFRASTRUCTURE.emailAlerts.enabled ? NEXTLINK_INFRASTRUCTURE.emailAlerts.recipient : ''}"]] > 0) do={ /tool e-mail send to="${typeof NEXTLINK_INFRASTRUCTURE !== 'undefined' && NEXTLINK_INFRASTRUCTURE.emailAlerts && NEXTLINK_INFRASTRUCTURE.emailAlerts.enabled ? NEXTLINK_INFRASTRUCTURE.emailAlerts.recipient : ''}" subject=\\$Subject body=\\$Body from="${typeof NEXTLINK_INFRASTRUCTURE !== 'undefined' && NEXTLINK_INFRASTRUCTURE.emailAlerts && NEXTLINK_INFRASTRUCTURE.emailAlerts.enabled ? NEXTLINK_INFRASTRUCTURE.emailAlerts.from : 'alerts@configmaker.local'}" }\\r\\n    \\n      } else={\\r\\n    \\n         :if ( [:tonum \\$poolpercent] > \\$warnthreshold ) do={\\r\\n    \\n            :log warning (\"IP Pool \" . \\$poolname . \" is \" . \\$poolpercent . \"% full\")\\r\\n    \\n            :put ([:terminal style syntax-meta] . \\$line)\\r\\n    \\n            :local Subject ([/system identity get name] . \" DHCP pool \\$poolname is at \\$poolpercent % Full\")\\r\\n    \\n            :local Body (\"\\$poolused of \\$pooladdresses used\")\\r\\n    \\n            :if ([:len [/tool e-mail find where to="${typeof NEXTLINK_INFRASTRUCTURE !== 'undefined' && NEXTLINK_INFRASTRUCTURE.emailAlerts && NEXTLINK_INFRASTRUCTURE.emailAlerts.enabled ? NEXTLINK_INFRASTRUCTURE.emailAlerts.recipient : ''}"]] > 0) do={ /tool e-mail send to="${typeof NEXTLINK_INFRASTRUCTURE !== 'undefined' && NEXTLINK_INFRASTRUCTURE.emailAlerts && NEXTLINK_INFRASTRUCTURE.emailAlerts.enabled ? NEXTLINK_INFRASTRUCTURE.emailAlerts.recipient : ''}" subject=\\$Subject body=\\$Body from="${typeof NEXTLINK_INFRASTRUCTURE !== 'undefined' && NEXTLINK_INFRASTRUCTURE.emailAlerts && NEXTLINK_INFRASTRUCTURE.emailAlerts.enabled ? NEXTLINK_INFRASTRUCTURE.emailAlerts.from : 'alerts@configmaker.local'}" }\\r\\n    \\n         } else={\\r\\n    \\n            :put ([:terminal style none] . \\$line)\\r\\n    \\n         }\\r\\n    \\n      }\\r\\n    \\n\\r\\n    \\n# foreach p\\r\\n    \\n   }\\r\\n    \\n# /ip pool\\r\\n    \\n}"\n\n`;
-                    }
-
-                    // Add NextLink compliance footer
-                    config += `\n# ========================================\n`;
-                    config += `# NextLink RFC Compliance Footer\n`;
-                    config += `# ========================================\n`;
-                    config += `# Configuration follows RFC compliance standards\n`;
-                    config += `# Baseline hardening applied\n`;
-                    config += `# Dynamic features configured based on selections\n`;
-                    config += `# Ready for deployment\n`;
-                    config += `# Backup recommended before import\n`;
-                    config += `# ========================================\n`;
-
-                    // Normalize the config order to match RouterOS standard
-                    const normalizedConfig = normalizeConfigOrder(config);
-
-                    // Separate metadata from router commands
                     const metadataOutput = document.getElementById('metadataOutput');
                     const configOutput = document.getElementById('output');
-                    // Split config into metadata (comments) and router commands
-                    const lines = normalizedConfig.split('\n');
-                    let metadata = [];
-                    let routerCommands = [];
+                    const lines = backendResult.configText.split('\n');
+                    const metadata = [];
+                    const routerCommands = [];
 
                     for (const line of lines) {
                         if (line.trim().startsWith('#') || line.trim().startsWith(':global') || line.trim() === '') {
@@ -13913,66 +14619,60 @@
 
                     metadataOutput.value = metadata.join('\n');
                     configOutput.value = routerCommands.join('\n');
-                    downloadBtn.disabled = false;
+                    window.__mtBackendArtifacts = {
+                        portMapText: backendResult.portMapText || '',
+                        source: 'mt-fastapi'
+                    };
 
-                    // Auto-save completed config
-                    const fullConfig = normalizedConfig;
-                    saveCompletedConfig({
-                        config_type: 'tower',
-                        device_name: systemName,
-                        device_type: targetDevice,
-                        customer_code: '',
-                        loopback_ip: routerId,
-                        routeros_version: targetRouterOS,
-                        config_content: fullConfig,
-                        site_name: siteName,
-                        router_id: routerId,
-                        lan_bridge_ip: lanBridgeIP,
-                        ospf_area: ospfArea,
-                        bgp_peers: bgpPeersJson ? JSON.parse(bgpPeersJson) : [],
-                        uplinks: Array.from(document.querySelectorAll('#uplinks .uplink-item:not(#uplinkTemplate)')).map(el => ({
-                            port: el.querySelector('select[name="port"]')?.value,
-                            ip: el.querySelector('input[name="ip"]')?.value,
-                            comment: el.querySelector('input[name="comment"]')?.value
-                        })).filter(u => u.port && u.ip)
-                    });
+                    const dlBtn = document.getElementById('downloadBtn');
+                    if (dlBtn) dlBtn.disabled = false;
 
-                    updateProgressPercent(95);
-                    updateProgressStep('Finalizing configuration output...');
-                    addProgressLog('info', 'Rendering configuration');
+                    if (typeof saveCompletedConfig === 'function') {
+                        saveCompletedConfig({
+                            config_type: backendResult.configType || 'tower',
+                            device_name: siteName,
+                            device_type: targetDevice,
+                            routeros_version: targetRouterOS,
+                            config_content: backendResult.configText,
+                            site_name: siteName
+                        });
+                    }
 
-                    // Track activity for live feed
-                    saveConfigToHistory({
-                        type: 'new-config',
-                        device: targetDevice,
-                        siteName: siteName || systemName || 'Tower Config',
-                        routeros: targetRouterOS,
-                        success: true
-                    });
+                    if (typeof saveConfigToHistory === 'function') {
+                        saveConfigToHistory({
+                            type: (backendResult.configType === 'bng2') ? 'bng2' : 'new-config',
+                            device: targetDevice,
+                            siteName: siteName,
+                            routeros: targetRouterOS,
+                            success: true
+                        });
+                    }
 
+                    const elapsed = Date.now() - startedAt;
+                    if (elapsed < minVisibleMs) {
+                        await pause(minVisibleMs - elapsed);
+                    }
                     updateProgressPercent(100);
-                    addProgressLog('success', 'Tower configuration generated successfully!');
-                    addProgressLog('info', `Config size: ${fullConfig.length} characters`);
+                    addProgressLog('success', 'MikroTik backend generation completed');
                     completeProgressTracker(true);
-
-                    // Auto-update compliance status
-                    updateComplianceStatus();
                 } catch (error) {
                     console.error('Error in generateConfig:', error);
                     addProgressLog('error', `Generation failed: ${error.message}`);
                     completeProgressTracker(false);
 
-                    // Track failure
-                    saveConfigToHistory({
-                        type: 'new-config',
-                        device: targetDevice || 'Unknown',
-                        siteName: siteName || 'Tower Config',
-                        routeros: targetRouterOS || 'Unknown',
-                        success: false
-                    });
+                    if (typeof saveConfigToHistory === 'function') {
+                        saveConfigToHistory({
+                            type: 'new-config',
+                            device: targetDevice || 'Unknown',
+                            siteName: siteName || 'Tower Config',
+                            routeros: targetRouterOS || 'Unknown',
+                            success: false
+                        });
+                    }
 
-                    alert('Error generating configuration: ' + error.message);
+                    alert(`MikroTik backend generation failed: ${error.message}`);
                 }
+            
             }
 
             // Initialize all event handlers and main functionality
@@ -15641,19 +16341,8 @@
                 const sectorPorts = [alpha, beta, gamma].concat(delta ? [delta] : []);
                 let config = '';
 
-                // Get RouterOS version for speed syntax determination
-                const routerOSSelect = document.getElementById('tarana_routeros_version');
-                const routerOSVersion = routerOSSelect ? routerOSSelect.value : '';
-
-                // Determine speed syntax based on RouterOS version
-                // 7.11.2 and earlier: Legacy format (10Gbps)
-                // 7.16.2 and later: New format (10G-baseSR-LR)
-                let speedSyntax = '10Gbps'; // Default for 7.11.2 and earlier
-                if (routerOSVersion === '7.16.2' || routerOSVersion === '7.19.4') {
-                    speedSyntax = '10G-baseSR-LR';
-                } else if (routerOSVersion === '7.11.2' || !routerOSVersion) {
-                    speedSyntax = '10Gbps'; // Legacy format
-                }
+                // Frontend standard for current RouterOS targets.
+                const speedSyntax = '10G-baseSR-LR';
 
                 window.updateProgressStep('Configuring Ethernet interfaces...');
                 window.updateProgressPercent(30);
@@ -16707,19 +17396,8 @@
 
                 const sectorNames = ['Alpha', 'Beta', 'Gamma', 'Delta'];
 
-                // Get RouterOS version for speed syntax determination
-                const routerOSSelect = document.getElementById('tarana_bng2_routeros_version') || document.getElementById('tarana_routeros_version');
-                const routerOSVersion = routerOSSelect ? routerOSSelect.value : '';
-
-                // Determine speed syntax based on RouterOS version
-                // 7.11.2 and earlier: Legacy format (10Gbps)
-                // 7.16.2 and later: New format (10G-baseSR-LR)
-                let speedSyntax = '10Gbps'; // Default for 7.11.2 and earlier
-                if (routerOSVersion === '7.16.2' || routerOSVersion === '7.19.4') {
-                    speedSyntax = '10G-baseSR-LR';
-                } else if (routerOSVersion === '7.11.2' || !routerOSVersion) {
-                    speedSyntax = '10Gbps'; // Legacy format
-                }
+                // Frontend standard for current RouterOS targets.
+                const speedSyntax = '10G-baseSR-LR';
 
                 let config = `###################################\n###       TARANA CONFIG         ###\n###################################\n\n`;
 
@@ -17027,10 +17705,10 @@
             out += `add comment=UNICORN name=UNICORNMGMT port-cost-mode=short\n`;
             out += `add comment=STATIC name=bridge2000 port-cost-mode=short\n`;
 
-            // Ethernet sets (force 10G-baseCR)
+            // Ethernet sets (RouterOS 7.19.4+ default to 10G-baseSR-LR)
             function emitEthSet(port, comment, speedInputId, mtuInputId) {
                 if (!port) return '';
-                const speedVal = '10G-baseCR';
+                const speedVal = '10G-baseSR-LR';
                 const mtuVal = '';
                 const autoNeg = ' auto-negotiation=no';
                 const speedPart = ` speed=${speedVal}`;
@@ -17133,23 +17811,34 @@
 
         // Switch between NEW and UPGRADE modes
         function switchMode(mode) {
+            const towerModernForm = document.getElementById('towerModernForm');
+            const modeSection = document.getElementById('towerModeSelectorSection');
             const mainForm = document.getElementById('mainForm');
             const upgradeMode = document.getElementById('upgradeMode');
             const newModeHint = document.getElementById('newModeHint');
             const generateBtn = document.getElementById('generateBtn');
+            const uploadedFileName = document.getElementById('uploadedFileName');
+            const upgradeTargetSelection = document.getElementById('upgradeTargetSelection');
+
+            if (modeSection) modeSection.style.display = 'block';
+            document.querySelectorAll('input[name="configMode"]').forEach((radio) => {
+                radio.checked = radio.value === mode;
+            });
 
             if (mode === 'new') {
-                mainForm.style.display = 'block';
-                upgradeMode.style.display = 'none';
-                newModeHint.style.display = 'block';
+                if (towerModernForm) towerModernForm.style.display = 'block';
+                if (mainForm) mainForm.style.display = 'block';
+                if (upgradeMode) upgradeMode.style.display = 'none';
+                if (newModeHint) newModeHint.style.display = 'block';
                 if (generateBtn) generateBtn.textContent = 'Generate Configuration';
             } else {
-                mainForm.style.display = 'none';
-                upgradeMode.style.display = 'block';
-                newModeHint.style.display = 'none';
+                if (towerModernForm) towerModernForm.style.display = 'none';
+                if (mainForm) mainForm.style.display = 'none';
+                if (upgradeMode) upgradeMode.style.display = 'block';
+                if (newModeHint) newModeHint.style.display = 'none';
                 uploadedConfigContent = '';
-                document.getElementById('uploadedFileName').style.display = 'none';
-                document.getElementById('upgradeTargetSelection').style.display = 'none';
+                if (uploadedFileName) uploadedFileName.style.display = 'none';
+                if (upgradeTargetSelection) upgradeTargetSelection.style.display = 'none';
                 if (generateBtn) generateBtn.textContent = 'Upgrade Configuration';
             }
 
@@ -18364,7 +19053,7 @@ Translate this configuration section to RouterOS ${context.targetVersion} syntax
             if (targetVersion.startsWith('7.16') || targetVersion.startsWith('7.19')) {
                 return `RouterOS 7.16+ uses NEW SYNTAX:
 - Ethernet speed: Use "speed=1G-baseT-full" instead of "speed=1Gbps duplex=full"
-  Examples: 10G-baseCR, 10G-baseSR-LR, 1G-baseT-full, 100M-baseT-full
+  Examples: 10G-baseSR-LR, 10G-baseSR-LR, 1G-baseT-full, 100M-baseT-full
 - OSPF: Use "/routing ospf interface-template" instead of "/routing ospf interface"
   Use "interfaces=" and "area=" parameters
 - BGP: Use "/routing bgp connection" instead of "/routing bgp peer"
@@ -19253,7 +19942,7 @@ Ready for translation!`);
                     html += `</div>`;
                     html += `<div>`;
                     html += `<button onclick="event.stopPropagation(); downloadCompletedConfig(${config.id})" style="background: #4CAF50; color: white; border: none; padding: 8px 15px; border-radius: 3px; cursor: pointer; margin-right: 5px;"> Download</button>`;
-                    html += `<button onclick="event.stopPropagation(); downloadPortMap(${config.id})" style="background: #FF9800; color: white; border: none; padding: 8px 15px; border-radius: 3px; cursor: pointer; margin-right: 5px;" title="Download Port Map"> Port Map</button>`;
+                    html += `<button onclick="event.stopPropagation(); downloadHistoryPortMap(${config.id})" style="background: #FF9800; color: white; border: none; padding: 8px 15px; border-radius: 3px; cursor: pointer; margin-right: 5px;" title="Download Port Map"> Port Map</button>`;
                     html += `<button onclick="event.stopPropagation(); viewCompletedConfig(${config.id})" style="background: #2196F3; color: white; border: none; padding: 8px 15px; border-radius: 3px; cursor: pointer;"> View</button>`;
                     html += `</div>`;
                     html += `</div>`;
@@ -19376,7 +20065,7 @@ Ready for translation!`);
                 });
         }
 
-        function downloadPortMap(configId) {
+        function downloadHistoryPortMap(configId) {
             // Direct download from API endpoint
             const url = `${AI_API_BASE}/download-port-map/${configId}`;
             const a = document.createElement('a');
@@ -21570,7 +22259,7 @@ Ready for translation!`);
                 portDiv.style.cssText = 'margin-bottom: 10px; padding: 15px; background: var(--input-bg); border-radius: 4px; border: 1px solid var(--border-color);';
                 const speedOptions = groupId === '100g'
                     ? '<option value="100G-baseCR4" selected>100G-baseCR4</option>'
-                    : '<option value="auto">Auto</option><option value="10G-baseSR-LR">10G-baseSR-LR</option><option value="10G-baseCR">10G-baseCR</option>';
+                    : '<option value="auto">Auto</option><option value="10G-baseSR-LR">10G-baseSR-LR</option><option value="10G-baseSR-LR">10G-baseSR-LR</option>';
                 const speedDisabled = groupId === '100g' ? 'disabled' : '';
                 portDiv.innerHTML = `
                     <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; align-items: center;">
