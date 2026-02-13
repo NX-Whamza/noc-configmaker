@@ -13224,14 +13224,33 @@
                 }
                 validateTowerPortPolicy(configType, payload, switches);
 
+                const parseApiResponse = async (resp) => {
+                    const raw = await resp.text();
+                    const ctype = (resp.headers.get('content-type') || '').toLowerCase();
+                    if (ctype.includes('application/json')) {
+                        try {
+                            return JSON.parse(raw || '{}');
+                        } catch (_) {
+                            return raw;
+                        }
+                    }
+                    try {
+                        return JSON.parse(raw || '{}');
+                    } catch (_) {
+                        return raw;
+                    }
+                };
+
                 const configResp = await fetch(`${apiBase}/mt/${configType}/config`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                const configData = await configResp.json();
+                const configData = await parseApiResponse(configResp);
                 if (!configResp.ok) {
-                    const msg = typeof configData === 'string' ? configData : (configData?.detail || configData?.error || 'Tower backend generation failed');
+                    const msg = typeof configData === 'string'
+                        ? `HTTP ${configResp.status}: ${String(configData).slice(0, 240)}`
+                        : (configData?.detail || configData?.error || `Tower backend generation failed (HTTP ${configResp.status})`);
                     throw new Error(msg);
                 }
                 let configText = typeof configData === 'string' ? configData : JSON.stringify(configData, null, 2);
@@ -13247,9 +13266,11 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                const portMapData = await portMapResp.json();
+                const portMapData = await parseApiResponse(portMapResp);
                 if (!portMapResp.ok) {
-                    const msg = typeof portMapData === 'string' ? portMapData : (portMapData?.detail || portMapData?.error || 'Tower backend port-map generation failed');
+                    const msg = typeof portMapData === 'string'
+                        ? `HTTP ${portMapResp.status}: ${String(portMapData).slice(0, 240)}`
+                        : (portMapData?.detail || portMapData?.error || `Tower backend port-map generation failed (HTTP ${portMapResp.status})`);
                     throw new Error(msg);
                 }
 
