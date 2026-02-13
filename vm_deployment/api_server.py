@@ -36,6 +36,7 @@ import ipaddress
 import json
 import requests
 import zipfile
+from urllib.parse import urljoin
 from datetime import datetime, timedelta, timezone
 import time
 try:
@@ -51,6 +52,7 @@ import queue
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from ftth_renderer import render_ftth_config
+from typing import Optional
 
 # JWT support (optional - install with: pip install PyJWT)
 try:
@@ -64,6 +66,31 @@ try:
     import pytz
 except ImportError:
     pytz = None
+
+# MikroTik config generator (Netlaunch-compatible)
+try:
+    from mt_config_gen.mt_tower import MTTowerConfig
+    from mt_config_gen.mt_bng2 import MTBNG2Config
+    HAS_MT_CONFIG_GEN = True
+    MT_CONFIG_GEN_ERROR: Optional[str] = None
+except Exception as _mt_err:
+    HAS_MT_CONFIG_GEN = False
+    MT_CONFIG_GEN_ERROR = str(_mt_err)
+
+try:
+    from engineering_compliance import apply_engineering_compliance, extract_loopback_ip
+    HAS_ENGINEERING_COMPLIANCE = True
+except Exception:
+    try:
+        from vm_deployment.engineering_compliance import apply_engineering_compliance, extract_loopback_ip
+        HAS_ENGINEERING_COMPLIANCE = True
+    except Exception as _compliance_err:
+        HAS_ENGINEERING_COMPLIANCE = False
+        def apply_engineering_compliance(config_text, loopback_ip=None):  # type: ignore[no-redef]
+            return config_text
+        def extract_loopback_ip(config_text):  # type: ignore[no-redef]
+            return None
+        print(f"[WARNING] Engineering compliance loader unavailable: {_compliance_err}")
 
 # Allow tests or alternate environments to override timezone name
 TIMEZONE_NAME = os.environ.get('TIMEZONE_NAME', 'America/Chicago')
@@ -1277,23 +1304,23 @@ def apply_ros6_to_ros7_syntax(config_text):
     """
     import re
     
-    # Command structure changes
+    # Normalize to space-separated paths (RouterOS 7 export style)
     syntax_changes = [
-        (r'/interface bridge', '/interface/bridge'),
-        (r'/interface ethernet', '/interface/ethernet'),
-        (r'/interface vlan', '/interface/vlan'),
-        (r'/interface bonding', '/interface/bonding'),
-        (r'/interface vpls', '/interface/vpls'),
-        (r'/ip address', '/ip/address'),
-        (r'/ip route', '/ip/route'),
-        (r'/ip firewall', '/ip/firewall'),
-        (r'/ip service', '/ip/service'),
-        (r'/routing ospf', '/routing/ospf'),
-        (r'/routing bgp', '/routing/bgp'),
-        (r'/routing filter', '/routing/filter'),
-        (r'/system identity', '/system/identity'),
-        (r'/system clock', '/system/clock'),
-        (r'/system ntp', '/system/ntp'),
+        (r'/interface/bridge', '/interface bridge'),
+        (r'/interface/ethernet', '/interface ethernet'),
+        (r'/interface/vlan', '/interface vlan'),
+        (r'/interface/bonding', '/interface bonding'),
+        (r'/interface/vpls', '/interface vpls'),
+        (r'/ip/address', '/ip address'),
+        (r'/ip/route', '/ip route'),
+        (r'/ip/firewall', '/ip firewall'),
+        (r'/ip/service', '/ip service'),
+        (r'/routing/ospf', '/routing ospf'),
+        (r'/routing/bgp', '/routing bgp'),
+        (r'/routing/filter', '/routing filter'),
+        (r'/system/identity', '/system identity'),
+        (r'/system/clock', '/system clock'),
+        (r'/system/ntp', '/system ntp'),
     ]
     
     migrated = config_text
@@ -1303,8 +1330,9 @@ def apply_ros6_to_ros7_syntax(config_text):
     # Speed syntax changes
     speed_changes = [
         ('10G-baseSR', '10G-baseSR-LR'),
-        ('1G-baseT', '1000M-baseTX'),
-        ('100M-baseT', '100M-baseTX'),
+        ('10G-baseCR', '10G-baseSR-LR'),
+        ('1G-baseT', '1G-baseT-full'),
+        ('100M-baseT', '100M-baseT-full'),
     ]
     
     for old_speed, new_speed in speed_changes:
@@ -1314,25 +1342,47 @@ def apply_ros6_to_ros7_syntax(config_text):
     # - BGP: instance/peer → template/connection + dot params
     # - OSPF: interface/network → interface-template
     # - VPLS: cisco-style-id → cisco-static-id, remote-peer → peer
-    if re.search(r"(?m)^/routing/bgp\s", migrated):
-        migrated = re.sub(r"(?m)^/routing/bgp instance\b", "/routing/bgp template", migrated)
-        migrated = migrated.replace("/routing/bgp peer", "/routing/bgp connection")
-        migrated = migrated.replace(" remote-address=", " remote.address=")
-        migrated = migrated.replace(" remote-as=", " remote.as=")
-        migrated = migrated.replace(" update-source=", " local.address=")
-        migrated = migrated.replace(" local-address=", " local.address=")
+    if re.search(r"(?m)^/routing bgp\b", migrated):
+        migrated = re.sub(r"(?m)^/routing bgp instance\b", "/routing bgp template", migrated)
+        migrated = migrated.replace("/routing bgp peer", "/routing bgp connection")
         migrated = re.sub(
-            r'(?m)^/routing/bgp template\s+set\s+\[\s*find\s+default=yes\s*\]\s+',
-            "/routing/bgp template set default ",
+            r'(?m)^/routing bgp template\s+set\s+\[\s*find\s+default=yes\s*\]\s+',
+            "/routing bgp template set default ",
+            migrated
+        )
+        def _fix_bgp_add_line(line):
+            line = line.replace(" remote-address=", " remote.address=")
+            line = line.replace(" remote-as=", " remote.as=")
+            line = line.replace(" update-source=", " local.address=")
+            line = line.replace(" local-address=", " local.address=")
+            return line
+        # Inline add lines
+        migrated = re.sub(
+            r"(?m)^/routing bgp connection\s+add[^\n]*$",
+            lambda m: _fix_bgp_add_line(m.group(0)),
+            migrated
+        )
+        # Block-style add lines
+        def _fix_bgp_block(match):
+            body = match.group(1)
+            out = []
+            for ln in body.splitlines():
+                if ln.strip().startswith("add "):
+                    ln = _fix_bgp_add_line(ln)
+                out.append(ln)
+            return "/routing bgp connection\n" + "\n".join(out) + "\n"
+        migrated = re.sub(
+            r"(?ms)^/routing bgp connection\s*\n((?:add[^\n]*\n)+)",
+            _fix_bgp_block,
             migrated
         )
 
-    if re.search(r"(?m)^/routing/ospf\s", migrated):
-        migrated = re.sub(r"(?m)^/routing/ospf interface\b", "/routing/ospf interface-template", migrated)
-        migrated = migrated.replace("/routing/ospf network", "/routing/ospf interface-template")
+    if re.search(r"(?m)^/routing ospf\b", migrated):
+        migrated = re.sub(r"(?m)^/routing ospf interface\b", "/routing ospf interface-template", migrated)
+        migrated = migrated.replace("/routing ospf network", "/routing ospf interface-template")
         migrated = re.sub(
-            r'(?m)^/routing/ospf instance\s+set\s+\[\s*find\s+default=yes\s*\]\s+([^\n]*)$',
-            r'/routing/ospf instance add name=default-v2 \1',
+            r'(?m)^/routing ospf instance\s+set\s+\[\s*find\s+default=yes\s*\]\s+([^\n]*)$',
+            r'/routing ospf instance\nadd name=default-v2 \1',
             migrated
         )
         def _ensure_ospf_area_instance(m):
@@ -1340,15 +1390,15 @@ def apply_ros6_to_ros7_syntax(config_text):
             if "instance=" in line:
                 return line
             return line.replace("add ", "add instance=default-v2 ", 1)
-        migrated = re.sub(r"(?m)^/routing/ospf area\s+add\b[^\n]*$", _ensure_ospf_area_instance, migrated)
+        migrated = re.sub(r"(?m)^/routing ospf area\s+add\b[^\n]*$", _ensure_ospf_area_instance, migrated)
         migrated = re.sub(
-            r"(?m)^/routing/ospf interface-template\s+add\b[^\n]*$",
+            r"(?m)^/routing ospf interface-template\s+add\b[^\n]*$",
             lambda m: m.group(0).replace(" interface=", " interfaces=").replace(" network=", " networks="),
             migrated
         )
         # Also handle block-style interface-template sections
         # Normalize block-style interface-template sections
-        if re.search(r"(?m)^/routing/ospf interface-template\s*$", migrated):
+        if re.search(r"(?m)^/routing ospf interface-template\s*$", migrated):
             def _fix_ospf_block(match):
                 body = match.group(1)
                 lines = []
@@ -1356,9 +1406,9 @@ def apply_ros6_to_ros7_syntax(config_text):
                     if ln.strip().startswith("add "):
                         ln = ln.replace(" interface=", " interfaces=").replace(" network=", " networks=")
                     lines.append(ln)
-                return "/routing/ospf interface-template\n" + "\n".join(lines) + "\n"
+                return "/routing ospf interface-template\n" + "\n".join(lines) + "\n"
             migrated = re.sub(
-                r"(?ms)^/routing/ospf interface-template\s*\n((?:add[^\n]*\n)+)",
+                r"(?ms)^/routing ospf interface-template\s*\n((?:add[^\n]*\n)+)",
                 _fix_ospf_block,
                 migrated
             )
@@ -1369,28 +1419,39 @@ def apply_ros6_to_ros7_syntax(config_text):
             for a in area_names:
                 if a not in unique_areas:
                     unique_areas.append(a)
-            if not re.search(r"(?m)^/routing/ospf area\b", migrated):
-                area_block = "/routing/ospf area\n" + "\n".join(
+            if not re.search(r"(?m)^/routing ospf area\b", migrated):
+                area_block = "/routing ospf area\n" + "\n".join(
                     [f"add instance=default-v2 name={a}" for a in unique_areas]
                 ) + "\n"
-                # Insert after ospf instance if present, else prepend
-                m_inst = re.search(r"(?m)^/routing/ospf instance[^\n]*$", migrated)
-                if m_inst:
-                    insert_at = m_inst.end()
-                    migrated = migrated[:insert_at] + "\n" + area_block + migrated[insert_at:]
+                # Insert after ospf instance add line if present, else prepend
+                lines = migrated.splitlines()
+                insert_at_idx = None
+                for i, ln in enumerate(lines):
+                    if ln.strip() == "/routing ospf instance":
+                        # find the next add line after the instance header
+                        for j in range(i + 1, len(lines)):
+                            if lines[j].startswith("add "):
+                                insert_at_idx = j + 1
+                                break
+                        if insert_at_idx is None:
+                            insert_at_idx = i + 1
+                        break
+                if insert_at_idx is not None:
+                    lines = lines[:insert_at_idx] + area_block.splitlines() + lines[insert_at_idx:]
+                    migrated = "\n".join(lines)
                 else:
                     migrated = area_block + migrated
         # Ensure all interface-template add lines include area when an area exists.
-        if re.search(r"(?m)^/routing/ospf area\b", migrated):
+        if re.search(r"(?m)^/routing ospf area\b", migrated):
             # Prefer explicit area name if present; fallback to backbone
-            area_match = re.search(r"(?m)^/routing/ospf area\s*\nadd\s+[^\n]*\bname=([^\s]+)", migrated)
+            area_match = re.search(r"(?m)^/routing ospf area\s*\nadd\s+[^\n]*\bname=([^\s]+)", migrated)
             default_area = area_match.group(1) if area_match else "backbone"
             def _ensure_iface_area(m):
                 line = m.group(0)
                 if " area=" in line:
                     return line
                 return line.replace("add ", f"add area={default_area} ", 1)
-            migrated = re.sub(r"(?m)^/routing/ospf interface-template\s+add\b[^\n]*$", _ensure_iface_area, migrated)
+            migrated = re.sub(r"(?m)^/routing ospf interface-template\s+add\b[^\n]*$", _ensure_iface_area, migrated)
             # Also add area= for block-style add lines inside interface-template sections
             def _add_area_in_block(match):
                 body = match.group(1)
@@ -1399,9 +1460,9 @@ def apply_ros6_to_ros7_syntax(config_text):
                     if ln.strip().startswith("add ") and " area=" not in ln:
                         ln = ln.replace("add ", f"add area={default_area} ", 1)
                     out.append(ln)
-                return "/routing/ospf interface-template\n" + "\n".join(out) + "\n"
+                return "/routing ospf interface-template\n" + "\n".join(out) + "\n"
             migrated = re.sub(
-                r"(?ms)^/routing/ospf interface-template\s*\n((?:add[^\n]*\n)+)",
+                r"(?ms)^/routing ospf interface-template\s*\n((?:add[^\n]*\n)+)",
                 _add_area_in_block,
                 migrated
             )
@@ -1409,10 +1470,39 @@ def apply_ros6_to_ros7_syntax(config_text):
         # Build interface -> network/prefix map using address + network fields.
         ip_iface_map = {}
         net_iface_map = {}
-        for m in re.finditer(r"(?m)^/ip/address\s+add\s+address=([0-9.]+)/(\d+)\s+[^\n]*?interface=([^\s]+)\s+[^\n]*?network=([0-9.]+)", migrated):
-            ip, prefix, iface, net = m.group(1), m.group(2), m.group(3), m.group(4)
-            ip_iface_map[iface] = f"{net}/{prefix}"
-            net_iface_map[f"{net}/{prefix}"] = iface
+        ip_addr_map = {}
+        def _consume_ip_add(line):
+            m = re.search(r"address=([0-9.]+)(?:/(\d+))?", line)
+            m_iface = re.search(r"interface=([^\s]+)", line)
+            m_net = re.search(r"network=([0-9.]+)", line)
+            if not (m and m_iface and m_net):
+                return
+            ip, prefix = m.group(1), m.group(2)
+            iface, net = m_iface.group(1), m_net.group(1)
+            use_prefix = prefix if prefix else "32"
+            ip_iface_map[iface] = f"{net}/{use_prefix}"
+            net_iface_map[f"{net}/{use_prefix}"] = iface
+            if iface not in ip_addr_map:
+                ip_addr_map[iface] = ip
+        in_ip_block = False
+        for ln in migrated.splitlines():
+            if ln.startswith("/ip address"):
+                # inline add or start of block
+                if " add " in ln:
+                    _consume_ip_add(ln)
+                    in_ip_block = False
+                else:
+                    in_ip_block = True
+                continue
+            if in_ip_block:
+                if ln.startswith("/"):
+                    in_ip_block = False
+                    continue
+                if ln.startswith("add "):
+                    _consume_ip_add(ln)
+        # Normalize BGP local.address when using loopback interface name
+        if ip_addr_map.get("loop0"):
+            migrated = migrated.replace(" local.address=loop0", f" local.address={ip_addr_map['loop0']}")
         # Add networks= where missing
         def _add_networks_from_ip(m):
             line = m.group(0)
@@ -1426,7 +1516,7 @@ def apply_ros6_to_ros7_syntax(config_text):
             if not net:
                 return line
             return line + f" networks={net}"
-        migrated = re.sub(r"(?m)^/routing/ospf interface-template\s+add\b[^\n]*$", _add_networks_from_ip, migrated)
+        migrated = re.sub(r"(?m)^/routing ospf interface-template\s+add\b[^\n]*$", _add_networks_from_ip, migrated)
         # Add interfaces= where only networks= exists (map from /ip address network)
         def _add_interfaces_from_net(m):
             line = m.group(0)
@@ -1439,7 +1529,7 @@ def apply_ros6_to_ros7_syntax(config_text):
             if not iface:
                 return line
             return line + f" interfaces={iface}"
-        migrated = re.sub(r"(?m)^/routing/ospf interface-template\s+add\b[^\n]*$", _add_interfaces_from_net, migrated)
+        migrated = re.sub(r"(?m)^/routing ospf interface-template\s+add\b[^\n]*$", _add_interfaces_from_net, migrated)
         # Also add interfaces= for block-style interface-template add lines
         def _add_interfaces_in_block(match):
             body = match.group(1)
@@ -1460,8 +1550,8 @@ def apply_ros6_to_ros7_syntax(config_text):
                     out.append(ln)
                     continue
                 out.append(ln + f" interfaces={iface}")
-            return "/routing/ospf interface-template\n" + "\n".join(out) + "\n"
-        migrated = re.sub(r"(?ms)^/routing/ospf interface-template\s*\n((?:add[^\n]*\n)+)", _add_interfaces_in_block, migrated)
+            return "/routing ospf interface-template\n" + "\n".join(out) + "\n"
+        migrated = re.sub(r"(?ms)^/routing ospf interface-template\s*\n((?:add[^\n]*\n)+)", _add_interfaces_in_block, migrated)
         # Drop duplicate interface-template add lines
         def _dedupe_interface_template(match):
             body = match.group(1)
@@ -1475,8 +1565,8 @@ def apply_ros6_to_ros7_syntax(config_text):
                     continue
                 seen.add(key)
                 out.append(ln)
-            return "/routing/ospf interface-template\n" + "\n".join(out) + "\n"
-        migrated = re.sub(r"(?ms)^/routing/ospf interface-template\s*\n((?:add[^\n]*\n)+)", _dedupe_interface_template, migrated)
+            return "/routing ospf interface-template\n" + "\n".join(out) + "\n"
+        migrated = re.sub(r"(?ms)^/routing ospf interface-template\s*\n((?:add[^\n]*\n)+)", _dedupe_interface_template, migrated)
 
         # Consolidate all interface-template entries into a single block
         def _consolidate_interface_templates(text):
@@ -1486,8 +1576,8 @@ def apply_ros6_to_ros7_syntax(config_text):
             collected = []
 
             for ln in lines:
-                if ln.startswith("/routing/ospf interface-template"):
-                    m_inline = re.match(r"^/routing/ospf interface-template\s+add\s+(.*)$", ln)
+                if ln.startswith("/routing ospf interface-template"):
+                    m_inline = re.match(r"^/routing ospf interface-template\s+add\s+(.*)$", ln)
                     if m_inline:
                         collected.append("add " + m_inline.group(1).strip())
                     in_block = True
@@ -1510,7 +1600,7 @@ def apply_ros6_to_ros7_syntax(config_text):
             if not collected:
                 return "\n".join(new_lines)
 
-            area_match = re.search(r"(?m)^/routing/ospf area\s*\nadd\s+[^\n]*\bname=([^\s]+)", text)
+            area_match = re.search(r"(?m)^/routing ospf area\s*\nadd\s+[^\n]*\bname=([^\s]+)", text)
             default_area = area_match.group(1) if area_match else "backbone"
             def _tokenize_params(line):
                 return re.findall(r'(?:[^\s"]+|"[^"]*")+', line)
@@ -1528,6 +1618,12 @@ def apply_ros6_to_ros7_syntax(config_text):
                         iface = net_iface_map.get(net_match.group(1))
                         if iface:
                             ln = ln + f" interfaces={iface}"
+                if " networks=" not in ln:
+                    iface_match = re.search(r"interfaces=([^\s]+)", ln)
+                    if iface_match:
+                        net = ip_iface_map.get(iface_match.group(1))
+                        if net:
+                            ln = ln + f" networks={net}"
                 key = re.sub(r"\s+", " ", ln.strip())
                 if key in seen:
                     continue
@@ -1543,7 +1639,10 @@ def apply_ros6_to_ros7_syntax(config_text):
                         existing_tokens = existing_tokens[1:]
                     if new_tokens and new_tokens[0] == "add":
                         new_tokens = new_tokens[1:]
+                    has_comment = any(t.startswith("comment=") for t in existing_tokens)
                     for tok in new_tokens:
+                        if tok.startswith("comment=") and has_comment:
+                            continue
                         if tok not in existing_tokens:
                             existing_tokens.append(tok)
                     best_by_key[pair_key] = "add " + " ".join(existing_tokens)
@@ -1554,11 +1653,11 @@ def apply_ros6_to_ros7_syntax(config_text):
             for pk in order:
                 normalized.append(best_by_key[pk])
 
-            block = ["/routing/ospf interface-template"] + normalized
+            block = ["/routing ospf interface-template"] + normalized
 
             inserted = False
             for i, ln in enumerate(new_lines):
-                if ln.strip() == "/routing/ospf area":
+                if ln.strip() == "/routing ospf area":
                     j = i + 1
                     # skip any add lines that belong to area block
                     while j < len(new_lines) and (new_lines[j].startswith("add ") or new_lines[j].strip() == ""):
@@ -1568,7 +1667,7 @@ def apply_ros6_to_ros7_syntax(config_text):
                     break
             if not inserted:
                 for i, ln in enumerate(new_lines):
-                    if ln.startswith("/routing/ospf instance"):
+                    if ln.startswith("/routing ospf instance"):
                         new_lines = new_lines[:i+1] + block + new_lines[i+1:]
                         inserted = True
                         break
@@ -1577,6 +1676,48 @@ def apply_ros6_to_ros7_syntax(config_text):
             return "\n".join(new_lines)
 
         migrated = _consolidate_interface_templates(migrated)
+        # Final pass: ensure interface-template add lines have both interfaces= and networks=
+        lines = migrated.splitlines()
+        out_lines = []
+        in_ospf_tpl = False
+        for ln in lines:
+            if ln.strip() == "/routing ospf interface-template":
+                in_ospf_tpl = True
+                out_lines.append(ln)
+                continue
+            if in_ospf_tpl:
+                if ln.startswith("add "):
+                    if "interfaces=" in ln and "networks=" not in ln:
+                        iface_match = re.search(r"interfaces=([^\s]+)", ln)
+                        if iface_match:
+                            net = ip_iface_map.get(iface_match.group(1))
+                            if net:
+                                ln = ln + f" networks={net}"
+                    if "networks=" in ln and "interfaces=" not in ln:
+                        net_match = re.search(r"networks=([^\s]+)", ln)
+                        if net_match:
+                            iface = net_iface_map.get(net_match.group(1))
+                            if iface:
+                                ln = ln + f" interfaces={iface}"
+                    out_lines.append(ln)
+                    continue
+                if ln.startswith("/") and not ln.startswith("/routing ospf interface-template"):
+                    in_ospf_tpl = False
+                    out_lines.append(ln)
+                    continue
+                if ln.strip() == "":
+                    continue
+                out_lines.append(ln)
+                continue
+            out_lines.append(ln)
+        migrated = "\n".join(out_lines)
+        # Normalize BGP local.address if still using loop0 name
+        if ip_addr_map.get("loop0"):
+            migrated = re.sub(
+                r"(?m)^/routing bgp connection\s+add[^\n]*$",
+                lambda m: m.group(0).replace(" local.address=loop0", f" local.address={ip_addr_map['loop0']}"),
+                migrated,
+            )
 
     if re.search(r"(?m)^/interface/vpls\s", migrated):
         migrated = migrated.replace("cisco-style-id=", "cisco-static-id=")
@@ -1594,7 +1735,7 @@ def apply_ros6_to_ros7_syntax(config_text):
 # AI PROVIDER CONFIGURATION (Early definition for model selection)
 # ========================================
 # Supports: 'ollama' (free, local) or 'openai' (paid, cloud)
-AI_PROVIDER = os.getenv('AI_PROVIDER', 'ollama').lower()
+AI_PROVIDER = os.getenv('AI_PROVIDER', 'openai').lower()
 OLLAMA_API_URL = os.getenv('OLLAMA_API_URL', 'http://localhost:11434')
 OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'phi3:mini')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
@@ -4237,6 +4378,7 @@ Port Roles:
             elif major == 7 and minor >= 16:
                 # For 7.16+: Convert old format to new format
                 text = re.sub(r'\bspeed=10Gbps\b', 'speed=10G-baseSR-LR', text)
+                text = re.sub(r'\bspeed=10G-baseCR\b', 'speed=10G-baseSR-LR', text)
                 text = re.sub(r'\bspeed=1Gbps\b', 'speed=1G-baseT-full', text)
                 text = re.sub(r'\bspeed=100Mbps\b', 'speed=100M-baseT-full', text)
                 print(f"[FIRMWARE] RouterOS {target_version} uses new speed format (XG-baseX)")
@@ -6158,6 +6300,7 @@ Port Roles:
             if target_version.startswith('7.'):
                 t = t.replace('speed=1G-baseX', 'speed=1G-baseT-full')
                 t = t.replace('speed=10G-baseSR', 'speed=10G-baseSR-LR')
+                t = t.replace('speed=10G-baseCR', 'speed=10G-baseSR-LR')
 
             # Rewrite identity to match target device family (e.g., MT1036 -> MT2004).
             def _format_identity_for_set(name: str) -> str:
@@ -7616,9 +7759,10 @@ def gen_enterprise_non_mpls():
         # Determine speed syntax based on RouterOS version
         def get_speed_syntax(version):
             """Determine speed syntax based on RouterOS version"""
-            if version.startswith('7.16') or version.startswith('7.19'):
-                return '1G-baseX'  # For SFP ports
-            return '1G-baseX'  # Default
+            # Standardize on RouterOS 7.19.4+ syntax for generated configs.
+            if version.startswith('7.'):
+                return '1G-baseT-full'
+            return '1G-baseT-full'
         
         speed_syntax = get_speed_syntax(target_version)
         loopback_ip_clean = loopback_ip.replace('/32', '').strip()
@@ -9346,6 +9490,91 @@ def app_config():
     default_bng_peer = os.getenv('BNG_PEER_DEFAULT', '10.254.247.3')
     return jsonify({'bng_peers': bng_peers, 'default_bng_peer': default_bng_peer})
 
+
+IDO_PROXY_ALLOWED_PREFIXES = (
+    "/api/bh/",
+    "/api/ap/",
+    "/api/ups/",
+    "/api/rpc/",
+    "/api/swt/",
+    "/api/generic/",
+    "/api/ping",
+    "/api/waveconfig/",
+    "/api/7250config/",
+    "/generate",
+)
+
+
+def _ido_backend_url() -> str:
+    return (os.getenv("NETLAUNCH_IDO_BACKEND_URL") or "").strip()
+
+
+def _ido_target_allowed(target_path: str) -> bool:
+    path = "/" + str(target_path or "").lstrip("/")
+    if path.startswith("/api/sites"):
+        return False
+    return any(path.startswith(prefix) for prefix in IDO_PROXY_ALLOWED_PREFIXES)
+
+
+@app.route('/api/ido/capabilities', methods=['GET'])
+def ido_capabilities():
+    return jsonify({
+        "configured": bool(_ido_backend_url()),
+        "backend_url": _ido_backend_url(),
+        "excluded": ["/api/sites"],
+        "allowed_prefixes": list(IDO_PROXY_ALLOWED_PREFIXES),
+    })
+
+
+@app.route('/api/ido/proxy/<path:target_path>', methods=['GET', 'POST'])
+def ido_proxy(target_path):
+    backend_url = _ido_backend_url()
+    if not backend_url:
+        return jsonify({"error": "NETLAUNCH_IDO_BACKEND_URL is not configured"}), 503
+    if not _ido_target_allowed(target_path):
+        return jsonify({"error": f"Target path '/{str(target_path).lstrip('/')}' is not allowed"}), 403
+
+    upstream_url = urljoin(backend_url.rstrip("/") + "/", str(target_path).lstrip("/"))
+    try:
+        if request.method == 'GET':
+            upstream = requests.get(upstream_url, params=request.args.to_dict(flat=True), timeout=60)
+        else:
+            body = request.get_json(silent=True) or {}
+            upstream = requests.post(
+                upstream_url,
+                params=request.args.to_dict(flat=True),
+                json=body,
+                timeout=60
+            )
+    except Exception as exc:
+        return jsonify({"error": f"IDO upstream request failed: {exc}"}), 502
+
+    # Compatibility fallback: some IDO backends expose endpoints without the leading `/api/`.
+    if upstream.status_code == 404 and str(target_path).startswith("api/"):
+        fallback_path = str(target_path)[4:]
+        fallback_url = urljoin(backend_url.rstrip("/") + "/", fallback_path.lstrip("/"))
+        try:
+            if request.method == 'GET':
+                upstream = requests.get(fallback_url, params=request.args.to_dict(flat=True), timeout=60)
+            else:
+                body = request.get_json(silent=True) or {}
+                upstream = requests.post(
+                    fallback_url,
+                    params=request.args.to_dict(flat=True),
+                    json=body,
+                    timeout=60
+                )
+        except Exception:
+            pass
+
+    content_type = (upstream.headers.get("content-type") or "").lower()
+    if "application/json" in content_type:
+        try:
+            return jsonify(upstream.json()), upstream.status_code
+        except Exception:
+            return Response(upstream.text, status=upstream.status_code, content_type='text/plain')
+    return Response(upstream.text, status=upstream.status_code, content_type=upstream.headers.get("content-type", "text/plain"))
+
 @app.route('/api/feedback', methods=['POST'])
 def submit_feedback():
     """Submit feedback/bug report/feature request (stored for admin review)."""
@@ -9720,11 +9949,12 @@ def migrate_config():
     - Applies ROS6→ROS7 syntax conversion only when needed
     """
     try:
-        data = request.json
+        data = request.json or {}
         config = data.get('config', '')
         target_device = data.get('target_device', '')
         target_version = data.get('target_version', '7')
         source_device = data.get('source_device', '')
+        apply_compliance = bool(data.get('apply_compliance', True))
         
         if not config:
             return jsonify({'error': 'No configuration provided'}), 400
@@ -9789,6 +10019,10 @@ def migrate_config():
             safe_print(f"[MIGRATION] Syntax: ROS{source_version} → ROS{target_version}")
             migrated_config = apply_ros6_to_ros7_syntax(migrated_config)
         
+        if apply_compliance and HAS_ENGINEERING_COMPLIANCE:
+            loopback_ip = extract_loopback_ip(migrated_config)
+            migrated_config = apply_engineering_compliance(migrated_config, loopback_ip)
+
         # Prepare response
         response_data = {
             'success': True,
@@ -9802,6 +10036,7 @@ def migrate_config():
             'syntax_migrated': needs_syntax_migration,
             'device_migrated': needs_device_migration,
             'interfaces_mapped': len(interface_map) if interface_map else 0,
+            'compliance_applied': bool(apply_compliance and HAS_ENGINEERING_COMPLIANCE),
             'migration_summary': {
                 'ether1_preserved': 'ether1' in interface_map and interface_map['ether1'] == 'ether1' if interface_map else False,
                 'total_interfaces': len(interface_map) if interface_map else 0,
@@ -12164,6 +12399,89 @@ def generate_ftth_home_mf2_package():
         download_name=zip_name
     )
 
+
+# ========================================
+# MikroTik Config Generator (Netlaunch-compatible)
+# ========================================
+
+def _mt_config_class(config_type: str):
+    config_map = {
+        "tower": MTTowerConfig,
+        "bng2": MTBNG2Config,
+    }
+    return config_map.get(config_type)
+
+
+def _mt_base_config_path():
+    return os.getenv("BASE_CONFIG_PATH") or os.getenv("NEXTLINK_BASE_CONFIG_PATH")
+
+
+@app.route('/api/mt/<config_type>/config', methods=['POST'])
+def mt_generate_config(config_type):
+    if not HAS_MT_CONFIG_GEN:
+        return jsonify({'error': f'MikroTik config generator unavailable: {MT_CONFIG_GEN_ERROR}'}), 503
+
+    base_path = _mt_base_config_path()
+    if not base_path:
+        return jsonify({
+            'error': 'BASE_CONFIG_PATH is not set. Configure BASE_CONFIG_PATH to the base config templates root.'
+        }), 500
+
+    config_cls = _mt_config_class(config_type)
+    if not config_cls:
+        return jsonify({'error': f'Invalid config type: {config_type}'}), 400
+
+    try:
+        payload = request.get_json(force=True) or {}
+        apply_compliance = bool(payload.pop('apply_compliance', True))
+        payload_loopback = payload.get('loopback_subnet') or payload.get('loop_ip')
+        cfg = config_cls(**payload)
+        config_text = cfg.generate_config()
+        if apply_compliance and HAS_ENGINEERING_COMPLIANCE:
+            config_text = apply_engineering_compliance(config_text, payload_loopback)
+        # Keep Netlaunch compatibility: frontend expects response.json() -> string
+        return jsonify(config_text)
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+
+@app.route('/api/mt/<config_type>/portmap', methods=['POST'])
+def mt_generate_portmap(config_type):
+    if not HAS_MT_CONFIG_GEN:
+        return jsonify({'error': f'MikroTik config generator unavailable: {MT_CONFIG_GEN_ERROR}'}), 503
+
+    base_path = _mt_base_config_path()
+    if not base_path:
+        return jsonify({
+            'error': 'BASE_CONFIG_PATH is not set. Configure BASE_CONFIG_PATH to the base config templates root.'
+        }), 500
+
+    config_cls = _mt_config_class(config_type)
+    if not config_cls:
+        return jsonify({'error': f'Invalid config type: {config_type}'}), 400
+
+    try:
+        payload = request.get_json(force=True) or {}
+        cfg = config_cls(**payload)
+        portmap_text = cfg.generate_port_map()
+        # Keep Netlaunch compatibility: frontend expects response.json() -> string
+        return jsonify(portmap_text)
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+
+@app.route('/api/compliance/engineering', methods=['GET'])
+def get_engineering_compliance_policy():
+    if not HAS_ENGINEERING_COMPLIANCE:
+        return jsonify({'error': 'Engineering compliance loader unavailable'}), 503
+    try:
+        loop_ip = request.args.get('loopback_ip', '10.0.0.1')
+        from engineering_compliance import load_compliance_text  # local import to keep startup resilient
+        return jsonify({'compliance': load_compliance_text(loop_ip)})
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+
 UI_DIR = Path(__file__).parent
 
 
@@ -12204,6 +12522,10 @@ def serve_ui_catchall(path: str):
     # Never catch API routes.
     if path.startswith('api/'):
         abort(404)
+    # Serve static assets from vm_deployment/ when file exists.
+    static_path = UI_DIR / path
+    if static_path.exists() and static_path.is_file():
+        return send_from_directory(str(UI_DIR), path)
     # Serve known HTML pages directly.
     if path.endswith('.html'):
         name = Path(path).name
