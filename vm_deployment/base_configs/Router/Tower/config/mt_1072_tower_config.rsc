@@ -10,10 +10,13 @@ add name=bridge2000 protocol-mode=none comment=CGNAT-PRIVATE
 add name=bridge3000 protocol-mode=none comment=UNAUTH
 add name=bridge4000 protocol-mode=none comment=CPE
 
-{% if switches and switches|length > 0 %}
+{% if (switches and switches|length > 0) or (backhauls and backhauls|length > 0) %}
 /interface ethernet
 {% for sw in switches %}
-set [ find default-name={{ sw.port }} ] comment="{{ sw.comment or sw.name }}"
+set [ find default-name={{ sw.port }} ] comment="{{ sw.comment or sw.name }}"{% if sw.speed and (sw.speed|lower) != 'auto' %} auto-negotiation=no speed={{ sw.speed }}{% endif %}
+{% endfor %}
+{% for bh in backhauls %}
+set [ find default-name={{ bh.port }} ] comment="{{ bh.bhname }}"{% if bh.interface_bandwidth and (bh.interface_bandwidth|lower) != 'auto' %} auto-negotiation=no speed={{ bh.interface_bandwidth }}{% endif %}
 {% endfor %}
 {% endif %}
 
@@ -25,25 +28,31 @@ add address={{ bh.bhip }}/{{ bh.bhip_sub }} interface={{ bh.port }} network={{ b
 add address={{ cpe_ip }}/{{ cpe_ip_sub }} interface=bridge4000 network={{ cpe_network }} comment=CPE
 add address={{ unauth_ip }}/{{ unauth_ip_sub }} interface=bridge3000 network={{ unauth_net.network }} comment=UNAUTH
 add address={{ cgn_priv_ip }}/{{ cgn_priv_sub }} interface=bridge2000 network={{ cgn_priv_net.network }} comment=CGN-PRIVATE
+{% if is_6ghz %}
+add address={{ six_ghz_address.ip }}/{{ six_ghz_address.prefixlen }} interface=bridge3000 network={{ six_ghz_network }} comment=6GHZ
+{% endif %}
+{% if is_ub_wave %}
+add address={{ ub_wave_address.ip }}/{{ ub_wave_address.prefixlen }} interface=bridge3000 network={{ ub_wave_network }} comment=UB-WAVE
+{% endif %}
 
 /routing ospf instance
 add name=default-v2 router-id={{ loopback.ip }}
 
 /routing ospf area
-add name=backbone area-id=0.0.0.0 instance=default-v2
+add name=backbone-v2 area-id=0.0.0.0 instance=default-v2
 
 /routing ospf interface-template
-add area=backbone interfaces=loop0 networks={{ loopback_net }}/32 passive
+add area=backbone-v2 cost=10 disabled=no interfaces=loop0 networks={{ loopback_net }}/32 passive priority=1
 {% for bh in backhauls %}
-add area=backbone interfaces={{ bh.port }} networks={{ bh.bh_cidr }} type=ptp
+add area=backbone-v2 auth=md5 auth-id=1 auth-key={{ ospf_md5_key }} comment={{ bh.bhname }} cost=10 disabled=no interfaces={{ bh.port }} networks={{ bh.bh_cidr }} priority=1 type=ptp
 {% endfor %}
 
 /routing bgp template
-set default as={{ asn }} router-id={{ loopback.ip }}
+set default as={{ asn }} disabled=no multihop=yes output.network=bgp-networks router-id={{ loopback.ip }} routing-table=main
 
 /routing bgp connection
-add name={{ peer1_name }} multihop=yes remote.address={{ peer1 }} remote.as={{ asn }} local.address={{ loopback.ip }}
-add name={{ peer2_name }} multihop=yes remote.address={{ peer2 }} remote.as={{ asn }} local.address={{ loopback.ip }}
+add cisco-vpls-nlri-len-fmt=auto-bits connect=yes listen=yes local.address={{ loopback.ip }} .role=ibgp multihop=yes name={{ peer1_name }} remote.address={{ peer1 }} .as={{ asn }} .port=179 tcp-md5-key={{ bgp_md5_key }} templates=default
+add cisco-vpls-nlri-len-fmt=auto-bits connect=yes listen=yes local.address={{ loopback.ip }} .role=ibgp multihop=yes name={{ peer2_name }} remote.address={{ peer2 }} .as={{ asn }} .port=179 tcp-md5-key={{ bgp_md5_key }} templates=default
 
 /ip dns
 set servers=142.147.112.3,142.147.112.19
@@ -64,18 +73,6 @@ add address={{ tarana_gateway }}/{{ tarana_netmask_bits }} interface=bridge3000 
 {% for s in tarana_sectors %}
 # Tarana {{ s.name }} {{ s.azimuth }} deg on {{ s.port }}
 {% endfor %}
-{% endif %}
-
-{% if is_6ghz %}
-# 6GHz management network
-/ip address
-add address={{ six_ghz_address.ip }}/{{ six_ghz_address.prefixlen }} interface=bridge3000 network={{ six_ghz_network }} comment=6GHZ
-{% endif %}
-
-{% if is_ub_wave %}
-# UB WAVE management network
-/ip address
-add address={{ ub_wave_address.ip }}/{{ ub_wave_address.prefixlen }} interface=bridge3000 network={{ ub_wave_network }} comment=UB-WAVE
 {% endif %}
 
 {% if enable_contractor_login %}

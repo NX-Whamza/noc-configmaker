@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 from netaddr import IPNetwork
 from jinja2 import Environment, FileSystemLoader
@@ -267,6 +268,8 @@ class MTTowerConfig:
         params["peer1"] = self.peer_1_address
         params["peer2_name"] = self.peer_2_name
         params["peer2"] = self.peer_2_address
+        params["bgp_md5_key"] = os.getenv("NEXTLINK_BGP_MD5_KEY", "m8M5JwvdYM")
+        params["ospf_md5_key"] = os.getenv("NEXTLINK_OSPF_MD5_KEY", "m8M5JwvdYM")
         params["cgn_pub"] = self.cgn_pub
         params["cgn_priv"] = self.cgn_priv_subnet
         params["gps"] = f"{self.latitude}, {self.longitude}"
@@ -305,16 +308,32 @@ class MTTowerConfig:
         params["backhauls"] = []
     
         for backhaul in [self.backhauls[num]] if num else self.backhauls:
-            bh_net = IPNetwork(backhaul["subnet"])
-            # Historical templates used +4 for non-master on /29+ links, but that breaks /30.
-            # For /30, place non-master on the second usable host.
-            addr_offset = 1 if backhaul["master"] else (2 if bh_net.size <= 4 else 4)
+            subnet_raw = str(backhaul["subnet"]).strip()
+            bh_net = IPNetwork(subnet_raw)
+            link_mode = str(backhaul.get("link_mode", "auto")).strip().lower()
+            raw_ip = subnet_raw.split("/")[0].strip()
+            user_pinned_ip = raw_ip if raw_ip and raw_ip != str(bh_net.network) else ""
+
+            if user_pinned_ip:
+                bhip = user_pinned_ip
+            else:
+                if backhaul["master"]:
+                    addr_offset = 1
+                else:
+                    if link_mode == "2+0":
+                        addr_offset = 2 if bh_net.size > 2 else 1
+                    elif link_mode == "4+0":
+                        addr_offset = 4 if bh_net.size > 4 else 2
+                    else:
+                        # Auto: /30 uses second usable host, /29+ uses +4 layout.
+                        addr_offset = 2 if bh_net.size <= 4 else 4
+                bhip = str(bh_net.network + addr_offset)
             link_side_1 = self.tower_name if backhaul["master"] else backhaul["name"]
             link_side_2 = backhaul["name"] if backhaul["master"] else self.tower_name
     
             params["backhauls"].append({
                 "bhname": backhaul["name"],
-                "bhip": str(bh_net.network + addr_offset),
+                "bhip": bhip,
                 "interface_bandwidth": backhaul["bandwidth"],
                 "port": normalize_port_name(backhaul["port"]),
                 "bhip_sub": bh_net.prefixlen,
@@ -426,6 +445,12 @@ class MTTowerConfig:
         )
 
         config_text = template.render(params)
+        # Guard against Jinja trim/lstrip collapsing adjacent interface "set" commands.
+        config_text = re.sub(
+            r'(?<!\n)(set \[ find default-name=)',
+            r'\n\1',
+            config_text,
+        )
 
         # Compatibility guard: if external templates omit feature stanzas, append them.
         if self.is_6ghz and "comment=6GHZ" not in config_text:

@@ -4023,13 +4023,13 @@
                                         style="height: 300px; font-family: 'Courier New', monospace; font-size: 12px; background: #2a2a2a; color: #e0e0e0; border: 1px solid #555; padding: 10px; border-radius: 4px;"></textarea>
                                 </div>
                             </div>
-                            <button id="downloadBtn" onclick="downloadConfig()"
+                            <button id="downloadBtn" type="button"
                                 style="background: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 16px;">Download
                                 .rsc File</button>
-                            <button id="portMapBtn" onclick="downloadPortMap()"
+                            <button id="portMapBtn" type="button"
                                 style="background: #1f6feb; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 16px; margin-left: 10px;">Download
                                 Port Map</button>
-                            <button id="zipDownloadBtn" onclick="downloadConfigZip()"
+                            <button id="zipDownloadBtn" type="button"
                                 style="background: #ff8f1f; color: #1a1a1a; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 16px; margin-left: 10px;">Download
                                 Zip (Config + Port Map)</button>
                         </div>
@@ -12556,6 +12556,7 @@
                         subnet: ensureCIDR((row.querySelector('[data-field=\"subnet\"]')?.value || '').trim(), 30),
                         port: (row.querySelector('[data-field=\"port\"]')?.value || '').trim(),
                         bandwidth: (row.querySelector('[data-field=\"bandwidth\"]')?.value || 'auto').trim(),
+                        link_mode: (row.querySelector('[data-field=\"link_mode\"]')?.value || 'auto').trim(),
                         master: !!row.querySelector('[data-field=\"master\"]')?.checked
                     }))
                     .filter((x) => x.subnet && x.port);
@@ -12677,7 +12678,7 @@
                 const row = document.createElement('div');
                 row.className = 'mt-backhaul-row';
                 row.style.display = 'grid';
-                row.style.gridTemplateColumns = '2fr 2fr 1.2fr 1.2fr auto auto';
+                row.style.gridTemplateColumns = '2fr 2fr 1.2fr 1.2fr 1fr auto auto';
                 row.style.gap = '10px';
                 row.style.marginBottom = '10px';
                 row.innerHTML = `
@@ -12689,6 +12690,11 @@
                         <option value="1G-baseT-full">1G-baseT-full</option>
                         <option value="10G-baseSR-LR">10G-baseSR-LR</option>
                     </select>
+                    <select data-field="link_mode">
+                        <option value="auto">Auto Mode</option>
+                        <option value="2+0">2+0</option>
+                        <option value="4+0">4+0</option>
+                    </select>
                     <label style="display:flex;align-items:center;gap:6px;white-space:nowrap;"><input data-field="master" type="checkbox"> Master</label>
                     <button type="button" class="remove-btn">Remove</button>
                 `;
@@ -12696,6 +12702,8 @@
                 if (portEl && seed.port) portEl.value = seed.port;
                 const speedEl = row.querySelector('[data-field="bandwidth"]');
                 if (speedEl && seed.bandwidth) speedEl.value = seed.bandwidth;
+                const modeEl = row.querySelector('[data-field="link_mode"]');
+                if (modeEl && seed.link_mode) modeEl.value = seed.link_mode;
                 const masterEl = row.querySelector('[data-field="master"]');
                 if (masterEl) masterEl.checked = !!seed.master;
                 row.querySelector('.remove-btn')?.addEventListener('click', () => row.remove());
@@ -12940,6 +12948,30 @@
                     idoClearBtn.addEventListener('click', () => writeIdoOutput(''));
                     idoClearBtn.dataset.bound = '1';
                 }
+                const downloadBtn = document.getElementById('downloadBtn');
+                if (downloadBtn && !downloadBtn.dataset.bound) {
+                    downloadBtn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        downloadConfig();
+                    });
+                    downloadBtn.dataset.bound = '1';
+                }
+                const portMapBtn = document.getElementById('portMapBtn');
+                if (portMapBtn && !portMapBtn.dataset.bound) {
+                    portMapBtn.addEventListener('click', async (e) => {
+                        e.preventDefault();
+                        await downloadPortMap();
+                    });
+                    portMapBtn.dataset.bound = '1';
+                }
+                const zipDownloadBtn = document.getElementById('zipDownloadBtn');
+                if (zipDownloadBtn && !zipDownloadBtn.dataset.bound) {
+                    zipDownloadBtn.addEventListener('click', async (e) => {
+                        e.preventDefault();
+                        await downloadConfigZip();
+                    });
+                    zipDownloadBtn.dataset.bound = '1';
+                }
                 ['mtFeatureTachyon', 'mtFeature6ghz', 'mtFeatureUbWave'].forEach((id) => {
                     const cb = document.getElementById(id);
                     if (cb && !cb.dataset.bound) {
@@ -13026,10 +13058,7 @@
             function collectTowerBackhaulsForBackend() {
                 const modernBackhauls = readModernBackhauls();
                 if (modernBackhauls.length > 0) {
-                    const withMaster = modernBackhauls.some((x) => x.master)
-                        ? modernBackhauls
-                        : modernBackhauls.map((x, idx) => ({ ...x, master: idx === 0 }));
-                    return withMaster;
+                    return modernBackhauls;
                 }
 
                 const rows = Array.from(document.querySelectorAll('#portConfigs .uplink-item:not(#portUplinkTemplate):not(#portTemplate)'));
@@ -13049,7 +13078,8 @@
                     subnet: ensureCIDR(bh.ip, 30),
                     master: idx === 0,
                     port: bh.port,
-                    bandwidth: bh.speed || 'auto'
+                    bandwidth: bh.speed || 'auto',
+                    link_mode: 'auto'
                 }));
             }
 
@@ -13233,6 +13263,55 @@
                 return text.replace(/\n{3,}/g, '\n\n').trim() + '\n';
             }
 
+            function sectionKeyFromRouterOsLine(line) {
+                const parts = String(line || '').trim().split(/\s+/);
+                if (!parts.length) return '';
+                if (parts[0] === '/ip' && parts[1] === 'firewall' && parts[2]) {
+                    return `/ip firewall ${parts[2]}`;
+                }
+                if (parts[0] === '/system' && parts[1] === 'logging' && parts[2]) {
+                    return `/system logging ${parts[2]}`;
+                }
+                if (parts[0] === '/snmp' && parts[1] === 'community') {
+                    return '/snmp community';
+                }
+                return parts.slice(0, Math.min(2, parts.length)).join(' ');
+            }
+
+            function formatRouterOsSectionSpacing(configText) {
+                const lines = String(configText || '').replace(/\r\n/g, '\n').split('\n');
+                const out = [];
+                let currentSection = '';
+
+                for (const rawLine of lines) {
+                    const line = rawLine.replace(/\s+$/g, '');
+                    const trimmed = line.trim();
+                    if (!trimmed) {
+                        continue;
+                    }
+
+                    if (trimmed.startsWith('#')) {
+                        if (out.length && out[out.length - 1] !== '') out.push('');
+                        out.push(line);
+                        continue;
+                    }
+
+                    if (trimmed.startsWith('/')) {
+                        const nextSection = sectionKeyFromRouterOsLine(trimmed);
+                        if (out.length && out[out.length - 1] !== '' && currentSection && nextSection !== currentSection) {
+                            out.push('');
+                        }
+                        out.push(line);
+                        currentSection = nextSection || currentSection;
+                        continue;
+                    }
+
+                    out.push(line);
+                }
+
+                return out.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+            }
+
             function validateRenderedDynamicRouting(configType, configText) {
                 if (configType !== 'tower') return;
                 const required = [
@@ -13319,6 +13398,7 @@
                 }
                 configText = await ensureComplianceInOutput(configText, payload);
                 configText = sanitizeMtConfigOutput(configText);
+                configText = formatRouterOsSectionSpacing(configText);
                 validateRenderedDynamicRouting(configType, configText);
 
                 const portMapResp = await fetch(`${apiBase}/mt/${configType}/portmap`, {
