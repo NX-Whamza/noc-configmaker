@@ -1,0 +1,45 @@
+[
+    {
+        "tower_name": "",
+        "router_type": "",
+        "latitude": "",
+        "longitude": "",
+        "state_code": "",
+        "loopback_subnet": "",
+        "ros_version": "",
+        "asn": "",
+        "peer_1_name": "",
+        "peer_1_address": "",
+        "peer_2_name": "",
+        "peer_2_address": "",
+        "cpe_subnet": "",
+        "unauth_subnet": "",
+        "cgn_priv": "",
+        "cgn_pub": "",
+        "is_326": true,
+        "326_mgmt_subnet": "",
+        "is_tachyon": true,
+        "is_6ghz": true,
+        "6ghz_subnet": "",
+        "is_tarana": true,
+        "tarana_subnet": "",
+        "tarana_sector_count": 3,
+        "tarana_sector_start": 0,
+        "backhauls": [
+            {
+                "name": "",
+                "subnet": "",
+                "master": true,
+                "port": "sfp-sfpplus1",
+                "bandwidth": 1000
+            },
+            {
+                "name": "",
+                "subnet": "",
+                "master": true,
+                "port": "sfp-sfpplus2",
+                "bandwidth": 1000
+            }
+        ]
+    }
+]

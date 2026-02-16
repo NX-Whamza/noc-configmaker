@@ -8,7 +8,7 @@ ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 # DEFAULT_PASSWORD=CHANGE_ME
 
 # AI Provider (optional)
-# AI_PROVIDER=ollama            # ollama | openai | azure
+# AI_PROVIDER=openai            # openai | azure | ollama
 # OLLAMA_API_URL=http://127.0.0.1:11434
 # OLLAMA_MODEL=llama3.1:8b
 # OPENAI_API_KEY=your-key-here
@@ -24,10 +24,37 @@ ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 # NEXTLINK_SNMP_CONTACT=netops@team.nxlink.com
 
 # RADIUS defaults (optional; used by /api/infrastructure to autofill the UI)
-# NEXTLINK_RADIUS_SECRET=CHANGE_ME_RADIUS_SECRET
+# NEXTLINK_RADIUS_SECRET=Nl22021234
 # NEXTLINK_RADIUS_DHCP_SERVERS=142.147.112.17,142.147.112.18
 # NEXTLINK_RADIUS_LOGIN_SERVERS=142.147.112.17,142.147.112.18
+
+# IDO proxy backend
+# Default docker-compose setup uses internal `ido-backend` service:
+# NETLAUNCH_IDO_BACKEND_URL=http://ido-backend:18081
+# Optional: mount netlaunch-tools-backend code into the container
+# NETLAUNCH_TOOLS_BACKEND_DIR=./external/netlaunch-tools-backend-main
+# NETLAUNCH_TOOLS_BACKEND_PATH=/opt/netlaunch-tools-backend
+# NETLAUNCH_IDO_BACKEND_PATH=/opt/netlaunch-tools-backend
+# Enforce full IDO module set (ap/bh/ups/rpc/swt/waveconfig/7250); when true, ido-backend exits if modules are missing
+# IDO_REQUIRE_FULL_MODULES=true
 
 # SSH fetch defaults (optional; can also be entered in the UI)
 # NEXTLINK_SSH_USERNAME=
 # NEXTLINK_SSH_PASSWORD=
+
+# Field Config Studio / IDO device login defaults (optional)
+# For most Cambium/Tachyon/backhaul tools username is fixed to admin in upstream modules.
+# Set these so Running Config / Standard Config actions can authenticate correctly.
+# AP_STANDARD_PW=
+# SM_STANDARD_PW=
+# BH_STANDARD_PW=
+# SWT_STANDARD_PW=
+# RPC_STANDARD_PW=
+# CNMATRIX_STANDARD_PW=
+# WAVE_AP_PASS=
+
+# Netlaunch-compatible MikroTik config templates
+# Must include Router/Tower and Router/BNG2 folders.
+# Example (Linux): /opt/base_configs
+# Example (Windows): C:\\opt\\base_configs
+# BASE_CONFIG_PATH=

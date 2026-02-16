@@ -6,9 +6,17 @@ set name={{ tower_name }}
 
 /interface bridge
 add name=loop0 protocol-mode=none
+{% if use_lan_bridge %}
+add name=lan-bridge protocol-mode=none comment=LAN-BRIDGE
+{% if is_6ghz or is_ub_wave or is_tarana or is_326 %}
+add name=bridge3000 protocol-mode=none comment=FEATURE-MGMT
+{% endif %}
+{% else %}
 add name=bridge2000 protocol-mode=none comment=CGNAT-PRIVATE
 add name=bridge3000 protocol-mode=none comment=UNAUTH
 add name=bridge4000 protocol-mode=none comment=CPE
+{% endif %}
+add name=nat-public-bridge protocol-mode=none comment=CGNAT-PUBLIC
 
 {% if (switches and switches|length > 0) or (backhauls and backhauls|length > 0) %}
 /interface ethernet
@@ -20,19 +28,74 @@ set [ find default-name={{ bh.port }} ] comment="{{ bh.bhname }}"{% if bh.interf
 {% endfor %}
 {% endif %}
 
+{% if switches and switches|length > 0 %}
+{% if use_lan_bridge %}
+/interface bridge port
+{% for sw in switches %}
+add bridge=lan-bridge interface={{ sw.port }}
+{% endfor %}
+{% else %}
+/interface vlan
+{% for sw in switches %}
+add interface={{ sw.port }} name=vlan2000-{{ sw.port }} vlan-id=2000
+add interface={{ sw.port }} name=vlan3000-{{ sw.port }} vlan-id=3000
+add interface={{ sw.port }} name=vlan4000-{{ sw.port }} vlan-id=4000
+{% endfor %}
+
+/interface bridge port
+{% for sw in switches %}
+add bridge=bridge2000 interface=vlan2000-{{ sw.port }}
+add bridge=bridge3000 interface=vlan3000-{{ sw.port }}
+add bridge=bridge4000 interface=vlan4000-{{ sw.port }}
+{% endfor %}
+{% endif %}
+{% endif %}
+
 /ip address
 add address={{ loopback.ip }}/{{ loopback.prefixlen }} interface=loop0 network={{ loopback_net }} comment=Loopback
 {% for bh in backhauls %}
 add address={{ bh.bhip }}/{{ bh.bhip_sub }} interface={{ bh.port }} network={{ bh.bh_network }} comment="{{ bh.bhname }}"
 {% endfor %}
-add address={{ cpe_ip }}/{{ cpe_ip_sub }} interface=bridge4000 network={{ cpe_network }} comment=CPE
-add address={{ unauth_ip }}/{{ unauth_ip_sub }} interface=bridge3000 network={{ unauth_net.network }} comment=UNAUTH
-add address={{ cgn_priv_ip }}/{{ cgn_priv_sub }} interface=bridge2000 network={{ cgn_priv_net.network }} comment=CGN-PRIVATE
+add address={{ cpe_ip }}/{{ cpe_ip_sub }} interface={% if use_lan_bridge %}lan-bridge{% else %}bridge4000{% endif %} network={{ cpe_network }} comment=CPE
+add address={{ unauth_ip }}/{{ unauth_ip_sub }} interface={% if use_lan_bridge %}lan-bridge{% else %}bridge3000{% endif %} network={{ unauth_net.network }} comment=UNAUTH
+add address={{ cgn_priv_ip }}/{{ cgn_priv_sub }} interface={% if use_lan_bridge %}lan-bridge{% else %}bridge2000{% endif %} network={{ cgn_priv_net.network }} comment=CGN-PRIVATE
+add address={{ cgn_pub_ip }}/{{ cgn_pub_sub }} interface=nat-public-bridge network={{ cgn_pub_network }} comment=CGN-PUBLIC
 {% if is_6ghz %}
-add address={{ six_ghz_address.ip }}/{{ six_ghz_address.prefixlen }} interface=bridge3000 network={{ six_ghz_network }} comment=6GHZ
+add address={{ six_ghz_address }}/{{ six_ghz_prefixlen }} interface=bridge3000 network={{ six_ghz_network }} comment=6GHZ
 {% endif %}
 {% if is_ub_wave %}
-add address={{ ub_wave_address.ip }}/{{ ub_wave_address.prefixlen }} interface=bridge3000 network={{ ub_wave_network }} comment=UB-WAVE
+add address={{ ub_wave_address }}/{{ ub_wave_prefixlen }} interface=bridge3000 network={{ ub_wave_network }} comment=UB-WAVE
+{% endif %}
+
+/ip pool
+add name=unauth ranges={{ unauth_range_low }}-{{ unauth_range_high }}
+add name=cpe ranges={{ cpe_range_low }}-{{ cpe_range_high }}
+add name=cust ranges={{ cgn_priv_range_low }}-{{ cgn_priv_range_high }}
+{% if is_6ghz %}
+add name=sixghz ranges={{ six_ghz_range_low }}-{{ six_ghz_range_high }}
+{% endif %}
+{% if is_ub_wave %}
+add name=ub-wave ranges={{ ub_wave_range_low }}-{{ ub_wave_range_high }}
+{% endif %}
+
+/ip dhcp-server
+{% if use_lan_bridge %}
+add address-pool=cust interface=lan-bridge lease-time=1h name=server1 use-radius=yes
+{% else %}
+add address-pool=cust interface={% if use_lan_bridge %}lan-bridge{% else %}bridge2000{% endif %} lease-time=1h name=server-cust use-radius=yes
+add address-pool=unauth interface={% if use_lan_bridge %}lan-bridge{% else %}bridge3000{% endif %} lease-time=1h name=server-unauth
+add address-pool=cpe interface={% if use_lan_bridge %}lan-bridge{% else %}bridge4000{% endif %} lease-time=1h name=server-cpe
+{% endif %}
+
+/ip dhcp-server network
+add address={{ cpe_network }}/{{ cpe_mask_bits }} dns-server=142.147.112.3,142.147.112.19 gateway={{ cpe_gateway }} netmask={{ cpe_mask_bits }}
+add address={{ unauth_net.network }}/{{ unauth_ip_sub }} dns-server=142.147.112.3,142.147.112.19 gateway={{ unauth_ip }} netmask={{ unauth_ip_sub }}
+add address={{ cgn_priv_net.network }}/{{ cgn_priv_sub }} dhcp-option-set=optset dns-server=142.147.112.3,142.147.112.19 gateway={{ cgn_priv_ip }} netmask={{ cgn_priv_sub }}
+{% if is_6ghz %}
+add address={{ six_ghz_network }}/{{ six_ghz_prefixlen }} dns-server=142.147.112.3,142.147.112.19 gateway={{ six_ghz_address }} netmask={{ six_ghz_prefixlen }}
+{% endif %}
+{% if is_ub_wave %}
+add address={{ ub_wave_network }}/{{ ub_wave_prefixlen }} dns-server=142.147.112.3,142.147.112.19 gateway={{ ub_wave_address }} netmask={{ ub_wave_prefixlen }}
 {% endif %}
 
 /routing ospf instance
@@ -43,8 +106,11 @@ add name=backbone-v2 area-id=0.0.0.0 instance=default-v2
 
 /routing ospf interface-template
 add area=backbone-v2 cost=10 disabled=no interfaces=loop0 networks={{ loopback_net }}/32 passive priority=1
+{% if use_lan_bridge %}
+add area=backbone-v2 cost=10 disabled=no interfaces=lan-bridge networks={{ cpe_network }}/{{ cpe_mask_bits }} priority=1
+{% endif %}
 {% for bh in backhauls %}
-add area=backbone-v2 auth=md5 auth-id=1 auth-key={{ ospf_md5_key }} comment={{ bh.bhname }} cost=10 disabled=no interfaces={{ bh.port }} networks={{ bh.bh_cidr }} priority=1 type=ptp
+add area=backbone-v2 auth=md5 auth-id=1 auth-key={{ ospf_md5_key }} comment="{{ bh.bhname }}" cost=10 disabled=no interfaces={{ bh.port }} networks={{ bh.bh_cidr }} priority=1 type=ptp
 {% endfor %}
 
 /routing bgp template
@@ -54,8 +120,19 @@ set default as={{ asn }} disabled=no multihop=yes output.network=bgp-networks ro
 add cisco-vpls-nlri-len-fmt=auto-bits connect=yes listen=yes local.address={{ loopback.ip }} .role=ibgp multihop=yes name={{ peer1_name }} remote.address={{ peer1 }} .as={{ asn }} .port=179 tcp-md5-key={{ bgp_md5_key }} templates=default
 add cisco-vpls-nlri-len-fmt=auto-bits connect=yes listen=yes local.address={{ loopback.ip }} .role=ibgp multihop=yes name={{ peer2_name }} remote.address={{ peer2 }} .as={{ asn }} .port=179 tcp-md5-key={{ bgp_md5_key }} templates=default
 
+/ip firewall address-list
+add address=142.147.112.3 list=WALLED-GARDEN
+add address=142.147.112.19 list=WALLED-GARDEN
+add address=107.178.15.27 list=WALLED-GARDEN
+add address=142.147.112.12 list=WALLED-GARDEN
+add address=67.219.126.2 list=WALLED-GARDEN
+add address={{ unauth_net.network }}/{{ unauth_ip_sub }} list=unauth
+add address={{ unauth_net.network }}/{{ unauth_ip_sub }} comment=UNAUTH list=bgp-networks
+add address={{ cgn_pub_ip }} comment=CGNAT_PUBLIC list=bgp-networks
+add address={{ cgn_priv_net.network }}/{{ cgn_priv_sub }} comment=CGNAT_PRIVATE list=bgp-networks
+
 /ip dns
-set servers=142.147.112.3,142.147.112.19
+set max-udp-packet-size=512 servers=142.147.112.3,142.147.112.19
 
 /snmp
 set enabled=yes location="{{ gps }}" src-address={{ loopback.ip }}

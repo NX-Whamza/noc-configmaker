@@ -1,0 +1,12 @@
+﻿MikroTik Tower Port Map - {{ tower_name }}
+Router Type: {{ router_type }}
+Loopback: {{ loopback.ip }}/{{ loopback.prefixlen }}
+
+Backhauls:
+{% for bh in backhauls -%}
+- {{ bh.port }} : {{ bh.bhname }} ({{ bh.bhip }}/{{ bh.bhip_sub }}) bandwidth={{ bh.interface_bandwidth }} master_side_1={{ bh.link_side_1 }}
+{% endfor %}
+
+CPE Gateway: {{ cpe_gateway }}
+Unauth Gateway: {{ unauth_ip }}
+CGN Private Gateway: {{ cgn_priv_ip }}

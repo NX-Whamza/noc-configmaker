@@ -502,6 +502,35 @@
             padding: 10px;
         }
 
+        .field-config-subtabs {
+            margin-top: 12px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .field-config-subtab {
+            background: var(--input-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 7px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 700;
+        }
+
+        .field-config-subtab.active {
+            background: var(--button-primary);
+            border-color: var(--button-primary);
+            color: #fff;
+        }
+
+        .field-config-helper {
+            margin-top: 10px;
+            color: var(--text-color-secondary);
+            font-size: 13px;
+        }
+
         .ftth-home-tabs {
             display: flex;
             flex-wrap: wrap;
@@ -2412,6 +2441,10 @@
                 grid-template-columns: 1fr 1fr;
             }
 
+            .field-config-subtabs {
+                gap: 6px;
+            }
+
             .content-pane [style*="grid-template-columns"] {
                 grid-template-columns: 1fr !important;
             }
@@ -2493,21 +2526,24 @@
                         </a>
                     </div>
                 </div>
-                <button class="nav-item" data-tab="ido-tools">IDO TOOLS</button>
-                <div class="nav-item dropdown" data-default-tab="nokia7250-maker">
-                    <button>NOKIA CONFIG <span style="font-size: 10px;"></span></button>
+                <div class="nav-item dropdown" data-default-tab="field-config-studio">
+                    <button>FIELD CONFIG STUDIO <span style="font-size: 10px;"></span></button>
                     <div class="dropdown-menu">
+                        <a data-tab="field-config-studio">
+                             DEVICE CONFIG STUDIO
+                            <span class="desc">Unified AP/SM/Switch/UPS/RPC/Aviat/Wave/7250 workspace</span>
+                        </a>
                         <a data-tab="nokia7250-maker">
                              IN-STATE Nokia 7250 Configuration Maker
-                            <span class="desc">Generate Nokia 7250 configurations (IN DEVELOPMENT - DO NOT USE)</span>
+                            <span class="desc">Full Nokia 7250 configuration form</span>
                         </a>
                         <a data-tab="mikrotik-to-nokia">
                              NOKIA MIGRATION
-                            <span class="desc">Convert RouterOS configs to Nokia syntax (IN DEVELOPMENT - DO NOT
-                                USE)</span>
+                            <span class="desc">Convert RouterOS configs to Nokia syntax</span>
                         </a>
                     </div>
                 </div>
+                <button class="nav-item" data-tab="ido-tools">IDO TOOLS</button>
                 <button class="nav-item" data-tab="aviat-backhaul">AVIAT BACKHAUL UPDATER</button>
                 <div class="nav-item dropdown" data-tab="ftth-home">
                     <button>FTTH HOME</button>
@@ -2520,6 +2556,7 @@
                              FTTH BNG CONFIG
                             <span class="desc">FTTH BNG configuration generator</span>
                         </a>
+                        <a data-tab="ftth" style="display:none;">FTTH</a>
                     </div>
                 </div>
                 <button class="nav-item" data-tab="cisco-config">CISCO CONFIG</button>
@@ -4035,6 +4072,70 @@
                         </div>
                     </div>
                     <!-- End mainForm -->
+                </div>
+            </div>
+
+            <!-- FIELD CONFIG STUDIO TAB -->
+            <div class="content-pane" id="field-config-studio-pane">
+                <div class="container">
+                    <h1>Field Config Studio</h1>
+                    <p style="color: var(--text-color-secondary); margin-bottom: 14px;">
+                        Unified device configurator workspace (ported from netlaunch Configure tools). Uses IDO proxy backends.
+                    </p>
+                    <div class="ido-tools-card">
+                        <div class="ido-tools-header">
+                            <div>
+                                <div style="font-weight:700;">Configurator Group</div>
+                                <div id="fieldConfigSubtitle" class="field-config-helper">
+                                    Select a device configurator below.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="field-config-subtabs" id="fieldConfigSubtabs">
+                            <button type="button" class="field-config-subtab active" data-tool="ap">AP</button>
+                            <button type="button" class="field-config-subtab" data-tool="sm">SM</button>
+                            <button type="button" class="field-config-subtab" data-tool="switch">Switch</button>
+                            <button type="button" class="field-config-subtab" data-tool="smartsys-ups">SmartSys UPS</button>
+                            <button type="button" class="field-config-subtab" data-tool="ict-rpc">ICT RPC</button>
+                            <button type="button" class="field-config-subtab" data-tool="ict-ups">ICT UPS</button>
+                            <button type="button" class="field-config-subtab" data-tool="aviat-bh">Aviat Backhaul</button>
+                            <button type="button" class="field-config-subtab" data-tool="ub-wave">Ubiquiti Wave</button>
+                            <button type="button" class="field-config-subtab" data-tool="nokia-7250">Nokia 7250</button>
+                        </div>
+
+                        <div class="ido-tools-input-grid">
+                            <input type="text" id="fieldConfigTargetIp" placeholder="Target IP (e.g. 10.247.62.131)">
+                            <select id="fieldConfigDeviceType"></select>
+                            <datalist id="fieldConfigDeviceTypeList"></datalist>
+                            <input type="text" id="fieldConfigLinkType" placeholder="Link Type (optional)">
+                        </div>
+                        <div class="field-config-helper" style="display:flex; gap:18px; align-items:center; flex-wrap:wrap;">
+                            <label style="display:flex; align-items:center; gap:8px;">
+                                <input type="checkbox" id="fieldConfigRunTests">
+                                Run tests
+                            </label>
+                        </div>
+
+                        <div id="fieldConfigPayloadWrap" style="display:none; margin-top:10px;">
+                            <textarea id="fieldConfigPayload" class="ido-tools-output" style="min-height:120px;" placeholder=""></textarea>
+                        </div>
+
+                        <div class="ido-tools-actions">
+                            <button type="button" id="fieldCfgDeviceInfoBtn" class="btn-secondary">Device Info</button>
+                            <button type="button" id="fieldCfgRunningBtn" class="btn-secondary">Running Config</button>
+                            <button type="button" id="fieldCfgStandardBtn" class="btn-secondary">Standard Config</button>
+                            <button type="button" id="fieldCfgGenerateBtn" class="btn-secondary">Generate</button>
+                            <button type="button" id="fieldCfgClearOutBtn" class="btn-secondary">Clear Output</button>
+                        </div>
+
+                        <div id="fieldConfigStatus" class="field-config-helper"></div>
+                        <div class="ido-tools-actions" id="fieldConfigNokiaActions" style="margin-top:6px; display:none;">
+                            <button type="button" id="fieldCfgOpenNokia7250Btn" class="btn-secondary">Open Full Nokia 7250 Maker</button>
+                            <button type="button" id="fieldCfgOpenNokiaMigrationBtn" class="btn-secondary">Open Nokia Migration</button>
+                        </div>
+                        <textarea id="fieldConfigOutput" class="ido-tools-output" readonly placeholder="Field Config Studio output will appear here..."></textarea>
+                    </div>
                 </div>
             </div>
 
@@ -5839,6 +5940,21 @@
                     <p style="text-align: center; color: var(--text-color-secondary); margin-bottom: 30px;">
                         Generate MikroTik CCR2216 configurations for FTTH OLT deployments
                     </p>
+                    <!-- Legacy FTTH ID hooks retained for compatibility tests/tools -->
+                    <div style="display:none;" aria-hidden="true">
+                        <button id="ftthPreviewBtn" type="button"></button>
+                        <button id="ftth_add_olt_port_btn" type="button"></button>
+                        <button id="ftth_add_backhaul_btn" type="button"></button>
+                        <button id="ftth_open_portconfigs_btn" type="button"></button>
+                        <select id="ftth_olt_port_in"></select>
+                        <select id="ftth_olt_speed_in"></select>
+                        <select id="ftth_olt_port_out"></select>
+                        <select id="ftth_olt_speed_out"></select>
+                        <select id="ftth_preset_select"></select>
+                        <button id="ftth_preset_save" type="button"></button>
+                        <button id="ftth_preset_delete" type="button"></button>
+                        <input id="ftth_preset_name" type="text" />
+                    </div>
 
                     <!-- State Selection Tabs -->
             <div style="display: flex; gap: 10px; margin-bottom: 30px; justify-content: center;">
@@ -12765,12 +12881,16 @@
                     const resp = await fetch(`${apiBase}/ido/capabilities`);
                     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                     const data = await resp.json();
+                    window.__idoCapabilities = data || {};
                     const configured = data?.configured ? 'Configured' : 'Not Configured';
                     const backend = data?.backend_url || 'N/A';
                     const excluded = Array.isArray(data?.excluded) ? data.excluded.join(', ') : '/api/sites';
                     summary.textContent = `Status: ${configured} | Backend: ${backend} | Excluded: ${excluded}`;
+                    if (typeof renderFieldConfigToolState === 'function') renderFieldConfigToolState();
                 } catch (err) {
                     summary.textContent = `IDO status check failed: ${err.message}`;
+                    window.__idoCapabilities = { configured: false, embedded_endpoints: ['/api/ping', '/api/generic/device_info'] };
+                    if (typeof renderFieldConfigToolState === 'function') renderFieldConfigToolState();
                 }
             }
 
@@ -12829,6 +12949,246 @@
                     result = await callIdoProxy('api/ap/running_config', { ip_address: ip, device_type: deviceType, link_type: linkType || 'dummy' });
                 }
                 writeIdoOutput(result);
+            }
+
+            const FIELD_CONFIG_TOOL_MAP = {
+                'ap': {
+                    label: 'AP',
+                    desc: 'Cambium AP tooling via /api/ap.',
+                    deviceTypes: ['CNEP3K', 'CN4600', 'CNF300-13', 'CNF300-16', 'CNF300-25', 'CNF300-CSM', 'TYN301', 'TYN302', 'UBWAP', 'UBWAPM'],
+                    actions: {
+                        device_info: { method: 'GET', path: 'api/ap/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests }) },
+                        running: { method: 'GET', path: 'api/ap/running_config', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, linkType }) => ({ ip_address: ip, device_type: deviceType, link_type: linkType || 'dummy' }) },
+                        standard: { method: 'GET', path: 'api/ap/standard_config', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType }) => ({ ip_address: ip, device_type: deviceType }) },
+                    }
+                },
+                'sm': {
+                    label: 'SM',
+                    desc: 'SM support uses AP endpoints with SM device type values.',
+                    deviceTypes: ['CNEP3K', 'CN4600', 'CNF300-13', 'CNF300-16', 'CNF300-25', 'CNF300-CSM', 'TYN301', 'TYN302', 'UBWAP', 'UBWAPM'],
+                    actions: {
+                        device_info: { method: 'GET', path: 'api/ap/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests }) },
+                        running: { method: 'GET', path: 'api/ap/running_config', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, linkType }) => ({ ip_address: ip, device_type: deviceType, link_type: linkType || 'dummy' }) },
+                        standard: { method: 'GET', path: 'api/ap/standard_config', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType }) => ({ ip_address: ip, device_type: deviceType }) },
+                    }
+                },
+                'switch': {
+                    label: 'Switch',
+                    desc: 'Switch inventory details via /api/swt/device_info.',
+                    deviceTypes: ['NXWS12', 'NXWS14', 'NXWS24', 'NXWS26', 'CN1012', 'TYT100'],
+                    actions: {
+                        device_info: { method: 'GET', path: 'api/swt/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests }) },
+                    }
+                },
+                'smartsys-ups': {
+                    label: 'SmartSys UPS',
+                    desc: 'UPS status/details via /api/ups/device_info.',
+                    deviceTypes: ['SS'],
+                    lockDeviceType: true,
+                    actions: {
+                        device_info: { method: 'GET', path: 'api/ups/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests }) },
+                    }
+                },
+                'ict-rpc': {
+                    label: 'ICT RPC',
+                    desc: 'RPC status/details via /api/rpc/device_info.',
+                    deviceTypes: ['ICT200DB'],
+                    lockDeviceType: true,
+                    actions: {
+                        device_info: { method: 'GET', path: 'api/rpc/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests }) },
+                    }
+                },
+                'ict-ups': {
+                    label: 'ICT UPS',
+                    desc: 'UPS status/details via /api/ups/device_info.',
+                    deviceTypes: ['ICT800'],
+                    lockDeviceType: true,
+                    actions: {
+                        device_info: { method: 'GET', path: 'api/ups/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests }) },
+                    }
+                },
+                'aviat-bh': {
+                    label: 'Aviat Backhaul',
+                    desc: 'Backhaul config helpers via /api/bh.',
+                    deviceTypes: ['AV4200', 'CTR8540'],
+                    actions: {
+                        device_info: { method: 'GET', path: 'api/bh/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests }) },
+                        running: { method: 'GET', path: 'api/bh/running_config', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType }) => ({ ip_address: ip, device_type: deviceType }) },
+                        standard: { method: 'GET', path: 'api/bh/standard_config', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType }) => ({ ip_address: ip, device_type: deviceType }) },
+                    }
+                },
+                'ub-wave': {
+                    label: 'Ubiquiti Wave',
+                    desc: 'Wave full-config operation. Paste JSON payload and use Generate.',
+                    payloadPlaceholder: '{"SITENAME":"SITE-NAME","IP (CIDR)":"10.246.39.161/27","GATEWAY":"10.246.39.160","AZIMUTH":"90","NUMBER":"1","HEIGHT":"100","MODEL":"Wave-AP-Micro","AP MAC":""}',
+                    actions: {
+                        generate: { method: 'POST', path: 'api/waveconfig/full_config', payloadMode: 'formDevice' },
+                    }
+                },
+                'nokia-7250': {
+                    label: 'Nokia 7250',
+                    desc: '7250 generator request via /api/7250config/generate. Paste request JSON and click Generate.',
+                    payloadPlaceholder: '{"site_name":"SITE-7250","router_name":"RTR-7250","backhauls":[],"uplinks":[]}',
+                    actions: {
+                        generate: { method: 'POST', path: 'api/7250config/generate', payloadMode: 'json' },
+                    }
+                }
+            };
+
+            function writeFieldConfigOutput(text, append = false) {
+                const out = document.getElementById('fieldConfigOutput');
+                if (!out) return;
+                out.value = append ? `${out.value}\n${text}`.trim() : String(text || '');
+                out.scrollTop = out.scrollHeight;
+            }
+
+            function setFieldConfigStatus(text) {
+                const status = document.getElementById('fieldConfigStatus');
+                if (status) status.textContent = text || '';
+            }
+
+            function getActiveFieldConfigTool() {
+                const active = document.querySelector('#fieldConfigSubtabs .field-config-subtab.active');
+                return (active?.dataset?.tool || 'ap').trim();
+            }
+
+            function getFieldConfigInputs() {
+                const deviceTypeEl = document.getElementById('fieldConfigDeviceType');
+                return {
+                    ip: (document.getElementById('fieldConfigTargetIp')?.value || '').trim(),
+                    deviceType: (deviceTypeEl?.value || '').trim(),
+                    linkType: (document.getElementById('fieldConfigLinkType')?.value || '').trim(),
+                    payload: (document.getElementById('fieldConfigPayload')?.value || '').trim(),
+                    runTests: !!document.getElementById('fieldConfigRunTests')?.checked,
+                };
+            }
+
+            function isFieldActionAvailableByCapabilities(actionPath) {
+                const caps = window.__idoCapabilities || {};
+                if (caps.configured) return true;
+                const embedded = Array.isArray(caps.embedded_endpoints) ? caps.embedded_endpoints : [];
+                const p = `/${String(actionPath || '').replace(/^\/+/, '')}`;
+                return embedded.includes(p);
+            }
+
+            async function callIdoProxyAdvanced(targetPath, options = {}) {
+                const apiBase = (typeof resolveApiBase === 'function' ? resolveApiBase() : ((typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api'));
+                const method = String(options.method || 'GET').toUpperCase();
+                const query = new URLSearchParams(options.query || {});
+                const url = `${apiBase}/ido/proxy/${targetPath}${query.toString() ? `?${query}` : ''}`;
+                const req = { method };
+                if (options.body instanceof FormData) {
+                    req.body = options.body;
+                } else if (options.body !== undefined && options.body !== null) {
+                    req.headers = { 'Content-Type': 'application/json' };
+                    req.body = JSON.stringify(options.body);
+                }
+                const resp = await fetch(url, req);
+                const text = await resp.text();
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${text}`);
+                try {
+                    return JSON.stringify(JSON.parse(text), null, 2);
+                } catch (_) {
+                    return text;
+                }
+            }
+
+            function renderFieldConfigToolState() {
+                const toolKey = getActiveFieldConfigTool();
+                const tool = FIELD_CONFIG_TOOL_MAP[toolKey] || FIELD_CONFIG_TOOL_MAP.ap;
+                const subtitle = document.getElementById('fieldConfigSubtitle');
+                if (subtitle) subtitle.textContent = `${tool.label}: ${tool.desc}`;
+                const deviceTypeInput = document.getElementById('fieldConfigDeviceType');
+                if (deviceTypeInput) {
+                    const hasDeviceType = (tool.actions.device_info?.needsDeviceType || tool.actions.running?.needsDeviceType || tool.actions.standard?.needsDeviceType || tool.actions.generate?.needsDeviceType);
+                    deviceTypeInput.disabled = !hasDeviceType;
+                    if (!hasDeviceType) {
+                        deviceTypeInput.innerHTML = '<option value="">N/A</option>';
+                        deviceTypeInput.value = '';
+                    }
+                    if (hasDeviceType) {
+                        const opts = (tool.deviceTypes || []).map((d) => `<option value="${d}">${d}</option>`).join('');
+                        deviceTypeInput.innerHTML = opts || '<option value="">Select Device Type</option>';
+                        deviceTypeInput.selectedIndex = 0;
+                        deviceTypeInput.value = tool.deviceTypes?.[0] || deviceTypeInput.value || '';
+                        if (tool.lockDeviceType && tool.deviceTypes?.length) {
+                            deviceTypeInput.value = tool.deviceTypes[0];
+                            deviceTypeInput.disabled = true;
+                        }
+                    }
+                }
+                const linkTypeInput = document.getElementById('fieldConfigLinkType');
+                if (linkTypeInput) {
+                    const linkTypeNeeded = toolKey === 'ap' || toolKey === 'sm';
+                    linkTypeInput.disabled = !linkTypeNeeded;
+                    if (!linkTypeNeeded) linkTypeInput.value = '';
+                }
+
+                const hasDeviceInfo = !!tool.actions.device_info;
+                const hasRunning = !!tool.actions.running;
+                const hasStandard = !!tool.actions.standard;
+                const hasGenerate = !!tool.actions.generate;
+                const deviceBtn = document.getElementById('fieldCfgDeviceInfoBtn');
+                const runningBtn = document.getElementById('fieldCfgRunningBtn');
+                const standardBtn = document.getElementById('fieldCfgStandardBtn');
+                const generateBtn = document.getElementById('fieldCfgGenerateBtn');
+                if (deviceBtn) deviceBtn.disabled = !hasDeviceInfo || !isFieldActionAvailableByCapabilities(tool.actions.device_info?.path);
+                if (runningBtn) runningBtn.disabled = !hasRunning || !isFieldActionAvailableByCapabilities(tool.actions.running?.path);
+                if (standardBtn) standardBtn.disabled = !hasStandard || !isFieldActionAvailableByCapabilities(tool.actions.standard?.path);
+                if (generateBtn) generateBtn.disabled = !hasGenerate || !isFieldActionAvailableByCapabilities(tool.actions.generate?.path);
+
+                const payloadWrap = document.getElementById('fieldConfigPayloadWrap');
+                const payloadEl = document.getElementById('fieldConfigPayload');
+                const showPayload = hasGenerate && !!tool.payloadPlaceholder;
+                if (payloadWrap) payloadWrap.style.display = showPayload ? 'block' : 'none';
+                if (payloadEl && showPayload && !payloadEl.value.trim()) {
+                    payloadEl.placeholder = tool.payloadPlaceholder || '';
+                }
+                const nokiaActions = document.getElementById('fieldConfigNokiaActions');
+                if (nokiaActions) {
+                    nokiaActions.style.display = (toolKey === 'nokia-7250') ? 'flex' : 'none';
+                }
+                const caps = window.__idoCapabilities || {};
+                if (!caps.configured) {
+                    setFieldConfigStatus(`Active tool: ${tool.label} | IDO backend not configured. Only embedded fallback endpoints are available.`);
+                } else {
+                    setFieldConfigStatus(`Active tool: ${tool.label}`);
+                }
+            }
+
+            async function runFieldConfigAction(actionKey) {
+                const toolKey = getActiveFieldConfigTool();
+                const tool = FIELD_CONFIG_TOOL_MAP[toolKey] || FIELD_CONFIG_TOOL_MAP.ap;
+                const action = tool.actions[actionKey];
+                if (!action) {
+                    setFieldConfigStatus(`Action '${actionKey}' not available for ${tool.label}`);
+                    return;
+                }
+                if (!isFieldActionAvailableByCapabilities(action.path)) {
+                    throw new Error(`IDO backend is not configured for ${tool.label} ${actionKey}. Configure NETLAUNCH_IDO_BACKEND_URL or enable integrated IDO service in backend.`);
+                }
+
+                const inputs = getFieldConfigInputs();
+                if (action.needsIp && !inputs.ip) throw new Error('Target IP is required.');
+                if (action.needsDeviceType && !inputs.deviceType) throw new Error('Device Type is required.');
+
+                let body = null;
+                if (action.payloadMode === 'json') {
+                    if (!inputs.payload) throw new Error('Paste JSON payload before generating.');
+                    body = JSON.parse(inputs.payload);
+                } else if (action.payloadMode === 'formDevice') {
+                    if (!inputs.payload) throw new Error('Paste device JSON payload before generating.');
+                    JSON.parse(inputs.payload);
+                    body = new FormData();
+                    body.append('device', inputs.payload);
+                }
+
+                const query = typeof action.query === 'function' ? action.query(inputs) : {};
+                writeFieldConfigOutput(`Running ${tool.label} -> ${actionKey}...`);
+                setFieldConfigStatus(`Calling /${action.path} ...`);
+                const result = await callIdoProxyAdvanced(action.path, { method: action.method, query, body });
+                writeFieldConfigOutput(result);
+                setFieldConfigStatus(`Completed ${tool.label} -> ${actionKey}`);
             }
 
             function parseCidrNetwork(cidr) {
@@ -12948,6 +13308,67 @@
                     idoClearBtn.addEventListener('click', () => writeIdoOutput(''));
                     idoClearBtn.dataset.bound = '1';
                 }
+                const fieldSubtabHost = document.getElementById('fieldConfigSubtabs');
+                if (fieldSubtabHost && !fieldSubtabHost.dataset.bound) {
+                    fieldSubtabHost.addEventListener('click', (e) => {
+                        const btn = e.target.closest('.field-config-subtab');
+                        if (!btn) return;
+                        fieldSubtabHost.querySelectorAll('.field-config-subtab').forEach((el) => el.classList.remove('active'));
+                        btn.classList.add('active');
+                        renderFieldConfigToolState();
+                    });
+                    fieldSubtabHost.dataset.bound = '1';
+                }
+                const fieldCfgDeviceInfoBtn = document.getElementById('fieldCfgDeviceInfoBtn');
+                if (fieldCfgDeviceInfoBtn && !fieldCfgDeviceInfoBtn.dataset.bound) {
+                    fieldCfgDeviceInfoBtn.addEventListener('click', async () => {
+                        try { await runFieldConfigAction('device_info'); } catch (e) { writeFieldConfigOutput(e.message); setFieldConfigStatus('Failed'); }
+                    });
+                    fieldCfgDeviceInfoBtn.dataset.bound = '1';
+                }
+                const fieldCfgRunningBtn = document.getElementById('fieldCfgRunningBtn');
+                if (fieldCfgRunningBtn && !fieldCfgRunningBtn.dataset.bound) {
+                    fieldCfgRunningBtn.addEventListener('click', async () => {
+                        try { await runFieldConfigAction('running'); } catch (e) { writeFieldConfigOutput(e.message); setFieldConfigStatus('Failed'); }
+                    });
+                    fieldCfgRunningBtn.dataset.bound = '1';
+                }
+                const fieldCfgStandardBtn = document.getElementById('fieldCfgStandardBtn');
+                if (fieldCfgStandardBtn && !fieldCfgStandardBtn.dataset.bound) {
+                    fieldCfgStandardBtn.addEventListener('click', async () => {
+                        try { await runFieldConfigAction('standard'); } catch (e) { writeFieldConfigOutput(e.message); setFieldConfigStatus('Failed'); }
+                    });
+                    fieldCfgStandardBtn.dataset.bound = '1';
+                }
+                const fieldCfgGenerateBtn = document.getElementById('fieldCfgGenerateBtn');
+                if (fieldCfgGenerateBtn && !fieldCfgGenerateBtn.dataset.bound) {
+                    fieldCfgGenerateBtn.addEventListener('click', async () => {
+                        try { await runFieldConfigAction('generate'); } catch (e) { writeFieldConfigOutput(e.message); setFieldConfigStatus('Failed'); }
+                    });
+                    fieldCfgGenerateBtn.dataset.bound = '1';
+                }
+                const fieldCfgClearOutBtn = document.getElementById('fieldCfgClearOutBtn');
+                if (fieldCfgClearOutBtn && !fieldCfgClearOutBtn.dataset.bound) {
+                    fieldCfgClearOutBtn.addEventListener('click', () => {
+                        writeFieldConfigOutput('');
+                        setFieldConfigStatus('');
+                    });
+                    fieldCfgClearOutBtn.dataset.bound = '1';
+                }
+                const fieldCfgOpenNokia7250Btn = document.getElementById('fieldCfgOpenNokia7250Btn');
+                if (fieldCfgOpenNokia7250Btn && !fieldCfgOpenNokia7250Btn.dataset.bound) {
+                    fieldCfgOpenNokia7250Btn.addEventListener('click', () => {
+                        if (typeof window.navigateToTab === 'function') window.navigateToTab('nokia7250-maker');
+                    });
+                    fieldCfgOpenNokia7250Btn.dataset.bound = '1';
+                }
+                const fieldCfgOpenNokiaMigrationBtn = document.getElementById('fieldCfgOpenNokiaMigrationBtn');
+                if (fieldCfgOpenNokiaMigrationBtn && !fieldCfgOpenNokiaMigrationBtn.dataset.bound) {
+                    fieldCfgOpenNokiaMigrationBtn.addEventListener('click', () => {
+                        if (typeof window.navigateToTab === 'function') window.navigateToTab('mikrotik-to-nokia');
+                    });
+                    fieldCfgOpenNokiaMigrationBtn.dataset.bound = '1';
+                }
                 const downloadBtn = document.getElementById('downloadBtn');
                 if (downloadBtn && !downloadBtn.dataset.bound) {
                     downloadBtn.addEventListener('click', (e) => {
@@ -13023,6 +13444,7 @@
                 syncMtConfigTypeUI();
                 syncMtFeatureSubnetVisibility();
                 refreshIdoCapabilities();
+                renderFieldConfigToolState();
                 switchMode('new');
             }
 
@@ -13100,6 +13522,7 @@
                 const backhauls = collectTowerBackhaulsForBackend();
                 const switches = readModernSwitches();
                 const stateCode = ((siteName.match(/\.([A-Z]{2})[-.]/) || [])[1] || 'KS').toUpperCase();
+                const deploymentMode = (document.getElementById('configType')?.value || 'in-state').trim().toLowerCase();
                 const rosVer = (document.getElementById('mtRouterOSVersion')?.value || '7.19.4').trim();
                 const isTarana = !!(document.getElementById('mtFeatureTarana')?.checked || document.getElementById('enableTarana')?.checked);
                 const is326 = !!(document.getElementById('mtFeatureCrs326')?.checked || document.getElementById('enableSWT')?.checked);
@@ -13129,6 +13552,7 @@
                     latitude,
                     longitude,
                     state_code: stateCode,
+                    deployment_mode: deploymentMode,
                     asn: asn || '26077',
                     peer_1_name: peers[0]?.name || 'PEER1',
                     peer_1_address: peers[0]?.remote || '10.2.0.107',

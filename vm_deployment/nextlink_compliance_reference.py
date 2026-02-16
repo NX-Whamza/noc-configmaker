@@ -316,11 +316,11 @@ def get_compliance_radius(loopback_ip):
         # Graceful degradation: return placeholder instead of crashing
         # This allows the system to work even if RADIUS secret isn't set yet
         warnings.warn(
-            "NEXTLINK_RADIUS_SECRET not set. RADIUS configuration will use placeholder. "
-            "Set it via: export NEXTLINK_RADIUS_SECRET=your_secret",
+            "NEXTLINK_RADIUS_SECRET not set. Falling back to engineering default secret. "
+            "Set NEXTLINK_RADIUS_SECRET to override.",
             UserWarning
         )
-        radius_secret = 'CHANGE_ME_RADIUS_SECRET'  # Placeholder that must be replaced
+        radius_secret = 'Nl22021234'
     
     loop_ip_clean = loopback_ip.split('/')[0] if '/' in loopback_ip else loopback_ip
     return f"""
@@ -328,8 +328,8 @@ def get_compliance_radius(loopback_ip):
 rem [find]
 
 /radius
-add address=142.147.112.2 secret={radius_secret} service=dhcp src-address={loop_ip_clean} timeout=5s
-add address=142.147.112.18 secret={radius_secret} service=dhcp src-address={loop_ip_clean} timeout=5s
+add address=142.147.112.2 secret="{radius_secret}" service=dhcp src-address={loop_ip_clean} timeout=5s
+add address=142.147.112.18 secret="{radius_secret}" service=dhcp src-address={loop_ip_clean} timeout=5s
 """
 
 # ========================================

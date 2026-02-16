@@ -1,5 +1,7 @@
 flask==3.0.0
 flask-cors==4.0.0
+fastapi>=0.112.0
+uvicorn>=0.30.0
 requests>=2.31.0
 openai>=1.0.0
 python-dotenv==1.0.0
@@ -13,4 +15,16 @@ paramiko>=3.4.0
 websockets>=12.0
 pandas>=2.0.0
 openpyxl>=3.1.0
-
+netaddr>=0.10.1
+jinja2>=3.1.0
+ping3>=4.0.8
+pysnmp>=4.4.12
+tzdata>=2024.1
+PyYAML>=6.0.1
+jsonpath_ng>=1.6.1
+timezonefinder>=6.5.2
+scp>=0.14.5
+httpx>=0.27.0
+python-multipart>=0.0.9
+pyasn1==0.4.8
+snimpy>=1.1.0

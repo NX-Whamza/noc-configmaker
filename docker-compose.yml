@@ -1,19 +1,45 @@
 services:
+  ido-backend:
+    build: .
+    command: ["uvicorn", "--app-dir", ".", "vm_deployment.ido_local_backend:app", "--host", "0.0.0.0", "--port", "18081"]
+    environment:
+      NETLAUNCH_TOOLS_BACKEND_PATH: ${NETLAUNCH_TOOLS_BACKEND_PATH:-/opt/netlaunch-tools-backend}
+      NETLAUNCH_IDO_BACKEND_PATH: ${NETLAUNCH_IDO_BACKEND_PATH:-/opt/netlaunch-tools-backend}
+      BASE_CONFIG_PATH: /opt/base_configs
+      FIRMWARE_PATH: ${NETLAUNCH_TOOLS_BACKEND_PATH:-/opt/netlaunch-tools-backend}
+      IDO_REQUIRE_FULL_MODULES: ${IDO_REQUIRE_FULL_MODULES:-false}
+      # Device auth defaults used by netlaunch backend modules (Field Config Studio)
+      AP_STANDARD_PW: ${AP_STANDARD_PW:-}
+      SM_STANDARD_PW: ${SM_STANDARD_PW:-}
+      BH_STANDARD_PW: ${BH_STANDARD_PW:-}
+      SWT_STANDARD_PW: ${SWT_STANDARD_PW:-}
+      RPC_STANDARD_PW: ${RPC_STANDARD_PW:-}
+      CNMATRIX_STANDARD_PW: ${CNMATRIX_STANDARD_PW:-}
+      WAVE_AP_PASS: ${WAVE_AP_PASS:-}
+    volumes:
+      - ${NETLAUNCH_TOOLS_BACKEND_DIR:-./external/netlaunch-tools-backend-main}:/opt/netlaunch-tools-backend:ro
+      - ./vm_deployment/base_configs:/opt/base_configs:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:18081/health',timeout=3).getcode()==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   backend:
     build: .
     environment:
       ADMIN_EMAILS: ${ADMIN_EMAILS:-netops@team.nxlink.com,whamza@team.nxlink.com}
       JWT_SECRET: ${JWT_SECRET:-}
       DEFAULT_PASSWORD: ${DEFAULT_PASSWORD:-NOCConfig2025!}
-      AI_PROVIDER: ${AI_PROVIDER:-ollama}
-      OLLAMA_API_URL: ${OLLAMA_API_URL:-http://ollama:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-phi3:mini}
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
       NEXTLINK_DNS_PRIMARY: ${NEXTLINK_DNS_PRIMARY:-142.147.112.3}
       NEXTLINK_DNS_SECONDARY: ${NEXTLINK_DNS_SECONDARY:-142.147.112.19}
       NEXTLINK_SHARED_KEY: ${NEXTLINK_SHARED_KEY:-}
-      NEXTLINK_RADIUS_SECRET: ${NEXTLINK_RADIUS_SECRET:-CHANGE_ME_RADIUS_SECRET}
+      NEXTLINK_RADIUS_SECRET: ${NEXTLINK_RADIUS_SECRET:-}
       NEXTLINK_RADIUS_DHCP_SERVERS: ${NEXTLINK_RADIUS_DHCP_SERVERS:-}
       NEXTLINK_RADIUS_LOGIN_SERVERS: ${NEXTLINK_RADIUS_LOGIN_SERVERS:-}
+      NETLAUNCH_IDO_BACKEND_URL: ${NETLAUNCH_IDO_BACKEND_URL:-http://ido-backend:18081}
       NEXTLINK_SNMP_CONTACT: ${NEXTLINK_SNMP_CONTACT:-netops@team.nxlink.com}
       NEXTLINK_SSH_USERNAME: ${NEXTLINK_SSH_USERNAME:-}
       NEXTLINK_SSH_PASSWORD: ${NEXTLINK_SSH_PASSWORD:-}
@@ -35,6 +61,15 @@ services:
       AVIAT_LOADING_MAX_WAIT: ${AVIAT_LOADING_MAX_WAIT:-5400}
     volumes:
       - ./secure_data:/app/secure_data
+    depends_on:
+      ido-backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5000/api/health',timeout=3).getcode()==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   frontend:
     image: nginx:alpine
@@ -44,14 +79,5 @@ services:
       - ./vm_deployment:/usr/share/nginx/html:ro
       - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - backend
-
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama:/root/.ollama
-
-volumes:
-  ollama:
+      backend:
+        condition: service_healthy

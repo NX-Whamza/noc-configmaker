@@ -1,0 +1,13 @@
+﻿MikroTik BNG2 Port Map - {{ sysname }}
+Loopback: {{ loopip }}
+Gateway: {{ gateway }}/{{ subnet.prefixlen }}
+Switchless: {{ is_switchless }}
+
+Backhauls:
+{% for bh in backhauls -%}
+- {{ bh.port }} : {{ bh.bhname }} ({{ bh.bhip }}/{{ bh.bhip_sub }})
+{% endfor %}
+
+Access ranges:
+- AP model: {{ ap_model }}
+- AP range: {{ access_points[0] }} - {{ access_points[-1] }}

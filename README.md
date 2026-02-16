@@ -190,7 +190,7 @@ RouterOS Ver Interface Mapping   Syntax Validation   Audit Trail    Verify
 
 3. **Start the server**:
    ```bash
-   python api_server.py
+   uvicorn --app-dir vm_deployment fastapi_server:app --host 0.0.0.0 --port 5000
    ```
 
 4. **Access the application**:
@@ -208,10 +208,8 @@ See [Deployment Guide](#-deployment) below for complete VM setup instructions.
    docker compose up -d --build
    ```
 
-2. **Pull the default Ollama model** (first-time only):
-   ```bash
-   docker compose exec ollama ollama pull phi3:mini
-   ```
+2. **Open UI**:
+   - `http://localhost:8000`
 
 ---
 
@@ -594,18 +592,18 @@ tar -xzf noc-configmaker-vm-*.tar.gz
 # Create .env file (optional)
 cat > .env << EOF
 ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
-AI_PROVIDER=ollama
-OLLAMA_API_URL=http://localhost:11434
+AI_PROVIDER=openai
 # OLLAMA_MODEL=llama3.1:8b
 # NEXTLINK_SSH_USERNAME=
 # NEXTLINK_SSH_PASSWORD=
+# BASE_CONFIG_PATH=/opt/base_configs
 EOF
 ```
 
 **5. Start Service**
 ```bash
 # Option A: Run directly
-python api_server.py
+uvicorn --app-dir vm_deployment fastapi_server:app --host 0.0.0.0 --port 5000
 
 # Option B: As systemd service (Linux)
 sudo systemctl start noc-configmaker

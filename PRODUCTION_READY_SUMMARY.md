@@ -60,9 +60,9 @@
 **Environment Variables**:
 ```env
 # AI Configuration
-AI_PROVIDER=ollama
-OLLAMA_API_URL=http://localhost:11434
+AI_PROVIDER=openai
 OPENAI_API_KEY=sk-...
+# BASE_CONFIG_PATH=/opt/base_configs
 
 # Admin / Auth
 ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
@@ -180,8 +180,7 @@ ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 # JWT_SECRET=your-secret-here
 
 # AI Configuration (optional)
-AI_PROVIDER=ollama
-OLLAMA_API_URL=http://localhost:11434
+AI_PROVIDER=openai
 ```
 
 ---

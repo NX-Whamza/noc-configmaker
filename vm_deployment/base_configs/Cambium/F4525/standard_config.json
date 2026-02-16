@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "source": "noc-configmaker embedded base config",
+    "note": "Replace with engineering-approved standard_config.json for production."
+  },
+  "device_props": {}
+}

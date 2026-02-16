@@ -1,0 +1,13 @@
+﻿hostname: RTR-7250
+router_name: RTR-7250
+site_name: SITE-7250
+system_ip: 10.0.0.1/32
+location: "0.000000, 0.000000"
+backhauls: []
+uplinks: []
+other_ips: []
+asn: 26077
+peer1_name: CR7
+peer2_name: CR8
+peer1_address: 10.2.0.107
+peer2_address: 10.2.0.108

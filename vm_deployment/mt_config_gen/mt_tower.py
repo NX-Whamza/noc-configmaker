@@ -139,11 +139,15 @@ class MTTowerConfig:
             self.cpe_subnet = IPNetwork(params["cpe_subnet"])
             self.unauth_subnet = IPNetwork(params["unauth_subnet"])
             self.cgn_priv_subnet = IPNetwork(params["cgn_priv"])
-            self.cgn_pub = params["cgn_pub"]
+            self.cgn_pub = str(params["cgn_pub"]).strip()
+            if "/" not in self.cgn_pub:
+                self.cgn_pub = f"{self.cgn_pub}/32"
+            self.cgn_pub_subnet = IPNetwork(self.cgn_pub)
             self.tower_name = params["tower_name"]
             self.latitude = params["latitude"]
             self.longitude = params["longitude"]
             self.state_code = params["state_code"]
+            self.deployment_mode = str(params.get("deployment_mode", "out-of-state")).strip().lower()
             self.asn = params["asn"]
             self.peer_1_address = params["peer_1_address"]
             self.peer_1_name = params["peer_1_name"]
@@ -271,20 +275,25 @@ class MTTowerConfig:
         params["bgp_md5_key"] = os.getenv("NEXTLINK_BGP_MD5_KEY", "m8M5JwvdYM")
         params["ospf_md5_key"] = os.getenv("NEXTLINK_OSPF_MD5_KEY", "m8M5JwvdYM")
         params["cgn_pub"] = self.cgn_pub
+        params["cgn_pub_ip"] = str(self.cgn_pub_subnet.ip)
+        params["cgn_pub_sub"] = self.cgn_pub_subnet.prefixlen
+        params["cgn_pub_network"] = str(self.cgn_pub_subnet.network)
         params["cgn_priv"] = self.cgn_priv_subnet
         params["gps"] = f"{self.latitude}, {self.longitude}"
         params["state_code"] = self.state_code
+        params["deployment_mode"] = self.deployment_mode
+        params["use_lan_bridge"] = self.deployment_mode != "out-of-state"
 
         params["unauth_ip"] = str(self.unauth_subnet.network + 1)
         params["unauth_ip_sub"] = self.unauth_subnet.prefixlen
         params["unauth_net"] = self.unauth_subnet
         params["unauth_range_low"] = str(self.unauth_subnet.network + 2)
-        params["unauth_range_high"] = str(self.unauth_subnet.network + 1022)
+        params["unauth_range_high"] = str(self.unauth_subnet.broadcast - 1)
 
         params["gateway_ip"] = str(self.gateway.network + 1)
         params["cgn_priv_ip"] = str(self.cgn_priv_subnet.network + 1)
         params["cgn_priv_range_low"] = str(self.cgn_priv_subnet.network + 3)
-        params["cgn_priv_range_high"] = str(self.cgn_priv_subnet.network + 1022)
+        params["cgn_priv_range_high"] = str(self.cgn_priv_subnet.broadcast - 1)
         params["cgn_priv_net"] = self.cgn_priv_subnet
         params["cgn_priv_sub"] = self.cgn_priv_subnet.prefixlen
         params["enable_contractor_login"] = self.enable_contractor_login
@@ -366,7 +375,10 @@ class MTTowerConfig:
             params = {}
 
         params["six_ghz_network"] = self.six_ghz_subnet.network
-        params["six_ghz_address"] = self.six_ghz_subnet
+        params["six_ghz_address"] = str(self.six_ghz_subnet.network + 1)
+        params["six_ghz_prefixlen"] = self.six_ghz_subnet.prefixlen
+        params["six_ghz_range_low"] = str(self.six_ghz_subnet.network + 2)
+        params["six_ghz_range_high"] = str(self.six_ghz_subnet.broadcast - 1)
 
         return params
 
@@ -375,7 +387,10 @@ class MTTowerConfig:
             params = {}
 
         params["ub_wave_network"] = self.ub_wave_subnet.network
-        params["ub_wave_address"] = self.ub_wave_subnet
+        params["ub_wave_address"] = str(self.ub_wave_subnet.network + 1)
+        params["ub_wave_prefixlen"] = self.ub_wave_subnet.prefixlen
+        params["ub_wave_range_low"] = str(self.ub_wave_subnet.network + 2)
+        params["ub_wave_range_high"] = str(self.ub_wave_subnet.broadcast - 1)
 
         return params
 
@@ -412,9 +427,9 @@ class MTTowerConfig:
         params["cpe_network"] = self.cpe_subnet.network
         params["cpe_gateway"] = self.cpe_subnet.network + 1
         params["cpe_range_low"] = str(self.cpe_subnet.network + 50)
-        params["cpe_range_high"] = str(self.cpe_subnet.network + 1022)
+        params["cpe_range_high"] = str(self.cpe_subnet.broadcast - 1)
         params["vlan_4000_cpe_range_low"] = str(self.cpe_subnet.network + 50)
-        params["vlan_4000_cpe_range_high"] = str(self.cpe_subnet.network + 254)
+        params["vlan_4000_cpe_range_high"] = str(self.cpe_subnet.broadcast - 1)
         params["cpe_mask_bits"] = self.cpe_subnet.netmask.netmask_bits()
         params["cpe_mask"] = str(self.cpe_subnet.netmask)
         params["cpe_ups"] = str(self.cpe_subnet.network + 2)
@@ -426,6 +441,16 @@ class MTTowerConfig:
         return params
 
     def generate_config(self):
+        def _normalize_block_spacing(text: str) -> str:
+            lines = text.splitlines()
+            out: list[str] = []
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith("/") and out and out[-1].strip() != "":
+                    out.append("")
+                out.append(line.rstrip())
+            return "\n".join(out).rstrip() + "\n"
+
         params = self.get_base_params()
         params = self.get_backhaul_params(params)
         params = self.get_cpe_params(params)
@@ -451,20 +476,21 @@ class MTTowerConfig:
             r'\n\1',
             config_text,
         )
+        config_text = _normalize_block_spacing(config_text)
 
         # Compatibility guard: if external templates omit feature stanzas, append them.
         if self.is_6ghz and "comment=6GHZ" not in config_text:
             config_text += (
                 f"\n\n# 6GHz management network (auto-appended)\n"
                 f"/ip address\n"
-                f"add address={self.six_ghz_subnet.ip}/{self.six_ghz_subnet.prefixlen} "
+                f"add address={self.six_ghz_subnet.network + 1}/{self.six_ghz_subnet.prefixlen} "
                 f"interface=bridge3000 network={self.six_ghz_subnet.network} comment=6GHZ\n"
             )
         if self.is_ub_wave and "comment=UB-WAVE" not in config_text:
             config_text += (
                 f"\n\n# UB WAVE management network (auto-appended)\n"
                 f"/ip address\n"
-                f"add address={self.ub_wave_subnet.ip}/{self.ub_wave_subnet.prefixlen} "
+                f"add address={self.ub_wave_subnet.network + 1}/{self.ub_wave_subnet.prefixlen} "
                 f"interface=bridge3000 network={self.ub_wave_subnet.network} comment=UB-WAVE\n"
             )
 

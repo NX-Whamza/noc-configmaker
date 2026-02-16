@@ -1,0 +1,45 @@
+[
+    {
+        "router_type": "",
+        "loop_ip": "",
+        "tower_name": "",
+        "gateway": "",
+        "latitude": "",
+        "longitude": "",
+        "state_code": "",
+        "bng_1_ip": "",
+        "bng_2_ip": "",
+        "ospf_area": "",
+        "vlan_1000_cisco": "",
+        "vlan_2000_cisco": "",
+        "vlan_3000_cisco": "",
+        "vlan_4000_cisco": "",
+        "mpls_mtu": "",
+        "vpls_l2_mtu": "",
+        "is_switchless": false,
+        "switch_ip": "",
+        "is_lte": true,
+        "bbu_s1_subnet": "",
+        "bbu_mgmt_subnet": "",
+        "is_tarana": true,
+        "tarana_subnet": "",
+        "tarana_sector_count": 3,
+        "tarana_sector_start": 0,
+        "is_326": true,
+        "is_6ghz": true,
+        "backhauls": [
+            {
+                "name": "",
+                "subnet": "",
+                "master": true,
+                "port": "sfp-sfpplus1"
+            },
+            {
+                "name": "",
+                "subnet": "",
+                "master": true,
+                "port": "sfp-sfpplus2"
+            }
+        ]
+    }
+]

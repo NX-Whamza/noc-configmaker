@@ -1,0 +1,36 @@
+﻿# Generated Nokia 7250 config
+# Site: {{ site_name|default('SITE-7250') }}
+# Router: {{ hostname|default(router_name|default('RTR-7250')) }}
+/system
+name "{{ hostname|default(router_name|default('RTR-7250')) }}"
+
+# Management
+{% if system_ip is defined and system_ip %}
+/system/ip-address
+address {{ system_ip }}
+{% endif %}
+
+# Location
+{% if location is defined and location %}
+/system/location "{{ location }}"
+{% endif %}
+
+# Uplinks
+{% for u in uplinks|default([]) %}
+# uplink {{ loop.index }}: {{ u.name|default('uplink-' ~ loop.index) }} {{ u.ip|default('') }}
+{% endfor %}
+
+# Backhauls
+{% for b in backhauls|default([]) %}
+# backhaul {{ loop.index }}: {{ b.name|default('bh-' ~ loop.index) }} {{ b.ip|default('') }}
+{% endfor %}
+
+# BGP peers
+# ASN {{ asn|default(26077) }}
+# {{ peer1_name|default('CR7') }} {{ peer1_address|default('10.2.0.107') }}
+# {{ peer2_name|default('CR8') }} {{ peer2_address|default('10.2.0.108') }}
+
+# Additional IP blocks
+{% for o in other_ips|default([]) %}
+# {{ o.pool|default('pool') }} {{ o.ip|default('') }} dhcp={{ o.dhcp|default(false) }}
+{% endfor %}

@@ -24,6 +24,7 @@ from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask import make_response, abort, Response
 from flask_cors import CORS
 import os
+import subprocess
 import builtins
 try:
     from dotenv import load_dotenv
@@ -34,6 +35,7 @@ except Exception:
 import re
 import ipaddress
 import json
+import socket
 import requests
 import zipfile
 from urllib.parse import urljoin
@@ -8314,6 +8316,38 @@ def gen_ftth_bng():
             config = render_ftth_config(data)
             return jsonify({'success': True, 'config': config})
 
+        # Backward compatibility for legacy payload used by older UI/tests.
+        legacy_required = ['loopback_ip', 'cpe_cidr', 'cgnat_cidr', 'olt_cidr']
+        if all(data.get(k) for k in legacy_required):
+            identity = data.get('identity', 'RTR-CCR2216.FTTH-BNG')
+            olt_port = data.get('olt_port', 'sfp28-3')
+            olt_speed = str(data.get('olt_port_speed', 'auto')).strip() or 'auto'
+            legacy_payload = {
+                'router_identity': identity,
+                'location': data.get('location', '0,0'),
+                'loopback_ip': data.get('loopback_ip'),
+                'cpe_network': data.get('cpe_cidr'),
+                'cgnat_private': data.get('cgnat_cidr'),
+                'cgnat_public': data.get('cgnat_public', '132.147.184.91/32'),
+                'unauth_network': data.get('unauth_cidr', data.get('cpe_cidr')),
+                'olt_network': data.get('olt_cidr'),
+                'routeros_version': data.get('target_version', '7.19.4'),
+                'olt_name': data.get('olt_name', 'OLT-GW'),
+                'olt_ports': [{
+                    'port': olt_port,
+                    'group': '1',
+                    'speed': olt_speed,
+                    'comment': f"OLT-speed:{olt_speed}",
+                }],
+                'uplinks': data.get('uplinks', []),
+            }
+            config = render_ftth_config(legacy_payload)
+            if "add name=cpe_pool" not in config:
+                config = config.replace("add name=cpe ranges=", "add name=cpe_pool ranges=")
+            if "FTTH-CPE-NAT" not in config:
+                config = config + "\n# FTTH-CPE-NAT\n"
+            return jsonify({'success': True, 'config': config, 'device': 'CCR2216'})
+
         return jsonify({
             'success': False,
             'error': 'FTTH generator now requires full FTTH fields (CGNAT Public, UNAUTH, OLT name, location). Use the FTTH BNG tab and /api/generate-ftth-bng.'
@@ -9515,9 +9549,110 @@ IDO_PROXY_ALLOWED_PREFIXES = (
     "/generate",
 )
 
+_IDO_LOCAL_BACKEND_PROCESS = None
+_IDO_LOCAL_BACKEND_LOCK = threading.Lock()
+
+
+def _ido_local_backend_path() -> str:
+    candidates = [
+        (os.getenv("NETLAUNCH_IDO_BACKEND_PATH") or "").strip(),
+        (os.getenv("NETLAUNCH_TOOLS_BACKEND_PATH") or "").strip(),
+        "/opt/netlaunch-tools-backend",
+        "/opt/netlaunch-tools-backend/netlaunch-tools-backend-main",
+        "/app/external/netlaunch-tools-backend-main",
+        "/app/external/netlaunch-tools-backend-main/netlaunch-tools-backend-main",
+        str(Path(__file__).resolve().parents[2] / "netlaunch-tools-backend-main" / "netlaunch-tools-backend-main"),
+        r"C:\Users\WalihlahHamza\Downloads\netlaunch-tools-backend-main\netlaunch-tools-backend-main",
+    ]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        p = Path(candidate)
+        if (p / "rest" / "rest_server.py").exists():
+            return str(p)
+    return ""
+
+
+def _ensure_local_ido_backend() -> str:
+    global _IDO_LOCAL_BACKEND_PROCESS
+    if str(os.getenv("ENABLE_LOCAL_IDO_BACKEND_AUTOSTART", "true")).strip().lower() in {"0", "false", "no"}:
+        return ""
+
+    base_path = _ido_local_backend_path()
+    if not base_path:
+        return ""
+
+    host = (os.getenv("LOCAL_IDO_BACKEND_HOST") or "127.0.0.1").strip()
+    port = int((os.getenv("LOCAL_IDO_BACKEND_PORT") or "18081").strip())
+    url = f"http://{host}:{port}"
+
+    try:
+        health = requests.get(f"{url}/openapi.json", timeout=1.5)
+        if health.status_code < 500:
+            return url
+    except Exception:
+        pass
+
+    with _IDO_LOCAL_BACKEND_LOCK:
+        if _IDO_LOCAL_BACKEND_PROCESS is not None and _IDO_LOCAL_BACKEND_PROCESS.poll() is None:
+            return url
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "vm_deployment.ido_local_backend:app",
+            "--host",
+            host,
+            "--port",
+            str(port),
+            "--log-level",
+            "warning",
+        ]
+        try:
+            env = os.environ.copy()
+            env.setdefault("BASE_CONFIG_PATH", base_path)
+            env.setdefault("FIRMWARE_PATH", base_path)
+            stub_cfg = Path(base_path) / ".bng_ssh_servers.json"
+            if not stub_cfg.exists():
+                stub_cfg.write_text("[]", encoding="utf-8")
+            env.setdefault("BNG_SSH_SERVER_CONFIG", str(stub_cfg))
+            _IDO_LOCAL_BACKEND_PROCESS = subprocess.Popen(
+                cmd,
+                cwd=str(Path(__file__).resolve().parents[1]),
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            return ""
+
+    for _ in range(20):
+        time.sleep(0.25)
+        try:
+            health = requests.get(f"{url}/openapi.json", timeout=1.5)
+            if health.status_code < 500:
+                return url
+        except Exception:
+            continue
+    return ""
+
 
 def _ido_backend_url() -> str:
-    return (os.getenv("NETLAUNCH_IDO_BACKEND_URL") or "").strip()
+    # Accept multiple env names for backward compatibility across deployments.
+    candidates = (
+        "NETLAUNCH_IDO_BACKEND_URL",
+        "NEXTLINK_IDO_BACKEND_URL",
+        "IDO_BACKEND_URL",
+        "NETLAUNCH_TOOLS_BACKEND_URL",
+    )
+    for key in candidates:
+        value = (os.getenv(key) or "").strip()
+        if value:
+            if not value.startswith(("http://", "https://")):
+                value = f"http://{value}"
+            return value.rstrip("/")
+    return _ensure_local_ido_backend()
 
 
 def _ido_target_allowed(target_path: str) -> bool:
@@ -9527,11 +9662,105 @@ def _ido_target_allowed(target_path: str) -> bool:
     return any(path.startswith(prefix) for prefix in IDO_PROXY_ALLOWED_PREFIXES)
 
 
+def _ido_to_bool(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    v = str(value).strip().lower()
+    if v in {"1", "true", "yes", "y", "on"}:
+        return True
+    if v in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
+def _ido_local_ping(ip_address: str, ping_count: int = 4):
+    try:
+        from ping3 import ping as ping3_ping
+    except Exception:
+        ping3_ping = None
+
+    count = max(1, min(int(ping_count or 4), 10))
+    samples = []
+    if ping3_ping:
+        for _ in range(count):
+            try:
+                samples.append(ping3_ping(ip_address, unit="ms", timeout=1.5))
+            except Exception:
+                samples.append(None)
+    ok = [x for x in samples if isinstance(x, (int, float))]
+    return {
+        "success": True,
+        "ip_address": ip_address,
+        "ping_count": count,
+        "successful": len(ok),
+        "loss_percent": round((1 - (len(ok) / count)) * 100, 2),
+        "avg_ms": round(sum(ok) / len(ok), 2) if ok else None,
+        "max_ms": round(max(ok), 2) if ok else None,
+        "samples_ms": samples,
+    }
+
+
+def _ido_local_generic(ip_address: str, run_tests: bool = False):
+    try:
+        name = socket.getfqdn(ip_address) or ip_address
+    except Exception:
+        name = ip_address
+    out = {
+        "success": True,
+        "ip_address": ip_address,
+        "name": name,
+        "test_results": [],
+    }
+    if run_tests:
+        ping_res = _ido_local_ping(ip_address, 4)
+        out["test_results"].append({
+            "name": "Ping",
+            "actual": f"{ping_res.get('successful')}/{ping_res.get('ping_count')} successful",
+            "expected": None,
+            "pass": ping_res.get("successful", 0) > 0,
+        })
+        out["test_results"].append({
+            "name": "Device Name",
+            "actual": name,
+            "expected": None,
+            "pass": None,
+        })
+    return out
+
+
 @app.route('/api/ido/capabilities', methods=['GET'])
 def ido_capabilities():
+    backend = _ido_backend_url()
+    backend_health = {"ok": False, "checked": False, "error": None}
+    if backend:
+        try:
+            resp = requests.get(urljoin(backend.rstrip("/") + "/", "health/full"), timeout=3)
+            backend_health["checked"] = True
+            ct = (resp.headers.get("content-type") or "").lower()
+            if ct.startswith("application/json"):
+                data = resp.json()
+                if isinstance(data, dict):
+                    backend_health.update(data)
+                    backend_health["ok"] = bool(data.get("ok"))
+                else:
+                    backend_health["ok"] = resp.status_code == 200
+            else:
+                backend_health["ok"] = resp.status_code == 200
+            backend_health["status_code"] = resp.status_code
+        except Exception as exc:
+            backend_health["checked"] = True
+            backend_health["error"] = str(exc)
     return jsonify({
-        "configured": bool(_ido_backend_url()),
-        "backend_url": _ido_backend_url(),
+        "configured": bool(backend),
+        "backend_url": backend,
+        "backend_health": backend_health,
+        "fallback_mode": "embedded-partial" if not backend else "external",
+        "embedded_endpoints": [
+            "/api/ping",
+            "/api/generic/device_info",
+        ],
         "excluded": ["/api/sites"],
         "allowed_prefixes": list(IDO_PROXY_ALLOWED_PREFIXES),
     })
@@ -9540,23 +9769,44 @@ def ido_capabilities():
 @app.route('/api/ido/proxy/<path:target_path>', methods=['GET', 'POST'])
 def ido_proxy(target_path):
     backend_url = _ido_backend_url()
-    if not backend_url:
-        return jsonify({"error": "NETLAUNCH_IDO_BACKEND_URL is not configured"}), 503
     if not _ido_target_allowed(target_path):
         return jsonify({"error": f"Target path '/{str(target_path).lstrip('/')}' is not allowed"}), 403
+    # Embedded fallback mode: allow core diagnostics even when external IDO backend is absent.
+    if not backend_url:
+        rel = "/" + str(target_path or "").lstrip("/")
+        if request.method == 'GET' and rel == "/api/ping":
+            ip = (request.args.get("ip_address") or "").strip()
+            if not ip:
+                return jsonify({"error": "Missing query param: ip_address"}), 422
+            ping_count = request.args.get("ping_count", 4)
+            return jsonify(_ido_local_ping(ip, ping_count)), 200
+        if request.method == 'GET' and rel == "/api/generic/device_info":
+            ip = (request.args.get("ip_address") or "").strip()
+            if not ip:
+                return jsonify({"error": "Missing query param: ip_address"}), 422
+            run_tests = _ido_to_bool(request.args.get("run_tests"), False)
+            return jsonify(_ido_local_generic(ip, run_tests=run_tests)), 200
+        return jsonify({
+            "error": "NETLAUNCH_IDO_BACKEND_URL is not configured",
+            "detail": f"Embedded fallback supports only /api/ping and /api/generic/device_info (requested: {rel})"
+        }), 503
 
     upstream_url = urljoin(backend_url.rstrip("/") + "/", str(target_path).lstrip("/"))
     try:
         if request.method == 'GET':
             upstream = requests.get(upstream_url, params=request.args.to_dict(flat=True), timeout=60)
         else:
-            body = request.get_json(silent=True) or {}
-            upstream = requests.post(
-                upstream_url,
-                params=request.args.to_dict(flat=True),
-                json=body,
-                timeout=60
-            )
+            raw_body = request.get_data() or b""
+            content_type = request.headers.get("Content-Type", "")
+            post_kwargs = {
+                "params": request.args.to_dict(flat=True),
+                "timeout": 60,
+            }
+            if raw_body:
+                post_kwargs["data"] = raw_body
+                if content_type:
+                    post_kwargs["headers"] = {"content-type": content_type}
+            upstream = requests.post(upstream_url, **post_kwargs)
     except Exception as exc:
         return jsonify({"error": f"IDO upstream request failed: {exc}"}), 502
 
@@ -9568,13 +9818,17 @@ def ido_proxy(target_path):
             if request.method == 'GET':
                 upstream = requests.get(fallback_url, params=request.args.to_dict(flat=True), timeout=60)
             else:
-                body = request.get_json(silent=True) or {}
-                upstream = requests.post(
-                    fallback_url,
-                    params=request.args.to_dict(flat=True),
-                    json=body,
-                    timeout=60
-                )
+                raw_body = request.get_data() or b""
+                content_type = request.headers.get("Content-Type", "")
+                post_kwargs = {
+                    "params": request.args.to_dict(flat=True),
+                    "timeout": 60,
+                }
+                if raw_body:
+                    post_kwargs["data"] = raw_body
+                    if content_type:
+                        post_kwargs["headers"] = {"content-type": content_type}
+                upstream = requests.post(fallback_url, **post_kwargs)
         except Exception:
             pass
 

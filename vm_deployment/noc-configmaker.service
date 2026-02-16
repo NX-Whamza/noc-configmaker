@@ -10,7 +10,7 @@ Group=__SERVICE_USER__
 WorkingDirectory=__INSTALL_DIR__
 Environment="PATH=__INSTALL_DIR__/venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONUNBUFFERED=1"
-ExecStart=__INSTALL_DIR__/venv/bin/python3 __INSTALL_DIR__/api_server.py
+ExecStart=__INSTALL_DIR__/venv/bin/uvicorn --app-dir __INSTALL_DIR__/vm_deployment fastapi_server:app --host 0.0.0.0 --port 5000
 Restart=always
 RestartSec=10
 StandardOutput=journal
