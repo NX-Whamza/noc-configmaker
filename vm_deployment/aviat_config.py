@@ -115,7 +115,7 @@ class Config:
     firmware_ping_timeout: int = int(os.getenv("AVIAT_PING_TIMEOUT", "3900"))
     firmware_ping_payload: int = int(os.getenv("AVIAT_PING_PAYLOAD", "1400"))
     firmware_post_activation_wait: int = int(os.getenv("AVIAT_POST_ACTIVATION_WAIT", "3900"))
-    firmware_ping_check_interval: int = int(os.getenv("AVIAT_PING_CHECK_INTERVAL", "900"))
+    firmware_ping_check_interval: int = int(os.getenv("AVIAT_PING_CHECK_INTERVAL", "60"))
     firmware_ping_max_wait: int = int(os.getenv("AVIAT_PING_MAX_WAIT", "3600"))
     sop_recheck_attempts: int = int(os.getenv("AVIAT_SOP_RECHECK_ATTEMPTS", "3"))
     sop_recheck_delay: int = int(os.getenv("AVIAT_SOP_RECHECK_DELAY", "3"))
@@ -1078,6 +1078,35 @@ def wait_until_activation(
     return True
 
 
+def _restart_device_after_activation(client: AviatSSHClient, callback=None) -> Tuple[bool, str]:
+    """Explicitly restart the radio after activation so inactive firmware becomes active."""
+    log(f"  [{client.ip}] Restarting device to apply activated firmware...", "info", callback=callback)
+    try:
+        output = client.send_command(
+            "restart",
+            wait_for=['#', '>', ':', ']', '?', '[no,yes]'],
+            timeout=15,
+        )
+        log(f"  [{client.ip}]   > restart", "info", callback=callback)
+        lowered = (output or "").lower()
+        if "are you sure" in lowered or "[no,yes]" in lowered:
+            try:
+                confirm = client.send_command("yes", wait_for=['#', '>', ':', ']', '?'], timeout=12)
+                output = (output or "") + "\n" + (confirm or "")
+            except Exception:
+                # Connection often drops immediately after confirmation; treat as expected reboot start.
+                return True, "Firmware activated; restart initiated"
+        if "invalid input" in lowered or "syntax error" in lowered:
+            return False, f"Restart command rejected: {(output or '').strip()[-200:]}"
+        return True, "Firmware activated; restart initiated"
+    except Exception as exc:
+        # SSH session may drop instantly when restart is accepted.
+        text = str(exc).lower()
+        if any(k in text for k in ("socket", "closed", "reset", "eof", "timed out", "timeout")):
+            return True, "Firmware activated; restart initiated"
+        return False, f"Restart failed: {exc}"
+
+
 def activate_firmware(client: AviatSSHClient, callback=None) -> Tuple[bool, str]:
     log(f"  [{client.ip}] Activating firmware...", "info", callback=callback)
     output = client.send_command("software activate", wait_for=['#', '>', ':', ']', '?'], timeout=20)
@@ -1087,13 +1116,22 @@ def activate_firmware(client: AviatSSHClient, callback=None) -> Tuple[bool, str]
         confirm = client.send_command("yes", wait_for=['#', '>', ':', ']', '?'], timeout=20)
         output = (output or "") + "\n" + (confirm or "")
         lowered = output.lower()
+    if "no software ready to activate" in lowered:
+        try:
+            status_output = client.send_command("show software-status status", timeout=10)
+            status_lowered = (status_output or "").lower()
+            if "software-status status activate" in status_lowered:
+                return _restart_device_after_activation(client, callback=callback)
+        except Exception:
+            pass
+        return False, "Firmware activation failed: no software ready to activate"
+
     if re.search(r"\b(activat(ing|ion)|scheduled|reboot|restarting)\b", lowered) or "resp activating" in lowered:
-        return True, "Firmware activation started"
+        return _restart_device_after_activation(client, callback=callback)
     if not (output or "").strip():
-        return True, "Activation initiated (no response)"
+        return _restart_device_after_activation(client, callback=callback)
     tail = (output or "").strip().replace("\r", "")[-200:]
     return False, f"Firmware activation failed: {tail}"
-    return True, "Firmware activation started"
 
 
 def _load_sop_checks() -> List[Dict[str, Any]]:
