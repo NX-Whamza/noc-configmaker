@@ -733,7 +733,9 @@ def get_firmware_version(client: AviatSSHClient, callback=None) -> Optional[str]
     ]
     version = None
     last_output = ""
-    retries = 2
+    # Post-reboot radios can briefly return "% No entries found." before
+    # software-status repopulates; allow a longer settle window.
+    retries = 8
     for attempt in range(retries + 1):
         for command in commands:
             output = client.send_command(command)
@@ -750,7 +752,7 @@ def get_firmware_version(client: AviatSSHClient, callback=None) -> Optional[str]
             break
         if attempt < retries:
             log(f"  [{client.ip}] Firmware version not ready; retrying...", "warning", callback=callback)
-            time.sleep(2)
+            time.sleep(5)
     if version and version != "0.0.0":
         log(f"  [{client.ip}] Detected firmware {version}", "info", callback=callback)
         return version
@@ -1804,9 +1806,31 @@ def process_radio(
                         return result
                     current_version = get_firmware_version(client, callback=callback)
                     result.firmware_version_after = current_version
+                    if not current_version:
+                        log(
+                            f"[{ip}] Firmware version unavailable after reboot; keeping radio in loading queue for deferred verification.",
+                            "warning",
+                            callback=callback,
+                        )
+                        result.status = "loading"
+                        result.success = True
+                        stage("VERSION_DEFERRED")
+                        log(f"[{ip}] WORKFLOW: " + " -> ".join(stages), "info", callback=callback)
+                        return result
 
             if baseline_needed and result.firmware_activated:
                 current_version = get_firmware_version(client, callback=callback)
+                if not current_version:
+                    log(
+                        f"[{ip}] Firmware version unavailable after activation reboot; deferring verification.",
+                        "warning",
+                        callback=callback,
+                    )
+                    result.status = "loading"
+                    result.success = True
+                    stage("VERSION_DEFERRED")
+                    log(f"[{ip}] WORKFLOW: " + " -> ".join(stages), "info", callback=callback)
+                    return result
                 if _version_tuple(current_version) < _version_tuple(
                     CONFIG.firmware_final_version
                 ):
@@ -1856,6 +1880,17 @@ def process_radio(
                     result.error = "Device did not recover within 60 minutes after activation"
                     return result
                 current_version = get_firmware_version(client, callback=callback)
+                if not current_version:
+                    log(
+                        f"[{ip}] Firmware version unavailable after activation reboot; deferring verification.",
+                        "warning",
+                        callback=callback,
+                    )
+                    result.status = "loading"
+                    result.success = True
+                    stage("VERSION_DEFERRED")
+                    log(f"[{ip}] WORKFLOW: " + " -> ".join(stages), "info", callback=callback)
+                    return result
                 if _version_tuple(current_version) < _version_tuple(
                     CONFIG.firmware_final_version
                 ):
