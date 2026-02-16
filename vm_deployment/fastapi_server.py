@@ -159,10 +159,20 @@ def _ido_backend_url() -> str:
                     env.setdefault("RPC_STANDARD_PW", ssh_pw)
                     env.setdefault("CNMATRIX_STANDARD_PW", ssh_pw)
                     env.setdefault("WAVE_AP_PASS", ssh_pw)
-                stub_cfg = Path(base_path) / ".bng_ssh_servers.json"
-                if not stub_cfg.exists():
-                    stub_cfg.write_text("[]", encoding="utf-8")
-                env.setdefault("BNG_SSH_SERVER_CONFIG", str(stub_cfg))
+                configured_stub = (env.get("BNG_SSH_SERVER_CONFIG") or "").strip()
+                if configured_stub:
+                    env.setdefault("BNG_SSH_SERVER_CONFIG", configured_stub)
+                else:
+                    backend_stub = Path(base_path) / ".bng_ssh_servers.json"
+                    if backend_stub.exists():
+                        env.setdefault("BNG_SSH_SERVER_CONFIG", str(backend_stub))
+                    else:
+                        runtime_dir = Path(env.get("NOC_RUNTIME_DIR") or "/tmp")
+                        runtime_dir.mkdir(parents=True, exist_ok=True)
+                        runtime_stub = runtime_dir / "bng_ssh_servers.json"
+                        if not runtime_stub.exists():
+                            runtime_stub.write_text("[]", encoding="utf-8")
+                        env.setdefault("BNG_SSH_SERVER_CONFIG", str(runtime_stub))
                 local_proc = subprocess.Popen(
                     cmd,
                     cwd=str(Path(__file__).resolve().parents[1]),

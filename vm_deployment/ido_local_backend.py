@@ -46,10 +46,26 @@ if BACKEND_PATH:
         os.environ.setdefault("RPC_STANDARD_PW", _ssh_pw)
         os.environ.setdefault("CNMATRIX_STANDARD_PW", _ssh_pw)
         os.environ.setdefault("WAVE_AP_PASS", _ssh_pw)
-    stub_cfg = Path(BACKEND_PATH) / ".bng_ssh_servers.json"
-    if not stub_cfg.exists():
-        stub_cfg.write_text("[]", encoding="utf-8")
-    os.environ.setdefault("BNG_SSH_SERVER_CONFIG", str(stub_cfg))
+    # BNG_SSH_SERVER_CONFIG may point into a read-only bind mount in Docker.
+    # Prefer existing file in backend path, otherwise create a writable runtime stub.
+    try:
+        configured_stub = (os.getenv("BNG_SSH_SERVER_CONFIG") or "").strip()
+        if configured_stub:
+            os.environ.setdefault("BNG_SSH_SERVER_CONFIG", configured_stub)
+        else:
+            backend_stub = Path(BACKEND_PATH) / ".bng_ssh_servers.json"
+            if backend_stub.exists():
+                os.environ.setdefault("BNG_SSH_SERVER_CONFIG", str(backend_stub))
+            else:
+                runtime_dir = Path(os.getenv("NOC_RUNTIME_DIR", "/tmp"))
+                runtime_dir.mkdir(parents=True, exist_ok=True)
+                runtime_stub = runtime_dir / "bng_ssh_servers.json"
+                if not runtime_stub.exists():
+                    runtime_stub.write_text("[]", encoding="utf-8")
+                os.environ.setdefault("BNG_SSH_SERVER_CONFIG", str(runtime_stub))
+    except Exception:
+        # Keep startup resilient; downstream modules can handle missing file.
+        pass
 
 app = FastAPI(title="IDO Local Backend", version="1.0")
 
