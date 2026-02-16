@@ -1812,7 +1812,7 @@ def process_radio(
                             "warning",
                             callback=callback,
                         )
-                        result.status = "loading"
+                        result.status = "pending_verify"
                         result.success = True
                         stage("VERSION_DEFERRED")
                         log(f"[{ip}] WORKFLOW: " + " -> ".join(stages), "info", callback=callback)
@@ -1826,7 +1826,7 @@ def process_radio(
                         "warning",
                         callback=callback,
                     )
-                    result.status = "loading"
+                    result.status = "pending_verify"
                     result.success = True
                     stage("VERSION_DEFERRED")
                     log(f"[{ip}] WORKFLOW: " + " -> ".join(stages), "info", callback=callback)
@@ -1886,7 +1886,7 @@ def process_radio(
                         "warning",
                         callback=callback,
                     )
-                    result.status = "loading"
+                    result.status = "pending_verify"
                     result.success = True
                     stage("VERSION_DEFERRED")
                     log(f"[{ip}] WORKFLOW: " + " -> ".join(stages), "info", callback=callback)

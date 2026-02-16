@@ -390,7 +390,7 @@ def _aviat_status_from_result(result):
     success = result.get("success")
     if status == "reboot_required":
         return "reboot_required"
-    if status in ("scheduled", "manual", "loading"):
+    if status in ("scheduled", "manual", "loading", "pending_verify"):
         return status
     if status == "aborted":
         return "aborted"
@@ -398,7 +398,9 @@ def _aviat_status_from_result(result):
         return "success"
     return "error"
 
-def _aviat_substatus(flag, scheduled=False, loading=False):
+def _aviat_substatus(flag, scheduled=False, loading=False, pending_verify=False):
+    if pending_verify:
+        return "pending_verify"
     if loading:
         return "loading"
     if scheduled:
@@ -434,6 +436,7 @@ def _aviat_queue_update_from_result(result, username=None):
             result.get("firmware_downloaded") or result.get("firmware_activated"),
             scheduled=result.get("firmware_scheduled"),
             loading=status == "loading",
+            pending_verify=status == "pending_verify",
         ),
         "passwordStatus": _aviat_substatus(result.get("password_changed")),
         "snmpStatus": _aviat_substatus(result.get("snmp_configured")),
@@ -735,7 +738,7 @@ def _aviat_activate_entries(task_id, to_activate, username=None):
                 _aviat_result_dict(result, username=entry.get("username") or username),
                 username=entry.get("username") or username,
             )
-            if result.status == "loading":
+            if result.status in ("loading", "pending_verify"):
                 aviat_loading_queue.append({
                     "ip": ip,
                     "remaining_tasks": remaining_tasks,
@@ -747,8 +750,8 @@ def _aviat_activate_entries(task_id, to_activate, username=None):
                 })
                 _aviat_save_loading_queue()
                 _aviat_queue_upsert(ip, {
-                    "status": "loading",
-                    "firmwareStatus": "loading",
+                    "status": result.status,
+                    "firmwareStatus": "pending_verify" if result.status == "pending_verify" else "loading",
                     "username": entry.get("username") or username or "aviat-tool",
                 })
                 _aviat_save_shared_queue()
@@ -11857,7 +11860,7 @@ def get_activity():
 
 def _aviat_should_log(result):
     status = (result or {}).get('status')
-    if status in ('scheduled', 'manual', 'aborted', 'loading', 'reboot_required', 'reboot_pending', 'rebooting'):
+    if status in ('scheduled', 'manual', 'aborted', 'loading', 'pending_verify', 'reboot_required', 'reboot_pending', 'rebooting'):
         return False
     return True
 
@@ -11980,7 +11983,7 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
     if activation_mode == "scheduled":
         remaining_tasks = _aviat_clean_remaining_tasks([t for t in task_types if t != "all"])
         for res in results:
-            if res.get("status") == "loading":
+            if res.get("status") in ("loading", "pending_verify"):
                 aviat_loading_queue.append({
                     "ip": res["ip"],
                     "remaining_tasks": remaining_tasks,
@@ -11991,8 +11994,8 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
                     "started_at": datetime.utcnow().isoformat() + "Z",
                 })
                 _aviat_queue_upsert(res["ip"], {
-                    "status": "loading",
-                    "firmwareStatus": "loading",
+                    "status": res.get("status"),
+                    "firmwareStatus": "pending_verify" if res.get("status") == "pending_verify" else "loading",
                     "username": username or "aviat-tool",
                 })
             elif res.get("status") == "scheduled":

@@ -2291,6 +2291,10 @@
             background: rgba(155, 89, 182, 0.18);
             color: #d7b7f1;
         }
+        .aviat-status-badge.pending_verify {
+            background: rgba(14, 165, 233, 0.18);
+            color: #bae6fd;
+        }
         .aviat-status-badge.reboot_required,
         .aviat-status-badge.reboot_pending {
             background: rgba(245, 158, 11, 0.18);
@@ -23432,7 +23436,7 @@ Ready for translation!`);
             function aviatNormalizeStatus(status, successFlag) {
                 if (!status) return successFlag ? 'success' : 'pending';
                 const lower = String(status).toLowerCase();
-                if (['success', 'error', 'pending', 'processing', 'loading', 'scheduled', 'manual', 'reboot_required', 'reboot_pending', 'rebooting'].includes(lower)) {
+                if (['success', 'error', 'pending', 'processing', 'loading', 'pending_verify', 'scheduled', 'manual', 'reboot_required', 'reboot_pending', 'rebooting'].includes(lower)) {
                     return lower;
                 }
                 if (['completed', 'done'].includes(lower)) {
@@ -23449,6 +23453,7 @@ Ready for translation!`);
                     pending: '.',
                     processing: '~',
                     loading: 'LD',
+                    pending_verify: 'PV',
                     scheduled: 'S',
                     manual: 'M',
                     reboot_required: 'RB',
@@ -23480,6 +23485,8 @@ Ready for translation!`);
                 if (!['success', 'error', 'processing', 'reboot_required', 'reboot_pending', 'rebooting'].includes(normalized.status)) {
                     if (normalized.firmwareStatus === 'loading') {
                         normalized.status = 'loading';
+                    } else if (normalized.firmwareStatus === 'pending_verify') {
+                        normalized.status = 'pending_verify';
                     } else if (normalized.firmwareStatus === 'scheduled') {
                         normalized.status = 'scheduled';
                     } else if (normalized.sopStatus === 'success') {
@@ -23530,7 +23537,7 @@ Ready for translation!`);
                     total: aviatState.radios.length,
                     pending: aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'pending').length,
                     processing: aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'processing').length,
-                    loading: aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'loading').length,
+                    loading: aviatState.radios.filter(r => ['loading', 'pending_verify'].includes(aviatNormalizeStatus(r.status))).length,
                     scheduled: aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'scheduled').length,
                     success: aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'success').length,
                     error: aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'error').length
