@@ -430,6 +430,7 @@ def _aviat_error_is_transient(error_text):
         "firmware version not ready",
         "failed to parse firmware version",
         "failed to parse inactive firmware version",
+        "no software ready to activate",
     )
     return any(marker in text for marker in markers)
 
