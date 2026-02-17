@@ -773,6 +773,20 @@ def _is_transient_cli_error(exc: Exception) -> bool:
     )
     return any(marker in text for marker in transient_markers)
 
+def _is_transient_processing_error(exc: Exception) -> bool:
+    if _is_transient_cli_error(exc):
+        return True
+    text = str(exc or "").lower()
+    markers = (
+        "unable to connect to port 22",
+        "connection failed",
+        "connection timeout",
+        "authentication failed",
+        "ssh error",
+        "device did not recover",
+    )
+    return any(marker in text for marker in markers)
+
 
 def get_firmware_version(client: AviatSSHClient, callback=None) -> Optional[str]:
     log(f"  [{client.ip}] Checking firmware version...", "info", callback=callback)
@@ -2148,7 +2162,10 @@ def process_radio(
         # Overall success check
         result.success = True
         if ("firmware" in tasks or "all" in tasks) and not (
-            result.firmware_downloaded or result.firmware_activated or result.firmware_scheduled or result.status in ("loading", "scheduled", "manual")
+            result.firmware_downloaded
+            or result.firmware_activated
+            or result.firmware_scheduled
+            or result.status in ("loading", "scheduled", "manual", "pending_verify", "reboot_pending")
         ):
             result.success = False
         if ("password" in tasks or "all" in tasks) and not result.password_changed:
@@ -2164,10 +2181,25 @@ def process_radio(
         
     except Exception as e:
         result.error = str(e)
-        log(f"[{ip}] ERROR: {e}", "error", callback=callback)
+        upgrade_related = any(t in tasks for t in ("firmware", "activate", "all", "sop"))
+        if upgrade_related and _is_transient_processing_error(e):
+            # During activation/reboot windows, transient SSH/CLI errors are expected.
+            # Keep radios in deferred queue states instead of hard-failing them.
+            if result.status not in ("loading", "scheduled", "manual"):
+                result.status = "pending_verify"
+            result.success = True
+            stage("DEFERRED_TRANSIENT")
+            log(
+                f"[{ip}] Transient device state during upgrade ({e}); deferring verification.",
+                "warning",
+                callback=callback,
+            )
+        else:
+            log(f"[{ip}] ERROR: {e}", "error", callback=callback)
         
     finally:
-        client.close()
+        if client:
+            client.close()
         result.duration = time.time() - start_time
         
     status = "SUCCESS" if result.success else "FAILED"
