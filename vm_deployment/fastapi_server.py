@@ -12,6 +12,9 @@ import socket
 import subprocess
 import threading
 import time
+import sqlite3
+import shutil
+from datetime import datetime
 from urllib.parse import urljoin
 import requests
 from pathlib import Path
@@ -56,6 +59,78 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(api_v2_router)
+
+
+def _str_to_bool(value: str) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _maybe_purge_bad_aviat_logs_on_startup() -> None:
+    """
+    Optional one-shot cleanup for known bad Aviat log entries.
+    Enabled only when AUTO_PURGE_BAD_AVIAT_LOGS=true.
+    """
+    if not _str_to_bool(os.getenv("AUTO_PURGE_BAD_AVIAT_LOGS", "false")):
+        return
+
+    db_path = Path("secure_data") / "activity_log.db"
+    if not db_path.exists():
+        print(f"[ACTIVITY] Auto-purge skipped: DB not found at {db_path}")
+        return
+
+    ts_from = (os.getenv("AUTO_PURGE_BAD_AVIAT_LOGS_FROM") or "").strip()
+    ts_to = (os.getenv("AUTO_PURGE_BAD_AVIAT_LOGS_TO") or "").strip()
+    username = (os.getenv("AUTO_PURGE_BAD_AVIAT_LOGS_USERNAME") or "").strip()
+    fw_value = (os.getenv("AUTO_PURGE_BAD_AVIAT_LOGS_FW") or "0.0.0").strip()
+
+    where = [
+        "activity_type = ?",
+        "success = 0",
+        "routeros_version = ?",
+    ]
+    params = ["aviat-upgrade", fw_value]
+
+    if ts_from:
+        where.append("timestamp >= ?")
+        params.append(ts_from)
+    if ts_to:
+        where.append("timestamp < ?")
+        params.append(ts_to)
+    if username:
+        where.append("username = ?")
+        params.append(username)
+
+    where_sql = " AND ".join(where)
+
+    try:
+        backup_name = f"activity_log.db.bak_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        backup_path = db_path.parent / backup_name
+        shutil.copy2(db_path, backup_path)
+        print(f"[ACTIVITY] Auto-purge backup created: {backup_path}")
+
+        conn = sqlite3.connect(str(db_path))
+        cur = conn.cursor()
+        count_sql = f"SELECT COUNT(*) FROM activities WHERE {where_sql}"
+        cur.execute(count_sql, params)
+        match_count = int(cur.fetchone()[0] or 0)
+        if match_count <= 0:
+            print("[ACTIVITY] Auto-purge: no matching bad Aviat rows found.")
+            conn.close()
+            return
+
+        delete_sql = f"DELETE FROM activities WHERE {where_sql}"
+        cur.execute(delete_sql, params)
+        deleted = cur.rowcount
+        conn.commit()
+        conn.close()
+        print(f"[ACTIVITY] Auto-purge complete: deleted {deleted} bad Aviat rows.")
+    except Exception as exc:
+        print(f"[ACTIVITY] Auto-purge failed: {exc}")
+
+
+@app.on_event("startup")
+def _startup_maintenance() -> None:
+    _maybe_purge_bad_aviat_logs_on_startup()
 
 
 @app.get("/api/runtime")

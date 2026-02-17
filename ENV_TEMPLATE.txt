@@ -92,3 +92,13 @@ ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 # NOC_API_V2_REQUIRE_IDEMPOTENCY=true
 # Idempotency-Key cache retention (seconds)
 # NOC_API_V2_IDEMPOTENCY_TTL_SECONDS=86400
+
+# One-shot Aviat log cleanup on backend startup (optional)
+# Deletes rows from secure_data/activity_log.db that match:
+# activity_type='aviat-upgrade' AND success=0 AND routeros_version=<FW>
+# and optional timestamp/user filters below.
+# AUTO_PURGE_BAD_AVIAT_LOGS=true
+# AUTO_PURGE_BAD_AVIAT_LOGS_FROM=2026-02-02T04:00:00
+# AUTO_PURGE_BAD_AVIAT_LOGS_TO=2026-02-02T05:00:00
+# AUTO_PURGE_BAD_AVIAT_LOGS_USERNAME=whamza
+# AUTO_PURGE_BAD_AVIAT_LOGS_FW=0.0.0
