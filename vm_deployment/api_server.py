@@ -454,7 +454,7 @@ def _aviat_status_from_result(result):
         (result or {}).get(k) is False for k in ("password_changed", "snmp_configured", "buffer_configured")
     )
     hard_precheck_error = any(
-        (result or {}).get(k) is False for k in ("subnet_ok", "license_ok", "stp_ok")
+        (result or {}).get(k) is False for k in ("license_ok", "stp_ok")
     )
     if final_ok and not hard_component_error and not hard_precheck_error:
         return "success"
@@ -577,10 +577,10 @@ def _aviat_queue_update_from_result(result, username=None):
         getattr(AVIAT_CONFIG, "firmware_final_version", "6.1.0")
     )
     hard_component_error = any(
-        updates.get(k) == "error" for k in ("passwordStatus", "snmpStatus", "bufferStatus", "sopStatus")
+        updates.get(k) == "error" for k in ("passwordStatus", "snmpStatus", "bufferStatus")
     )
     hard_precheck_error = any(
-        result.get(k) is False for k in ("subnet_ok", "license_ok", "stp_ok")
+        result.get(k) is False for k in ("license_ok", "stp_ok")
     )
     if updates.get("status") in ("error", "pending_verify", "loading") and final_ok and not hard_component_error and not hard_precheck_error:
         updates["status"] = "success"
@@ -897,16 +897,10 @@ def _aviat_activate_entries(task_id, to_activate, username=None):
                 'firmware_version_after': result.firmware_version_after,
                 'error': result.error
             })
-            _log_aviat_activity({
-                'ip': ip,
-                'username': entry.get("username") or username,
-                'firmware_version_after': result.firmware_version_after,
-                'firmware_version_before': result.firmware_version_before,
-                'success': result.success,
-                'status': result.status
-            })
+            res_dict = _aviat_result_dict(result, username=entry.get("username") or username)
+            _log_aviat_activity(res_dict)
             _aviat_queue_update_from_result(
-                _aviat_result_dict(result, username=entry.get("username") or username),
+                res_dict,
                 username=entry.get("username") or username,
             )
             if result.status in ("loading", "pending_verify"):

@@ -1332,12 +1332,18 @@ def _evaluate_sop(client: AviatSSHClient, callback=None) -> Tuple[bool, List[Dic
 
 
 def run_sop_checks(client: AviatSSHClient, callback=None) -> Tuple[bool, List[Dict[str, Any]]]:
+    def _is_hard_sop_failure(item: Dict[str, Any]) -> bool:
+        name = str(item.get("name") or "").strip().lower()
+        # Subnet is an advisory precheck and should not mark overall upgrade failed.
+        return bool(item.get("pass") is False and name != "subnet mask")
+
     attempts = max(1, CONFIG.sop_recheck_attempts)
     delay = max(0, CONFIG.sop_recheck_delay)
     last_results: List[Dict[str, Any]] = []
     for attempt in range(1, attempts + 1):
         passed, results = _evaluate_sop(client, callback=callback)
         last_results = results
+        passed = not any(_is_hard_sop_failure(item) for item in results)
         if passed:
             break
         if attempt < attempts and delay:
@@ -1348,7 +1354,7 @@ def run_sop_checks(client: AviatSSHClient, callback=None) -> Tuple[bool, List[Di
             )
             time.sleep(delay)
 
-    passed_all = all(item.get("pass") for item in last_results) if last_results else True
+    passed_all = not any(_is_hard_sop_failure(item) for item in last_results) if last_results else True
     for item in last_results:
         log(
             f"  [{client.ip}] SOP check - {item['name']}: {'PASS' if item['pass'] else 'FAIL'}",
