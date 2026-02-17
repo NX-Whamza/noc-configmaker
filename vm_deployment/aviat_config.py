@@ -161,6 +161,8 @@ class RadioResult:
     sop_checked: bool = False
     sop_passed: bool = False
     sop_results: List[Dict[str, Any]] = field(default_factory=list)
+    subnet_ok: Optional[bool] = None
+    subnet_actual: Optional[str] = None
     firmware_version_before: Optional[str] = None
     firmware_version_after: Optional[str] = None
     error: Optional[str] = None
@@ -1021,7 +1023,7 @@ def check_subnet_mask(client: AviatSSHClient) -> Tuple[Optional[bool], str]:
     output = _get_subnet_output(client)
     if not output:
         return None, "No output"
-    match = re.search(r"(?:subnet\s+mask|subnet-mask|mask)\s+([0-9.]+)", output, re.I)
+    match = re.search(r"(?:subnet\s+mask|subnet-mask|mask)\s*[:=]?\s*([0-9.]+)", output, re.I)
     if not match:
         return None, "Mask not found"
     actual = match.group(1)
@@ -1237,6 +1239,17 @@ def _evaluate_sop(client: AviatSSHClient, callback=None) -> Tuple[bool, List[Dic
             "expected": str(CONFIG.buffer_queue_limit),
             "actual": "found" if buffer_ok else "missing",
             "pass": buffer_ok,
+        }
+    )
+
+    expected_mask = os.getenv("AVIAT_EXPECTED_MASK", "255.255.255.248")
+    subnet_ok, subnet_actual = check_subnet_mask(client)
+    results.append(
+        {
+            "name": "Subnet mask",
+            "expected": expected_mask,
+            "actual": subnet_actual or "unknown",
+            "pass": subnet_ok is True,
         }
     )
 
@@ -1627,6 +1640,21 @@ def process_radio(
 
         if "firmware" in tasks or "all" in tasks or "sop" in tasks:
             result.firmware_version_before = get_firmware_version(client, callback=callback)
+
+        # Always collect subnet mask health for queue/UI precheck visibility.
+        try:
+            subnet_ok, subnet_actual = check_subnet_mask(client)
+            result.subnet_ok = subnet_ok
+            result.subnet_actual = subnet_actual
+            if subnet_ok is False:
+                log(
+                    f"[{ip}] Subnet mask mismatch: expected {os.getenv('AVIAT_EXPECTED_MASK', '255.255.255.248')}, got {subnet_actual}",
+                    "warning",
+                    callback=callback,
+                )
+        except Exception:
+            result.subnet_ok = None
+            result.subnet_actual = None
 
         # Optional uptime gate for firmware/activation tasks
         if any(t in tasks for t in ("firmware", "activate", "all")):

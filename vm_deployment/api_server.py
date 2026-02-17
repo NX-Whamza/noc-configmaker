@@ -467,6 +467,25 @@ def _aviat_queue_update_from_result(result, username=None):
         "bufferStatus": _aviat_substatus(result.get("buffer_configured")),
         "sopStatus": _aviat_substatus(result.get("sop_passed")),
     }
+    subnet_ok = result.get("subnet_ok")
+    subnet_detail = result.get("subnet_actual")
+    # Fallback from SOP output when direct subnet fields are absent.
+    if subnet_ok is None and isinstance(result.get("sop_results"), list):
+        for item in result.get("sop_results") or []:
+            if str(item.get("name", "")).strip().lower() == "subnet mask":
+                subnet_ok = bool(item.get("pass"))
+                subnet_detail = item.get("actual")
+                break
+    if subnet_ok is True:
+        updates["subnetStatus"] = "success"
+    elif subnet_ok is False:
+        updates["subnetStatus"] = "error"
+    else:
+        updates["subnetStatus"] = "pending"
+    if subnet_detail is not None:
+        updates["subnetDetail"] = str(subnet_detail)
+    elif subnet_ok is False:
+        updates["subnetDetail"] = "Subnet mask mismatch detected"
     if username:
         updates["username"] = username
     _aviat_queue_upsert(ip, updates)
@@ -11967,6 +11986,8 @@ def _aviat_result_dict(result, username=None):
         'sop_checked': result.sop_checked,
         'sop_passed': result.sop_passed,
         'sop_results': result.sop_results,
+        'subnet_ok': getattr(result, 'subnet_ok', None),
+        'subnet_actual': getattr(result, 'subnet_actual', None),
         'firmware_version_before': result.firmware_version_before,
         'firmware_version_after': result.firmware_version_after,
         'error': result.error
