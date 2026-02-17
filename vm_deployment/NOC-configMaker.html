@@ -24238,6 +24238,16 @@ Ready for translation!`);
                             lowerMsg.includes('moving to error queue') ||
                             lowerMsg.includes('verification stalled') ||
                             lowerMsg.includes('timed out after');
+                        const isTransientFailureMessage =
+                            lowerMsg.includes('retrying') ||
+                            lowerMsg.includes('not ready') ||
+                            lowerMsg.includes('defer') ||
+                            lowerMsg.includes('socket is closed') ||
+                            lowerMsg.includes('unable to connect to port 22') ||
+                            lowerMsg.includes('connection timeout') ||
+                            lowerMsg.includes('authentication failed') ||
+                            lowerMsg.includes('reachability check') ||
+                            lowerMsg.includes('availability check');
                         const normalizedStatus = aviatNormalizeStatus(radio.status);
                         const normalizedFirmware = aviatNormalizeStatus(radio.firmwareStatus);
                         if (indicatesActiveProgress && !['loading', 'scheduled'].includes(normalizedStatus)) {
@@ -24283,7 +24293,16 @@ Ready for translation!`);
                         } else if (isTerminalSuccess) {
                             radio.status = 'success';
                         } else if (isTerminalFailure) {
-                            radio.status = 'error';
+                            // During reboot/activation windows, terminal failure logs can be transient.
+                            if (
+                                isTransientFailureMessage ||
+                                ['loading', 'pending_verify', 'scheduled', 'reboot_required', 'reboot_pending', 'rebooting'].includes(normalizedStatus) ||
+                                ['loading', 'pending_verify', 'scheduled'].includes(normalizedFirmware)
+                            ) {
+                                radio.status = normalizedFirmware === 'loading' ? 'loading' : 'pending_verify';
+                            } else {
+                                radio.status = 'error';
+                            }
                         } else if (data.level === 'error' && lowerMsg.includes('failed') && !isTransientFailure) {
                             radio.status = 'error';
                         }

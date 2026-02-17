@@ -553,6 +553,24 @@ def _aviat_queue_update_from_result(result, username=None):
         updates["status"] = "pending"
         updates["precheckStatus"] = "blocked"
         updates["precheckDetail"] = result.get("error") or "Precheck blocked upgrade"
+
+    # Reconcile occasional stale/incorrect "error" status when final state is actually good.
+    final_version = _aviat_extract_version(
+        result.get("firmware_version_after") or result.get("firmware_version_before")
+    )
+    final_ok = _aviat_version_tuple(final_version) >= _aviat_version_tuple(
+        getattr(AVIAT_CONFIG, "firmware_final_version", "6.1.0")
+    )
+    hard_component_error = any(
+        updates.get(k) == "error" for k in ("passwordStatus", "snmpStatus", "bufferStatus", "sopStatus")
+    )
+    hard_precheck_error = any(
+        result.get(k) is False for k in ("subnet_ok", "license_ok", "stp_ok")
+    )
+    if updates.get("status") == "error" and final_ok and not hard_component_error and not hard_precheck_error:
+        updates["status"] = "success"
+        updates["error"] = None
+
     if username:
         updates["username"] = username
     _aviat_queue_upsert(ip, updates)
