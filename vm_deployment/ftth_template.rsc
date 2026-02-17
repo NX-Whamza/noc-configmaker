@@ -1,11 +1,5 @@
 /interface bridge
-add name=bridge1000
-add name=bridge2000
-add name=bridge3000
-add name=bridge4000
-add name=lan-bridge
-add name=loop0
-add name=nat-public-bridge
+{{BRIDGE_LINES}}
 
 /interface ethernet
 set [ find default-name=ether1 ] comment=ICT
@@ -20,6 +14,9 @@ set [ find default-name=qsfp28-2-4 ] disabled=yes
 {{UPLINK_ETHERNET_LINES}}
 {{OLT_ETHERNET_LINES}}
 set [ find default-name=sfp28-12 ] auto-negotiation=no comment=exfo speed=10G-baseSR-LR
+
+/interface vpls
+{{VPLS_LINES}}
 
 /interface vlan
 add disabled=yes interface={{UPLINK_PRIMARY_PORT}} mtu={{UPLINK_PRIMARY_MTU}} name=vlan1017 vlan-id=1017

@@ -2,6 +2,7 @@ from pathlib import Path
 import ipaddress
 import os
 import re
+import hashlib
 from datetime import datetime
 
 TEMPLATE_PATH = Path(__file__).parent / "ftth_template.rsc"
@@ -152,6 +153,76 @@ def _ftth_user_passwords():
         'admin': os.getenv('FTTH_ADMIN_PASSWORD', 'CHANGE_ME'),
     }
 
+def _stable_laa_mac(seed: str) -> str:
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
+    octets = [int(digest[i:i + 2], 16) for i in range(0, 12, 2)]
+    # Locally administered unicast MAC.
+    octets[0] = (octets[0] | 0x02) & 0xFE
+    return ":".join(f"{b:02X}" for b in octets)
+
+
+def _render_bridge_lines(is_outstate: bool) -> str:
+    if is_outstate:
+        return "\n".join([
+            "add comment=DYNAMIC name=bridge1000 port-cost-mode=short protocol-mode=none",
+            "add comment=STATIC name=bridge2000 port-cost-mode=short protocol-mode=none",
+            "add comment=INFRA name=bridge3000 port-cost-mode=short protocol-mode=none",
+            "add comment=CPE name=bridge4000 port-cost-mode=short protocol-mode=none",
+            "add name=lan-bridge",
+            "add comment=LOOPBACK name=loop0 port-cost-mode=short",
+            "add name=nat-public-bridge",
+        ])
+    return "\n".join([
+        "add name=bridge1000",
+        "add name=bridge2000",
+        "add name=bridge3000",
+        "add name=bridge4000",
+        "add name=lan-bridge",
+        "add name=loop0",
+        "add name=nat-public-bridge",
+    ])
+
+
+def _render_outstate_vpls_lines(
+    *,
+    enabled: bool,
+    router_identity: str,
+    state_id: str,
+    bng1_ip: str,
+    bng2_ip: str,
+    pw_l2mtu: str,
+) -> str:
+    if not enabled:
+        return ""
+    sid = re.sub(r"[^0-9]", "", str(state_id or "")) or "249"
+    services = [
+        ("bridge1000", 1000, "DYNAMIC"),
+        ("bridge2000", 2000, "STATIC"),
+        ("bridge3000", 3000, "INFRA"),
+        ("bridge4000", 4000, "CPE"),
+    ]
+    lines = []
+    for bridge_name, base, _svc in services:
+        cisco_id = f"{base // 1000}{sid}"
+        for idx, peer in enumerate((bng1_ip, bng2_ip), start=1):
+            vpls_name = f"vpls{base}-bng{idx}"
+            mac = _stable_laa_mac(f"{router_identity}|{vpls_name}|{peer}|{cisco_id}")
+            lines.append(
+                "add arp=enabled "
+                f"bridge={bridge_name} "
+                "bridge-horizon=1 "
+                f"cisco-static-id={cisco_id} "
+                "disabled=no "
+                f"mac-address={mac} "
+                "mtu=1500 "
+                f"name={vpls_name} "
+                f"peer={peer} "
+                "pw-control-word=disabled "
+                f"pw-l2mtu={pw_l2mtu} "
+                "pw-type=raw-ethernet"
+            )
+    return "\n".join(lines)
+
 
 def _net_details(cidr: str):
     net = ipaddress.ip_network(cidr, strict=False)
@@ -241,6 +312,8 @@ def render_ftth_config(data: dict) -> str:
         raise FileNotFoundError(f"FTTH template missing: {TEMPLATE_PATH}")
 
     router_identity = data.get('router_identity', 'RTR-MTCCR2216.FTTH-BNG')
+    deployment_type = str(data.get('deployment_type', 'instate') or 'instate').strip().lower()
+    is_outstate = deployment_type in ('outstate', 'out_of_state', 'out-of-state')
     location = (data.get('location', '') or '').strip()
     if location:
         location = location.replace('"', '')
@@ -502,7 +575,22 @@ def render_ftth_config(data: dict) -> str:
         ])
 
     user_passwords = _ftth_user_passwords()
+    vpls_state_id = str(data.get('vpls_state_id') or str(loopback.ip).split('.')[1]).strip()
+    bng_1_ip = str(data.get('bng_1_ip') or os.getenv('NEXTLINK_BNG1_IP', '10.249.0.200')).strip()
+    bng_2_ip = str(data.get('bng_2_ip') or os.getenv('NEXTLINK_BNG2_IP', '10.249.0.201')).strip()
+    vpls_l2mtu = str(data.get('vpls_l2_mtu') or os.getenv('NEXTLINK_VPLS_L2_MTU', '1580')).strip()
+    bridge_lines = _render_bridge_lines(is_outstate=is_outstate)
+    vpls_lines = _render_outstate_vpls_lines(
+        enabled=is_outstate,
+        router_identity=router_identity,
+        state_id=vpls_state_id,
+        bng1_ip=bng_1_ip,
+        bng2_ip=bng_2_ip,
+        pw_l2mtu=vpls_l2mtu,
+    )
     replacements = {
+        "{{BRIDGE_LINES}}": bridge_lines,
+        "{{VPLS_LINES}}": vpls_lines,
         "{{UPLINK_ETHERNET_LINES}}": "\n".join(uplink_lines),
         "{{OLT_ETHERNET_LINES}}": "\n".join(olt_lines),
         "{{UPLINK_PRIMARY_PORT}}": primary_uplink,
