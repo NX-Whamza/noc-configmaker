@@ -443,6 +443,20 @@ def _aviat_status_from_result(result):
     status = (result or {}).get("status")
     success = result.get("success")
     err_text = str((result or {}).get("error") or "").lower()
+    final_version = _aviat_extract_version(
+        (result or {}).get("firmware_version_after") or (result or {}).get("firmware_version_before")
+    )
+    final_ok = _aviat_version_tuple(final_version) >= _aviat_version_tuple(
+        getattr(AVIAT_CONFIG, "firmware_final_version", "6.1.0")
+    )
+    hard_component_error = any(
+        (result or {}).get(k) is False for k in ("password_changed", "snmp_configured", "buffer_configured")
+    )
+    hard_precheck_error = any(
+        (result or {}).get(k) is False for k in ("subnet_ok", "license_ok", "stp_ok")
+    )
+    if final_ok and not hard_component_error and not hard_precheck_error:
+        return "success"
     if "precheck blocked upgrade" in err_text:
         return "pending"
     if status in ("reboot_pending", "rebooting"):
@@ -567,7 +581,7 @@ def _aviat_queue_update_from_result(result, username=None):
     hard_precheck_error = any(
         result.get(k) is False for k in ("subnet_ok", "license_ok", "stp_ok")
     )
-    if updates.get("status") == "error" and final_ok and not hard_component_error and not hard_precheck_error:
+    if updates.get("status") in ("error", "pending_verify", "loading") and final_ok and not hard_component_error and not hard_precheck_error:
         updates["status"] = "success"
         updates["error"] = None
 
