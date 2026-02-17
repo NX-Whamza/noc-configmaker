@@ -10765,9 +10765,8 @@
                             const successCountFiltered = nonAviatActivities.filter(e => e.success === true).length;
                             const successRate = totalCount > 0 ?
                                 Math.round((successCountFiltered / totalCount) * 100) : 100;
-                            const firmwareBaseline = 42;
-                            const firmwareUpgradeCount = firmwareBaseline + allActivities.filter(entry =>
-                                entry.type === 'aviat-upgrade' && (entry.success === true || entry.success === 1)
+                            const firmwareUpgradeCount = allActivities.filter(entry =>
+                                entry.type === 'aviat-upgrade'
                             ).length;
 
                             // Update UI elements
@@ -10826,9 +10825,8 @@
                 const totalCount = nonAviatHistory.length;
                 const successRate = totalCount > 0 ?
                     Math.round((successCount / totalCount) * 100) : 100;
-                const firmwareBaseline = 42;
-                const firmwareUpgradeCount = firmwareBaseline + history.filter(entry =>
-                    entry.type === 'aviat-upgrade' && entry.success === true
+                const firmwareUpgradeCount = history.filter(entry =>
+                    entry.type === 'aviat-upgrade'
                 ).length;
 
                 // Update UI elements
