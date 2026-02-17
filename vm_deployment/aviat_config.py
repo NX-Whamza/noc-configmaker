@@ -1676,7 +1676,7 @@ def process_radio(
             result.stp_ok = None
             result.stp_detail = None
 
-        # Precheck gate: block upgrade path but keep radio in queue (not failed queue).
+        # Precheck + reboot gate: block upgrade path but keep radio in queue (not failed queue).
         if any(t in tasks for t in ("firmware", "activate", "all")):
             precheck_issues = []
             if result.subnet_ok is False:
@@ -1692,29 +1692,33 @@ def process_radio(
                 precheck_issues.append(f"LICENSE ISSUE ({result.license_detail or 'required license missing'})")
                 stage("PRECHECK_LICENSE_FAIL")
 
-            if precheck_issues:
-                result.status = "precheck_failed"
-                result.success = True
-                result.error = "Precheck blocked upgrade: " + "; ".join(precheck_issues)
-                log(f"[{ip}] {result.error}", "warning", callback=callback)
-                log(f"[{ip}] WORKFLOW: " + " -> ".join(stages), "warning", callback=callback)
-                return result
-
-        # Optional uptime gate for firmware/activation tasks
-        if any(t in tasks for t in ("firmware", "activate", "all")):
             try:
                 uptime_days = get_uptime_days(client, callback=callback)
             except Exception as err:
                 log(f"[{ip}] Uptime check failed (ignored): {err}", "warning", callback=callback)
                 uptime_days = None
-            if uptime_days is not None and uptime_days > 250:
-                result.status = "reboot_required"
-                result.error = f"Uptime {uptime_days} days exceeds 250; reboot required before upgrade."
-                log(f"[{ip}] {result.error}", "warning", callback=callback)
+            reboot_needed = uptime_days is not None and uptime_days > 250
+            if reboot_needed:
                 stage("REBOOT_REQUIRED")
+                log(
+                    f"[{ip}] Uptime {uptime_days} days exceeds 250; reboot required before upgrade.",
+                    "warning",
+                    callback=callback,
+                )
+            else:
+                stage("UPTIME_OK")
+
+            if precheck_issues or reboot_needed:
+                result.status = "reboot_required" if reboot_needed else "precheck_failed"
+                result.success = True
+                messages = []
+                if reboot_needed:
+                    messages.append(f"REBOOT REQUIRED ({uptime_days} days)")
+                messages.extend(precheck_issues)
+                result.error = "Precheck blocked upgrade: " + "; ".join(messages)
+                log(f"[{ip}] {result.error}", "warning", callback=callback)
                 log(f"[{ip}] WORKFLOW: " + " -> ".join(stages), "warning", callback=callback)
                 return result
-            stage("UPTIME_OK")
 
         # 0. Firmware download / scheduling
         if "firmware" in tasks or "all" in tasks:
