@@ -23518,6 +23518,18 @@ Ready for translation!`);
                     subnetDetail: r.subnetDetail,
                     username: r.username || ''
                 };
+                // Precheck-only blockers (subnet/license/STP) should not be counted as hard failures.
+                // Keep the issue badges red, but set main status to pending so queue/history stay accurate.
+                const precheckBlocked =
+                    ['error', 'pending'].includes(normalized.sopStatus) &&
+                    ['success', 'scheduled', 'loading', 'pending_verify', 'pending'].includes(normalized.firmwareStatus) &&
+                    normalized.passwordStatus !== 'error' &&
+                    normalized.snmpStatus !== 'error' &&
+                    normalized.bufferStatus !== 'error' &&
+                    (normalized.subnetStatus === 'error' || normalized.licenseStatus === 'error' || normalized.stpStatus === 'error');
+                if (normalized.status === 'error' && precheckBlocked) {
+                    normalized.status = 'pending';
+                }
                 if (!['success', 'error', 'processing', 'reboot_required', 'reboot_pending', 'rebooting'].includes(normalized.status)) {
                     if (normalized.firmwareStatus === 'loading') {
                         normalized.status = 'loading';

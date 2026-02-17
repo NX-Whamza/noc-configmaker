@@ -442,6 +442,9 @@ def _aviat_is_transient_result(result):
 def _aviat_status_from_result(result):
     status = (result or {}).get("status")
     success = result.get("success")
+    err_text = str((result or {}).get("error") or "").lower()
+    if "precheck blocked upgrade" in err_text:
+        return "pending"
     if status in ("reboot_pending", "rebooting"):
         return status
     if status == "reboot_required":
@@ -544,6 +547,10 @@ def _aviat_queue_update_from_result(result, username=None):
         updates["stpDetail"] = str(result.get("stp_detail"))
 
     if (result.get("status") or "").lower() == "precheck_failed":
+        updates["precheckStatus"] = "blocked"
+        updates["precheckDetail"] = result.get("error") or "Precheck blocked upgrade"
+    elif "precheck blocked upgrade" in str(result.get("error") or "").lower():
+        updates["status"] = "pending"
         updates["precheckStatus"] = "blocked"
         updates["precheckDetail"] = result.get("error") or "Precheck blocked upgrade"
     if username:
