@@ -409,9 +409,41 @@ def _aviat_remaining_tasks_for_reboot(task_types):
 def _aviat_queue_remove(ip):
     aviat_shared_queue[:] = [e for e in aviat_shared_queue if e.get("ip") != ip]
 
+def _aviat_error_is_transient(error_text):
+    text = str(error_text or "").strip().lower()
+    if not text:
+        return False
+    markers = (
+        "socket is closed",
+        "not connected",
+        "connection reset",
+        "broken pipe",
+        "timeout",
+        "timed out",
+        "channel closed",
+        "unable to connect to port 22",
+        "connection failed",
+        "connection timeout",
+        "authentication failed",
+        "ssh error",
+        "device did not recover",
+        "firmware version not ready",
+        "failed to parse firmware version",
+        "failed to parse inactive firmware version",
+    )
+    return any(marker in text for marker in markers)
+
+def _aviat_is_transient_result(result):
+    status = ((result or {}).get("status") or "").lower()
+    if status in ("loading", "pending_verify", "reboot_pending", "rebooting"):
+        return True
+    return _aviat_error_is_transient((result or {}).get("error"))
+
 def _aviat_status_from_result(result):
     status = (result or {}).get("status")
     success = result.get("success")
+    if status in ("reboot_pending", "rebooting"):
+        return status
     if status == "reboot_required":
         return "reboot_required"
     if status == "precheck_failed":
@@ -420,6 +452,8 @@ def _aviat_status_from_result(result):
         return status
     if status == "aborted":
         return "aborted"
+    if _aviat_is_transient_result(result):
+        return "pending_verify"
     if success:
         return "success"
     return "error"
@@ -11967,6 +12001,8 @@ def get_activity():
 
 def _aviat_should_log(result):
     status = (result or {}).get('status')
+    if _aviat_is_transient_result(result):
+        return False
     if status in ('scheduled', 'manual', 'aborted', 'loading', 'pending_verify', 'reboot_required', 'reboot_pending', 'rebooting'):
         return False
     return True
@@ -12543,6 +12579,18 @@ def aviat_check_status():
             continue
         if current_status == "processing" and (res.get("error") or not res.get("reachable", True)):
             continue
+        err_text = res.get("error")
+        transient_err = _aviat_error_is_transient(err_text)
+        if transient_err and current_status in (
+            "pending",
+            "processing",
+            "pending_verify",
+            "reboot_required",
+            "reboot_pending",
+            "rebooting",
+        ):
+            # Do not downgrade in-progress upgrade radios to hard-failed due transient SSH loss.
+            continue
         firmware_ok = bool(res.get("firmware") and str(res.get("firmware")).startswith("6."))
         snmp_ok = bool(res.get("snmp_ok"))
         buffer_ok = bool(res.get("buffer_ok"))
@@ -12550,7 +12598,7 @@ def aviat_check_status():
         stp_ok = res.get("stp_ok")
         subnet_ok = res.get("subnet_ok")
         status = "success" if firmware_ok and snmp_ok and buffer_ok else "pending"
-        if res.get("error"):
+        if err_text and not transient_err:
             status = "error"
         _aviat_queue_upsert(ip, {
             "status": status,

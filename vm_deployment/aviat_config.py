@@ -774,6 +774,8 @@ def _is_transient_cli_error(exc: Exception) -> bool:
     return any(marker in text for marker in transient_markers)
 
 def _is_transient_processing_error(exc: Exception) -> bool:
+    if isinstance(exc, (TimeoutError, socket.timeout, EOFError, ConnectionError)):
+        return True
     if _is_transient_cli_error(exc):
         return True
     text = str(exc or "").lower()
