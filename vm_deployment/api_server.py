@@ -660,7 +660,7 @@ def _aviat_loading_check_loop():
         now = datetime.utcnow()
         to_schedule = []
         still_loading = []
-        failed = []
+        deferred_verify = []
         with aviat_loading_lock:
             aviat_loading_queue[:] = _aviat_dedupe_queue(aviat_loading_queue)
             for entry in list(aviat_loading_queue):
@@ -674,7 +674,7 @@ def _aviat_loading_check_loop():
                     try:
                         started_dt = datetime.fromisoformat(started_at.replace("Z", ""))
                         if (now - started_dt).total_seconds() > AVIAT_LOADING_MAX_WAIT:
-                            failed.append(entry)
+                            deferred_verify.append(entry)
                             continue
                     except Exception:
                         pass
@@ -773,10 +773,10 @@ def _aviat_loading_check_loop():
                     entry["unknown_count"] = unknown_count + 1
                     entry["updated_at"] = datetime.utcnow().isoformat() + "Z"
                     if entry["unknown_count"] >= AVIAT_LOADING_UNKNOWN_MAX_CHECKS:
-                        failed.append(entry)
+                        deferred_verify.append(entry)
                         _aviat_broadcast_log(
-                            f"[{ip}] Inactive firmware unreadable after {entry['unknown_count']} checks; moving to error queue.",
-                            "error",
+                            f"[{ip}] Inactive firmware unreadable after {entry['unknown_count']} checks; deferring verification.",
+                            "warning",
                         )
                         continue
                     still_loading.append(entry)
@@ -794,28 +794,28 @@ def _aviat_loading_check_loop():
                     "info",
                 )
 
-            if failed:
-                for entry in failed:
+            if deferred_verify:
+                for entry in deferred_verify:
                     ip = entry.get("ip")
                     if ip:
                         reason = "timeout" if entry.get("started_at") else "parse_stalled"
                         if int(entry.get("unknown_count") or 0) >= AVIAT_LOADING_UNKNOWN_MAX_CHECKS:
                             reason = "parse_stalled"
                         _aviat_queue_upsert(ip, {
-                            "status": "error",
-                            "firmwareStatus": "error",
+                            "status": "pending_verify",
+                            "firmwareStatus": "pending_verify",
                             "username": entry.get("username") or "aviat-tool",
                             "error": reason,
                         })
                         if reason == "parse_stalled":
                             _aviat_broadcast_log(
-                                f"[{ip}] Firmware load verification stalled (unreadable inactive status).",
-                                "error",
+                                f"[{ip}] Firmware load verification stalled (unreadable inactive status). Keeping radio in deferred verification.",
+                                "warning",
                             )
                         else:
                             _aviat_broadcast_log(
-                                f"[{ip}] Firmware load timed out after {AVIAT_LOADING_MAX_WAIT // 60} min.",
-                                "error",
+                                f"[{ip}] Firmware load check timed out after {AVIAT_LOADING_MAX_WAIT // 60} min. Keeping radio in deferred verification.",
+                                "warning",
                             )
                 _aviat_save_shared_queue()
 
