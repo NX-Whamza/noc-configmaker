@@ -6541,7 +6541,7 @@
 
                 <div class="aviat-card">
                     <h2>Add Radios</h2>
-                    <textarea id="ipInput" placeholder="Enter IP addresses (comma or newline separated)&#10;e.g., 10.0.1.100, 10.0.1.101"></textarea>
+                    <textarea id="ipInput" placeholder="Enter IP addresses (comma or newline separated)&#10;e.g., 10.249.66.202"></textarea>
                     <div style="display: flex; gap: 10px; margin-top: 10px;">
                         <button id="aviatAddBtn" class="aviat-btn">Add</button>
                         <button id="aviatReplaceBtn" class="aviat-btn secondary">Replace</button>
@@ -23442,13 +23442,21 @@ Ready for translation!`);
                 }
             }
 
-            function aviatAddLog(message, type = 'info') {
+            function aviatAddLog(message, type = 'info', meta = {}) {
                 const logBox = document.getElementById('logBox');
                 if (!logBox) return;
-                const time = new Date().toLocaleTimeString();
+                let text = String(message || '');
+                const hasEmbeddedTime = /^\[\d{2}:\d{2}:\d{2}\]\s*/.test(text);
+                if (hasEmbeddedTime) {
+                    text = text.replace(/^\[\d{2}:\d{2}:\d{2}\]\s*/, '');
+                }
+                const sourceDate = meta && meta.ts ? new Date(meta.ts) : new Date();
+                const time = Number.isNaN(sourceDate.getTime())
+                    ? new Date().toLocaleTimeString()
+                    : sourceDate.toLocaleTimeString();
                 const entry = document.createElement('div');
                 entry.className = `aviat-log-entry log-${type}`;
-                entry.innerHTML = `<span class="aviat-log-time">[${time}]</span> ${message}`;
+                entry.innerHTML = `<span class="aviat-log-time">[${time}]</span> ${text}`;
                 logBox.appendChild(entry);
                 logBox.scrollTop = logBox.scrollHeight;
             }
@@ -24187,15 +24195,42 @@ Ready for translation!`);
             }
 
             function aviatHandleStreamMessage(data) {
-                aviatAddLog(data.message, data.level);
+                aviatAddLog(data.message, data.level, { ts: data.ts });
                 const ipMatch = data.message.match(/\[(\d+\.\d+\.\d+\.\d+)\]/);
                 if (ipMatch) {
                     const ip = ipMatch[1];
                     const radio = aviatState.radios.find(r => r.ip === ip);
                     if (radio) {
+                        const msg = String(data.message || '');
+                        const lowerMsg = msg.toLowerCase();
+                        const indicatesActiveProgress =
+                            lowerMsg.includes('connecting...') ||
+                            lowerMsg.includes('connected with') ||
+                            lowerMsg.includes('checking firmware version') ||
+                            lowerMsg.includes('checking inactive firmware version') ||
+                            lowerMsg.includes('triggering firmware download') ||
+                            lowerMsg.includes('waiting 1 min before first availability check') ||
+                            lowerMsg.includes('availability check') ||
+                            lowerMsg.includes('device reachable after reboot');
+                        const isTransientFailure =
+                            lowerMsg.includes('retrying') ||
+                            lowerMsg.includes('not ready') ||
+                            lowerMsg.includes('defer') ||
+                            lowerMsg.includes('keeping in loading queue') ||
+                            lowerMsg.includes('availability check') ||
+                            lowerMsg.includes('reachable but ssh not ready') ||
+                            lowerMsg.includes('loading check failed');
+                        const isTerminalSuccess = /\bSUCCESS \(took [\d.]+s\)/.test(msg);
+                        const isTerminalFailure =
+                            /\bFAILED \(took [\d.]+s\)/.test(msg) ||
+                            lowerMsg.includes('moving to error queue') ||
+                            lowerMsg.includes('verification stalled') ||
+                            lowerMsg.includes('timed out after');
                         const normalizedStatus = aviatNormalizeStatus(radio.status);
                         const normalizedFirmware = aviatNormalizeStatus(radio.firmwareStatus);
-                        if (!['loading', 'scheduled', 'success', 'error', 'processing'].includes(normalizedStatus)
+                        if (indicatesActiveProgress && !['loading', 'scheduled'].includes(normalizedStatus)) {
+                            radio.status = 'processing';
+                        } else if (!['loading', 'scheduled', 'success', 'error', 'processing'].includes(normalizedStatus)
                             && !['loading', 'scheduled'].includes(normalizedFirmware)) {
                             radio.status = 'processing';
                         }
@@ -24223,11 +24258,21 @@ Ready for translation!`);
                             } else if (data.message.includes('PASS')) {
                                 radio.sopStatus = 'success';
                             }
-                        } else if (data.message.includes('SUCCESS')) {
+                        } else if (data.message.includes('WORKFLOW:')) {
+                            if (data.message.includes('REBOOT_REQUIRED')) {
+                                radio.status = 'reboot_required';
+                            } else if (data.message.includes('PRECHECK_')) {
+                                radio.status = 'pending';
+                            }
+                        } else if (lowerMsg.includes('reboot required before upgrade')) {
+                            radio.status = 'reboot_required';
+                        } else if (data.message.includes('Firmware already at') && data.message.includes('skipping download')) {
+                            radio.firmwareStatus = 'success';
+                        } else if (isTerminalSuccess) {
                             radio.status = 'success';
-                        } else if (data.message.includes('FAILED')) {
+                        } else if (isTerminalFailure) {
                             radio.status = 'error';
-                        } else if (data.level === 'error' && data.message.toLowerCase().includes('failed')) {
+                        } else if (data.level === 'error' && lowerMsg.includes('failed') && !isTransientFailure) {
                             radio.status = 'error';
                         }
                     }
