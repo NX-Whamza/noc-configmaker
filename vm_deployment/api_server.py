@@ -261,6 +261,28 @@ AVIAT_AUTO_ACTIVATE = os.getenv("AVIAT_AUTO_ACTIVATE", "true").lower() in ("1", 
 AVIAT_AUTO_ACTIVATE_POLL = int(os.getenv("AVIAT_AUTO_ACTIVATE_POLL", "60"))
 AVIAT_LOADING_CHECK_INTERVAL = int(os.getenv("AVIAT_LOADING_CHECK_INTERVAL", "900"))
 AVIAT_LOADING_MAX_WAIT = int(os.getenv("AVIAT_LOADING_MAX_WAIT", "5400"))
+AVIAT_LOADING_UNKNOWN_MAX_CHECKS = int(os.getenv("AVIAT_LOADING_UNKNOWN_MAX_CHECKS", "6"))
+
+
+def _aviat_dedupe_queue(entries):
+    """Keep one queue entry per IP (most recently updated/started wins)."""
+    if not isinstance(entries, list):
+        return []
+    deduped = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        ip = entry.get("ip")
+        if not ip:
+            continue
+        existing = deduped.get(ip)
+        if existing is None:
+            deduped[ip] = entry
+            continue
+        existing_ts = existing.get("updated_at") or existing.get("started_at") or ""
+        candidate_ts = entry.get("updated_at") or entry.get("started_at") or ""
+        deduped[ip] = entry if candidate_ts >= existing_ts else existing
+    return list(deduped.values())
 
 
 def _aviat_load_scheduled_queue():
@@ -270,13 +292,14 @@ def _aviat_load_scheduled_queue():
         with open(AVIAT_SCHEDULED_STORE, "r", encoding="utf-8") as handle:
             data = json.load(handle)
         if isinstance(data, list):
-            aviat_scheduled_queue.extend(data)
+            aviat_scheduled_queue.extend(_aviat_dedupe_queue(data))
     except Exception:
         pass
 
 
 def _aviat_save_scheduled_queue():
     try:
+        aviat_scheduled_queue[:] = _aviat_dedupe_queue(aviat_scheduled_queue)
         with open(AVIAT_SCHEDULED_STORE, "w", encoding="utf-8") as handle:
             json.dump(aviat_scheduled_queue, handle)
     except Exception:
@@ -293,13 +316,14 @@ def _aviat_load_loading_queue():
         with open(AVIAT_LOADING_STORE, "r", encoding="utf-8") as handle:
             data = json.load(handle)
         if isinstance(data, list):
-            aviat_loading_queue.extend(data)
+            aviat_loading_queue.extend(_aviat_dedupe_queue(data))
     except Exception:
         pass
 
 
 def _aviat_save_loading_queue():
     try:
+        aviat_loading_queue[:] = _aviat_dedupe_queue(aviat_loading_queue)
         with open(AVIAT_LOADING_STORE, "w", encoding="utf-8") as handle:
             json.dump(aviat_loading_queue, handle)
     except Exception:
@@ -520,10 +544,13 @@ def _aviat_loading_check_loop():
         still_loading = []
         failed = []
         with aviat_loading_lock:
+            aviat_loading_queue[:] = _aviat_dedupe_queue(aviat_loading_queue)
             for entry in list(aviat_loading_queue):
                 ip = entry.get("ip")
                 if not ip:
                     continue
+                current_check_count = int(entry.get("check_count") or 0)
+                unknown_count = int(entry.get("unknown_count") or 0)
                 started_at = entry.get("started_at")
                 if started_at:
                     try:
@@ -547,6 +574,8 @@ def _aviat_loading_check_loop():
                     client.close()
                 except Exception as exc:
                     _aviat_broadcast_log(f"[{ip}] Loading check failed: {exc}", "warning")
+                    entry["check_count"] = current_check_count + 1
+                    entry["updated_at"] = datetime.utcnow().isoformat() + "Z"
                     still_loading.append(entry)
                     continue
                 if uptime_days is not None and uptime_days > 250:
@@ -622,12 +651,25 @@ def _aviat_loading_check_loop():
                     not inactive_version
                     or str(inactive_version).lower() in ("none", "unknown", "0.0.0", "0")
                 ):
+                    entry["check_count"] = current_check_count + 1
+                    entry["unknown_count"] = unknown_count + 1
+                    entry["updated_at"] = datetime.utcnow().isoformat() + "Z"
+                    if entry["unknown_count"] >= AVIAT_LOADING_UNKNOWN_MAX_CHECKS:
+                        failed.append(entry)
+                        _aviat_broadcast_log(
+                            f"[{ip}] Inactive firmware unreadable after {entry['unknown_count']} checks; moving to error queue.",
+                            "error",
+                        )
+                        continue
                     still_loading.append(entry)
                     _aviat_broadcast_log(
-                        f"[{ip}] Inactive firmware version unknown; keeping in loading queue.",
+                        f"[{ip}] Inactive firmware version unknown (check {entry['unknown_count']}/{AVIAT_LOADING_UNKNOWN_MAX_CHECKS}); keeping in loading queue.",
                         "warning",
                     )
                     continue
+                entry["check_count"] = current_check_count + 1
+                entry["unknown_count"] = 0
+                entry["updated_at"] = datetime.utcnow().isoformat() + "Z"
                 still_loading.append(entry)
                 _aviat_broadcast_log(
                     f"[{ip}] Firmware still loading; next check in {AVIAT_LOADING_CHECK_INTERVAL // 60} min.",
@@ -638,15 +680,25 @@ def _aviat_loading_check_loop():
                 for entry in failed:
                     ip = entry.get("ip")
                     if ip:
+                        reason = "timeout" if entry.get("started_at") else "parse_stalled"
+                        if int(entry.get("unknown_count") or 0) >= AVIAT_LOADING_UNKNOWN_MAX_CHECKS:
+                            reason = "parse_stalled"
                         _aviat_queue_upsert(ip, {
                             "status": "error",
                             "firmwareStatus": "error",
                             "username": entry.get("username") or "aviat-tool",
+                            "error": reason,
                         })
-                        _aviat_broadcast_log(
-                            f"[{ip}] Firmware load timed out after {AVIAT_LOADING_MAX_WAIT // 60} min.",
-                            "error",
-                        )
+                        if reason == "parse_stalled":
+                            _aviat_broadcast_log(
+                                f"[{ip}] Firmware load verification stalled (unreadable inactive status).",
+                                "error",
+                            )
+                        else:
+                            _aviat_broadcast_log(
+                                f"[{ip}] Firmware load timed out after {AVIAT_LOADING_MAX_WAIT // 60} min.",
+                                "error",
+                            )
                 _aviat_save_shared_queue()
 
             if to_schedule:

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 import sys
 from os import path
 import json
@@ -16,8 +17,40 @@ VALID_DEVICE_TYPES = {"AV4100": "AV", "AV4200": "AV"}
 app = APIRouter()
 
 
+class BHConfigureRequest(BaseModel):
+    ip_address: str
+    device_type: str
+    link_type: str
+    local_site_name: str
+    remote_site_name: str
+    tx_frequency_v: str
+    rx_frequency_v: str
+    tx_frequency_h: str
+    rx_frequency_h: str
+    bandwidth: str
+    modulation_min: str
+    modulation_max: str
+    power_min: str
+    power_max: str
+    password: str | None = None
+    device_number: str | None = None
+    latitude: str | None = None
+    longitude: str | None = None
+    xpic: bool = False
+
+
+def _configure_bh_sync(params: dict):
+    w = WTM4000Config(**params, readonly=False)
+    w.init_and_configure()
+    return {
+        "success": True,
+        "message": "Configuration applied successfully.",
+        "device_name": getattr(w, "device_name", ""),
+    }
+
+
 @app.get("/api/bh/running_config")
-async def get_bh_running_config(ip_address: str, device_type: str):
+async def get_bh_running_config(ip_address: str, device_type: str, password: str | None = None):
     try:
         if VALID_DEVICE_TYPES.get(device_type) == "AV":
             params = {
@@ -26,6 +59,8 @@ async def get_bh_running_config(ip_address: str, device_type: str):
                 "link_type": "dummy",
                 "xpic": True,
             }
+            if password:
+                params["password"] = password
 
             loop = asyncio.get_running_loop()
 
@@ -52,6 +87,9 @@ async def get_bh_running_config(ip_address: str, device_type: str):
     except ValueError as err:
         raise HTTPException(status_code=400, detail=f"{err}") from err
     except Exception as err:
+        msg = str(err)
+        if "login failed" in msg.lower() or "failed to log into device" in msg.lower():
+            raise HTTPException(status_code=400, detail=msg) from err
         raise HTTPException(status_code=500, detail=f"{err}") from err
 
 
@@ -81,12 +119,15 @@ async def get_bh_standard_config(link_type: str, device_type: str, xpic: bool = 
     except ValueError as err:
         raise HTTPException(status_code=400, detail=f"{err}") from err
     except Exception as err:
+        msg = str(err)
+        if "Login failed" in msg:
+            raise HTTPException(status_code=400, detail=msg) from err
         raise HTTPException(status_code=500, detail=f"{err}") from err
 
 
 @app.get("/api/bh/device_info")
 async def get_bh_device_info(
-    ip_address: str, device_type: str, run_tests: bool = False
+    ip_address: str, device_type: str, run_tests: bool = False, password: str | None = None
 ):
     try:
         result = {}
@@ -99,6 +140,7 @@ async def get_bh_device_info(
                         WTM4000Config.get_device_info,
                         ip_address,
                         device_type,
+                        password=password,
                         run_tests=run_tests,
                     ),
                 )
@@ -121,4 +163,29 @@ async def get_bh_device_info(
     except ValueError as err:
         raise HTTPException(status_code=400, detail=f"{err}") from err
     except Exception as err:
+        msg = str(err)
+        if "login failed" in msg.lower() or "failed to log into device" in msg.lower():
+            raise HTTPException(status_code=400, detail=msg) from err
+        raise HTTPException(status_code=500, detail=f"{err}") from err
+
+
+@app.post("/api/bh/configure")
+async def configure_bh(request: BHConfigureRequest):
+    try:
+        params = request.model_dump(exclude_none=True)
+        if VALID_DEVICE_TYPES.get(params["device_type"]) != "AV":
+            raise ValueError("Invalid device type")
+
+        loop = asyncio.get_running_loop()
+        with concurrent.futures.ProcessPoolExecutor() as pool:
+            return await loop.run_in_executor(
+                pool,
+                functools.partial(_configure_bh_sync, params),
+            )
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=f"{err}") from err
+    except Exception as err:
+        msg = str(err)
+        if "login failed" in msg.lower() or "failed to log into device" in msg.lower():
+            raise HTTPException(status_code=400, detail=msg) from err
         raise HTTPException(status_code=500, detail=f"{err}") from err

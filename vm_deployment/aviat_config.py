@@ -55,6 +55,23 @@ UPTIME_CHECK_TIMEOUT = int(os.getenv("AVIAT_UPTIME_CHECK_TIMEOUT", "5"))
 LOGIN_TIMEOUT = int(os.getenv("AVIAT_WEB_LOGIN_TIMEOUT", "10"))
 
 
+_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_CTRL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+
+
+def _clean_cli_output(text: str) -> str:
+    """Normalize CLI output so parsers are resilient to pager/ANSI noise."""
+    if not text:
+        return ""
+    text = _ANSI_RE.sub("", text)
+    # Remove pager artifacts that break command chaining and parsing.
+    text = text.replace("--More--", "")
+    text = text.replace("(END)", "")
+    # Remove non-printable control chars but preserve line structure.
+    text = _CTRL_RE.sub("", text)
+    return text
+
+
 # ============================================================================
 # CONFIGURATION - Edit these values as needed
 # ============================================================================
@@ -216,8 +233,16 @@ class AviatSSHClient:
         while time.time() - start_time < timeout:
             if self.shell.recv_ready():
                 chunk = self.shell.recv(4096).decode('utf-8', errors='ignore')
+                clean_chunk = _clean_cli_output(chunk)
                 output += chunk
                 self.output_buffer.append(chunk)
+
+                # Handle paged output automatically so commands are not truncated.
+                if "--More--" in clean_chunk or "(END)" in clean_chunk:
+                    try:
+                        self.shell.send(" ")
+                    except Exception:
+                        pass
                 
                 # Check if we hit a prompt
                 stripped = output.strip()
@@ -250,21 +275,24 @@ class AviatSSHClient:
         
         # We wait for the prompt
         output = self._read_until_prompt(timeout=timeout, prompt_patterns=wait_for)
-        
-        # Robustly strip the echo: 
-        # The first line or part of the output is usually the command itself followed by \r\n
-        # We seek the command string and take everything after its first line ending
-        if command in output:
-            parts = output.split(command, 1)
-            if len(parts) > 1:
-                # The response is what follows the command
-                response = parts[1]
-                # Strip the leading newline/carriage return from the echo line
-                if response.startswith('\r'): response = response[1:]
-                if response.startswith('\n'): response = response[1:]
-                return response
-        
-        return output
+        clean_output = _clean_cli_output(output)
+
+        # Strip command echo from first matching line.
+        if command:
+            lines = clean_output.splitlines()
+            removed = False
+            filtered = []
+            for line in lines:
+                normalized = line.strip()
+                if not removed and normalized:
+                    # Handles both "show x" and "HOST# show x"
+                    if normalized == command or normalized.endswith(f"# {command}") or normalized.endswith(f"> {command}"):
+                        removed = True
+                        continue
+                filtered.append(line)
+            clean_output = "\n".join(filtered)
+
+        return clean_output.strip("\r\n")
     
     def send_password(self, password: str, timeout: float = 3.0) -> str:
         """Send a password (no echo expected)"""
@@ -594,6 +622,7 @@ def _is_plausible_version(parts: List[str]) -> bool:
 
 
 def _parse_version(version_output: str) -> Optional[str]:
+    version_output = _clean_cli_output(version_output or "")
     patterns = [
         r"(?:Version|Release)\s*:?\s*([0-9]+(?:\.[0-9]+){1,})",
         r"\b([0-9]+\.[0-9]+\.[0-9]+)\([^)]+\)",
@@ -608,6 +637,7 @@ def _parse_version(version_output: str) -> Optional[str]:
     return None
 
 def _parse_active_version(version_output: str) -> Optional[str]:
+    version_output = _clean_cli_output(version_output or "")
     patterns = [
         r"software-status\s+active-version\s+([0-9]+(?:\.[0-9]+){1,})",
         r"active-version\s+([0-9]+(?:\.[0-9]+){1,})",
@@ -635,6 +665,7 @@ def _parse_active_version(version_output: str) -> Optional[str]:
     return None
 
 def _parse_inactive_version(version_output: str) -> Optional[str]:
+    version_output = _clean_cli_output(version_output or "")
     patterns = [
         r"software-status\s+inactive-version\s+([0-9]+(?:\.[0-9]+){1,})",
         r"inactive-version\s+([0-9]+(?:\.[0-9]+){1,})",
@@ -661,6 +692,7 @@ def _parse_inactive_version(version_output: str) -> Optional[str]:
 
 
 def _parse_versions_from_status(version_output: str) -> Tuple[Optional[str], Optional[str]]:
+    version_output = _clean_cli_output(version_output or "")
     active = _parse_active_version(version_output)
     inactive = _parse_inactive_version(version_output)
     if active or inactive:
@@ -683,6 +715,7 @@ def _parse_versions_from_status(version_output: str) -> Tuple[Optional[str], Opt
 
 
 def _is_invalid_output(output: str) -> bool:
+    output = _clean_cli_output(output or "")
     if not output or not output.strip():
         return True
     lowered = output.lower()
@@ -697,6 +730,7 @@ def _is_invalid_output(output: str) -> bool:
 
 
 def _extract_version_from_text(text: str) -> Optional[str]:
+    text = _clean_cli_output(text or "")
     if not text:
         return None
     match = re.search(r"([0-9]+(?:\.[0-9]+){1,3})", text)
@@ -768,24 +802,29 @@ def get_inactive_firmware_version(client: AviatSSHClient, callback=None) -> Opti
     commands = [
         "show software-status",
         "show software-status inactive-version",
+        "show software-status status",
         "show software status",
     ]
     version = None
     last_output = ""
     load_ok = False
-    for command in commands:
-        output = client.send_command(command)
-        last_output = output
-        if _is_invalid_output(output):
+    retries = 3
+    for attempt in range(retries):
+        for command in commands:
+            output = client.send_command(command)
+            output = _clean_cli_output(output)
+            last_output = output
             if re.search(r"\bloadok\b", output, re.I):
                 load_ok = True
-            continue
-        if re.search(r"\bloadok\b", output, re.I):
-            load_ok = True
-        _active, inactive = _parse_versions_from_status(output)
-        version = inactive or _parse_inactive_version(output)
+            # Try parsing even if output appears noisy/partial.
+            _active, inactive = _parse_versions_from_status(output)
+            version = inactive or _parse_inactive_version(output)
+            if version:
+                break
         if version:
             break
+        if attempt < retries - 1:
+            time.sleep(1)
     if not load_ok and last_output and re.search(r"\bloadok\b", last_output, re.I):
         load_ok = True
     if not version and load_ok:

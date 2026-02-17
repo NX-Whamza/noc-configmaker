@@ -4113,6 +4113,7 @@
                             <select id="fieldConfigDeviceType"></select>
                             <datalist id="fieldConfigDeviceTypeList"></datalist>
                             <input type="text" id="fieldConfigLinkType" placeholder="Link Type (optional)">
+                            <input type="password" id="fieldConfigPassword" placeholder="Password (optional override)">
                         </div>
                         <div class="field-config-helper" style="display:flex; gap:18px; align-items:center; flex-wrap:wrap;">
                             <label style="display:flex; align-items:center; gap:8px;">
@@ -12959,9 +12960,9 @@
                     desc: 'Cambium AP tooling via /api/ap.',
                     deviceTypes: ['CNEP3K', 'CN4600', 'CNF300-13', 'CNF300-16', 'CNF300-25', 'CNF300-CSM', 'TYN301', 'TYN302', 'UBWAP', 'UBWAPM'],
                     actions: {
-                        device_info: { method: 'GET', path: 'api/ap/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests }) },
-                        running: { method: 'GET', path: 'api/ap/running_config', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, linkType }) => ({ ip_address: ip, device_type: deviceType, link_type: linkType || 'dummy' }) },
-                        standard: { method: 'GET', path: 'api/ap/standard_config', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType }) => ({ ip_address: ip, device_type: deviceType }) },
+                        device_info: { method: 'GET', path: 'api/ap/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests, password }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests, ...(password ? { password } : {}) }) },
+                        running: { method: 'GET', path: 'api/ap/running_config', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, password }) => ({ ip_address: ip, device_type: deviceType, ...(password ? { password } : {}) }) },
+                        standard: { method: 'GET', path: 'api/ap/standard_config', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, password }) => ({ ip_address: ip, device_type: deviceType, ...(password ? { password } : {}) }) },
                     }
                 },
                 'sm': {
@@ -12969,9 +12970,9 @@
                     desc: 'SM support uses AP endpoints with SM device type values.',
                     deviceTypes: ['CNEP3K', 'CN4600', 'CNF300-13', 'CNF300-16', 'CNF300-25', 'CNF300-CSM', 'TYN301', 'TYN302', 'UBWAP', 'UBWAPM'],
                     actions: {
-                        device_info: { method: 'GET', path: 'api/ap/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests }) },
-                        running: { method: 'GET', path: 'api/ap/running_config', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, linkType }) => ({ ip_address: ip, device_type: deviceType, link_type: linkType || 'dummy' }) },
-                        standard: { method: 'GET', path: 'api/ap/standard_config', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType }) => ({ ip_address: ip, device_type: deviceType }) },
+                        device_info: { method: 'GET', path: 'api/ap/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests, password }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests, ...(password ? { password } : {}) }) },
+                        running: { method: 'GET', path: 'api/ap/running_config', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, password }) => ({ ip_address: ip, device_type: deviceType, ...(password ? { password } : {}) }) },
+                        standard: { method: 'GET', path: 'api/ap/standard_config', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, password }) => ({ ip_address: ip, device_type: deviceType, ...(password ? { password } : {}) }) },
                     }
                 },
                 'switch': {
@@ -12979,7 +12980,7 @@
                     desc: 'Switch inventory details via /api/swt/device_info.',
                     deviceTypes: ['NXWS12', 'NXWS14', 'NXWS24', 'NXWS26', 'CN1012', 'TYT100'],
                     actions: {
-                        device_info: { method: 'GET', path: 'api/swt/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests }) },
+                        device_info: { method: 'GET', path: 'api/swt/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests, password }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests, ...(password ? { password } : {}) }) },
                     }
                 },
                 'smartsys-ups': {
@@ -12988,7 +12989,7 @@
                     deviceTypes: ['SS'],
                     lockDeviceType: true,
                     actions: {
-                        device_info: { method: 'GET', path: 'api/ups/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests }) },
+                        device_info: { method: 'GET', path: 'api/ups/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests, password }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests, ...(password ? { password } : {}) }) },
                     }
                 },
                 'ict-rpc': {
@@ -12997,7 +12998,7 @@
                     deviceTypes: ['ICT200DB'],
                     lockDeviceType: true,
                     actions: {
-                        device_info: { method: 'GET', path: 'api/rpc/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests }) },
+                        device_info: { method: 'GET', path: 'api/rpc/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests, password }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests, ...(password ? { password } : {}) }) },
                     }
                 },
                 'ict-ups': {
@@ -13006,17 +13007,19 @@
                     deviceTypes: ['ICT800'],
                     lockDeviceType: true,
                     actions: {
-                        device_info: { method: 'GET', path: 'api/ups/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests }) },
+                        device_info: { method: 'GET', path: 'api/ups/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests, password }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests, ...(password ? { password } : {}) }) },
                     }
                 },
                 'aviat-bh': {
                     label: 'Aviat Backhaul',
-                    desc: 'Backhaul config helpers via /api/bh.',
-                    deviceTypes: ['AV4200', 'CTR8540'],
+                    desc: 'Backhaul helpers via /api/bh (device info, running, standard, configure).',
+                    deviceTypes: ['AV4200', 'AV4100'],
+                    payloadPlaceholder: '{"ip_address":"10.248.20.83","device_type":"AV4200","link_type":"2_0","local_site_name":"LOCAL-SITE","remote_site_name":"REMOTE-SITE","tx_frequency_v":"10985000","rx_frequency_v":"11495000","tx_frequency_h":"10995000","rx_frequency_h":"11505000","bandwidth":"80 MHz","modulation_min":"qam-16","modulation_max":"qam-1024","power_min":"16.0","power_max":"24.0","password":"Fr3knL@zr!","device_number":"1","latitude":"32.123456","longitude":"-97.123456","xpic":true}',
                     actions: {
-                        device_info: { method: 'GET', path: 'api/bh/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests }) },
-                        running: { method: 'GET', path: 'api/bh/running_config', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType }) => ({ ip_address: ip, device_type: deviceType }) },
-                        standard: { method: 'GET', path: 'api/bh/standard_config', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType }) => ({ ip_address: ip, device_type: deviceType }) },
+                        device_info: { method: 'GET', path: 'api/bh/device_info', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, runTests, password }) => ({ ip_address: ip, device_type: deviceType, run_tests: runTests, ...(password ? { password } : {}) }) },
+                        running: { method: 'GET', path: 'api/bh/running_config', needsIp: true, needsDeviceType: true, query: ({ ip, deviceType, password }) => ({ ip_address: ip, device_type: deviceType, ...(password ? { password } : {}) }) },
+                        standard: { method: 'GET', path: 'api/bh/standard_config', needsIp: false, needsDeviceType: true, query: ({ deviceType, linkType }) => ({ device_type: deviceType, link_type: linkType || '2_0' }) },
+                        generate: { method: 'POST', path: 'api/bh/configure', payloadMode: 'json' },
                     }
                 },
                 'ub-wave': {
@@ -13060,6 +13063,7 @@
                     ip: (document.getElementById('fieldConfigTargetIp')?.value || '').trim(),
                     deviceType: (deviceTypeEl?.value || '').trim(),
                     linkType: (document.getElementById('fieldConfigLinkType')?.value || '').trim(),
+                    password: (document.getElementById('fieldConfigPassword')?.value || '').trim(),
                     payload: (document.getElementById('fieldConfigPayload')?.value || '').trim(),
                     runTests: !!document.getElementById('fieldConfigRunTests')?.checked,
                 };
@@ -13132,9 +13136,13 @@
                 }
                 const linkTypeInput = document.getElementById('fieldConfigLinkType');
                 if (linkTypeInput) {
-                    const linkTypeNeeded = toolKey === 'ap' || toolKey === 'sm';
+                    const linkTypeNeeded = toolKey === 'aviat-bh';
                     linkTypeInput.disabled = !linkTypeNeeded;
-                    if (!linkTypeNeeded) linkTypeInput.value = '';
+                    if (!linkTypeNeeded) {
+                        linkTypeInput.value = '';
+                    } else if (toolKey === 'aviat-bh' && !linkTypeInput.value.trim()) {
+                        linkTypeInput.value = '2_0';
+                    }
                 }
 
                 const hasDeviceInfo = !!tool.actions.device_info;
@@ -13145,10 +13153,16 @@
                 const runningBtn = document.getElementById('fieldCfgRunningBtn');
                 const standardBtn = document.getElementById('fieldCfgStandardBtn');
                 const generateBtn = document.getElementById('fieldCfgGenerateBtn');
-                if (deviceBtn) deviceBtn.disabled = !hasDeviceInfo || !isFieldActionAvailableByCapabilities(tool.actions.device_info?.path);
-                if (runningBtn) runningBtn.disabled = !hasRunning || !isFieldActionAvailableByCapabilities(tool.actions.running?.path);
-                if (standardBtn) standardBtn.disabled = !hasStandard || !isFieldActionAvailableByCapabilities(tool.actions.standard?.path);
-                if (generateBtn) generateBtn.disabled = !hasGenerate || !isFieldActionAvailableByCapabilities(tool.actions.generate?.path);
+                const showOrHideAction = (btn, hasAction, actionPath) => {
+                    if (!btn) return;
+                    const available = hasAction && isFieldActionAvailableByCapabilities(actionPath);
+                    btn.style.display = available ? '' : 'none';
+                    btn.disabled = !available;
+                };
+                showOrHideAction(deviceBtn, hasDeviceInfo, tool.actions.device_info?.path);
+                showOrHideAction(runningBtn, hasRunning, tool.actions.running?.path);
+                showOrHideAction(standardBtn, hasStandard, tool.actions.standard?.path);
+                showOrHideAction(generateBtn, hasGenerate, tool.actions.generate?.path);
 
                 const payloadWrap = document.getElementById('fieldConfigPayloadWrap');
                 const payloadEl = document.getElementById('fieldConfigPayload');
@@ -13189,6 +13203,9 @@
                 if (action.payloadMode === 'json') {
                     if (!inputs.payload) throw new Error('Paste JSON payload before generating.');
                     body = JSON.parse(inputs.payload);
+                    if (inputs.password && body && typeof body === 'object' && !Array.isArray(body) && !body.password) {
+                        body.password = inputs.password;
+                    }
                 } else if (action.payloadMode === 'formDevice') {
                     if (!inputs.payload) throw new Error('Paste device JSON payload before generating.');
                     JSON.parse(inputs.payload);

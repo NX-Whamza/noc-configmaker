@@ -15,8 +15,10 @@ from device_io.tachyon_config import TachyonConfig
 from device_io.wave_config import WaveConfig
 
 
-def get_cambium_running_config(ip_address: str, device_type: str):
+def get_cambium_running_config(ip_address: str, device_type: str, password: str | None = None):
     params = {"ip_address": ip_address, "device_type": device_type, "use_default": True}
+    if password:
+        params["password"] = password
     d = EPMPConfig(**params)
     d.init_session()
     config = d.get_running_config()
@@ -24,18 +26,22 @@ def get_cambium_running_config(ip_address: str, device_type: str):
     return config
 
 
-def get_cambium_standard_config(device_type: str, ip_address: str = "0.0.0.0"):
+def get_cambium_standard_config(device_type: str, ip_address: str = "0.0.0.0", password: str | None = None):
     params = {"ip_address": f"{ip_address}", "device_type": device_type, "use_default": True}
+    if password:
+        params["password"] = password
     d = EPMPConfig(**params)
     return d.get_standard_config(stripped=True, json_conf=True)
 
 
-def get_cambium_device_info(ip_address: str, device_type: str, run_tests: bool = False):
-    return EPMPConfig.get_device_info(ip_address, device_type, run_tests=run_tests)
+def get_cambium_device_info(ip_address: str, device_type: str, run_tests: bool = False, password: str | None = None):
+    return EPMPConfig.get_device_info(ip_address, device_type, password=password, run_tests=run_tests)
 
 
-def get_tachyon_running_config(ip_address: str, device_type: str):
+def get_tachyon_running_config(ip_address: str, device_type: str, password: str | None = None):
     params = {"ip_address": ip_address, "device_type": device_type, "readonly": True}
+    if password:
+        params["password"] = password
     d = TachyonConfig(**params)
     d.init_session()
     config = d.get_running_config(paths=True)
@@ -44,8 +50,10 @@ def get_tachyon_running_config(ip_address: str, device_type: str):
     return "\n".join(config)
 
 
-def get_tachyon_standard_config(device_type: str, ip_address: str = "0.0.0.0"):
+def get_tachyon_standard_config(device_type: str, ip_address: str = "0.0.0.0", password: str | None = None):
     params = {"ip_address": f"{ip_address}", "device_type": device_type, "readonly": True}
+    if password:
+        params["password"] = password
     d = TachyonConfig(**params)
 
     config = d.get_standard_config()
@@ -53,19 +61,19 @@ def get_tachyon_standard_config(device_type: str, ip_address: str = "0.0.0.0"):
     return "\n".join(config)
 
 
-def get_tachyon_device_info(ip_address: str, device_type: str, run_tests: bool = False):
-    return TachyonConfig.get_device_info(ip_address, device_type, run_tests=run_tests)
+def get_tachyon_device_info(ip_address: str, device_type: str, run_tests: bool = False, password: str | None = None):
+    return TachyonConfig.get_device_info(ip_address, device_type, password=password, run_tests=run_tests)
 
-def get_wave_running_config(ip_address: str, device_type: str):
-    config = WaveConfig.get_device_info(ip_address, device_type.split("UB")[1], run_tests=False)
+def get_wave_running_config(ip_address: str, device_type: str, password: str | None = None):
+    config = WaveConfig.get_device_info(ip_address, device_type.split("UB")[1], password=password, run_tests=False)
     return config.get("running_config")
 
-def get_wave_standard_config(device_type: str, ip_address: str = "0.0.0.0"):
-    config = WaveConfig.get_device_info(f"{ip_address}", device_type.split("UB")[1], run_tests=False)
+def get_wave_standard_config(device_type: str, ip_address: str = "0.0.0.0", password: str | None = None):
+    config = WaveConfig.get_device_info(f"{ip_address}", device_type.split("UB")[1], password=password, run_tests=False)
     return config.get("standard_config")
 
-def get_wave_device_info(ip_address: str, device_type: str, run_tests: bool = False):
-    return WaveConfig.get_device_info(ip_address, device_type.split("UB")[1], run_tests=run_tests)
+def get_wave_device_info(ip_address: str, device_type: str, run_tests: bool = False, password: str | None = None):
+    return WaveConfig.get_device_info(ip_address, device_type.split("UB")[1], password=password, run_tests=run_tests)
 
 VALID_DEVICE_TYPES = {
     "CNEP3K": "CN",
@@ -84,7 +92,7 @@ app = APIRouter()
 
 
 @app.get("/api/ap/running_config")
-async def get_ap_running_config(ip_address: str, device_type: str):
+async def get_ap_running_config(ip_address: str, device_type: str, password: str | None = None):
     oem = VALID_DEVICE_TYPES.get(device_type)
 
     loop = asyncio.get_running_loop()
@@ -98,6 +106,7 @@ async def get_ap_running_config(ip_address: str, device_type: str):
                         get_cambium_running_config,
                         ip_address=ip_address,
                         device_type=device_type,
+                        password=password,
                     ),
                 )
         if oem == "TY":
@@ -108,6 +117,7 @@ async def get_ap_running_config(ip_address: str, device_type: str):
                         get_tachyon_running_config,
                         ip_address=ip_address,
                         device_type=device_type,
+                        password=password,
                     ),
                 )
         if oem == "UB":
@@ -118,6 +128,7 @@ async def get_ap_running_config(ip_address: str, device_type: str):
                         get_wave_running_config,
                         ip_address=ip_address,
                         device_type=device_type,
+                        password=password,
                     ),
                 )
 
@@ -127,16 +138,16 @@ async def get_ap_running_config(ip_address: str, device_type: str):
         raise HTTPException(status_code=400, detail=f"{err}") from err
     except Exception as err:
         msg = str(err)
-        if "invalid response while logging in" in msg.lower():
+        if "invalid response while logging in" in msg.lower() or "login failed" in msg.lower():
             raise HTTPException(
-                status_code=422,
+                status_code=400,
                 detail="Device login failed while fetching running config. Verify AP credentials/default passwords and that the target is a supported Cambium/Tachyon/Wave AP.",
             ) from err
         raise HTTPException(status_code=500, detail=f"{err}") from err
 
 
 @app.get("/api/ap/standard_config")
-async def get_ap_standard_config(ip_address: str, device_type: str):
+async def get_ap_standard_config(ip_address: str, device_type: str, password: str | None = None):
     oem = VALID_DEVICE_TYPES.get(device_type)
 
     loop = asyncio.get_running_loop()
@@ -150,6 +161,7 @@ async def get_ap_standard_config(ip_address: str, device_type: str):
                         get_cambium_standard_config,
                         ip_address=ip_address,
                         device_type=device_type,
+                        password=password,
                     ),
                 )
         if oem == "TY":
@@ -160,6 +172,7 @@ async def get_ap_standard_config(ip_address: str, device_type: str):
                         get_tachyon_standard_config,
                         ip_address=ip_address,
                         device_type=device_type,
+                        password=password,
                     ),
                 )
         if oem == "UB":
@@ -170,6 +183,7 @@ async def get_ap_standard_config(ip_address: str, device_type: str):
                         get_wave_standard_config,
                         ip_address=ip_address,
                         device_type=device_type,
+                        password=password,
                     ),
                 )
 
@@ -179,12 +193,18 @@ async def get_ap_standard_config(ip_address: str, device_type: str):
     except ValueError as err:
         raise HTTPException(status_code=400, detail=f"{err}") from err
     except Exception as err:
+        msg = str(err)
+        if "invalid response while logging in" in msg.lower() or "login failed" in msg.lower():
+            raise HTTPException(
+                status_code=400,
+                detail="Device login failed while fetching standard config. Verify AP credentials/default passwords and that the target is a supported Cambium/Tachyon/Wave AP.",
+            ) from err
         raise HTTPException(status_code=500, detail=f"{err}") from err
 
 
 @app.get("/api/ap/device_info")
 async def get_ap_device_info(
-    ip_address: str, device_type: str, run_tests: bool = False
+    ip_address: str, device_type: str, run_tests: bool = False, password: str | None = None
 ):
     oem = VALID_DEVICE_TYPES.get(device_type)
 
@@ -200,6 +220,7 @@ async def get_ap_device_info(
                         get_cambium_device_info,
                         ip_address=ip_address,
                         device_type=device_type,
+                        password=password,
                         run_tests=run_tests,
                     ),
                 )
@@ -211,6 +232,7 @@ async def get_ap_device_info(
                         get_tachyon_device_info,
                         ip_address=ip_address,
                         device_type=device_type,
+                        password=password,
                         run_tests=run_tests,
                     ),
                 )
@@ -222,6 +244,7 @@ async def get_ap_device_info(
                         get_wave_device_info,
                         ip_address=ip_address,
                         device_type=device_type,
+                        password=password,
                         run_tests=run_tests
                     ),
                 )
@@ -266,4 +289,10 @@ async def get_ap_device_info(
         raise HTTPException(status_code=400, detail=f"{err}") from err
     except Exception as err:
         logging.error(err)
+        msg = str(err)
+        if "invalid response while logging in" in msg.lower() or "login failed" in msg.lower():
+            raise HTTPException(
+                status_code=400,
+                detail="Device login failed while fetching device info. Verify AP credentials/default passwords and that the target is a supported Cambium/Tachyon/Wave AP.",
+            ) from err
         raise HTTPException(status_code=500, detail=f"{err}") from err
