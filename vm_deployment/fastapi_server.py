@@ -42,6 +42,7 @@ from ido_adapter import (
     get_templates as ido_get_templates,
     merge_defaults as ido_merge_defaults,
 )
+from api_v2 import router as api_v2_router
 
 
 app = FastAPI(title="NOC Config Maker API", version="1.0")
@@ -54,6 +55,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(api_v2_router)
 
 
 @app.get("/api/runtime")

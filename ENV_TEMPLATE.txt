@@ -58,3 +58,37 @@ ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 # Example (Linux): /opt/base_configs
 # Example (Windows): C:\\opt\\base_configs
 # BASE_CONFIG_PATH=
+
+# API v2 (OMNI/Mushu integration layer)
+# /api/v2 endpoints require API keys with scopes.
+# Option A (recommended): JSON map key -> scopes
+# NOC_API_KEYS_JSON={"your-admin-key":["admin"],"readonly-key":["health.read","actions.read","job.read"]}
+# Option B: compact format key:scope1,scope2;key2:scope1
+# NOC_API_KEYS=your-admin-key:admin;readonly-key:health.read,actions.read,job.read
+# Option C: single admin key
+# NOC_API_KEY=your-admin-key
+# (Single-key mode is valid if OMNI is the only API client)
+#
+# Legacy API base for v2 proxy actions (usually self)
+# NOC_LEGACY_API_BASE=http://127.0.0.1:5000
+# Worker pool for async v2 jobs
+# NOC_API_V2_JOB_WORKERS=8
+# Enforce request signing (recommended true for OMNI/Mushu)
+# NOC_API_V2_REQUIRE_SIGNATURE=true
+# Signature headers required per request:
+#   X-Key-Id, X-Timestamp (unix), X-Nonce, X-Signature
+# Signature string:
+#   METHOD + "\n" + PATH + "\n" + TIMESTAMP + "\n" + NONCE + "\n" + sha256(body)
+# Option A: JSON map key-id -> secret
+# NOC_API_SIGNING_KEYS_JSON={"omni-main":"<long-random-secret>"}
+# Option B: compact format key-id:secret;key-id2:secret2
+# NOC_API_SIGNING_KEYS=omni-main:<long-random-secret>
+# Allowed timestamp drift (seconds)
+# NOC_API_V2_SIGNATURE_SKEW_SECONDS=300
+# Nonce replay TTL (seconds)
+# NOC_API_V2_NONCE_TTL_SECONDS=900
+#
+# Idempotency for mutating endpoints (recommended true)
+# NOC_API_V2_REQUIRE_IDEMPOTENCY=true
+# Idempotency-Key cache retention (seconds)
+# NOC_API_V2_IDEMPOTENCY_TTL_SECONDS=86400
