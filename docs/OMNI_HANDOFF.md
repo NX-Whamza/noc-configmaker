@@ -41,6 +41,7 @@ Use OMNI-prefixed routes:
 - `GET /omni/whoami`
 - `GET /omni/actions`
 - `GET /omni/bootstrap`
+- `GET /omni/workflows`
 - `POST /omni/jobs`
 - `GET /omni/jobs`
 - `GET /omni/jobs/{job_id}`
@@ -167,7 +168,7 @@ curl.exe "$BASE_URL$path" `
 
 ## OMNI implementation pattern
 
-1. Call `GET /api/v2/omni/bootstrap` on startup.
+1. Call `GET /api/v2/omni/bootstrap` and `GET /api/v2/omni/workflows` on startup.
 2. Render actions/forms from contract + your internal mappings.
 3. Start tasks with `POST /api/v2/omni/jobs`.
 4. Poll `/api/v2/omni/jobs/{job_id}` + `/events` for status/logs.

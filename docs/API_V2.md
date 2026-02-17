@@ -78,6 +78,8 @@ Replay protection:
   - OMNI alias of whoami
 - `GET /api/v2/omni/bootstrap` (`actions.read`)
   - contract endpoint for OMNI integration
+- `GET /api/v2/omni/workflows` (`actions.read`)
+  - workflow-to-action mapping for UI parity
 - `POST /api/v2/jobs` (`job.submit`)
   - submit async action job
 - `POST /api/v2/omni/jobs` (`job.submit`)
@@ -132,14 +134,90 @@ Behavior:
 
 ## Built-in Actions
 
+Core:
+
 - `mt.render`
 - `mt.config`
 - `mt.portmap`
 - `legacy.proxy` (restricted to `/api/*`, blocks `/api/v2/*`)
+
+Dashboard/history:
+
+- `health.get`
+- `app.config.get`
+- `infrastructure.get`
+- `routerboards.list`
 - `activity.list`
+- `activity.log`
 - `configs.list`
+- `configs.save`
+- `configs.get`
+- `configs.portmap.download`
+- `configs.portmap.extract`
+
+Config/migration helpers:
+
+- `migration.config`
+- `migration.mikrotik_to_nokia`
+- `config.validate`
+- `config.suggest`
+- `config.explain`
+- `config.translate`
+- `config.autofill_from_export`
+- `compliance.apply`
+- `nokia.generate_7250`
+
+FTTH:
+
+- `ftth.preview_bng`
+- `ftth.generate_bng`
+- `ftth.mf2_package`
+
+Field Config Studio / IDO:
+
+- `ido.capabilities`
+- `ido.ping`
+- `ido.generic.device_info`
+- `ido.ap.device_info`
+- `ido.ap.running_config`
+- `ido.ap.standard_config`
+- `ido.ap.generate`
+- `ido.bh.device_info`
+- `ido.bh.running_config`
+- `ido.bh.standard_config`
+- `ido.bh.generate`
+- `ido.swt.device_info`
+- `ido.swt.running_config`
+- `ido.swt.standard_config`
+- `ido.swt.generate`
+- `ido.ups.device_info`
+- `ido.ups.running_config`
+- `ido.ups.standard_config`
+- `ido.ups.generate`
+- `ido.rpc.device_info`
+- `ido.rpc.running_config`
+- `ido.rpc.standard_config`
+- `ido.rpc.generate`
+- `ido.wave.config`
+- `ido.nokia7250.generate`
+
+Aviat:
+
+- `aviat.run`
 - `aviat.activate_scheduled`
 - `aviat.check_status`
+- `aviat.scheduled.get`
+- `aviat.loading.get`
+- `aviat.queue.get`
+- `aviat.queue.update`
+- `aviat.reboot_required.get`
+- `aviat.reboot_required.run`
+- `aviat.scheduled.sync`
+- `aviat.fix_stp`
+- `aviat.stream.global`
+- `aviat.abort`
+
+For full UI parity mapping, see `docs/UI_API_PARITY.md`.
 
 ## Notes
 
@@ -155,6 +233,7 @@ Primary integration endpoints (use OMNI-prefixed routes):
 - `GET /api/v2/omni/whoami`
 - `GET /api/v2/omni/actions`
 - `GET /api/v2/omni/bootstrap`
+- `GET /api/v2/omni/workflows`
 - `POST /api/v2/omni/jobs`
 - `GET /api/v2/omni/jobs`
 - `GET /api/v2/omni/jobs/{job_id}`

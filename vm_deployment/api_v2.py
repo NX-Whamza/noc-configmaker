@@ -477,6 +477,12 @@ def _legacy_call(payload: Dict[str, Any]) -> Any:
         resp = requests.get(url, params=params, headers=headers, timeout=timeout)
     elif method == "POST":
         resp = requests.post(url, params=params, headers=headers, json=body, timeout=timeout)
+    elif method == "PUT":
+        resp = requests.put(url, params=params, headers=headers, json=body, timeout=timeout)
+    elif method == "PATCH":
+        resp = requests.patch(url, params=params, headers=headers, json=body, timeout=timeout)
+    elif method == "DELETE":
+        resp = requests.delete(url, params=params, headers=headers, timeout=timeout)
     else:
         raise ValueError(f"Unsupported method '{method}'")
 
@@ -497,6 +503,60 @@ def _legacy_call(payload: Dict[str, Any]) -> Any:
         "method": method,
         "response": data,
     }
+
+
+def _legacy_get(path: str) -> Callable[[Dict[str, Any]], Any]:
+    def _handler(payload: Dict[str, Any]) -> Any:
+        params = payload.get("params") if isinstance(payload.get("params"), dict) else payload
+        return _legacy_call({"method": "GET", "path": path, "params": params})
+    return _handler
+
+
+def _legacy_post(path: str) -> Callable[[Dict[str, Any]], Any]:
+    def _handler(payload: Dict[str, Any]) -> Any:
+        body = payload.get("body") if isinstance(payload.get("body"), dict) else payload
+        return _legacy_call({"method": "POST", "path": path, "body": body})
+    return _handler
+
+
+def _legacy_put(path: str) -> Callable[[Dict[str, Any]], Any]:
+    def _handler(payload: Dict[str, Any]) -> Any:
+        body = payload.get("body") if isinstance(payload.get("body"), dict) else payload
+        return _legacy_call({"method": "PUT", "path": path, "body": body})
+    return _handler
+
+
+def _ido_proxy_call(target_path: str, payload: Dict[str, Any]) -> Any:
+    method = str(payload.get("method") or "POST").upper()
+    body = payload.get("body") if isinstance(payload.get("body"), dict) else payload
+    params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
+    proxy_path = f"/api/ido/proxy/{target_path.lstrip('/')}"
+    return _legacy_call({"method": method, "path": proxy_path, "params": params, "body": body})
+
+
+def _require_int(payload: Dict[str, Any], key: str) -> int:
+    try:
+        return int(payload.get(key))
+    except Exception:
+        raise ValueError(f"Missing or invalid '{key}'")
+
+
+def _configs_get(payload: Dict[str, Any]) -> Any:
+    config_id = _require_int(payload, "config_id")
+    return _legacy_call({"method": "GET", "path": f"/api/get-completed-config/{config_id}"})
+
+
+def _configs_portmap_download(payload: Dict[str, Any]) -> Any:
+    config_id = _require_int(payload, "config_id")
+    return _legacy_call({"method": "GET", "path": f"/api/download-port-map/{config_id}"})
+
+
+def _aviat_abort(payload: Dict[str, Any]) -> Any:
+    task_id = str(payload.get("task_id") or "").strip()
+    if not task_id:
+        raise ValueError("Missing 'task_id'")
+    body = payload.get("body") if isinstance(payload.get("body"), dict) else {}
+    return _legacy_call({"method": "POST", "path": f"/api/aviat/abort/{task_id}", "body": body})
 
 
 @dataclass
@@ -715,10 +775,21 @@ _JOBS = JobManager()
 
 
 _ACTION_HANDLERS: Dict[str, Callable[[Dict[str, Any]], Any]] = {
+    # Native MikroTik generators
     "mt.render": lambda payload: _render_mt("mt.render", payload),
     "mt.config": lambda payload: _render_mt("mt.config", payload),
     "mt.portmap": lambda payload: _render_mt("mt.portmap", payload),
+
+    # Generic legacy proxy (escape hatch, still whitelisted by backend)
     "legacy.proxy": _legacy_call,
+
+    # Dashboard / shared reads
+    "health.get": _legacy_get("/api/health"),
+    "app.config.get": _legacy_get("/api/app-config"),
+    "infrastructure.get": _legacy_get("/api/infrastructure"),
+    "routerboards.list": _legacy_get("/api/get-routerboards"),
+
+    # Activity / history
     "activity.list": lambda payload: _legacy_call(
         {
             "method": "GET",
@@ -726,6 +797,9 @@ _ACTION_HANDLERS: Dict[str, Callable[[Dict[str, Any]], Any]] = {
             "params": payload.get("params") if isinstance(payload.get("params"), dict) else payload,
         }
     ),
+    "activity.log": _legacy_post("/api/log-activity"),
+
+    # Completed config store
     "configs.list": lambda payload: _legacy_call(
         {
             "method": "GET",
@@ -733,12 +807,107 @@ _ACTION_HANDLERS: Dict[str, Callable[[Dict[str, Any]], Any]] = {
             "params": payload.get("params") if isinstance(payload.get("params"), dict) else payload,
         }
     ),
+    "configs.save": _legacy_post("/api/save-completed-config"),
+    "configs.get": _configs_get,
+    "configs.portmap.download": _configs_portmap_download,
+    "configs.portmap.extract": _legacy_post("/api/extract-port-map"),
+
+    # Migration / translation
+    "migration.mikrotik_to_nokia": _legacy_post("/api/migrate-mikrotik-to-nokia"),
+    "migration.config": _legacy_post("/api/migrate-config"),
+    "compliance.apply": _legacy_post("/api/apply-compliance"),
+    "config.validate": _legacy_post("/api/validate-config"),
+    "config.suggest": _legacy_post("/api/suggest-config"),
+    "config.explain": _legacy_post("/api/explain-config"),
+    "config.translate": _legacy_post("/api/translate-config"),
+    "config.autofill_from_export": _legacy_post("/api/autofill-from-export"),
+
+    # FTTH
+    "ftth.preview_bng": _legacy_post("/api/preview-ftth-bng"),
+    "ftth.generate_bng": _legacy_post("/api/generate-ftth-bng"),
+    "ftth.mf2_package": _legacy_post("/api/ftth-home/mf2-package"),
+
+    # Nokia
+    "nokia.generate_7250": _legacy_post("/api/generate-nokia7250"),
+
+    # IDO / Field Config Studio capabilities + proxy actions
+    "ido.capabilities": _legacy_get("/api/ido/capabilities"),
+    "ido.ping": lambda payload: _ido_proxy_call("/api/ping", payload),
+    "ido.generic.device_info": lambda payload: _ido_proxy_call("/api/generic/device_info", payload),
+    "ido.ap.device_info": lambda payload: _ido_proxy_call("/api/ap/device_info", payload),
+    "ido.ap.running_config": lambda payload: _ido_proxy_call("/api/ap/running_config", payload),
+    "ido.ap.standard_config": lambda payload: _ido_proxy_call("/api/ap/standard_config", payload),
+    "ido.ap.generate": lambda payload: _ido_proxy_call("/api/ap/generate", payload),
+    "ido.bh.device_info": lambda payload: _ido_proxy_call("/api/bh/device_info", payload),
+    "ido.bh.running_config": lambda payload: _ido_proxy_call("/api/bh/running_config", payload),
+    "ido.bh.standard_config": lambda payload: _ido_proxy_call("/api/bh/standard_config", payload),
+    "ido.bh.generate": lambda payload: _ido_proxy_call("/api/bh/generate", payload),
+    "ido.swt.device_info": lambda payload: _ido_proxy_call("/api/swt/device_info", payload),
+    "ido.swt.running_config": lambda payload: _ido_proxy_call("/api/swt/running_config", payload),
+    "ido.swt.standard_config": lambda payload: _ido_proxy_call("/api/swt/standard_config", payload),
+    "ido.swt.generate": lambda payload: _ido_proxy_call("/api/swt/generate", payload),
+    "ido.ups.device_info": lambda payload: _ido_proxy_call("/api/ups/device_info", payload),
+    "ido.ups.running_config": lambda payload: _ido_proxy_call("/api/ups/running_config", payload),
+    "ido.ups.standard_config": lambda payload: _ido_proxy_call("/api/ups/standard_config", payload),
+    "ido.ups.generate": lambda payload: _ido_proxy_call("/api/ups/generate", payload),
+    "ido.rpc.device_info": lambda payload: _ido_proxy_call("/api/rpc/device_info", payload),
+    "ido.rpc.running_config": lambda payload: _ido_proxy_call("/api/rpc/running_config", payload),
+    "ido.rpc.standard_config": lambda payload: _ido_proxy_call("/api/rpc/standard_config", payload),
+    "ido.rpc.generate": lambda payload: _ido_proxy_call("/api/rpc/generate", payload),
+    "ido.wave.config": lambda payload: _ido_proxy_call("/api/waveconfig/generate", payload),
+    "ido.nokia7250.generate": lambda payload: _ido_proxy_call("/api/7250config/generate", payload),
+
+    # Aviat
+    "aviat.run": _legacy_post("/api/aviat/run"),
     "aviat.activate_scheduled": lambda payload: _legacy_call(
         {"method": "POST", "path": "/api/aviat/activate-scheduled", "body": payload}
     ),
     "aviat.check_status": lambda payload: _legacy_call(
         {"method": "POST", "path": "/api/aviat/check-status", "body": payload}
     ),
+    "aviat.scheduled.get": _legacy_get("/api/aviat/scheduled"),
+    "aviat.loading.get": _legacy_get("/api/aviat/loading"),
+    "aviat.queue.get": _legacy_get("/api/aviat/queue"),
+    "aviat.queue.update": _legacy_post("/api/aviat/queue"),
+    "aviat.reboot_required.get": _legacy_get("/api/aviat/reboot-required"),
+    "aviat.reboot_required.run": _legacy_post("/api/aviat/reboot-required/run"),
+    "aviat.scheduled.sync": _legacy_post("/api/aviat/scheduled/sync"),
+    "aviat.fix_stp": _legacy_post("/api/aviat/fix-stp"),
+    "aviat.stream.global": _legacy_get("/api/aviat/stream/global"),
+    "aviat.abort": _aviat_abort,
+}
+
+
+_OMNI_WORKFLOWS: Dict[str, Any] = {
+    "dashboard": {
+        "health": "health.get",
+        "activity_list": "activity.list",
+        "configs_list": "configs.list",
+    },
+    "mikrotik": {
+        "render": {"action": "mt.render", "required": ["config_type", "payload"]},
+        "config_only": {"action": "mt.config", "required": ["config_type", "payload"]},
+        "portmap_only": {"action": "mt.portmap", "required": ["config_type", "payload"]},
+    },
+    "field_config_studio": {
+        "ap": ["ido.ap.device_info", "ido.ap.running_config", "ido.ap.standard_config", "ido.ap.generate"],
+        "bh": ["ido.bh.device_info", "ido.bh.running_config", "ido.bh.standard_config", "ido.bh.generate"],
+        "switch": ["ido.swt.device_info", "ido.swt.running_config", "ido.swt.standard_config", "ido.swt.generate"],
+        "ups": ["ido.ups.device_info", "ido.ups.running_config", "ido.ups.standard_config", "ido.ups.generate"],
+        "rpc": ["ido.rpc.device_info", "ido.rpc.running_config", "ido.rpc.standard_config", "ido.rpc.generate"],
+    },
+    "aviat": {
+        "run": "aviat.run",
+        "check_status": "aviat.check_status",
+        "activate_scheduled": "aviat.activate_scheduled",
+        "queue_get": "aviat.queue.get",
+        "queue_update": "aviat.queue.update",
+    },
+    "ftth": {
+        "preview_bng": "ftth.preview_bng",
+        "generate_bng": "ftth.generate_bng",
+        "mf2_package": "ftth.mf2_package",
+    },
 }
 
 
@@ -850,6 +1019,19 @@ def v2_omni_bootstrap(auth: Dict[str, Any] = Depends(_require_scope("actions.rea
             },
         },
         message="OMNI bootstrap contract",
+    )
+
+
+@router.get("/omni/workflows")
+def v2_omni_workflows(_: Dict[str, Any] = Depends(_require_scope("actions.read"))):
+    return _envelope(
+        status="ok",
+        data={
+            "workflows": _OMNI_WORKFLOWS,
+            "parity_doc": "/docs/UI_API_PARITY.md",
+            "actions_count": len(_ACTION_HANDLERS),
+        },
+        message="OMNI workflow/action mappings",
     )
 
 
