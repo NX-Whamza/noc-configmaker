@@ -1656,6 +1656,19 @@ def process_radio(
             result.subnet_ok = None
             result.subnet_actual = None
 
+        # Precheck gate: do not start/continue upgrade if subnet is wrong.
+        if any(t in tasks for t in ("firmware", "activate", "all")) and result.subnet_ok is False:
+            expected_mask = os.getenv("AVIAT_EXPECTED_MASK", "255.255.255.248")
+            result.status = "error"
+            result.success = False
+            result.error = (
+                f"Precheck failed: Subnet mask mismatch (expected {expected_mask}, got {result.subnet_actual or 'unknown'})."
+            )
+            stage("PRECHECK_SUBNET_FAIL")
+            log(f"[{ip}] {result.error}", "error", callback=callback)
+            log(f"[{ip}] WORKFLOW: " + " -> ".join(stages), "warning", callback=callback)
+            return result
+
         # Optional uptime gate for firmware/activation tasks
         if any(t in tasks for t in ("firmware", "activate", "all")):
             try:
