@@ -134,6 +134,9 @@ class Config:
     firmware_post_activation_wait: int = int(os.getenv("AVIAT_POST_ACTIVATION_WAIT", "3900"))
     firmware_ping_check_interval: int = int(os.getenv("AVIAT_PING_CHECK_INTERVAL", "60"))
     firmware_ping_max_wait: int = int(os.getenv("AVIAT_PING_MAX_WAIT", "3600"))
+    # Allow devices to complete long reboot/bootup before first reachability probe.
+    firmware_first_check_delay: int = int(os.getenv("AVIAT_FIRST_CHECK_DELAY", "900"))
+    reboot_initial_delay: int = int(os.getenv("AVIAT_REBOOT_INITIAL_DELAY", "900"))
     sop_recheck_attempts: int = int(os.getenv("AVIAT_SOP_RECHECK_ATTEMPTS", "3"))
     sop_recheck_delay: int = int(os.getenv("AVIAT_SOP_RECHECK_DELAY", "3"))
 
@@ -1916,7 +1919,7 @@ def process_radio(
                         password=login_password,
                         fallback_password=CONFIG.default_password,
                         callback=callback,
-                        initial_delay=CONFIG.firmware_ping_check_interval,
+                        initial_delay=CONFIG.firmware_first_check_delay,
                     )
                     if not client:
                         result.error = "Device did not recover within 60 minutes after activation"
@@ -1964,7 +1967,7 @@ def process_radio(
                         password=login_password,
                         fallback_password=CONFIG.default_password,
                         callback=callback,
-                        initial_delay=CONFIG.firmware_ping_check_interval,
+                        initial_delay=CONFIG.firmware_first_check_delay,
                     )
                     if not client:
                         result.error = "Device did not recover within 60 minutes after activation"
@@ -2039,7 +2042,7 @@ def process_radio(
                     password=login_password,
                     fallback_password=CONFIG.default_password,
                     callback=callback,
-                    initial_delay=CONFIG.firmware_ping_check_interval,
+                    initial_delay=CONFIG.firmware_first_check_delay,
                 )
                 if not client:
                     result.error = "Device did not recover within 60 minutes after activation"

@@ -12449,7 +12449,7 @@ def aviat_run_reboot_required():
                     password=AVIAT_CONFIG.default_password,
                     fallback_password=AVIAT_CONFIG.new_password,
                     callback=log_cb,
-                    initial_delay=int(os.environ.get("AVIAT_REBOOT_INITIAL_DELAY", "60")),
+                    initial_delay=int(os.environ.get("AVIAT_REBOOT_INITIAL_DELAY", str(AVIAT_CONFIG.reboot_initial_delay))),
                 )
                 if client:
                     try:
