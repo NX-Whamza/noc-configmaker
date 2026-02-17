@@ -163,6 +163,10 @@ class RadioResult:
     sop_results: List[Dict[str, Any]] = field(default_factory=list)
     subnet_ok: Optional[bool] = None
     subnet_actual: Optional[str] = None
+    license_ok: Optional[bool] = None
+    license_detail: Optional[str] = None
+    stp_ok: Optional[bool] = None
+    stp_detail: Optional[str] = None
     firmware_version_before: Optional[str] = None
     firmware_version_after: Optional[str] = None
     error: Optional[str] = None
@@ -1641,7 +1645,7 @@ def process_radio(
         if "firmware" in tasks or "all" in tasks or "sop" in tasks:
             result.firmware_version_before = get_firmware_version(client, callback=callback)
 
-        # Always collect subnet mask health for queue/UI precheck visibility.
+        # Always collect precheck health for queue/UI visibility.
         try:
             subnet_ok, subnet_actual = check_subnet_mask(client)
             result.subnet_ok = subnet_ok
@@ -1656,18 +1660,45 @@ def process_radio(
             result.subnet_ok = None
             result.subnet_actual = None
 
-        # Precheck gate: do not start/continue upgrade if subnet is wrong.
-        if any(t in tasks for t in ("firmware", "activate", "all")) and result.subnet_ok is False:
-            expected_mask = os.getenv("AVIAT_EXPECTED_MASK", "255.255.255.248")
-            result.status = "error"
-            result.success = False
-            result.error = (
-                f"Precheck failed: Subnet mask mismatch (expected {expected_mask}, got {result.subnet_actual or 'unknown'})."
-            )
-            stage("PRECHECK_SUBNET_FAIL")
-            log(f"[{ip}] {result.error}", "error", callback=callback)
-            log(f"[{ip}] WORKFLOW: " + " -> ".join(stages), "warning", callback=callback)
-            return result
+        try:
+            license_ok, license_detail = check_license_bundles(client)
+            result.license_ok = license_ok
+            result.license_detail = license_detail
+        except Exception:
+            result.license_ok = None
+            result.license_detail = None
+
+        try:
+            stp_ok, stp_detail = check_stp_disabled(client)
+            result.stp_ok = stp_ok
+            result.stp_detail = stp_detail
+        except Exception:
+            result.stp_ok = None
+            result.stp_detail = None
+
+        # Precheck gate: block upgrade path but keep radio in queue (not failed queue).
+        if any(t in tasks for t in ("firmware", "activate", "all")):
+            precheck_issues = []
+            if result.subnet_ok is False:
+                expected_mask = os.getenv("AVIAT_EXPECTED_MASK", "255.255.255.248")
+                precheck_issues.append(
+                    f"NEEDS /29 ({expected_mask}); device reports {result.subnet_actual or 'unknown'}"
+                )
+                stage("PRECHECK_SUBNET_FAIL")
+            if result.stp_ok is False:
+                precheck_issues.append(f"STP ENABLED ({result.stp_detail or 'disable STP before upgrade'})")
+                stage("PRECHECK_STP_FAIL")
+            if result.license_ok is False:
+                precheck_issues.append(f"LICENSE ISSUE ({result.license_detail or 'required license missing'})")
+                stage("PRECHECK_LICENSE_FAIL")
+
+            if precheck_issues:
+                result.status = "precheck_failed"
+                result.success = True
+                result.error = "Precheck blocked upgrade: " + "; ".join(precheck_issues)
+                log(f"[{ip}] {result.error}", "warning", callback=callback)
+                log(f"[{ip}] WORKFLOW: " + " -> ".join(stages), "warning", callback=callback)
+                return result
 
         # Optional uptime gate for firmware/activation tasks
         if any(t in tasks for t in ("firmware", "activate", "all")):

@@ -414,6 +414,8 @@ def _aviat_status_from_result(result):
     success = result.get("success")
     if status == "reboot_required":
         return "reboot_required"
+    if status == "precheck_failed":
+        return "pending"
     if status in ("scheduled", "manual", "loading", "pending_verify"):
         return status
     if status == "aborted":
@@ -486,6 +488,30 @@ def _aviat_queue_update_from_result(result, username=None):
         updates["subnetDetail"] = str(subnet_detail)
     elif subnet_ok is False:
         updates["subnetDetail"] = "Subnet mask mismatch detected"
+
+    license_ok = result.get("license_ok")
+    if license_ok is True:
+        updates["licenseStatus"] = "success"
+    elif license_ok is False:
+        updates["licenseStatus"] = "error"
+    else:
+        updates["licenseStatus"] = "pending"
+    if result.get("license_detail") is not None:
+        updates["licenseDetail"] = str(result.get("license_detail"))
+
+    stp_ok = result.get("stp_ok")
+    if stp_ok is True:
+        updates["stpStatus"] = "success"
+    elif stp_ok is False:
+        updates["stpStatus"] = "error"
+    else:
+        updates["stpStatus"] = "pending"
+    if result.get("stp_detail") is not None:
+        updates["stpDetail"] = str(result.get("stp_detail"))
+
+    if (result.get("status") or "").lower() == "precheck_failed":
+        updates["precheckStatus"] = "blocked"
+        updates["precheckDetail"] = result.get("error") or "Precheck blocked upgrade"
     if username:
         updates["username"] = username
     _aviat_queue_upsert(ip, updates)
@@ -11988,6 +12014,10 @@ def _aviat_result_dict(result, username=None):
         'sop_results': result.sop_results,
         'subnet_ok': getattr(result, 'subnet_ok', None),
         'subnet_actual': getattr(result, 'subnet_actual', None),
+        'license_ok': getattr(result, 'license_ok', None),
+        'license_detail': getattr(result, 'license_detail', None),
+        'stp_ok': getattr(result, 'stp_ok', None),
+        'stp_detail': getattr(result, 'stp_detail', None),
         'firmware_version_before': result.firmware_version_before,
         'firmware_version_after': result.firmware_version_after,
         'error': result.error

@@ -23462,7 +23462,8 @@ Ready for translation!`);
             function aviatNormalizeStatus(status, successFlag) {
                 if (!status) return successFlag ? 'success' : 'pending';
                 const lower = String(status).toLowerCase();
-                if (['success', 'error', 'pending', 'processing', 'loading', 'pending_verify', 'scheduled', 'manual', 'reboot_required', 'reboot_pending', 'rebooting'].includes(lower)) {
+                if (lower === 'precheck_failed') return 'pending';
+                if (['success', 'error', 'pending', 'processing', 'loading', 'pending_verify', 'scheduled', 'manual', 'reboot_required', 'reboot_pending', 'rebooting', 'precheck_failed'].includes(lower)) {
                     return lower;
                 }
                 if (['completed', 'done'].includes(lower)) {
@@ -23485,6 +23486,7 @@ Ready for translation!`);
                     reboot_required: 'RB',
                     reboot_pending: 'RB',
                     rebooting: 'RB',
+                    precheck_failed: 'PF',
                     success: 'OK',
                     error: 'X'
                 };
@@ -23608,9 +23610,9 @@ Ready for translation!`);
                                 </div>
                             </div>
                             <div style="display: flex; gap: 6px; align-items: center;">
-                                ${licenseIssue ? `<button class="aviat-btn secondary" onclick="aviatShowPrecheck('License', '${r.licenseDetail || ''}', '${r.ip}')">License</button>` : ''}
-                                ${stpIssue ? `<button class="aviat-btn secondary" onclick="aviatFixStp('${r.ip}')">Fix STP</button>` : ''}
-                                ${subnetIssue ? `<button class="aviat-btn secondary" onclick="aviatShowPrecheck('Subnet', '${r.subnetDetail || ''}', '${r.ip}')">Subnet</button>` : ''}
+                                ${licenseIssue ? `<button class="aviat-btn secondary" onclick="aviatShowPrecheck('License', '${r.licenseDetail || ''}', '${r.ip}')">LICENSE ISSUE</button>` : ''}
+                                ${stpIssue ? `<button class="aviat-btn secondary" onclick="aviatShowPrecheck('STP ENABLED', '${r.stpDetail || ''}', '${r.ip}')">STP ENABLED</button>` : ''}
+                                ${subnetIssue ? `<button class="aviat-btn secondary" onclick="aviatShowPrecheck('NEEDS /29', '${r.subnetDetail || ''}', '${r.ip}')">NEEDS /29</button>` : ''}
                                 ${canReboot ? `<button class="aviat-btn" onclick="aviatRebootRequired('${r.ip}')" ${disabled || isRebooting ? 'disabled' : ''}>Reboot</button>` : ''}
                                 <button class="aviat-btn secondary" onclick="aviatRunSingle('${r.ip}')" ${disabled}>Run</button>
                                 <button class="aviat-btn danger" onclick="aviatRemoveRadio('${r.ip}')" ${disabled}>Remove</button>
