@@ -13089,7 +13089,18 @@
                 const text = await resp.text();
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${text}`);
                 try {
-                    return JSON.stringify(JSON.parse(text), null, 2);
+                    const parsed = JSON.parse(text);
+                    // Some upstream endpoints return a JSON-encoded string payload
+                    // (e.g. "\"{...}\""). Decode one extra layer for readable output.
+                    if (typeof parsed === 'string') {
+                        try {
+                            const parsedAgain = JSON.parse(parsed);
+                            return JSON.stringify(parsedAgain, null, 2);
+                        } catch (_) {
+                            return parsed;
+                        }
+                    }
+                    return JSON.stringify(parsed, null, 2);
                 } catch (_) {
                     return text;
                 }

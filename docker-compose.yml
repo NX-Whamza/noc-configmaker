@@ -9,13 +9,14 @@ services:
       FIRMWARE_PATH: ${IDO_BACKEND_PATH:-/app/vm_deployment/ido_modules}
       IDO_REQUIRE_FULL_MODULES: ${IDO_REQUIRE_FULL_MODULES:-false}
       # Device auth defaults used by netlaunch backend modules (Field Config Studio)
-      AP_STANDARD_PW: ${AP_STANDARD_PW:-}
-      SM_STANDARD_PW: ${SM_STANDARD_PW:-}
-      BH_STANDARD_PW: ${BH_STANDARD_PW:-}
-      SWT_STANDARD_PW: ${SWT_STANDARD_PW:-}
-      RPC_STANDARD_PW: ${RPC_STANDARD_PW:-}
-      CNMATRIX_STANDARD_PW: ${CNMATRIX_STANDARD_PW:-}
-      WAVE_AP_PASS: ${WAVE_AP_PASS:-}
+      AP_STANDARD_PW: ${AP_STANDARD_PW:-g25TrDaS}
+      SM_STANDARD_PW: ${SM_STANDARD_PW:-7UpYXZAo}
+      BH_STANDARD_PW: ${BH_STANDARD_PW:-Fr3knL@zr!}
+      SWT_STANDARD_PW: ${SWT_STANDARD_PW:-xGA9KDm9o9}
+      RPC_STANDARD_PW: ${RPC_STANDARD_PW:-xGA9KDm9o9}
+      CNMATRIX_STANDARD_PW: ${CNMATRIX_STANDARD_PW:-LV?lqk%D%XL5YhH}
+      WAVE_AP_PASS: ${WAVE_AP_PASS:-7&D!:bC|9nE^}
+      NEXTLINK_SSH_PASSWORD: ${NEXTLINK_SSH_PASSWORD:-g25TrDaS}
     volumes:
       - ./vm_deployment/base_configs:/opt/base_configs:ro
     healthcheck:

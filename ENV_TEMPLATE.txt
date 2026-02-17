@@ -40,18 +40,18 @@ ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 
 # SSH fetch defaults (optional; can also be entered in the UI)
 # NEXTLINK_SSH_USERNAME=
-# NEXTLINK_SSH_PASSWORD=
+# NEXTLINK_SSH_PASSWORD=g25TrDaS
 
 # Field Config Studio / IDO device login defaults (optional)
 # For most Cambium/Tachyon/backhaul tools username is fixed to admin in upstream modules.
 # Set these so Running Config / Standard Config actions can authenticate correctly.
-# AP_STANDARD_PW=
-# SM_STANDARD_PW=
-# BH_STANDARD_PW=
-# SWT_STANDARD_PW=
-# RPC_STANDARD_PW=
-# CNMATRIX_STANDARD_PW=
-# WAVE_AP_PASS=
+# AP_STANDARD_PW=g25TrDaS
+# SM_STANDARD_PW=7UpYXZAo
+# BH_STANDARD_PW=Fr3knL@zr!
+# SWT_STANDARD_PW=xGA9KDm9o9
+# RPC_STANDARD_PW=xGA9KDm9o9
+# CNMATRIX_STANDARD_PW=LV?lqk%D%XL5YhH
+# WAVE_AP_PASS=7&D!:bC|9nE^
 
 # Netlaunch-compatible MikroTik config templates
 # Must include Router/Tower and Router/BNG2 folders.
