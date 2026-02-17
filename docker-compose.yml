@@ -3,10 +3,10 @@ services:
     build: .
     command: ["uvicorn", "--app-dir", ".", "vm_deployment.ido_local_backend:app", "--host", "0.0.0.0", "--port", "18081"]
     environment:
-      NETLAUNCH_TOOLS_BACKEND_PATH: ${NETLAUNCH_TOOLS_BACKEND_PATH:-/opt/netlaunch-tools-backend}
-      NETLAUNCH_IDO_BACKEND_PATH: ${NETLAUNCH_IDO_BACKEND_PATH:-/opt/netlaunch-tools-backend}
+      IDO_BACKEND_PATH: ${IDO_BACKEND_PATH:-/app/vm_deployment/ido_modules}
+      IDO_TOOLS_BACKEND_PATH: ${IDO_TOOLS_BACKEND_PATH:-/app/vm_deployment/ido_modules}
       BASE_CONFIG_PATH: /opt/base_configs
-      FIRMWARE_PATH: ${NETLAUNCH_TOOLS_BACKEND_PATH:-/opt/netlaunch-tools-backend}
+      FIRMWARE_PATH: ${IDO_BACKEND_PATH:-/app/vm_deployment/ido_modules}
       IDO_REQUIRE_FULL_MODULES: ${IDO_REQUIRE_FULL_MODULES:-false}
       # Device auth defaults used by netlaunch backend modules (Field Config Studio)
       AP_STANDARD_PW: ${AP_STANDARD_PW:-}
@@ -17,7 +17,6 @@ services:
       CNMATRIX_STANDARD_PW: ${CNMATRIX_STANDARD_PW:-}
       WAVE_AP_PASS: ${WAVE_AP_PASS:-}
     volumes:
-      - ${NETLAUNCH_TOOLS_BACKEND_DIR:-./external/netlaunch-tools-backend-main}:/opt/netlaunch-tools-backend:ro
       - ./vm_deployment/base_configs:/opt/base_configs:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:18081/health',timeout=3).getcode()==200 else 1)"]

@@ -161,13 +161,22 @@ IDO_PROXY_ALLOWED_PREFIXES = (
 def _ido_backend_url() -> str:
     def _ido_local_backend_path() -> str:
         candidates = [
+            str(Path(__file__).resolve().parent / "ido_modules"),
+            (os.getenv("IDO_BACKEND_PATH") or "").strip(),
+            (os.getenv("IDO_TOOLS_BACKEND_PATH") or "").strip(),
             (os.getenv("NETLAUNCH_IDO_BACKEND_PATH") or "").strip(),
             (os.getenv("NETLAUNCH_TOOLS_BACKEND_PATH") or "").strip(),
+            "/opt/ido-backend",
+            "/opt/ido-backend/ido-backend-main",
             "/opt/netlaunch-tools-backend",
             "/opt/netlaunch-tools-backend/netlaunch-tools-backend-main",
             "/app/external/netlaunch-tools-backend-main",
             "/app/external/netlaunch-tools-backend-main/netlaunch-tools-backend-main",
+            "/app/external/ido-backend-main",
+            "/app/external/ido-backend-main/ido-backend-main",
+            str(Path(__file__).resolve().parents[2] / "ido-backend-main" / "ido-backend-main"),
             str(Path(__file__).resolve().parents[2] / "netlaunch-tools-backend-main" / "netlaunch-tools-backend-main"),
+            r"C:\Users\WalihlahHamza\Downloads\ido-backend-main\ido-backend-main",
             r"C:\Users\WalihlahHamza\Downloads\netlaunch-tools-backend-main\netlaunch-tools-backend-main",
         ]
         for candidate in candidates:
@@ -272,9 +281,10 @@ def _ido_backend_url() -> str:
         return ""
 
     candidates = (
+        "IDO_BACKEND_URL",
+        "IDO_TOOLS_BACKEND_URL",
         "NETLAUNCH_IDO_BACKEND_URL",
         "NEXTLINK_IDO_BACKEND_URL",
-        "IDO_BACKEND_URL",
         "NETLAUNCH_TOOLS_BACKEND_URL",
     )
     for key in candidates:
@@ -403,7 +413,7 @@ async def ido_proxy(target_path: str, request: Request):
             return JSONResponse(content=_ido_local_generic(ip, _ido_to_bool(qp.get("run_tests"), False)))
         raise HTTPException(
             status_code=503,
-            detail=f"NETLAUNCH_IDO_BACKEND_URL is not configured. Embedded fallback supports only /api/ping and /api/generic/device_info (requested: {rel})",
+            detail=f"IDO backend URL is not configured. Embedded fallback supports only /api/ping and /api/generic/device_info (requested: {rel})",
         )
 
     url = urljoin(backend_url.rstrip("/") + "/", target_path.lstrip("/"))

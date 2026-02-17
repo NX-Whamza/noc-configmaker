@@ -10,14 +10,23 @@ from fastapi import FastAPI, HTTPException, Response
 
 def _discover_backend_path() -> str:
     candidates = [
+        (os.getenv("IDO_BACKEND_PATH") or "").strip(),
+        (os.getenv("IDO_TOOLS_BACKEND_PATH") or "").strip(),
         (os.getenv("NETLAUNCH_IDO_BACKEND_PATH") or "").strip(),
         (os.getenv("NETLAUNCH_TOOLS_BACKEND_PATH") or "").strip(),
+        str(Path(__file__).resolve().parent / "ido_modules"),
         "/opt/netlaunch-tools-backend",
         "/opt/netlaunch-tools-backend/netlaunch-tools-backend-main",
+        "/opt/ido-backend",
+        "/opt/ido-backend/ido-backend-main",
         "/app/external/netlaunch-tools-backend-main",
         "/app/external/netlaunch-tools-backend-main/netlaunch-tools-backend-main",
+        "/app/external/ido-backend-main",
+        "/app/external/ido-backend-main/ido-backend-main",
         str(Path(__file__).resolve().parents[2] / "netlaunch-tools-backend-main" / "netlaunch-tools-backend-main"),
+        str(Path(__file__).resolve().parents[2] / "ido-backend-main" / "ido-backend-main"),
         r"C:\Users\WalihlahHamza\Downloads\netlaunch-tools-backend-main\netlaunch-tools-backend-main",
+        r"C:\Users\WalihlahHamza\Downloads\ido-backend-main\ido-backend-main",
     ]
     for candidate in candidates:
         if not candidate:
