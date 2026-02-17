@@ -760,6 +760,19 @@ def _version_tuple(version: Optional[str]) -> Tuple[int, int, int]:
     parts = (parts + [0, 0, 0])[:3]
     return tuple(parts)
 
+def _is_transient_cli_error(exc: Exception) -> bool:
+    text = str(exc or "").lower()
+    transient_markers = (
+        "socket is closed",
+        "not connected",
+        "connection reset",
+        "broken pipe",
+        "timeout",
+        "timed out",
+        "channel closed",
+    )
+    return any(marker in text for marker in transient_markers)
+
 
 def get_firmware_version(client: AviatSSHClient, callback=None) -> Optional[str]:
     log(f"  [{client.ip}] Checking firmware version...", "info", callback=callback)
@@ -778,7 +791,14 @@ def get_firmware_version(client: AviatSSHClient, callback=None) -> Optional[str]
     retries = 8
     for attempt in range(retries + 1):
         for command in commands:
-            output = client.send_command(command)
+            try:
+                output = client.send_command(command)
+            except Exception as exc:
+                # Reboots can close CLI channels briefly; treat as transient and retry.
+                if _is_transient_cli_error(exc):
+                    output = ""
+                else:
+                    raise
             last_output = output
             if _is_invalid_output(output):
                 continue
@@ -799,7 +819,11 @@ def get_firmware_version(client: AviatSSHClient, callback=None) -> Optional[str]
     tail = (last_output or "").strip().replace("\r", "")[-160:]
     if tail:
         log(f"  [{client.ip}] Firmware parse output tail: {tail}", "warning", callback=callback)
-    log(f"  [{client.ip}] Failed to parse firmware version", "warning", callback=callback)
+    log(
+        f"  [{client.ip}] Firmware version temporarily unavailable; will retry or defer verification.",
+        "warning",
+        callback=callback,
+    )
     return None
 
 
@@ -817,7 +841,13 @@ def get_inactive_firmware_version(client: AviatSSHClient, callback=None) -> Opti
     retries = 3
     for attempt in range(retries):
         for command in commands:
-            output = client.send_command(command)
+            try:
+                output = client.send_command(command)
+            except Exception as exc:
+                if _is_transient_cli_error(exc):
+                    output = ""
+                else:
+                    raise
             output = _clean_cli_output(output)
             last_output = output
             if re.search(r"\bloadok\b", output, re.I):
@@ -849,7 +879,11 @@ def get_inactive_firmware_version(client: AviatSSHClient, callback=None) -> Opti
         tail = (last_output or "").strip().replace("\r", "")[-160:]
         if tail:
             log(f"  [{client.ip}] Inactive parse output tail: {tail}", "warning", callback=callback)
-        log(f"  [{client.ip}] Failed to parse inactive firmware version", "warning", callback=callback)
+        log(
+            f"  [{client.ip}] Inactive firmware version temporarily unavailable.",
+            "warning",
+            callback=callback,
+        )
     return version
 
 
