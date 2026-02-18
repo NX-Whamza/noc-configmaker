@@ -3067,8 +3067,14 @@
                                     <input type="text" id="mtBng2OspfArea" value="248" placeholder="248">
                                 </div>
                                 <div>
-                                    <label for="mtBng2StateCode">State Code</label>
-                                    <input type="text" id="mtBng2StateCode" value="KS" placeholder="KS">
+                                    <label for="mtBng2StateCode">State Profile</label>
+                                    <select id="mtBng2StateCode">
+                                        <option value="KS" selected>KS (Kansas)</option>
+                                        <option value="NE">NE (Nebraska)</option>
+                                        <option value="IA">IA (Iowa)</option>
+                                        <option value="LA">LA (Louisiana)</option>
+                                        <option value="IL">IL (Illinois)</option>
+                                    </select>
                                 </div>
                                 <div>
                                     <label for="mtBng2Gateway">Gateway Subnet</label>
@@ -6190,6 +6196,16 @@
                             <label for="ftth_location_out">Location (GPS Coordinates):</label>
                             <input type="text" id="ftth_location_out" placeholder="32.900249,-97.534145">
                         </div>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <label for="ftth_state_profile_out">State Profile (OSPF + VPLS IDs):</label>
+                        <select id="ftth_state_profile_out">
+                            <option value="NE" selected>NE (Nebraska)</option>
+                            <option value="KS">KS (Kansas)</option>
+                            <option value="IA">IA (Iowa)</option>
+                            <option value="LA">LA (Louisiana)</option>
+                            <option value="IL">IL (Illinois)</option>
+                        </select>
                     </div>
                     <div style="margin-top: 10px;">
                         <label for="ftth_routeros_out">RouterOS Version:</label>
@@ -13269,6 +13285,11 @@
                     modelSel.addEventListener('change', refreshModernPortOptions);
                     modelSel.dataset.bound = '1';
                 }
+                const bng2StateSel = document.getElementById('mtBng2StateCode');
+                if (bng2StateSel && !bng2StateSel.dataset.bound) {
+                    bng2StateSel.addEventListener('change', syncBng2StateProfileFields);
+                    bng2StateSel.dataset.bound = '1';
+                }
 
                 const addBtn = document.getElementById('mtAddBackhaulBtn');
                 if (addBtn && !addBtn.dataset.bound) {
@@ -13452,6 +13473,7 @@
                 if (legacyGenerate) legacyGenerate.style.display = 'none';
 
                 syncMtConfigTypeUI();
+                syncBng2StateProfileFields();
                 syncMtFeatureSubnetVisibility();
                 refreshIdoCapabilities();
                 renderFieldConfigToolState();
@@ -13476,6 +13498,35 @@
                 const raw = String(value || '').trim();
                 if (!raw) return '';
                 return raw.includes('/') ? raw : `${raw}/${fallbackPrefix}`;
+            }
+
+            window.STATE_PROFILES = {
+                IA: { code: 'IA', ospf_area: '42', ospf_area_id: '0.0.0.42', vpls: ['1245', '2245', '3245', '4245'], vpls_state_id: '245' },
+                NE: { code: 'NE', ospf_area: '249', ospf_area_id: '0.0.0.249', vpls: ['1249', '2249', '3249', '4249'], vpls_state_id: '249' },
+                KS: { code: 'KS', ospf_area: '248', ospf_area_id: '0.0.0.248', vpls: ['1248', '2248', '3248', '4248'], vpls_state_id: '248' },
+                LA: { code: 'LA', ospf_area: '250', ospf_area_id: '0.0.0.250', vpls: ['1250', '2250', '3250', '4250'], vpls_state_id: '250' },
+                IL: { code: 'IL', ospf_area: '0', ospf_area_id: '0.0.0.0', vpls: ['1247', '2247', '3247', '4247'], vpls_state_id: '247' }
+            };
+
+            window.getStateProfile = function (stateCode) {
+                const key = String(stateCode || 'NE').trim().toUpperCase();
+                const table = window.STATE_PROFILES || {};
+                return table[key] || table.NE || { code: 'NE', ospf_area: '249', ospf_area_id: '0.0.0.249', vpls: ['1249', '2249', '3249', '4249'], vpls_state_id: '249' };
+            };
+
+            function syncBng2StateProfileFields() {
+                const stateCode = (document.getElementById('mtBng2StateCode')?.value || 'KS').trim().toUpperCase();
+                const profile = window.getStateProfile(stateCode);
+                const ospf = document.getElementById('mtBng2OspfArea');
+                const v1000 = document.getElementById('mtBng2Vpls1000');
+                const v2000 = document.getElementById('mtBng2Vpls2000');
+                const v3000 = document.getElementById('mtBng2Vpls3000');
+                const v4000 = document.getElementById('mtBng2Vpls4000');
+                if (ospf) ospf.value = profile.ospf_area;
+                if (v1000) v1000.value = profile.vpls[0];
+                if (v2000) v2000.value = profile.vpls[1];
+                if (v3000) v3000.value = profile.vpls[2];
+                if (v4000) v4000.value = profile.vpls[3];
             }
 
             function parseBgpPeersSafe(raw) {
@@ -13587,6 +13638,7 @@
                 const latitude = (document.getElementById('mtLatitude')?.value || '').trim();
                 const longitude = (document.getElementById('mtLongitude')?.value || '').trim();
                 const stateCode = ((document.getElementById('mtBng2StateCode')?.value || '').trim() || 'KS').toUpperCase();
+                const stateProfile = window.getStateProfile(stateCode);
                 const backhauls = collectTowerBackhaulsForBackend();
                 const routerRaw = (document.getElementById('mtRouterModel')?.value || 'mt2004').trim();
 
@@ -13597,14 +13649,14 @@
                     gateway: ensureCIDR((document.getElementById('mtBng2Gateway')?.value || '').trim(), 29),
                     latitude,
                     longitude,
-                    state_code: stateCode,
+                    state_code: stateProfile.code,
                     bng_1_ip: (document.getElementById('mtBng2Ip1')?.value || '10.249.0.200').trim(),
                     bng_2_ip: (document.getElementById('mtBng2Ip2')?.value || '10.249.0.201').trim(),
-                    ospf_area: (document.getElementById('mtBng2OspfArea')?.value || '248').trim(),
-                    vlan_1000_cisco: (document.getElementById('mtBng2Vpls1000')?.value || '').trim(),
-                    vlan_2000_cisco: (document.getElementById('mtBng2Vpls2000')?.value || '').trim(),
-                    vlan_3000_cisco: (document.getElementById('mtBng2Vpls3000')?.value || '').trim(),
-                    vlan_4000_cisco: (document.getElementById('mtBng2Vpls4000')?.value || '').trim(),
+                    ospf_area: stateProfile.ospf_area,
+                    vlan_1000_cisco: stateProfile.vpls[0],
+                    vlan_2000_cisco: stateProfile.vpls[1],
+                    vlan_3000_cisco: stateProfile.vpls[2],
+                    vlan_4000_cisco: stateProfile.vpls[3],
                     mpls_mtu: (document.getElementById('mtBng2MplsMtu')?.value || '9000').trim(),
                     vpls_l2_mtu: (document.getElementById('mtBng2VplsL2Mtu')?.value || '1580').trim(),
                     is_switchless: !!document.getElementById('mtFeatureTachyon')?.checked,
@@ -23049,6 +23101,8 @@ Ready for translation!`);
             const suffix = getActiveStateSuffix();
 
             const deploymentType = suffix === 'in' ? 'instate' : 'outstate';
+            const outStateCode = (document.getElementById('ftth_state_profile_out')?.value || 'NE').trim().toUpperCase();
+            const outStateProfile = (window.getStateProfile ? window.getStateProfile(outStateCode) : { code: 'NE', ospf_area: '249', ospf_area_id: '0.0.0.249', vpls_state_id: '249' });
             const startTime = Date.now();
             const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
             const routerOSVersion = document.getElementById(`ftth_routeros_${suffix}`)?.value.trim() || '7.19.4';
@@ -23070,6 +23124,10 @@ Ready for translation!`);
                 olt_name_primary: getFtthOltName(suffix, 1),
                 olt_name_secondary: getFtthOltName(suffix, 2),
                 olt_name_100g: getFtthOltName(suffix, '100g'),
+                state_code: deploymentType === 'outstate' ? outStateProfile.code : '',
+                ospf_area: deploymentType === 'outstate' ? outStateProfile.ospf_area : '',
+                ospf_area_id: deploymentType === 'outstate' ? outStateProfile.ospf_area_id : '',
+                vpls_state_id: deploymentType === 'outstate' ? outStateProfile.vpls_state_id : '',
                 uplinks: collectFtthUplinks(suffix),
                 olt_ports: []
             };

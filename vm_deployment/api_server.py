@@ -12879,6 +12879,19 @@ def _mt_base_config_path():
     return os.getenv("BASE_CONFIG_PATH") or os.getenv("NEXTLINK_BASE_CONFIG_PATH")
 
 
+def _sanitize_bng2_transport_output(config_text: str) -> str:
+    banned_fragments = (
+        "lan-bridge",
+        "nat-public-bridge",
+    )
+    kept = []
+    for line in str(config_text or "").splitlines():
+        if any(fragment in line for fragment in banned_fragments):
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip() + "\n"
+
+
 @app.route('/api/mt/<config_type>/config', methods=['POST'])
 def mt_generate_config(config_type):
     if not HAS_MT_CONFIG_GEN:
@@ -12902,6 +12915,8 @@ def mt_generate_config(config_type):
         config_text = cfg.generate_config()
         if apply_compliance and HAS_ENGINEERING_COMPLIANCE:
             config_text = apply_engineering_compliance(config_text, payload_loopback)
+        if config_type == "bng2":
+            config_text = _sanitize_bng2_transport_output(config_text)
         # Keep Netlaunch compatibility: frontend expects response.json() -> string
         return jsonify(config_text)
     except Exception as exc:

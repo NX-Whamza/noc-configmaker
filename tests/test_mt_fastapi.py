@@ -107,6 +107,8 @@ def test_bng2_config_is_not_tower_and_contains_vpls():
     assert "/interface vpls" in text
     assert "vpls1000-bng1" in text
     assert "add name=bridge1000" in text
+    assert "lan-bridge" not in text
+    assert "nat-public-bridge" not in text
 
 
 def test_tower_policy_violation_returns_422():

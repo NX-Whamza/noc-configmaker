@@ -103,3 +103,22 @@ def test_ftth_outstate_allows_missing_ftth_pool_fields():
     assert data.get("success") is True
     config = data.get("config", "")
     assert "name=vpls1000-bng1" in config
+
+
+def test_ftth_outstate_state_profile_ia_maps_ospf_and_vpls_ids():
+    payload = _ui_payload("outstate")
+    payload["state_code"] = "IA"
+    payload["ospf_area"] = "42"
+    payload["ospf_area_id"] = "0.0.0.42"
+    payload["vpls_state_id"] = "245"
+
+    response = client.post("/api/generate-ftth-bng", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data.get("success") is True
+    config = data.get("config", "")
+    assert "cisco-static-id=1245" in config
+    assert "cisco-static-id=2245" in config
+    assert "/routing ospf area" in config
+    assert "area-id=0.0.0.42" in config
+    assert "name=area42" in config

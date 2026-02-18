@@ -318,6 +318,7 @@ class MTBNG2Config:
         )
 
         config_text = template.render(params)
+        config_text = self._sanitize_transport_only_output(config_text)
 
         return config_text
 
@@ -337,3 +338,19 @@ class MTBNG2Config:
         port_map_text = template.render(params)
 
         return port_map_text
+
+    @staticmethod
+    def _sanitize_transport_only_output(config_text: str) -> str:
+        banned_fragments = (
+            "lan-bridge",
+            "nat-public-bridge",
+            "/ip dhcp-server",
+            "/ip pool",
+            "address-pool=",
+        )
+        kept = []
+        for line in str(config_text or "").splitlines():
+            if any(fragment in line for fragment in banned_fragments):
+                continue
+            kept.append(line)
+        return "\n".join(kept).strip() + "\n"

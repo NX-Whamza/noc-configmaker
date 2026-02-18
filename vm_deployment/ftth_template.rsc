@@ -52,7 +52,7 @@ set 0 name=serial0
 add disabled=no name=default-v2 router-id={{ROUTER_ID}}
 
 /routing ospf area
-add disabled=no instance=default-v2 name=backbone-v2
+add area-id={{OSPF_AREA_ID}} disabled=no instance=default-v2 name={{OSPF_AREA_NAME}}
 
 /snmp community
 set [ find default=yes ] read-access=no
@@ -297,8 +297,8 @@ add address=142.147.112.18 secret=Nl22021234 service=dhcp src-address={{ROUTER_I
 {{BGP_CONNECTION_LINES}}
 
 /routing ospf interface-template
-add area=backbone-v2 comment=loop0 cost=10 disabled=no interfaces=loop0 networks={{LOOPBACK_IP}}/32 passive priority=1
-add area=backbone-v2 comment="CPE/Tower Gear" cost=10 disabled=no interfaces=lan-bridge networks={{CPE_NETWORK_BASE}}/{{CPE_PREFIX}} priority=1
+add area={{OSPF_AREA_NAME}} comment=loop0 cost=10 disabled=no interfaces=loop0 networks={{LOOPBACK_IP}}/32 passive priority=1
+add area={{OSPF_AREA_NAME}} comment="CPE/Tower Gear" cost=10 disabled=no interfaces=lan-bridge networks={{CPE_NETWORK_BASE}}/{{CPE_PREFIX}} priority=1
 {{OLT1_OSPF_LINE}}
 {{OLT2_OSPF_LINE}}
 {{UPLINK_OSPF_LINES}}

@@ -343,6 +343,88 @@ def _strip_outstate_subscriber_features(config: str) -> str:
     return _strip_named_sections(config, section_headers)
 
 
+def _strip_matching_lines(config: str, predicates):
+    out = []
+    for line in config.splitlines():
+        if any(pred(line) for pred in predicates):
+            continue
+        out.append(line)
+    return "\n".join(out).strip() + "\n"
+
+
+def _prune_outstate_transport_only(config: str) -> str:
+    # Out-of-state should keep transport/routing only:
+    # - no LAN bridge, no subscriber/NAT addressing
+    # - IP addressing limited to loopback + routed backhaul uplinks
+    predicates = [
+        lambda s: "lan-bridge" in s,
+        lambda s: "add name=lan-bridge" in s,
+        lambda s: "add name=nat-public-bridge" in s,
+        lambda s: "interface=lan-bridge" in s,
+        lambda s: " comment=\"CPE/Tower Gear\"" in s,
+        lambda s: " comment=UNAUTH " in f" {s} ",
+        lambda s: " comment=\"CGNAT Private\"" in s,
+        lambda s: " comment=\"CGNAT Public\"" in s,
+        lambda s: "interface=bridge3000 network=" in s,
+        lambda s: "interfaces=bridge3000 " in s,
+        lambda s: " list=bgp-networks" in s and ("UNAUTH" in s or "CGNAT_" in s),
+        lambda s: "src-address-list=unauth" in s,
+        lambda s: "WALLED-GARDEN" in s,
+        lambda s: "NAT-EXEMPT-DST" in s,
+        lambda s: "Voip-Servers" in s,
+        lambda s: "NETFLIX" in s,
+        lambda s: "dst-address=10.0.0.1" in s and "NTP Allow" in s,
+    ]
+    return _strip_matching_lines(config, predicates)
+
+
+def _dedupe_preserve_order(lines):
+    seen = set()
+    out = []
+    for line in lines:
+        if line in seen:
+            continue
+        seen.add(line)
+        out.append(line)
+    return out
+
+
+def _enforce_outstate_ospf_area(config: str, area_name: str, area_id: str) -> str:
+    # Safety net: if an older template still has backbone-v2 hardcoded, rewrite it.
+    cfg = config
+    cfg = re.sub(
+        r"(^\s*add\s+)(?!.*area-id=)(.*\binstance=default-v2\b.*\bname=)backbone-v2(\b.*)$",
+        rf"\1area-id={area_id} \2{area_name}\3",
+        cfg,
+        flags=re.M,
+    )
+    cfg = re.sub(r"\barea=backbone-v2\b", f"area={area_name}", cfg)
+    return cfg
+
+
+OUTSTATE_STATE_PROFILES = {
+    "IA": {"ospf_area": "42", "ospf_area_id": "0.0.0.42", "vpls_state_id": "245"},
+    "NE": {"ospf_area": "249", "ospf_area_id": "0.0.0.249", "vpls_state_id": "249"},
+    "KS": {"ospf_area": "248", "ospf_area_id": "0.0.0.248", "vpls_state_id": "248"},
+    "LA": {"ospf_area": "250", "ospf_area_id": "0.0.0.250", "vpls_state_id": "250"},
+    "IL": {"ospf_area": "0", "ospf_area_id": "0.0.0.0", "vpls_state_id": "247"},
+}
+
+
+def _resolve_outstate_profile(data: dict, loopback: ipaddress.IPv4Interface):
+    state_code = str(data.get("state_code", "") or "").strip().upper()
+    profile = OUTSTATE_STATE_PROFILES.get(state_code)
+    if profile:
+        return profile
+    fallback_area = str(data.get("ospf_area") or str(loopback.ip).split(".")[1]).strip()
+    fallback_state = str(data.get("vpls_state_id") or fallback_area).strip()
+    return {
+        "ospf_area": fallback_area,
+        "ospf_area_id": f"0.0.0.{fallback_area}",
+        "vpls_state_id": fallback_state,
+    }
+
+
 def render_ftth_config(data: dict) -> str:
     if not TEMPLATE_PATH.exists():
         raise FileNotFoundError(f"FTTH template missing: {TEMPLATE_PATH}")
@@ -411,6 +493,11 @@ def render_ftth_config(data: dict) -> str:
             raise ValueError('Missing required IP allocation fields.')
 
     loopback = ipaddress.ip_interface(loopback_ip)
+    outstate_profile = _resolve_outstate_profile(data, loopback)
+    ospf_area = outstate_profile["ospf_area"]
+    ospf_area_id = outstate_profile["ospf_area_id"] if is_outstate else "0.0.0.0"
+    ospf_area_name = f"area{ospf_area}" if is_outstate else "backbone-v2"
+    vpls_state_id = outstate_profile["vpls_state_id"]
     cpe_net, cpe_first, _cpe_last = _net_details(cpe_network)
     cgnat_net, cgnat_first, _cgnat_last = _net_details(cgnat_private)
     unauth_net, unauth_first, _unauth_last = _net_details(unauth_network)
@@ -461,7 +548,7 @@ def render_ftth_config(data: dict) -> str:
                 f"add address={uplink_ip} comment={_fmt_comment(uplink.get('comment', 'UPLINK'))} interface={port} network={uplink_iface.network.network_address}"
             )
             uplink_ospf_lines.append(
-                f"add area=backbone-v2 auth=md5 auth-id=1 auth-key=m8M5JwvdYM{ospf_comment_part} cost=10 disabled=no interfaces={port} networks={uplink_iface.network.network_address}/{uplink_iface.network.prefixlen} priority=1 type=ptp"
+                f"add area={ospf_area_name} auth=md5 auth-id=1 auth-key=m8M5JwvdYM{ospf_comment_part} cost=10 disabled=no interfaces={port} networks={uplink_iface.network.network_address}/{uplink_iface.network.prefixlen} priority=1 type=ptp"
             )
         uplink_ldp_lines.append(f"add disabled=no interface={port}")
 
@@ -560,7 +647,7 @@ def render_ftth_config(data: dict) -> str:
         f"interface=bridge3000 network={olt1_net.network_address}"
     )
     olt1_ospf_line = (
-        f"add area=backbone-v2 comment={_fmt_comment(olt_name)} cost=10 disabled=no "
+        f"add area={ospf_area_name} comment={_fmt_comment(olt_name)} cost=10 disabled=no "
         f"interfaces=bridge3000 networks={olt1_net.network_address}/{olt1_net.prefixlen} priority=1"
     )
 
@@ -592,7 +679,7 @@ def render_ftth_config(data: dict) -> str:
                 f"interface=bridge3000 network={olt2_net.network_address}"
             )
             olt2_ospf_line = (
-                f"add area=backbone-v2 comment={_fmt_comment(olt_name_secondary)} cost=10 disabled=no "
+                f"add area={ospf_area_name} comment={_fmt_comment(olt_name_secondary)} cost=10 disabled=no "
                 f"interfaces=bridge3000 networks={olt2_net.network_address}/{olt2_net.prefixlen} priority=1"
             )
 
@@ -621,7 +708,6 @@ def render_ftth_config(data: dict) -> str:
         ])
 
     user_passwords = _ftth_user_passwords()
-    vpls_state_id = str(data.get('vpls_state_id') or str(loopback.ip).split('.')[1]).strip()
     bng_1_ip = str(data.get('bng_1_ip') or os.getenv('NEXTLINK_BNG1_IP', '10.249.0.200')).strip()
     bng_2_ip = str(data.get('bng_2_ip') or os.getenv('NEXTLINK_BNG2_IP', '10.249.0.201')).strip()
     vpls_l2mtu = str(data.get('vpls_l2_mtu') or os.getenv('NEXTLINK_VPLS_L2_MTU', '1580')).strip()
@@ -634,6 +720,9 @@ def render_ftth_config(data: dict) -> str:
         bng2_ip=bng_2_ip,
         pw_l2mtu=vpls_l2mtu,
     )
+    accept_filters = _dedupe_preserve_order(MPLS_ACCEPT_FILTERS)
+    advertise_filters = [line.replace('accept', 'advertise', 1) for line in accept_filters]
+
     replacements = {
         "{{BRIDGE_LINES}}": bridge_lines,
         "{{VPLS_LINES}}": vpls_lines,
@@ -659,6 +748,8 @@ def render_ftth_config(data: dict) -> str:
         "{{UNAUTH_POOL_START}}": unauth_pool_start,
         "{{UNAUTH_POOL_END}}": unauth_pool_end,
         "{{ROUTER_ID}}": str(loopback.ip),
+        "{{OSPF_AREA_NAME}}": ospf_area_name,
+        "{{OSPF_AREA_ID}}": ospf_area_id,
         "{{CPE_GATEWAY}}": str(cpe_first),
         "{{CPE_PREFIX}}": str(cpe_net.prefixlen),
         "{{CPE_NETWORK_BASE}}": str(cpe_net.network_address),
@@ -676,8 +767,8 @@ def render_ftth_config(data: dict) -> str:
         "{{UPLINK_IP_LINES}}": "\n".join(uplink_ip_lines),
         "{{UPLINK_OSPF_LINES}}": "\n".join(uplink_ospf_lines),
         "{{UPLINK_LDP_LINES}}": "\n".join(uplink_ldp_lines),
-        "{{MPLS_ACCEPT_FILTERS}}": "\n".join(MPLS_ACCEPT_FILTERS),
-        "{{MPLS_ADVERTISE_FILTERS}}": "\n".join([line.replace('accept', 'advertise') for line in MPLS_ACCEPT_FILTERS]),
+        "{{MPLS_ACCEPT_FILTERS}}": "\n".join(accept_filters),
+        "{{MPLS_ADVERTISE_FILTERS}}": "\n".join(advertise_filters),
         "{{OLT1_NAME}}": _fmt_comment(olt_name),
         "{{ROUTER_IDENTITY}}": router_identity,
         "{{LOCATION}}": location,
@@ -720,5 +811,7 @@ def render_ftth_config(data: dict) -> str:
     template = _strip_ftth_headers(template)
     template = _normalize_ftth_output(template)
     if is_outstate:
+        template = _enforce_outstate_ospf_area(template, ospf_area_name, ospf_area_id)
         template = _strip_outstate_subscriber_features(template)
+        template = _prune_outstate_transport_only(template)
     return template
