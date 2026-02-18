@@ -307,6 +307,42 @@ def _normalize_ftth_output(config: str) -> str:
     return normalized
 
 
+def _strip_named_sections(config: str, section_headers: list[str]) -> str:
+    """Remove full RouterOS sections by header name."""
+    lines = config.splitlines()
+    remove_headers = {h.strip() for h in section_headers}
+    out: list[str] = []
+    i = 0
+    total = len(lines)
+    while i < total:
+        current = lines[i].strip()
+        if current in remove_headers:
+            i += 1
+            # Skip until next section header.
+            while i < total and not lines[i].startswith("/"):
+                i += 1
+            continue
+        out.append(lines[i])
+        i += 1
+    return "\n".join(out).strip() + "\n"
+
+
+def _strip_outstate_subscriber_features(config: str) -> str:
+    """Out-of-state profile should not include subscriber DHCP/CGNAT automation blocks."""
+    section_headers = [
+        "/ip dhcp-server option",
+        "/ip dhcp-server option sets",
+        "/ip pool",
+        "/ip dhcp-server",
+        "/ip dhcp-server network",
+        "/ip firewall mangle",
+        "/routing filter rule",
+        "/system scheduler",
+        "/system script",
+    ]
+    return _strip_named_sections(config, section_headers)
+
+
 def render_ftth_config(data: dict) -> str:
     if not TEMPLATE_PATH.exists():
         raise FileNotFoundError(f"FTTH template missing: {TEMPLATE_PATH}")
@@ -361,8 +397,18 @@ def render_ftth_config(data: dict) -> str:
 
     if has_100g_ports and olt_network_100g:
         olt_network = olt_network_100g
-    if not all([loopback_ip, cpe_network, cgnat_private, cgnat_public, unauth_network, olt_network]):
-        raise ValueError('Missing required IP allocation fields.')
+    # Out-of-state generation follows the transport-focused template and should
+    # not hard-require FTTH subscriber pools from UI.
+    if is_outstate:
+        cpe_network = (cpe_network or '10.255.0.0/22').strip()
+        cgnat_private = (cgnat_private or '100.127.252.0/22').strip()
+        cgnat_public = (cgnat_public or '203.0.113.1/32').strip()
+        unauth_network = (unauth_network or '10.255.4.0/22').strip()
+        if not all([loopback_ip, olt_network]):
+            raise ValueError('Missing required IP allocation fields (outstate requires Loopback and OLT Network).')
+    else:
+        if not all([loopback_ip, cpe_network, cgnat_private, cgnat_public, unauth_network, olt_network]):
+            raise ValueError('Missing required IP allocation fields.')
 
     loopback = ipaddress.ip_interface(loopback_ip)
     cpe_net, cpe_first, _cpe_last = _net_details(cpe_network)
@@ -672,4 +718,7 @@ def render_ftth_config(data: dict) -> str:
         )
 
     template = _strip_ftth_headers(template)
-    return _normalize_ftth_output(template)
+    template = _normalize_ftth_output(template)
+    if is_outstate:
+        template = _strip_outstate_subscriber_features(template)
+    return template

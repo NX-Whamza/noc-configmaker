@@ -6209,13 +6209,9 @@
                 <div class="section">
                     <h2>IP Allocations</h2>
                     <div style="background: #2a4a2a; padding: 15px; border-radius: 5px; margin-bottom: 15px;">
-                        <strong>Required Subnets:</strong>
+                        <strong>Required Subnets (Out-of-State):</strong>
                         <ul style="margin: 5px 0; padding-left: 20px; font-size: 13px;">
                             <li>Loopback: /32 (e.g., 10.26.1.111/32)</li>
-                            <li>CPE Network: /22 (e.g., 10.30.100.0/22)</li>
-                            <li>CGNAT Private: /22 (e.g., 100.80.108.0/22)</li>
-                            <li>CGNAT Public: /32 (e.g., 52.128.63.173/32)</li>
-                            <li>UNAUTH Network: /22 (e.g., 10.130.100.0/22)</li>
                             <li>OLT Network 1: /29 (e.g., 10.246.46.88/29)</li>
                             <li>OLT Network 2: /29 (Optional, e.g., 10.25.251.24/29)</li>
                         </ul>
@@ -6224,22 +6220,6 @@
                         <div>
                             <label for="ftth_loopback_out">Loopback IP (/32):</label>
                             <input type="text" id="ftth_loopback_out" placeholder="10.26.1.111/32">
-                        </div>
-                        <div>
-                            <label for="ftth_cpe_out">CPE Network (/22):</label>
-                            <input type="text" id="ftth_cpe_out" placeholder="10.30.100.0/22">
-                        </div>
-                        <div>
-                            <label for="ftth_cgnat_private_out">CGNAT Private (/22):</label>
-                            <input type="text" id="ftth_cgnat_private_out" placeholder="100.80.108.0/22">
-                        </div>
-                        <div>
-                            <label for="ftth_cgnat_public_out">CGNAT Public IP (/32):</label>
-                            <input type="text" id="ftth_cgnat_public_out" placeholder="52.128.63.173/32">
-                        </div>
-                        <div>
-                            <label for="ftth_unauth_out">UNAUTH Network (/22):</label>
-                            <input type="text" id="ftth_unauth_out" placeholder="10.130.100.0/22">
                         </div>
                         <div>
                             <label for="ftth_olt_network_out">OLT Network 1 (/29):</label>
@@ -22279,17 +22259,33 @@ Ready for translation!`);
                 const outstateSection = document.getElementById('ftth-outstate-section');
                 const instateBtn = document.getElementById('ftth_instate_btn');
                 const outstateBtn = document.getElementById('ftth_outstate_btn');
+                const outstateOptionalIds = [
+                    'ftth_cpe_out',
+                    'ftth_cgnat_private_out',
+                    'ftth_cgnat_public_out',
+                    'ftth_unauth_out',
+                ];
 
                 if (tab === 'instate') {
                     if (instateSection) instateSection.style.display = 'block';
                     if (outstateSection) outstateSection.style.display = 'none';
                     if (instateBtn) { instateBtn.style.background = '#4CAF50'; instateBtn.classList.add('active'); }
                     if (outstateBtn) { outstateBtn.style.background = '#6c757d'; outstateBtn.classList.remove('active'); }
+                    outstateOptionalIds.forEach((id) => {
+                        const el = document.getElementById(id);
+                        const group = el?.closest('.form-group');
+                        if (group) group.style.display = '';
+                    });
                 } else {
                     if (instateSection) instateSection.style.display = 'none';
                     if (outstateSection) outstateSection.style.display = 'block';
                     if (instateBtn) { instateBtn.style.background = '#6c757d'; instateBtn.classList.remove('active'); }
                     if (outstateBtn) { outstateBtn.style.background = '#4CAF50'; outstateBtn.classList.add('active'); }
+                    outstateOptionalIds.forEach((id) => {
+                        const el = document.getElementById(id);
+                        const group = el?.closest('.form-group');
+                        if (group) group.style.display = 'none';
+                    });
                 }
             }
 
@@ -22301,17 +22297,18 @@ Ready for translation!`);
 
             async function doFtthPreview() {
                 const sfx = _ftth_active_suffix();
+                const isOutstate = sfx === 'out';
                 const loopback = (document.getElementById(`ftth_loopback_${sfx}`) || {}).value || '';
-                const cpe = (document.getElementById(`ftth_cpe_${sfx}`) || {}).value || '';
-                const cgnat = (document.getElementById(`ftth_cgnat_private_${sfx}`) || {}).value || '';
+                const cpe = ((document.getElementById(`ftth_cpe_${sfx}`) || {}).value || '').trim() || (isOutstate ? '10.255.0.0/22' : '');
+                const cgnat = ((document.getElementById(`ftth_cgnat_private_${sfx}`) || {}).value || '').trim() || (isOutstate ? '100.127.252.0/22' : '');
                 const olt = (document.getElementById(`ftth_olt_network_${sfx}`) || {}).value || '';
                 const errEl = document.getElementById('ftthError');
                 const previewEl = document.getElementById('ftthPreview');
                 errEl.style.display = 'none'; errEl.textContent = ''; previewEl.style.display = 'none'; previewEl.textContent = '';
 
                 if (!loopback || !isCidr(loopback, 32)) { errEl.textContent = 'Loopback must be a /32 (e.g., 10.13.100.5/32)'; errEl.style.display = 'block'; return false; }
-                if (!isCidr(cpe, 22)) { errEl.textContent = 'CPE must be a /22 (e.g., 192.0.2.0/22)'; errEl.style.display = 'block'; return false; }
-                if (!isCidr(cgnat, 22)) { errEl.textContent = 'CGNAT must be a /22 (e.g., 100.64.0.0/22)'; errEl.style.display = 'block'; return false; }
+                if (!isOutstate && !isCidr(cpe, 22)) { errEl.textContent = 'CPE must be a /22 (e.g., 192.0.2.0/22)'; errEl.style.display = 'block'; return false; }
+                if (!isOutstate && !isCidr(cgnat, 22)) { errEl.textContent = 'CGNAT must be a /22 (e.g., 100.64.0.0/22)'; errEl.style.display = 'block'; return false; }
                 if (!isCidr(olt, 29)) { errEl.textContent = 'OLT must be a /29 (e.g., 198.51.100.8/29)'; errEl.style.display = 'block'; return false; }
 
                 try {
@@ -22802,6 +22799,12 @@ Ready for translation!`);
             const outstateSection = document.getElementById('ftth-outstate-section');
             const instateBtn = document.getElementById('ftth_instate_btn');
             const outstateBtn = document.getElementById('ftth_outstate_btn');
+            const outstateOptionalIds = [
+                'ftth_cpe_out',
+                'ftth_cgnat_private_out',
+                'ftth_cgnat_public_out',
+                'ftth_unauth_out',
+            ];
 
             if (state === 'instate') {
                 if (instateSection) instateSection.style.display = 'block';
@@ -22814,6 +22817,11 @@ Ready for translation!`);
                     outstateBtn.style.background = '#6c757d';
                     outstateBtn.classList.remove('active');
                 }
+                outstateOptionalIds.forEach((id) => {
+                    const el = document.getElementById(id);
+                    const group = el?.closest('.form-group');
+                    if (group) group.style.display = '';
+                });
             } else {
                 if (instateSection) instateSection.style.display = 'none';
                 if (outstateSection) outstateSection.style.display = 'block';
@@ -22825,6 +22833,11 @@ Ready for translation!`);
                     outstateBtn.style.background = '#4CAF50';
                     outstateBtn.classList.add('active');
                 }
+                outstateOptionalIds.forEach((id) => {
+                    const el = document.getElementById(id);
+                    const group = el?.closest('.form-group');
+                    if (group) group.style.display = 'none';
+                });
             }
             if (window.updateFtthUplinkPortOptions) {
                 window.updateFtthUplinkPortOptions(state === 'instate' ? 'in' : 'out');
@@ -22932,6 +22945,7 @@ Ready for translation!`);
         // Validate FTTH Configuration
         window.validateFtthConfig = function () {
             const suffix = getActiveStateSuffix();
+            const isOutstate = suffix === 'out';
             const errorDiv = document.getElementById('ftth_error');
 
             // Get all required fields
@@ -22959,17 +22973,17 @@ Ready for translation!`);
             if (!loopback) errors.push('Loopback IP is required');
             else if (!validateCIDR(loopback, 32)) errors.push('Loopback must be a /32 (e.g., 10.26.1.111/32)');
 
-            if (!cpe) errors.push('CPE Network is required');
-            else if (!validateCIDR(cpe, 22)) errors.push('CPE Network must be a /22 (e.g., 10.30.100.0/22)');
+            if (!isOutstate && !cpe) errors.push('CPE Network is required');
+            else if (cpe && !validateCIDR(cpe, 22)) errors.push('CPE Network must be a /22 (e.g., 10.30.100.0/22)');
 
-            if (!cgnatPrivate) errors.push('CGNAT Private is required');
-            else if (!validateCIDR(cgnatPrivate, 22)) errors.push('CGNAT Private must be a /22 (e.g., 100.80.108.0/22)');
+            if (!isOutstate && !cgnatPrivate) errors.push('CGNAT Private is required');
+            else if (cgnatPrivate && !validateCIDR(cgnatPrivate, 22)) errors.push('CGNAT Private must be a /22 (e.g., 100.80.108.0/22)');
 
-            if (!cgnatPublic) errors.push('CGNAT Public IP is required');
-            else if (!validateCIDR(cgnatPublic, 32)) errors.push('CGNAT Public must be a /32 (e.g., 52.128.63.173/32)');
+            if (!isOutstate && !cgnatPublic) errors.push('CGNAT Public IP is required');
+            else if (cgnatPublic && !validateCIDR(cgnatPublic, 32)) errors.push('CGNAT Public must be a /32 (e.g., 52.128.63.173/32)');
 
-            if (!unauth) errors.push('UNAUTH Network is required');
-            else if (!validateCIDR(unauth, 22)) errors.push('UNAUTH Network must be a /22 (e.g., 10.130.100.0/22)');
+            if (!isOutstate && !unauth) errors.push('UNAUTH Network is required');
+            else if (unauth && !validateCIDR(unauth, 22)) errors.push('UNAUTH Network must be a /22 (e.g., 10.130.100.0/22)');
 
             if (!oltNetwork) errors.push('OLT Network is required');
             else if (!validateCIDR(oltNetwork, 29)) errors.push('OLT Network must be a /29 (e.g., 10.246.46.88/29)');

@@ -1,196 +1,655 @@
-# OMNI Handoff - NOC ConfigMaker API v2
+# OMNI Handoff - API Key Contract (NOC ConfigMaker v2)
 
-This is the integration contract for OMNI calling NOC ConfigMaker.
+This document is the strict OMNI integration contract for NOC ConfigMaker.
+Authentication model: API key only.
 
-Base URL (prod):
+## Base URLs
 
-- `https://noc-configmaker.nxlink.com/api/v2`
+- API base: `https://noc-configmaker.nxlink.com/api/v2`
+- UI base: `https://noc-configmaker.nxlink.com/l`
 
-Tool UI entry (for embed/deep-link inside OMNI):
+## Required headers
 
-- `https://noc-configmaker.nxlink.com/l`
-- (same UI as `/`)
+All requests:
 
-## Credentials To Use (for Kyle)
-
-API key mode (single key, full admin scope):
-
-- `X-API-Key`: `di6CNkBFEYuCafKjzma46JxWO62-54E97Hn0uv_sJNxCqHS7KirycNhh9Se90lE0`
-
-HMAC signing:
-
-- `X-Key-Id`: `omni-main`
-- Signing secret: `TJ0DRv1ofRxXRhJwmP7zAURXiBD8fw4i_Pwp_NrzVtckbzwIVXH87E1iH4n2lStmyKPnR_pZV5KXcE3qndt3A_c-FLYGoCDy`
-
-Optional worker key (if you want a non-admin scoped access):
-
-- `wQqYJyjhe1_t8QAw11jCrTbbcFPs6gUYZiC3Y79fg37LWKzP3LjdtxP4bja0I1Ct`
-
-Backend env equivalent:
-
-```env
-NOC_API_KEY=di6CNkBFEYuCafKjzma46JxWO62-54E97Hn0uv_sJNxCqHS7KirycNhh9Se90lE0
-NOC_API_V2_REQUIRE_SIGNATURE=true
-NOC_API_SIGNING_KEYS_JSON={"omni-main":"TJ0DRv1ofRxXRhJwmP7zAURXiBD8fw4i_Pwp_NrzVtckbzwIVXH87E1iH4n2lStmyKPnR_pZV5KXcE3qndt3A_c-FLYGoCDy"}
-NOC_API_V2_REQUIRE_IDEMPOTENCY=true
+```http
+X-API-Key: <OMNI_API_KEY>
+Content-Type: application/json
 ```
 
-Use OMNI-prefixed routes:
+Mutating requests (`POST`, `PUT`, `PATCH`) should include:
 
-- `GET /omni/health`
-- `GET /omni/whoami`
-- `GET /omni/actions`
-- `GET /omni/bootstrap`
-- `GET /omni/workflows`
-- `POST /omni/jobs`
-- `GET /omni/jobs`
-- `GET /omni/jobs/{job_id}`
-- `GET /omni/jobs/{job_id}/events`
-- `POST /omni/jobs/{job_id}/cancel`
-- `PUT /omni/jobs/{job_id}/cancel`
-- `PATCH /omni/jobs/{job_id}` body `{"op":"cancel"}`
-
-## Security Headers (every request)
-
-- `X-API-Key`
-- `X-Key-Id`
-- `X-Timestamp` (unix seconds)
-- `X-Nonce` (unique request value)
-- `X-Signature` (HMAC-SHA256)
-
-Mutating requests (`POST/PUT/PATCH`) also require:
-
-- `Idempotency-Key`
-
-## Signature Canonical Format
-
-```text
-METHOD + "\n" + PATH + "\n" + TIMESTAMP + "\n" + NONCE + "\n" + SHA256(raw_body_bytes)
+```http
+Idempotency-Key: <unique-per-request>
 ```
 
-`PATH` example:
+Recommended environment configuration:
 
-- `/api/v2/omni/health`
-- `/api/v2/omni/jobs`
+- `NOC_API_V2_REQUIRE_SIGNATURE=false`
+- `NOC_API_V2_REQUIRE_IDEMPOTENCY=true`
+- `NOC_API_KEYS_JSON` or `NOC_API_KEYS` or `NOC_API_KEY` configured
 
-## Bash + curl examples
+## Full OMNI endpoint URLs and purpose
+
+- `GET https://noc-configmaker.nxlink.com/api/v2/omni/health` -> health check
+- `GET https://noc-configmaker.nxlink.com/api/v2/omni/whoami` -> key identity and scopes
+- `GET https://noc-configmaker.nxlink.com/api/v2/omni/actions` -> available action IDs
+- `GET https://noc-configmaker.nxlink.com/api/v2/omni/bootstrap` -> integration contract metadata
+- `GET https://noc-configmaker.nxlink.com/api/v2/omni/workflows` -> workflow to action mapping
+- `POST https://noc-configmaker.nxlink.com/api/v2/omni/jobs` -> submit async job
+- `GET https://noc-configmaker.nxlink.com/api/v2/omni/jobs` -> list jobs
+- `GET https://noc-configmaker.nxlink.com/api/v2/omni/jobs/{job_id}` -> job detail
+- `GET https://noc-configmaker.nxlink.com/api/v2/omni/jobs/{job_id}/events` -> job events
+- `POST https://noc-configmaker.nxlink.com/api/v2/omni/jobs/{job_id}/cancel` -> cancel job
+- `PUT https://noc-configmaker.nxlink.com/api/v2/omni/jobs/{job_id}/cancel` -> cancel job
+- `PATCH https://noc-configmaker.nxlink.com/api/v2/omni/jobs/{job_id}` -> cancel job using patch op
+
+## Common response envelope
+
+Successful endpoint responses use this envelope:
+
+```json
+{
+  "request_id": "3c28e595-f636-4c2a-ab13-546ac0a5d07a",
+  "status": "ok",
+  "message": "",
+  "data": {},
+  "errors": [],
+  "timestamp": "2026-02-18T05:10:00Z"
+}
+```
+
+Error responses use FastAPI detail shape:
+
+```json
+{
+  "detail": "Missing API key"
+}
+```
+
+## Endpoint request/response contract
+
+## 1) Health
+
+### Request
+
+- Method: `GET`
+- URL: `https://noc-configmaker.nxlink.com/api/v2/omni/health`
+- Body: none
+
+### Success response (`200`)
+
+```json
+{
+  "request_id": "de34edce-f608-4f1c-a4d6-c76c113cd4e4",
+  "status": "degraded",
+  "message": "v2 health",
+  "data": {
+    "legacy_api_base": "http://127.0.0.1:5000",
+    "legacy_health": {
+      "ok": false,
+      "error": "HTTPConnectionPool(host='127.0.0.1', port=5000): Max retries exceeded"
+    },
+    "ido_caps": {
+      "ok": false,
+      "error": "HTTPConnectionPool(host='127.0.0.1', port=5000): Max retries exceeded"
+    }
+  },
+  "errors": [],
+  "timestamp": "2026-02-18T05:10:00Z"
+}
+```
+
+## 2) Whoami
+
+### Request
+
+- Method: `GET`
+- URL: `https://noc-configmaker.nxlink.com/api/v2/omni/whoami`
+- Body: none
+
+### Success response (`200`)
+
+```json
+{
+  "request_id": "8ddf1092-21e5-4edf-a5f4-f4f53f8f0ec0",
+  "status": "ok",
+  "message": "",
+  "data": {
+    "api_key": "admin-key",
+    "scopes": [
+      "admin"
+    ]
+  },
+  "errors": [],
+  "timestamp": "2026-02-18T05:10:01Z"
+}
+```
+
+## 3) Actions
+
+### Request
+
+- Method: `GET`
+- URL: `https://noc-configmaker.nxlink.com/api/v2/omni/actions`
+- Body: none
+
+### Success response (`200`) with full action list
+
+```json
+{
+  "request_id": "b5f8c93f-0c66-4764-a651-c3a4302fcad8",
+  "status": "ok",
+  "message": "",
+  "data": {
+    "actions": [
+      "activity.list",
+      "activity.log",
+      "app.config.get",
+      "aviat.abort",
+      "aviat.activate_scheduled",
+      "aviat.check_status",
+      "aviat.fix_stp",
+      "aviat.loading.get",
+      "aviat.queue.get",
+      "aviat.queue.update",
+      "aviat.reboot_required.get",
+      "aviat.reboot_required.run",
+      "aviat.run",
+      "aviat.scheduled.get",
+      "aviat.scheduled.sync",
+      "aviat.stream.global",
+      "compliance.apply",
+      "config.autofill_from_export",
+      "config.explain",
+      "config.suggest",
+      "config.translate",
+      "config.validate",
+      "configs.get",
+      "configs.list",
+      "configs.portmap.download",
+      "configs.portmap.extract",
+      "configs.save",
+      "ftth.generate_bng",
+      "ftth.mf2_package",
+      "ftth.preview_bng",
+      "health.get",
+      "ido.ap.device_info",
+      "ido.ap.generate",
+      "ido.ap.running_config",
+      "ido.ap.standard_config",
+      "ido.bh.device_info",
+      "ido.bh.generate",
+      "ido.bh.running_config",
+      "ido.bh.standard_config",
+      "ido.capabilities",
+      "ido.generic.device_info",
+      "ido.nokia7250.generate",
+      "ido.ping",
+      "ido.rpc.device_info",
+      "ido.rpc.generate",
+      "ido.rpc.running_config",
+      "ido.rpc.standard_config",
+      "ido.swt.device_info",
+      "ido.swt.generate",
+      "ido.swt.running_config",
+      "ido.swt.standard_config",
+      "ido.ups.device_info",
+      "ido.ups.generate",
+      "ido.ups.running_config",
+      "ido.ups.standard_config",
+      "ido.wave.config",
+      "infrastructure.get",
+      "legacy.proxy",
+      "migration.config",
+      "migration.mikrotik_to_nokia",
+      "mt.config",
+      "mt.portmap",
+      "mt.render",
+      "nokia.generate_7250",
+      "routerboards.list"
+    ],
+    "notes": {
+      "mt.*": "Native renderer actions",
+      "legacy.proxy": "Whitelisted generic proxy to legacy /api/* endpoint",
+      "activity.list/configs.list": "Convenience wrappers for common list endpoints"
+    }
+  },
+  "errors": [],
+  "timestamp": "2026-02-18T05:10:02Z"
+}
+```
+
+## 4) Bootstrap
+
+### Request
+
+- Method: `GET`
+- URL: `https://noc-configmaker.nxlink.com/api/v2/omni/bootstrap`
+- Body: none
+
+### Success response (`200`)
+
+```json
+{
+  "request_id": "f913489f-97c8-4d5e-9ec7-4c6f5a4f1de5",
+  "status": "ok",
+  "message": "OMNI bootstrap contract",
+  "data": {
+    "api_version": "v2",
+    "service": "noc-configmaker",
+    "base_url_hint": "/api/v2",
+    "methods_supported": [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH"
+    ],
+    "resources": {
+      "health": {"method": "GET", "path": "/api/v2/health"},
+      "identity": {"method": "GET", "path": "/api/v2/whoami"},
+      "actions": {"method": "GET", "path": "/api/v2/actions"},
+      "job_submit": {"method": "POST", "path": "/api/v2/jobs"},
+      "job_list": {"method": "GET", "path": "/api/v2/jobs"},
+      "job_get": {"method": "GET", "path": "/api/v2/jobs/{job_id}"},
+      "job_events": {"method": "GET", "path": "/api/v2/jobs/{job_id}/events"},
+      "job_cancel_patch": {"method": "PATCH", "path": "/api/v2/jobs/{job_id}"},
+      "job_cancel_put": {"method": "PUT", "path": "/api/v2/jobs/{job_id}/cancel"}
+    },
+    "notes": {
+      "read_method": "READ maps to GET in HTTP semantics",
+      "auth": "X-API-Key",
+      "idempotency": "Mutating endpoints require Idempotency-Key"
+    }
+  },
+  "errors": [],
+  "timestamp": "2026-02-18T05:10:03Z"
+}
+```
+
+## 5) Workflows
+
+### Request
+
+- Method: `GET`
+- URL: `https://noc-configmaker.nxlink.com/api/v2/omni/workflows`
+- Body: none
+
+### Success response (`200`) with full workflow mapping
+
+```json
+{
+  "request_id": "86d57fe9-a32e-44a3-bf33-eae2e8ff0f26",
+  "status": "ok",
+  "message": "OMNI workflow/action mappings",
+  "data": {
+    "workflows": {
+      "dashboard": {
+        "health": "health.get",
+        "activity_list": "activity.list",
+        "configs_list": "configs.list"
+      },
+      "mikrotik": {
+        "render": {"action": "mt.render", "required": ["config_type", "payload"]},
+        "config_only": {"action": "mt.config", "required": ["config_type", "payload"]},
+        "portmap_only": {"action": "mt.portmap", "required": ["config_type", "payload"]}
+      },
+      "field_config_studio": {
+        "ap": ["ido.ap.device_info", "ido.ap.running_config", "ido.ap.standard_config", "ido.ap.generate"],
+        "bh": ["ido.bh.device_info", "ido.bh.running_config", "ido.bh.standard_config", "ido.bh.generate"],
+        "switch": ["ido.swt.device_info", "ido.swt.running_config", "ido.swt.standard_config", "ido.swt.generate"],
+        "ups": ["ido.ups.device_info", "ido.ups.running_config", "ido.ups.standard_config", "ido.ups.generate"],
+        "rpc": ["ido.rpc.device_info", "ido.rpc.running_config", "ido.rpc.standard_config", "ido.rpc.generate"]
+      },
+      "aviat": {
+        "run": "aviat.run",
+        "check_status": "aviat.check_status",
+        "activate_scheduled": "aviat.activate_scheduled",
+        "queue_get": "aviat.queue.get",
+        "queue_update": "aviat.queue.update"
+      },
+      "ftth": {
+        "preview_bng": "ftth.preview_bng",
+        "generate_bng": "ftth.generate_bng",
+        "mf2_package": "ftth.mf2_package"
+      }
+    },
+    "parity_doc": "/docs/UI_API_PARITY.md",
+    "actions_count": 65
+  },
+  "errors": [],
+  "timestamp": "2026-02-18T05:10:04Z"
+}
+```
+
+## 6) Submit job
+
+### Request
+
+- Method: `POST`
+- URL: `https://noc-configmaker.nxlink.com/api/v2/omni/jobs`
+
+Request JSON:
+
+```json
+{
+  "action": "health.get",
+  "payload": {}
+}
+```
+
+### Success response (`202`)
+
+```json
+{
+  "request_id": "9fcb9791-198c-43e3-8e5a-5f6aa7f15a03",
+  "status": "accepted",
+  "message": "Job accepted",
+  "data": {
+    "job_id": "089d0977-cec4-4cd8-9961-5c2dc9bbb34f",
+    "request_id": "9fcb9791-198c-43e3-8e5a-5f6aa7f15a03",
+    "action": "health.get",
+    "status": "running"
+  },
+  "errors": [],
+  "timestamp": "2026-02-18T05:10:05Z"
+}
+```
+
+## 7) List jobs
+
+### Request
+
+- Method: `GET`
+- URL: `https://noc-configmaker.nxlink.com/api/v2/omni/jobs?limit=100`
+
+### Success response (`200`)
+
+```json
+{
+  "request_id": "f8966fcb-98e2-44f8-8740-9ad2400c4bf7",
+  "status": "ok",
+  "message": "",
+  "data": {
+    "jobs": [
+      {
+        "job_id": "089d0977-cec4-4cd8-9961-5c2dc9bbb34f",
+        "request_id": "9fcb9791-198c-43e3-8e5a-5f6aa7f15a03",
+        "action": "health.get",
+        "submitted_by": "admin-key",
+        "status": "success",
+        "created_at": "2026-02-18T05:10:05Z",
+        "started_at": "2026-02-18T05:10:05Z",
+        "finished_at": "2026-02-18T05:10:06Z",
+        "cancel_requested": false,
+        "result": {
+          "http_status": 200,
+          "ok": true,
+          "path": "/api/health",
+          "method": "GET",
+          "response": {
+            "status": "online"
+          }
+        },
+        "error": null
+      }
+    ],
+    "count": 1
+  },
+  "errors": [],
+  "timestamp": "2026-02-18T05:10:06Z"
+}
+```
+
+## 8) Get job detail
+
+### Request
+
+- Method: `GET`
+- URL: `https://noc-configmaker.nxlink.com/api/v2/omni/jobs/089d0977-cec4-4cd8-9961-5c2dc9bbb34f`
+
+### Success response (`200`)
+
+```json
+{
+  "request_id": "15a4df1c-3f32-483b-ab59-2874521ca2f5",
+  "status": "ok",
+  "message": "",
+  "data": {
+    "job_id": "089d0977-cec4-4cd8-9961-5c2dc9bbb34f",
+    "request_id": "9fcb9791-198c-43e3-8e5a-5f6aa7f15a03",
+    "action": "health.get",
+    "submitted_by": "admin-key",
+    "status": "running",
+    "created_at": "2026-02-18T05:10:05Z",
+    "started_at": "2026-02-18T05:10:05Z",
+    "finished_at": null,
+    "cancel_requested": false,
+    "result": null,
+    "error": null,
+    "payload": {}
+  },
+  "errors": [],
+  "timestamp": "2026-02-18T05:10:06Z"
+}
+```
+
+## 9) Get job events
+
+### Request
+
+- Method: `GET`
+- URL: `https://noc-configmaker.nxlink.com/api/v2/omni/jobs/089d0977-cec4-4cd8-9961-5c2dc9bbb34f/events`
+
+### Success response (`200`)
+
+```json
+{
+  "request_id": "5a5e5db4-4ed6-4f26-ac87-d48eb7efc9f8",
+  "status": "ok",
+  "message": "",
+  "data": {
+    "job_id": "089d0977-cec4-4cd8-9961-5c2dc9bbb34f",
+    "status": "running",
+    "events": [
+      {
+        "ts": "2026-02-18T05:10:05Z",
+        "level": "info",
+        "message": "Started action 'health.get'"
+      }
+    ]
+  },
+  "errors": [],
+  "timestamp": "2026-02-18T05:10:06Z"
+}
+```
+
+## 10) Cancel job
+
+### POST cancel request
+
+- Method: `POST`
+- URL: `https://noc-configmaker.nxlink.com/api/v2/omni/jobs/089d0977-cec4-4cd8-9961-5c2dc9bbb34f/cancel`
+- Body:
+
+```json
+{}
+```
+
+### PUT cancel request
+
+- Method: `PUT`
+- URL: `https://noc-configmaker.nxlink.com/api/v2/omni/jobs/089d0977-cec4-4cd8-9961-5c2dc9bbb34f/cancel`
+- Body:
+
+```json
+{}
+```
+
+### PATCH cancel request
+
+- Method: `PATCH`
+- URL: `https://noc-configmaker.nxlink.com/api/v2/omni/jobs/089d0977-cec4-4cd8-9961-5c2dc9bbb34f`
+- Body:
+
+```json
+{
+  "op": "cancel"
+}
+```
+
+### Success response (`200`)
+
+```json
+{
+  "request_id": "7dc6cb40-fc08-4e53-ad4d-8afeb1fdf0e0",
+  "status": "ok",
+  "message": "Cancel request accepted",
+  "data": {
+    "job_id": "089d0977-cec4-4cd8-9961-5c2dc9bbb34f",
+    "status": "running",
+    "cancel_requested": true
+  },
+  "errors": [],
+  "timestamp": "2026-02-18T05:10:07Z"
+}
+```
+
+## Job statuses and fields
+
+Job status values:
+
+- `queued`
+- `running`
+- `success`
+- `error`
+- `cancelled`
+
+Job detail fields:
+
+- `job_id`
+- `request_id`
+- `action`
+- `submitted_by`
+- `status`
+- `created_at`
+- `started_at`
+- `finished_at`
+- `cancel_requested`
+- `result`
+- `error`
+- `payload`
+
+Job event fields:
+
+- `ts`
+- `level` (`info`, `warning`, `success`, `error`)
+- `message`
+
+## Error catalog
+
+Authentication and authorization:
+
+```json
+{ "detail": "Missing API key" }
+```
+
+```json
+{ "detail": "Invalid API key" }
+```
+
+```json
+{ "detail": "Insufficient scope; need 'job.submit'" }
+```
+
+Idempotency:
+
+```json
+{ "detail": "Missing Idempotency-Key" }
+```
+
+```json
+{ "detail": "Idempotency-Key reused with different payload" }
+```
+
+Validation and resource:
+
+```json
+{ "detail": "Missing 'action'" }
+```
+
+```json
+{ "detail": "Supported PATCH ops: cancel" }
+```
+
+```json
+{ "detail": "Job not found" }
+```
+
+Server configuration:
+
+```json
+{ "detail": "API keys are not configured for /api/v2 (set NOC_API_KEYS_JSON or NOC_API_KEYS)" }
+```
+
+## Copy/paste curl examples
 
 ```bash
 export BASE_URL="https://noc-configmaker.nxlink.com"
 export API_KEY="<OMNI_API_KEY>"
-export KEY_ID="<OMNI_SIGNING_KEY_ID>"
-export SIGNING_SECRET="<OMNI_SIGNING_SECRET>"
 ```
 
-Health call:
+Whoami:
 
 ```bash
-TS=$(date +%s)
-NONCE=$(python - <<'PY'
-import secrets; print(secrets.token_hex(16))
-PY
-)
-BODY=""
-BODY_SHA=$(printf "%s" "$BODY" | sha256sum | awk '{print $1}')
-PATH_ONLY="/api/v2/omni/health"
-CANONICAL="GET\n${PATH_ONLY}\n${TS}\n${NONCE}\n${BODY_SHA}"
-SIG=$(printf "%s" "$CANONICAL" | openssl dgst -sha256 -hmac "$SIGNING_SECRET" | awk '{print $2}')
-
-curl -sS "${BASE_URL}${PATH_ONLY}" \
-  -H "X-API-Key: ${API_KEY}" \
-  -H "X-Key-Id: ${KEY_ID}" \
-  -H "X-Timestamp: ${TS}" \
-  -H "X-Nonce: ${NONCE}" \
-  -H "X-Signature: ${SIG}"
+curl -sS "${BASE_URL}/api/v2/omni/whoami" \
+  -H "X-API-Key: ${API_KEY}"
 ```
 
-Submit job:
+Submit:
 
 ```bash
-TS=$(date +%s)
-NONCE=$(python - <<'PY'
-import secrets; print(secrets.token_hex(16))
-PY
-)
-IDEMP=$(python - <<'PY'
-import secrets; print("idem-"+secrets.token_hex(12))
-PY
-)
-PATH_ONLY="/api/v2/omni/jobs"
-BODY='{"action":"mt.render","payload":{"config_type":"tower","payload":{"site_name":"TX-EXAMPLE-1"}}}'
-BODY_SHA=$(printf "%s" "$BODY" | sha256sum | awk '{print $1}')
-CANONICAL="POST\n${PATH_ONLY}\n${TS}\n${NONCE}\n${BODY_SHA}"
-SIG=$(printf "%s" "$CANONICAL" | openssl dgst -sha256 -hmac "$SIGNING_SECRET" | awk '{print $2}')
-
-curl -sS "${BASE_URL}${PATH_ONLY}" \
+curl -sS "${BASE_URL}/api/v2/omni/jobs" \
   -X POST \
   -H "Content-Type: application/json" \
-  -H "Idempotency-Key: ${IDEMP}" \
   -H "X-API-Key: ${API_KEY}" \
-  -H "X-Key-Id: ${KEY_ID}" \
-  -H "X-Timestamp: ${TS}" \
-  -H "X-Nonce: ${NONCE}" \
-  -H "X-Signature: ${SIG}" \
-  --data-raw "$BODY"
+  -H "Idempotency-Key: idem-$(date +%s)" \
+  --data-raw '{"action":"health.get","payload":{}}'
 ```
 
-## PowerShell + curl examples
+Detail:
 
-```powershell
-$BASE_URL = "https://noc-configmaker.nxlink.com"
-$API_KEY = "<OMNI_API_KEY>"
-$KEY_ID = "<OMNI_SIGNING_KEY_ID>"
-$SIGNING_SECRET = "<OMNI_SIGNING_SECRET>"
+```bash
+curl -sS "${BASE_URL}/api/v2/omni/jobs/089d0977-cec4-4cd8-9961-5c2dc9bbb34f" \
+  -H "X-API-Key: ${API_KEY}"
 ```
 
-Health call:
+Events:
 
-```powershell
-$path = "/api/v2/omni/health"
-$method = "GET"
-$body = ""
-$ts = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString()
-$nonce = [Guid]::NewGuid().ToString("N")
-$sha = [System.Security.Cryptography.SHA256]::Create()
-$bodyHash = ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($body)) | ForEach-Object ToString x2) -join ""
-$canonical = "$method`n$path`n$ts`n$nonce`n$bodyHash"
-$hmac = New-Object System.Security.Cryptography.HMACSHA256
-$hmac.Key = [Text.Encoding]::UTF8.GetBytes($SIGNING_SECRET)
-$sig = ($hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($canonical)) | ForEach-Object ToString x2) -join ""
-
-curl.exe "$BASE_URL$path" `
-  -H "X-API-Key: $API_KEY" `
-  -H "X-Key-Id: $KEY_ID" `
-  -H "X-Timestamp: $ts" `
-  -H "X-Nonce: $nonce" `
-  -H "X-Signature: $sig"
+```bash
+curl -sS "${BASE_URL}/api/v2/omni/jobs/089d0977-cec4-4cd8-9961-5c2dc9bbb34f/events" \
+  -H "X-API-Key: ${API_KEY}"
 ```
 
-## OMNI implementation pattern
+Cancel:
 
-1. Call `GET /api/v2/omni/bootstrap` and `GET /api/v2/omni/workflows` on startup.
-2. Render actions/forms from contract + your internal mappings.
-3. Start tasks with `POST /api/v2/omni/jobs`.
-4. Poll `/api/v2/omni/jobs/{job_id}` + `/events` for status/logs.
-5. Cancel with `PATCH /api/v2/omni/jobs/{job_id}` (`{"op":"cancel"}`).
+```bash
+curl -sS "${BASE_URL}/api/v2/omni/jobs/089d0977-cec4-4cd8-9961-5c2dc9bbb34f/cancel" \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: ${API_KEY}" \
+  -H "Idempotency-Key: idem-cancel-$(date +%s)" \
+  --data-raw '{}'
+```
 
-## Single-Key Mode (what you asked for)
+## Verified test status
 
-If you want one API key for the whole tool, use:
+Executed in this repo:
 
-- `NOC_API_KEY=<single-admin-key>`
+- `python -m pytest -q tests/test_api_v2_contract.py`
+- `python -m pytest -q tests/test_ftth_ui_backend_contract.py`
 
-This grants admin scope for all `/api/v2` routes.
+Latest result summary:
 
-Keep request signing enabled:
-
-- `NOC_API_V2_REQUIRE_SIGNATURE=true`
-- `NOC_API_SIGNING_KEYS_JSON={"omni-main":"<signing-secret>"}`
-
-That gives one service key + one signing secret for OMNI.
-
-## Notes
-
-- `READ` maps to `GET` (standard HTTP).
-- Jobs/events are persistent in SQLite (`secure_data/api_v2.db`).
-- Do not store live secrets in source control; inject via OMNI secret manager.
+- `tests/test_api_v2_contract.py`: 5 passed
+- `tests/test_ftth_ui_backend_contract.py`: 3 passed
