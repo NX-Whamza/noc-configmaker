@@ -108,7 +108,7 @@ ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 # and cached for GITLAB_COMPLIANCE_TTL seconds (default 15 min).
 # Falls back to hardcoded Python constants when unavailable.
 # Required:
-# GITLAB_COMPLIANCE_TOKEN=s0A1Tte2LjQQ4PqEd8rErW86MQp1OjI2CA.01.0y1d72m18
+# GITLAB_COMPLIANCE_TOKEN=<your-personal-access-token>
 # GITLAB_COMPLIANCE_PROJECT_ID=75
 # Optional:
 # GITLAB_COMPLIANCE_HOST=tested.nxlink.com
