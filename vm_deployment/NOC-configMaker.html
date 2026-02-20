@@ -7515,20 +7515,66 @@
             return hasBlocks ? config.trimEnd() + section : config;
         }
 
-        // Compliance block keys appropriate for switch-type configs
-        // (excludes RADIUS/AAA since switches need login RADIUS, not DHCP RADIUS)
+        // Compliance block keys for switch-type configs.
+        // Includes keys from BOTH hardcoded fallback AND GitLab-parsed sources.
+        // GitLab combines blocks differently (e.g. 'dns' includes all firewall,
+        // 'vpls_edge_ports' includes logging, 'user_profiles' = user groups).
+        // Missing keys are silently skipped by appendComplianceBlocks().
+        // Excludes: user_aaa (switches need use-radius=yes, compliance says no),
+        //           radius (switches need login RADIUS, compliance has DHCP RADIUS),
+        //           dhcp_options (switches don't serve DHCP)
         const SWITCH_COMPLIANCE_BLOCKS = [
-            'ip_services', 'dns', 'firewall_address_lists',
-            'firewall_filter_input', 'firewall_raw', 'clock_ntp',
-            'snmp', 'system_settings', 'logging', 'user_groups'
+            'ip_services',            // Both: disable telnet/ftp, enable winbox/ssh
+            'dns',                    // Both: DNS servers (GitLab: + all firewall rules)
+            'firewall_address_lists', // Hardcoded only: ACLs
+            'firewall_filter_input',  // Hardcoded only: input filter chain
+            'firewall_raw',           // Hardcoded only: raw chain
+            'firewall_forward',       // Hardcoded only: forward chain
+            'firewall_nat',           // Hardcoded only: NAT rules
+            'firewall_mangle',        // Hardcoded only: mangle rules
+            'clock_ntp',              // Both: timezone + NTP
+            'snmp',                   // Both: SNMP community
+            'system_settings',        // Hardcoded only: watchdog, auto-upgrade, SIP
+            'auto_upgrade',           // GitLab only: routerboard auto-upgrade
+            'sip_alg_off',            // GitLab only: disable SIP ALG
+            'watchdog_timer',         // GitLab only: watchdog timer
+            'web_proxy_off',          // GitLab only: disable web proxy
+            'vpls_edge',              // Hardcoded only: VPLS edge ports
+            'vpls_edge_ports',        // GitLab only: VPLS edge + logging
+            'logging',                // Hardcoded only: syslog + logging topics
+            'user_groups',            // Hardcoded only: user groups
+            'user_profiles',          // GitLab only: user groups + policies
+            'sys_note',               // GitLab only: compliance note
         ];
 
-        // Compliance block keys for 6GHz switch configs (full overlay)
+        // Compliance block keys for 6GHz configs (full overlay).
+        // Same dual-source approach as SWITCH_COMPLIANCE_BLOCKS.
         const GHZ_COMPLIANCE_BLOCKS = [
-            'ip_services', 'dns', 'firewall_address_lists',
-            'firewall_filter_input', 'firewall_raw', 'firewall_forward',
-            'firewall_nat', 'clock_ntp', 'snmp', 'system_settings',
-            'logging', 'user_aaa', 'user_groups', 'dhcp_options', 'radius'
+            'ip_services',            // Both
+            'dns',                    // Both (GitLab: + all firewall)
+            'firewall_address_lists', // Hardcoded only
+            'firewall_filter_input',  // Hardcoded only
+            'firewall_raw',           // Hardcoded only
+            'firewall_forward',       // Hardcoded only
+            'firewall_nat',           // Hardcoded only
+            'firewall_mangle',        // Hardcoded only
+            'clock_ntp',              // Both
+            'snmp',                   // Both
+            'system_settings',        // Hardcoded only
+            'auto_upgrade',           // GitLab only
+            'sip_alg_off',            // GitLab only
+            'watchdog_timer',         // GitLab only
+            'web_proxy_off',          // GitLab only
+            'vpls_edge',              // Hardcoded only
+            'vpls_edge_ports',        // GitLab only (includes logging)
+            'logging',                // Hardcoded only
+            'user_aaa',               // Both: user accounts + AAA
+            'user_groups',            // Hardcoded only
+            'user_profiles',          // GitLab only
+            'dhcp_options',           // Both: DHCP option 43
+            'radius',                 // Both: RADIUS + LDP filters
+            'ldp_filters',            // Hardcoded only
+            'sys_note',               // GitLab only
         ];
 
 
@@ -8105,6 +8151,13 @@
 
                 const complianceBlocks = await fetchComplianceBlocks(mgmtIP);
                 if (complianceBlocks) {
+                    // Set $LoopIP variable for compliance blocks that reference it
+                    // (switches don't have loop0, so we set it to the management IP)
+                    config += '# Set LoopIP for compliance block references\n';
+                    config += ':global LoopIP "' + mgmtIP + '"\n';
+                    config += ':global curDate [/system clock get date]\n';
+                    config += ':global curTime [/system clock get time]\n';
+                    config += ':global CurDT ($curDate . " " . $curTime)\n\n';
                     config = appendComplianceBlocks(config, complianceBlocks, SWITCH_COMPLIANCE_BLOCKS);
                     window.addProgressLog('success', 'Dynamic compliance blocks applied from GitLab');
                 } else {
@@ -8539,6 +8592,13 @@
 
                 const ghzComplianceBlocks = await fetchComplianceBlocks(vlan3000RouterIP);
                 if (ghzComplianceBlocks) {
+                    // Set $LoopIP variable for compliance blocks that reference it
+                    // (6GHz devices use vlan3000 router IP as their management address)
+                    config += '# Set LoopIP for compliance block references\n';
+                    config += ':global LoopIP "' + vlan3000RouterIP + '"\n';
+                    config += ':global curDate [/system clock get date]\n';
+                    config += ':global curTime [/system clock get time]\n';
+                    config += ':global CurDT ($curDate . " " . $curTime)\n\n';
                     config = appendComplianceBlocks(config, ghzComplianceBlocks, GHZ_COMPLIANCE_BLOCKS);
                     window.addProgressLog('success', 'Dynamic compliance blocks applied from GitLab');
                 } else {

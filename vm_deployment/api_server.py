@@ -8225,12 +8225,38 @@ def inject_compliance_blocks(config: str, compliance_blocks: dict) -> str:
     compliance_section = "\n\n# ========================================\n# RFC-09-10-25 COMPLIANCE STANDARDS\n# ========================================\n# These blocks ensure NextLink policy compliance\n# They use 'rem' commands to remove existing entries and re-add with compliance standards\n# ========================================\n\n"
     
     # Add compliance blocks in order
+    # NOTE: Include keys from BOTH hardcoded fallback AND GitLab-parsed sources.
+    # The GitLab parser creates combined blocks (e.g. 'dns' includes all firewall,
+    # 'vpls_edge_ports' includes logging, 'user_profiles' instead of 'user_groups').
+    # Missing keys are silently skipped, so listing both sets is safe.
     compliance_order = [
-        'ip_services', 'dns', 'firewall_address_lists', 
-        'firewall_filter_input', 'firewall_raw', 'firewall_forward',
-        'firewall_nat', 'firewall_mangle', 'clock_ntp', 'snmp',
-        'system_settings', 'vpls_edge', 'logging', 'user_aaa',
-        'user_groups', 'dhcp_options', 'radius', 'ldp_filters'
+        # Keys from both sources (hardcoded first, then GitLab-only additions)
+        'variables',              # GitLab: sets $LoopIP, $CurDT etc.
+        'ip_services',            # Both
+        'dns',                    # Both (GitLab dns includes all firewall rules)
+        'firewall_address_lists', # Hardcoded only
+        'firewall_filter_input',  # Hardcoded only
+        'firewall_raw',           # Hardcoded only
+        'firewall_forward',       # Hardcoded only
+        'firewall_nat',           # Hardcoded only
+        'firewall_mangle',        # Hardcoded only
+        'clock_ntp',              # Both
+        'snmp',                   # Both
+        'system_settings',        # Hardcoded only
+        'auto_upgrade',           # GitLab only
+        'sip_alg_off',            # GitLab only
+        'watchdog_timer',         # GitLab only
+        'web_proxy_off',          # GitLab only
+        'vpls_edge',              # Hardcoded only
+        'vpls_edge_ports',        # GitLab only (includes logging)
+        'logging',                # Hardcoded only
+        'user_aaa',               # Both
+        'user_groups',            # Hardcoded only
+        'user_profiles',          # GitLab only (includes user groups)
+        'dhcp_options',           # Both
+        'radius',                 # Both (GitLab includes LDP filters)
+        'ldp_filters',            # Hardcoded only
+        'sys_note',               # GitLab only
     ]
     
     for key in compliance_order:
