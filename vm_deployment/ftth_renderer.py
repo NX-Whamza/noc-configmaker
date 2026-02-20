@@ -7,6 +7,31 @@ from datetime import datetime
 
 TEMPLATE_PATH = Path(__file__).parent / "ftth_template.rsc"
 
+# ---------------------------------------------------------------------------
+# GitLab dynamic compliance loader (optional — falls back gracefully)
+# ---------------------------------------------------------------------------
+try:
+    from gitlab_compliance import get_loader as _get_gitlab_loader
+    _FTTH_HAS_GITLAB = True
+except ImportError:
+    try:
+        from vm_deployment.gitlab_compliance import get_loader as _get_gitlab_loader
+        _FTTH_HAS_GITLAB = True
+    except ImportError:
+        _FTTH_HAS_GITLAB = False
+        _get_gitlab_loader = None  # type: ignore[assignment]
+
+try:
+    from nextlink_compliance_reference import get_all_compliance_blocks as _get_hardcoded_blocks
+    _FTTH_HAS_COMPLIANCE_REF = True
+except ImportError:
+    try:
+        from vm_deployment.nextlink_compliance_reference import get_all_compliance_blocks as _get_hardcoded_blocks
+        _FTTH_HAS_COMPLIANCE_REF = True
+    except ImportError:
+        _FTTH_HAS_COMPLIANCE_REF = False
+        _get_hardcoded_blocks = None  # type: ignore[assignment]
+
 # All template placeholder keys used in render_ftth_config().
 # Compiled once at module load for single-pass re.sub() substitution.
 _FTTH_TEMPLATE_KEYS = (
@@ -174,6 +199,200 @@ MPLS_ACCEPT_FILTERS = [
     "add accept=yes disabled=no prefix=10.248.208.0/22",
     "add accept=no disabled=no prefix=0.0.0.0/0",
 ]
+
+# ---------------------------------------------------------------------------
+# FTTH Compliance Integration — GitLab-first, hardcoded-fallback
+# ---------------------------------------------------------------------------
+
+# Compliance block keys to include in the FTTH overlay.
+# Excluded:  user_aaa       — FTTH uses use-radius=yes (compliance sets use-radius=no)
+#            user_groups     — FTTH has specific groups (ENG, NOC, LTE, …)
+#            firewall_mangle — compliance only removes; FTTH has its own QoS/TOS marking
+#            dhcp_options    — FTTH has its own DHCP option 43
+#            radius          — FTTH has its own RADIUS config
+#            vpls_edge       — FTTH manages its own bridge/VPLS ports
+_FTTH_COMPLIANCE_BLOCKS = [
+    "dns",
+    "firewall_address_lists",
+    "firewall_filter_input",
+    "firewall_raw",
+    "firewall_forward",
+    "firewall_nat",
+    "clock_ntp",
+    "snmp",
+    "system_settings",
+    "logging",
+    "ldp_filters",
+]
+
+# RouterOS section headers to strip from the rendered config when GitLab
+# compliance data replaces them.
+_FTTH_COMPLIANCE_STRIP_SECTIONS = [
+    "/snmp community",
+    "/system logging action",
+    "/ip firewall filter",
+    "/ip firewall nat",
+    "/ip firewall raw",
+    "/ip firewall service-port",
+    "/ip service",
+    "/system clock",
+    "/system logging",
+    "/system ntp client servers",
+    "/system ntp client",
+    "/system routerboard settings",
+    "/ip dns",
+    "/mpls ldp accept-filter",
+    "/mpls ldp advertise-filter",
+]
+
+# Address-list names that are compliance-owned (will be replaced by GitLab data).
+# FTTH-specific lists (NAT-EXEMPT-DST, NETFLIX, Voip-Servers, bgp-networks,
+# WALLED-GARDEN) are kept.
+_COMPLIANCE_ADDRESS_LIST_NAMES = {"EOIP-ALLOW", "managerIP", "BGP-ALLOW", "SNMP"}
+
+# FTTH-specific forward chain rules to inject into the compliance forward block.
+# These protect the FTTH BNG topology and must be ordered before the unauth
+# drop / fasttrack rules.
+_FTTH_EXTRA_FORWARD_RULES = [
+    'add action=accept chain=forward comment="NTP Allow" dst-address=10.0.0.1 dst-port=123 in-interface=lan-bridge protocol=udp',
+    'add action=drop chain=forward comment="Traceroute Drop" out-interface=lan-bridge protocol=icmp src-address=10.0.0.0/8',
+    'add action=drop chain=forward comment="Private Space Protect" dst-address=10.0.0.0/8 in-interface=lan-bridge',
+]
+
+
+def _fetch_compliance_blocks(loopback_ip: str) -> dict | None:
+    """Fetch compliance blocks from GitLab, falling back to hardcoded reference.
+
+    Returns a dict keyed by COMPLIANCE_ORDER names, or None if unavailable.
+    """
+    # 1. GitLab dynamic compliance (preferred)
+    if _FTTH_HAS_GITLAB and _get_gitlab_loader is not None:
+        try:
+            loader = _get_gitlab_loader()
+            if loader.is_configured():
+                blocks = loader.get_compliance_blocks_from_script(loopback_ip=loopback_ip)
+                if blocks:
+                    print(f"[FTTH-COMPLIANCE] Loaded {len(blocks)} blocks from GitLab")
+                    return blocks
+        except Exception as exc:
+            print(f"[FTTH-COMPLIANCE] GitLab loader error: {exc}")
+
+    # 2. Hardcoded reference fallback
+    if _FTTH_HAS_COMPLIANCE_REF and _get_hardcoded_blocks is not None:
+        try:
+            blocks = _get_hardcoded_blocks(loopback_ip)
+            if blocks:
+                print(f"[FTTH-COMPLIANCE] Loaded {len(blocks)} blocks from hardcoded reference (GitLab unavailable)")
+                return blocks
+        except Exception as exc:
+            print(f"[FTTH-COMPLIANCE] Hardcoded reference error: {exc}")
+
+    print("[FTTH-COMPLIANCE] No compliance source available — using template defaults")
+    return None
+
+
+def _inject_ftth_forward_rules(forward_block: str) -> str:
+    """Inject FTTH-specific forward rules into the compliance forward block.
+
+    Inserts NTP Allow, Traceroute Drop, and Private Space Protect rules
+    before the unauth drop / fasttrack rules to ensure correct rule ordering.
+    """
+    lines = forward_block.splitlines()
+    insertion_idx = None
+    for i, line in enumerate(lines):
+        lower = line.strip().lower()
+        if 'unauth drop' in lower or 'dst-address-list=!walled-garden' in lower.replace(' ', ''):
+            insertion_idx = i
+            break
+
+    if insertion_idx is not None:
+        for j, rule in enumerate(_FTTH_EXTRA_FORWARD_RULES):
+            lines.insert(insertion_idx + j, rule)
+    else:
+        # No unauth drop found — append before the last few rules
+        lines.extend(_FTTH_EXTRA_FORWARD_RULES)
+
+    return "\n".join(lines)
+
+
+def _build_ftth_compliance_overlay(loopback_ip: str, blocks: dict) -> str:
+    """Build the FTTH compliance overlay text from compliance blocks.
+
+    Assembles only the blocks appropriate for FTTH BNG configs, in the
+    correct order, and injects FTTH-specific firewall forward rules.
+    """
+    sections: list[str] = [
+        "",
+        "# " + "=" * 50,
+        "# ENGINEERING COMPLIANCE (dynamic — GitLab-first)",
+        "# " + "=" * 50,
+    ]
+    for key in _FTTH_COMPLIANCE_BLOCKS:
+        value = blocks.get(key)
+        if not value:
+            continue
+        # Inject FTTH-specific forward rules into the forward block
+        if key == "firewall_forward":
+            value = _inject_ftth_forward_rules(value)
+        sections.append(f"\n# {key.upper().replace('_', ' ')}")
+        sections.append(value.strip())
+
+    if len(sections) <= 4:
+        # Only headers, no actual blocks
+        return ""
+
+    return "\n".join(sections).strip()
+
+
+def _strip_compliance_address_lists(config: str) -> str:
+    """Remove compliance-owned address-list entries; keep FTTH-specific ones."""
+    lines = config.splitlines()
+    out = []
+    in_address_list_section = False
+    for line in lines:
+        stripped = line.strip()
+        # Track when we enter/leave the address-list section
+        if stripped == "/ip firewall address-list":
+            in_address_list_section = True
+            out.append(line)
+            continue
+        if stripped.startswith("/") and stripped != "/ip firewall address-list":
+            in_address_list_section = False
+
+        if in_address_list_section and stripped.startswith("add address=") and "list=" in stripped:
+            match = re.search(r'list=(\S+)', stripped)
+            if match and match.group(1) in _COMPLIANCE_ADDRESS_LIST_NAMES:
+                continue  # Drop compliance-owned entry
+        out.append(line)
+    return "\n".join(out)
+
+
+def _apply_ftth_compliance(config: str, loopback_ip: str) -> str:
+    """Apply GitLab-sourced compliance overlay to the rendered FTTH config.
+
+    1. Fetches compliance blocks (GitLab-first, hardcoded-fallback).
+    2. Strips hardcoded compliance sections from the rendered config.
+    3. Strips compliance-owned address-list entries.
+    4. Appends the compliance overlay with FTTH-specific forward rules.
+
+    If no compliance data is available, returns the config unchanged.
+    """
+    blocks = _fetch_compliance_blocks(loopback_ip)
+    if not blocks:
+        return config
+
+    # Strip hardcoded compliance sections
+    result = _strip_named_sections(config, _FTTH_COMPLIANCE_STRIP_SECTIONS)
+
+    # Strip compliance-owned address-list entries
+    result = _strip_compliance_address_lists(result)
+
+    # Build and append the compliance overlay
+    overlay = _build_ftth_compliance_overlay(loopback_ip, blocks)
+    if overlay:
+        result = result.rstrip() + "\n\n" + overlay + "\n"
+
+    return result
 
 
 def _sanitize_tag(value: str, default: str) -> str:
@@ -898,6 +1117,12 @@ def render_ftth_config(data: dict) -> str:
 
     template = _strip_ftth_headers(template)
     template = _normalize_ftth_output(template)
+
+    # --- GitLab compliance integration ---
+    # Replace hardcoded compliance sections with GitLab-sourced data.
+    # Falls back to hardcoded reference if GitLab is unavailable.
+    template = _apply_ftth_compliance(template, str(loopback.ip))
+
     if is_outstate:
         template = _enforce_outstate_ospf_area(template, ospf_area_name, ospf_area_id)
         template = _strip_outstate_subscriber_features(template)
