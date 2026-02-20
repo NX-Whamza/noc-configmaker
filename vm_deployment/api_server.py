@@ -7697,19 +7697,18 @@ def apply_compliance():
                 'compliance': {'compliant': False, 'error': 'Compliance reference not available'}
             })
         
-        # Check if this is a frontend-only tab (Tarana, 6GHz) - these are production-ready
+        # Check if this is a Tarana config (different vendor - MikroTik compliance doesn't apply)
         config_lower = config.lower()
-        is_tarana_config = ('tarana' in config_lower or 'sector' in config_lower or ('alpha' in config_lower and 'beta' in config_lower))
-        is_6ghz_config = ('6ghz' in config_lower or '6ghz switch' in config_lower)
+        is_tarana_config = ('tarana' in config_lower and ('sector' in config_lower or 'alpha' in config_lower))
         
-        if is_tarana_config or is_6ghz_config:
-            print("[COMPLIANCE] Skipping compliance injection for frontend-only tab (Tarana/6GHz - production ready, self-contained)")
+        if is_tarana_config:
+            print("[COMPLIANCE] Skipping compliance injection for Tarana config (different vendor)")
             return jsonify({
                 'success': True,
                 'config': config,
                 'compliance': {
                     'compliant': True,
-                    'note': 'Frontend-only tab (production ready) - compliance not needed'
+                    'note': 'Tarana config (different vendor) - MikroTik compliance not applicable'
                 }
             })
         
@@ -8208,13 +8207,12 @@ def inject_compliance_blocks(config: str, compliance_blocks: dict) -> str:
     Returns:
         Updated configuration with compliance blocks (only if not already present)
     """
-    # Check if config is from a frontend-only tab (Tarana, 6GHz) that shouldn't get compliance
+    # Check if config is from a Tarana tab (different vendor, MikroTik compliance doesn't apply)
     config_lower = config.lower()
-    is_tarana_config = ('tarana' in config_lower or 'sector' in config_lower or 'alpha' in config_lower or 'beta' in config_lower or 'gamma' in config_lower)
-    is_6ghz_config = ('6ghz' in config_lower or '6ghz switch' in config_lower or 'vlan3000' in config_lower or 'vlan4000' in config_lower)
+    is_tarana_config = ('tarana' in config_lower and ('sector' in config_lower or 'alpha' in config_lower))
     
-    if is_tarana_config or is_6ghz_config:
-        print("[COMPLIANCE] Skipping compliance injection for frontend-only tab (Tarana/6GHz - production ready)")
+    if is_tarana_config:
+        print("[COMPLIANCE] Skipping compliance injection for Tarana tab (different vendor)")
         return config
     
     # Check if compliance section already exists (to avoid double-injection)
@@ -13003,6 +13001,40 @@ def mt_generate_portmap(config_type):
         return jsonify(portmap_text)
     except Exception as exc:
         return jsonify({'error': str(exc)}), 500
+
+
+@app.route('/api/compliance/blocks', methods=['GET'])
+def get_compliance_blocks_api():
+    """Return compliance blocks as JSON for client-side config generators.
+
+    Source priority: GitLab dynamic (TTL-cached) → hardcoded reference.
+    Query params:
+        loopback_ip  – optional, defaults to 10.0.0.1
+    """
+    if not HAS_COMPLIANCE:
+        return jsonify({'error': 'Compliance reference not available'}), 503
+    try:
+        loop_ip = request.args.get('loopback_ip', '10.0.0.1')
+        blocks = get_all_compliance_blocks(loop_ip)
+        # Determine source for diagnostics
+        source = 'hardcoded'
+        try:
+            from gitlab_compliance import get_loader as _gl
+            loader = _gl()
+            if loader.is_configured():
+                gl_blocks = loader.get_compliance_blocks_from_script(loopback_ip=loop_ip)
+                if gl_blocks:
+                    source = 'gitlab'
+        except Exception:
+            pass
+        return jsonify({
+            'success': True,
+            'source': source,
+            'loopback_ip': loop_ip,
+            'blocks': blocks,
+        })
+    except Exception as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 500
 
 
 @app.route('/api/compliance/engineering', methods=['GET'])
