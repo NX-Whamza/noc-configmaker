@@ -7419,7 +7419,119 @@
             return '1G-baseT-full';
         }
 
-        // Enterprise Feeding Device Selection Handler
+        // ========================================
+        // DYNAMIC COMPLIANCE - GitLab Integration
+        // ========================================
+        // Fetches compliance blocks from the backend (GitLab-first, hardcoded fallback)
+        // Used by Switch-Maker, 6GHz, and other frontend generators to replace
+        // hardcoded compliance with dynamically sourced data.
+
+        window._complianceCache = null;
+        window._complianceCacheExpiry = 0;
+        const COMPLIANCE_CACHE_TTL = 300000; // 5 minutes
+
+        /**
+         * Fetch compliance blocks from the backend (/api/compliance/blocks).
+         * Returns a dict of block_name -> RouterOS config text.
+         * Caches for 5 minutes. Falls back to null on failure.
+         */
+        async function fetchComplianceBlocks(loopbackIp) {
+            const now = Date.now();
+            if (window._complianceCache && now < window._complianceCacheExpiry) {
+                return window._complianceCache;
+            }
+            try {
+                const token = localStorage.getItem('auth_token');
+                const apiBase = (typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api';
+                const ip = loopbackIp || '10.0.0.1';
+                const headers = {};
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+                const r = await fetch(`${apiBase}/compliance/blocks?loopback_ip=${encodeURIComponent(ip)}`, { headers });
+                if (r.ok) {
+                    const data = await r.json();
+                    if (data.success && data.blocks) {
+                        window._complianceCache = data.blocks;
+                        window._complianceCacheExpiry = now + COMPLIANCE_CACHE_TTL;
+                        console.log(`[COMPLIANCE] Fetched compliance blocks from ${data.source || 'backend'}`);
+                        return data.blocks;
+                    }
+                }
+            } catch (e) {
+                console.warn('[COMPLIANCE] Failed to fetch compliance blocks:', e);
+            }
+            return null;
+        }
+
+        /**
+         * Send config to backend /api/apply-compliance for full compliance overlay.
+         * Returns the compliant config string (or original on failure).
+         */
+        async function applyBackendCompliance(config, loopbackIp) {
+            try {
+                const token = localStorage.getItem('auth_token');
+                const apiBase = (typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api';
+                const headers = { 'Content-Type': 'application/json' };
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+                const r = await fetch(`${apiBase}/apply-compliance`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ config, loopback_ip: loopbackIp || '' })
+                });
+                if (r.ok) {
+                    const data = await r.json();
+                    if (data.success && data.config) {
+                        const src = data.compliance?.note || 'backend';
+                        console.log(`[COMPLIANCE] Backend compliance applied (${src})`);
+                        return data.config;
+                    }
+                }
+            } catch (e) {
+                console.warn('[COMPLIANCE] Failed to apply backend compliance:', e);
+            }
+            return config;
+        }
+
+        /**
+         * Append selected compliance blocks to a config string.
+         * @param {string} config - Device-specific config
+         * @param {object} blocks - Compliance blocks dict from fetchComplianceBlocks()
+         * @param {string[]} blockKeys - Which block keys to include
+         * @returns {string} Config with compliance blocks appended
+         */
+        function appendComplianceBlocks(config, blocks, blockKeys) {
+            if (!blocks) return config;
+            let section = '\n\n# ========================================\n';
+            section += '# RFC-09-10-25 COMPLIANCE STANDARDS\n';
+            section += '# Dynamically sourced from GitLab compliance repository\n';
+            section += '# ========================================\n\n';
+            let hasBlocks = false;
+            blockKeys.forEach(key => {
+                if (blocks[key]) {
+                    section += `# ${key.toUpperCase().replace(/_/g, ' ')}\n`;
+                    section += blocks[key].trim() + '\n\n';
+                    hasBlocks = true;
+                }
+            });
+            return hasBlocks ? config.trimEnd() + section : config;
+        }
+
+        // Compliance block keys appropriate for switch-type configs
+        // (excludes RADIUS/AAA since switches need login RADIUS, not DHCP RADIUS)
+        const SWITCH_COMPLIANCE_BLOCKS = [
+            'ip_services', 'dns', 'firewall_address_lists',
+            'firewall_filter_input', 'firewall_raw', 'clock_ntp',
+            'snmp', 'system_settings', 'logging', 'user_groups'
+        ];
+
+        // Compliance block keys for 6GHz switch configs (full overlay)
+        const GHZ_COMPLIANCE_BLOCKS = [
+            'ip_services', 'dns', 'firewall_address_lists',
+            'firewall_filter_input', 'firewall_raw', 'firewall_forward',
+            'firewall_nat', 'clock_ntp', 'snmp', 'system_settings',
+            'logging', 'user_aaa', 'user_groups', 'dhcp_options', 'radius'
+        ];
+
+
         function handleEnterpriseFeedingDeviceChange() {
             const deviceSelect = document.getElementById('ent_feeding_device');
             const portSelect = document.getElementById('ent_feeding_port');
@@ -7915,41 +8027,8 @@
                 // Port configuration
                 config += `/port set 0 name=serial0\n\n`;
 
-                window.updateProgressStep('Configuring SNMP and logging...');
-                window.updateProgressPercent(50);
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                // SNMP community
-                config += `/snmp community set [ find default=yes ] read-access=no\n`;
-                config += `/snmp community add name=FBZ1yYdphf addresses=::/0\n\n`;
-
-                // System logging
-                config += `/system logging action set 0 memory-lines=100\n`;
-                config += `/system logging action set 1 disk-lines-per-file=10000\n`;
-                config += `/system logging action add name=syslog remote=142.147.116.215 src-address=${ipAddress} target=remote\n\n`;
-
-                window.updateProgressStep('Configuring user groups...');
-                window.updateProgressPercent(60);
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                // User groups (from example)
-                config += `/user group set read policy=local,telnet,read,test,winbox,sniff,!ssh,!ftp,!reboot,!write,!policy,!password,!web,!sensitive,!api,!romon,!rest-api\n`;
-                config += `/user group add name=ENG policy=local,telnet,ssh,ftp,reboot,read,write,policy,test,winbox,password,web,sniff,sensitive,api,romon,rest-api\n`;
-                config += `/user group add name=NOC policy=local,telnet,ssh,ftp,reboot,read,write,test,winbox,password,sniff,sensitive,!policy,!web,!api,!romon,!rest-api\n`;
-                config += `/user group add name=LTE policy=local,telnet,ssh,reboot,read,write,test,winbox,password,sniff,sensitive,!ftp,!policy,!web,!api,!romon,!rest-api\n`;
-                config += `/user group add name=DEVOPS policy=local,telnet,ssh,ftp,reboot,read,write,policy,test,winbox,password,web,sniff,sensitive,api,romon,rest-api\n`;
-                config += `/user group add name=VOIP policy=local,telnet,ssh,read,test,winbox,sniff,!ftp,!reboot,!write,!policy,!password,!web,!sensitive,!api,!romon,!rest-api\n`;
-                config += `/user group add name=STS policy=local,telnet,ssh,read,test,winbox,sniff,!ftp,!reboot,!write,!policy,!password,!web,!sensitive,!api,!romon,!rest-api\n`;
-                config += `/user group add name=TECHSUPPORT policy=local,telnet,read,test,winbox,sniff,!ssh,!ftp,!reboot,!write,!policy,!password,!web,!sensitive,!api,!romon,!rest-api\n`;
-                config += `/user group add name=INFRA policy=local,telnet,reboot,read,write,test,winbox,!ssh,!ftp,!policy,!password,!web,!sniff,!sensitive,!api,!romon,!rest-api\n`;
-                config += `/user group add name=INSTALL policy=local,telnet,reboot,read,write,test,winbox,!ssh,!ftp,!policy,!password,!web,!sniff,!sensitive,!api,!romon,!rest-api\n`;
-                config += `/user group add name=COMENG policy=local,telnet,ssh,reboot,read,write,test,winbox,sniff,!ftp,!policy,!password,!web,!sensitive,!api,!romon,!rest-api\n`;
-                config += `/user group add name=INTEGRATIONS policy=local,telnet,ssh,ftp,reboot,read,write,policy,test,winbox,password,web,sniff,sensitive,api,romon,rest-api\n`;
-                config += `/user group add name=IDO policy=local,telnet,ssh,reboot,read,write,test,winbox,password,sniff,sensitive,!ftp,!policy,!web,!api,!romon,!rest-api\n`;
-                config += `/user group add name=CALLCENTER-WRITE policy=local,telnet,ssh,read,write,test,winbox,sniff,!ftp,!reboot,!policy,!password,!web,!sensitive,!api,!romon,!rest-api\n\n`;
-
                 window.updateProgressStep('Configuring bridge MSTI and ports...');
-                window.updateProgressPercent(70);
+                window.updateProgressPercent(50);
                 await new Promise(resolve => setTimeout(resolve, 200));
 
                 // Bridge MSTI
@@ -7999,109 +8078,70 @@
                 // VLAN 3000
                 config += `/interface bridge vlan add bridge=lan-bridge tagged=lan-bridge,bonding1,${taggedPorts3000.join(',')} vlan-ids=3000\n\n`;
 
-                window.updateProgressStep('Configuring IP address and DNS...');
-                window.updateProgressPercent(85);
+                window.updateProgressStep('Configuring IP and routing...');
+                window.updateProgressPercent(70);
                 await new Promise(resolve => setTimeout(resolve, 200));
 
                 // IP address
                 config += `/ip address add address=${mgmtIP} interface=vlan3000\n\n`;
 
-                // DNS
-                config += `/ip dns set max-udp-packet-size=512 servers=142.147.112.3,142.147.112.19\n\n`;
-
-                window.updateProgressStep('Configuring firewall rules...');
-                window.updateProgressPercent(90);
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                // Firewall address-lists (from example)
-                const managerIPs = ['10.10.103.91', '192.168.128.0/21', '107.178.5.97', '198.100.53.0/25', '143.55.62.143', '143.55.37.42', '143.55.37.43', '142.147.127.2', '132.147.147.67', '132.147.147.68', '132.147.132.6', '132.147.132.96', '132.147.132.97', '132.147.132.205', '67.219.122.201', '132.147.138.52', '132.147.138.53', '132.147.138.54', '10.0.0.0/8', '208.93.124.0/22', '192.104.128.0/21', '199.180.120.0/21'];
-                managerIPs.forEach(ip => {
-                    config += `/ip firewall address-list add list=managerIP address=${ip}\n`;
-                });
-
-                const snmpIPs = ['143.55.35.47', '107.178.15.15', '107.178.15.162', '142.147.112.4', '142.147.124.26', '107.178.5.97', '67.219.126.240/28', '198.100.53.120', '143.55.62.143', '132.147.138.2', '132.147.138.0', '132.147.138.6', '132.147.138.23', '132.147.138.29', '132.147.138.30', '132.147.138.31', '143.55.37.40', '143.55.37.41', '132.147.132.24', '198.100.49.99', '132.147.132.26', '204.11.183.126', '173.215.67.124', '132.147.138.3', '132.147.138.7', '132.147.138.21', '132.147.138.26', '10.30.9.246'];
-                snmpIPs.forEach(ip => {
-                    config += `/ip firewall address-list add list=SNMP address=${ip}\n`;
-                });
-
-                const ntpIPs = ['52.128.59.240', '52.128.59.241', '52.128.59.242', '52.128.59.243', '132.163.4.101', '132.163.4.102'];
-                ntpIPs.forEach(ip => {
-                    config += `/ip firewall address-list add list=NTP address=${ip}\n`;
-                });
-
-                config += '\n';
-
-                // Firewall filters
-                config += `/ip firewall filter add action=accept chain=input comment="ALLOW EST REL" connection-state=established,related,untracked\n`;
-                config += `/ip firewall filter add action=accept chain=input comment="ALLOW MT NEIGHBOR" dst-port=5678 protocol=udp\n`;
-                config += `/ip firewall filter add action=accept chain=input comment="ALLOW MAC TELNET" dst-port=20561 protocol=udp\n`;
-                config += `/ip firewall filter add action=accept chain=input comment="ALLOW IGMP" protocol=igmp\n`;
-                config += `/ip firewall filter add action=accept chain=input comment="ALLOW ICMP" protocol=icmp\n`;
-                config += `/ip firewall filter add action=accept chain=input comment="ALLOW MANAGER IP" src-address-list=managerIP\n`;
-                config += `/ip firewall filter add action=accept chain=input comment="ALLOW SNMP" dst-port=161 protocol=udp src-address-list=SNMP\n`;
-                config += `/ip firewall filter add action=drop chain=input comment="DROP INPUT"\n\n`;
-
-                config += `/ip firewall service-port set sip disabled=yes\n\n`;
-
                 // Route
                 config += `/ip route add disabled=no distance=1 dst-address=0.0.0.0/0 gateway=${gateway} pref-src="" routing-table=main scope=30 suppress-hw-offload=no target-scope=10\n\n`;
 
-                window.updateProgressStep('Configuring services and RADIUS...');
-                window.updateProgressPercent(95);
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                // IP services
-                config += `/ip service set telnet disabled=yes port=5023\n`;
-                config += `/ip service set ftp disabled=yes port=5021\n`;
-                config += `/ip service set www disabled=yes port=1234\n`;
-                config += `/ip service set ssh port=5022\n`;
-                config += `/ip service set www-ssl disabled=no\n`;
-                config += `/ip service set api disabled=yes\n`;
-                config += `/ip service set api-ssl disabled=yes\n\n`;
-
-                // RADIUS
-                config += `/radius add address=10.30.10.70 comment="userRAD 1" service=login src-address=${ipAddress}\n`;
-                config += `/radius add address=10.2.10.74 comment="userRAD 2" service=login src-address=${ipAddress}\n\n`;
-
-                // SNMP
-                config += `/snmp set enabled=yes contact="Bradley Shaw" location="${gps}" src-address=${ipAddress} trap-community=FBZ1yYdphf\n\n`;
-
-                // System settings
-                config += `/system clock set time-zone-name=America/Chicago time-zone-autodetect=no\n`;
+                // System identity
                 config += `/system identity set name=${switchName}\n\n`;
 
-                // System logging
-                config += `/system logging add action=disk topics=critical\n`;
-                config += `/system logging add action=disk topics=error\n`;
-                config += `/system logging add action=disk topics=info\n`;
-                config += `/system logging add action=disk topics=warning\n`;
-                config += `/system logging add action=syslog topics=critical\n`;
-                config += `/system logging add action=syslog topics=error\n`;
-                config += `/system logging add action=syslog topics=info\n`;
-                config += `/system logging add action=syslog topics=warning\n`;
-                config += `/system logging add disabled=yes topics=debug\n`;
-                config += `/system logging add action=disk topics=critical\n`;
-                config += `/system logging add action=disk topics=error\n`;
-                config += `/system logging add action=disk topics=info\n`;
-                config += `/system logging add topics=warning\n\n`;
-
-                config += `/system note set show-at-login=no\n`;
-                config += `/system ntp client set enabled=yes\n`;
-                config += `/system ntp client servers add address=52.128.59.240\n`;
-                config += `/system ntp client servers add address=52.128.59.241\n`;
-                config += `/system ntp client servers add address=52.128.59.242\n`;
-                config += `/system ntp client servers add address=52.128.59.243\n`;
-                config += `/system ntp client servers add address=132.163.4.101\n`;
-                config += `/system ntp client servers add address=132.163.4.102\n\n`;
-
+                // Device-specific settings (switch OS, routerboard)
                 config += `/system routerboard settings set boot-os=router-os enter-setup-on=delete-key\n`;
-                config += `/system swos set address-acquisition-mode=static allow-from-ports=p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19,p20,p21,p22,p23,p24,p25,p26,p27,p28,p29,p30,p31,p32 identity=SWT-CRS326-1.WAR static-ip-address=10.3.24.4\n\n`;
-
+                config += `/system swos set address-acquisition-mode=static allow-from-ports=p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19,p20,p21,p22,p23,p24,p25,p26,p27,p28,p29,p30,p31,p32 identity=${switchName} static-ip-address=${ipAddress}\n\n`;
                 config += `/tool sniffer set file-limit=10000KiB\n\n`;
 
-                // Users (from example)
+                // ========================================
+                // DYNAMIC COMPLIANCE FROM GITLAB
+                // ========================================
+                window.updateProgressStep('Fetching compliance from GitLab...');
+                window.updateProgressPercent(85);
+                await new Promise(resolve => setTimeout(resolve, 200));
+
+                const complianceBlocks = await fetchComplianceBlocks(mgmtIP);
+                if (complianceBlocks) {
+                    config = appendComplianceBlocks(config, complianceBlocks, SWITCH_COMPLIANCE_BLOCKS);
+                    window.addProgressLog('success', 'Dynamic compliance blocks applied from GitLab');
+                } else {
+                    window.addProgressLog('warning', 'Compliance blocks unavailable from backend - config generated without compliance overlay');
+                }
+
+                // ========================================
+                // SWITCH-SPECIFIC OVERRIDES (after compliance)
+                // ========================================
+                config += `\n# SWITCH-SPECIFIC CONFIGURATION\n`;
+
+                // Switches use RADIUS for login authentication (override compliance user_aaa)
+                config += `/user aaa\nset use-radius=yes\n\n`;
+
+                // Login RADIUS servers (switch-specific, sourced from infrastructure config)
+                const switchRadiusServers = (typeof getRADIUSLoginServers === 'function') ? getRADIUSLoginServers() : [];
+                if (switchRadiusServers.length > 0) {
+                    config += `/radius\n`;
+                    switchRadiusServers.forEach(server => {
+                        if (server.address && server.secret) {
+                            const comment = server.comment ? ` comment="${server.comment}"` : ' comment="RADIUS Login"';
+                            config += `add address=${server.address} secret=${server.secret} service=login src-address=${ipAddress}${comment}\n`;
+                        }
+                    });
+                    config += `\n`;
+                } else {
+                    // Fallback if infrastructure RADIUS not configured
+                    config += `/radius\nadd address=10.30.10.70 comment="userRAD 1" service=login src-address=${ipAddress}\n`;
+                    config += `add address=10.2.10.74 comment="userRAD 2" service=login src-address=${ipAddress}\n\n`;
+                }
+
+                // SNMP location override (switch-specific with GPS coordinates)
+                const snmpContact = (typeof getInfrastructureValue === 'function') ? getInfrastructureValue('snmp.contact', 'netops@team.nxlink.com') : 'netops@team.nxlink.com';
+                config += `/snmp\nset enabled=yes contact="${snmpContact}" location="${gps}" src-address=${ipAddress}\n\n`;
+
+                // User accounts
                 config += `/user set [find name=admin] password="CHANGE_ME"\n`;
-                config += `/user aaa set use-radius=yes\n`;
                 config += `/user add name="root" password="CHANGE_ME" group=full\n`;
                 config += `/user add name="deployment" password="CHANGE_ME" group=full\n`;
                 config += `/user add name="infra" password="CHANGE_ME" group=full\n`;
@@ -8490,8 +8530,23 @@
                 window.addProgressLog('success', 'OSPF interface template configured');
                 await new Promise(resolve => setTimeout(resolve, 200));
 
+                // ========================================
+                // DYNAMIC COMPLIANCE FROM GITLAB
+                // ========================================
+                window.updateProgressStep('Fetching compliance from GitLab...');
+                window.updateProgressPercent(85);
+                window.addProgressLog('info', 'Applying dynamic compliance blocks from backend');
+
+                const ghzComplianceBlocks = await fetchComplianceBlocks(vlan3000RouterIP);
+                if (ghzComplianceBlocks) {
+                    config = appendComplianceBlocks(config, ghzComplianceBlocks, GHZ_COMPLIANCE_BLOCKS);
+                    window.addProgressLog('success', 'Dynamic compliance blocks applied from GitLab');
+                } else {
+                    window.addProgressLog('warning', 'Compliance blocks unavailable - config generated without compliance overlay');
+                }
+
                 window.updateProgressStep('Finalizing configuration...');
-                window.updateProgressPercent(90);
+                window.updateProgressPercent(95);
                 window.addProgressLog('info', 'Configuration generation complete');
 
                 // Display configuration
