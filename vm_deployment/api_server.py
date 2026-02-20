@@ -105,6 +105,18 @@ except Exception:
             return None
         print(f"[WARNING] Engineering compliance loader unavailable: {_compliance_err}")
 
+# GitLab dynamic compliance loader (optional — falls back gracefully when unavailable)
+try:
+    from gitlab_compliance import get_loader as _get_gitlab_compliance_loader
+    _HAS_GITLAB_COMPLIANCE = True
+except ImportError:
+    try:
+        from vm_deployment.gitlab_compliance import get_loader as _get_gitlab_compliance_loader
+        _HAS_GITLAB_COMPLIANCE = True
+    except ImportError:
+        _HAS_GITLAB_COMPLIANCE = False
+        _get_gitlab_compliance_loader = None  # type: ignore[assignment]
+
 # Allow tests or alternate environments to override timezone name
 TIMEZONE_NAME = os.environ.get('TIMEZONE_NAME', 'America/Chicago')
 
@@ -9656,6 +9668,51 @@ def reload_config_policies():
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/reload-compliance', methods=['POST'])
+def reload_compliance():
+    """Clear the GitLab compliance TTL cache so the next request re-fetches live data."""
+    if not _HAS_GITLAB_COMPLIANCE or _get_gitlab_compliance_loader is None:
+        return jsonify({
+            'success': False,
+            'message': 'GitLab compliance loader is not configured or unavailable.',
+            'hint': 'Set GITLAB_COMPLIANCE_TOKEN and GITLAB_COMPLIANCE_PROJECT_ID environment variables.',
+        }), 503
+    try:
+        loader = _get_gitlab_compliance_loader()
+        loader.refresh()
+        return jsonify({
+            'success': True,
+            'message': 'Compliance cache cleared — next config generation will re-fetch from GitLab.',
+        })
+    except Exception as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@app.route('/api/compliance-status', methods=['GET'])
+def compliance_status():
+    """Report the active compliance source, GitLab reachability, and cache state."""
+    status: dict = {
+        'gitlab_configured': False,
+        'gitlab_available': False,
+        'active_source': 'hardcoded',
+        'cache_info': None,
+    }
+
+    if _HAS_GITLAB_COMPLIANCE and _get_gitlab_compliance_loader is not None:
+        try:
+            loader = _get_gitlab_compliance_loader()
+            status['gitlab_configured'] = loader.is_configured()
+            status['gitlab_available'] = loader.is_available()
+            status['cache_info'] = loader.cache_info()
+            if status['gitlab_available']:
+                status['active_source'] = 'gitlab'
+        except Exception as exc:
+            status['error'] = str(exc)
+
+    return jsonify(status)
+
 
 @app.route('/api/health', methods=['GET'])
 def health():

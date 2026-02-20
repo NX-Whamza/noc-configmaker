@@ -52,6 +52,7 @@ MSTP_STATES = {
     "250": "LA",
     "0": "IL",
 }
+MSTP_STATE_CODES = frozenset(MSTP_STATES.values())
 
 TARANA_SECTORS = [
     {"name": "Alpha", "port": "sfp-sfpplus8", "address_offset": 2},
@@ -108,7 +109,7 @@ class MTBNG2Config:
             self.vpls_l2_mtu = params["vpls_l2_mtu"]
 
             self.state_code = params["state_code"]
-            if self.state_code not in MSTP_STATES.values():
+            if self.state_code not in MSTP_STATE_CODES:
                 raise ValueError(
                     f"State '{self.state_code}' is not valid for this config type."
                 )

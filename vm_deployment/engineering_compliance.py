@@ -9,6 +9,18 @@ try:
 except Exception:  # pragma: no cover - import path fallback
     from vm_deployment.nextlink_compliance_reference import get_all_compliance_blocks
 
+# GitLab dynamic compliance loader (optional — falls back gracefully when unavailable)
+try:
+    from gitlab_compliance import get_loader as _get_gitlab_loader
+    _HAS_GITLAB = True
+except ImportError:
+    try:
+        from vm_deployment.gitlab_compliance import get_loader as _get_gitlab_loader
+        _HAS_GITLAB = True
+    except ImportError:
+        _HAS_GITLAB = False
+        _get_gitlab_loader = None  # type: ignore[assignment]
+
 COMPLIANCE_MARKER = "# ENGINEERING-COMPLIANCE-APPLIED"
 TEMPLATE_TOKEN = "{{NEXTLINK_RFC_BLOCKS}}"
 
@@ -68,7 +80,27 @@ def extract_loopback_ip(config_text: str) -> str | None:
 
 
 def _render_rfc_blocks(loopback_ip: str) -> str:
-    blocks = get_all_compliance_blocks(loopback_ip)
+    """
+    Render RFC-09-10-25 compliance blocks in COMPLIANCE_ORDER sequence.
+
+    Source priority:
+      1. GitLab compliance repo (dynamic, TTL-cached) — if configured + reachable
+      2. Hardcoded nextlink_compliance_reference module (always available)
+    """
+    blocks: dict | None = None
+
+    if _HAS_GITLAB and _get_gitlab_loader is not None:
+        try:
+            loader = _get_gitlab_loader()
+            blocks = loader.get_compliance_blocks_from_script(loopback_ip=loopback_ip)
+        except Exception as _exc:
+            print(f"[COMPLIANCE] GitLab loader error in _render_rfc_blocks: {_exc}")
+            blocks = None
+
+    if not blocks:
+        # Fall back to hardcoded Python reference module
+        blocks = get_all_compliance_blocks(loopback_ip)
+
     lines: list[str] = []
     for key in COMPLIANCE_ORDER:
         value = blocks.get(key)
@@ -81,10 +113,35 @@ def _render_rfc_blocks(loopback_ip: str) -> str:
 
 
 def load_compliance_text(loopback_ip: str) -> str:
-    template_path = _resolve_template_path()
-    if template_path.exists():
-        template = template_path.read_text(encoding="utf-8")
-    else:
+    """
+    Load the full engineering compliance script for the given loopback IP.
+
+    Template source priority:
+      1. GitLab compliance repo RSC template (dynamic, TTL-cached)
+      2. Local disk RSC template (ENGINEERING_COMPLIANCE_FILE or default path)
+      3. Inline minimal default template
+
+    Block rendering inside the template uses _render_rfc_blocks() which
+    applies the same GitLab-first / hardcoded-fallback logic.
+    """
+    template: str | None = None
+
+    # 1. Try GitLab RSC template
+    if _HAS_GITLAB and _get_gitlab_loader is not None:
+        try:
+            template = _get_gitlab_loader().get_compliance_rsc_template()
+        except Exception as _exc:
+            print(f"[COMPLIANCE] GitLab RSC template fetch failed: {_exc}")
+            template = None
+
+    # 2. Fall back to local disk template
+    if not template:
+        template_path = _resolve_template_path()
+        if template_path.exists():
+            template = template_path.read_text(encoding="utf-8")
+
+    # 3. Inline minimal default
+    if not template:
         template = (
             "# VARIABLES\n"
             f":global LoopIP \"{loopback_ip}\"\n\n"

@@ -7,6 +7,77 @@ from datetime import datetime
 
 TEMPLATE_PATH = Path(__file__).parent / "ftth_template.rsc"
 
+# All template placeholder keys used in render_ftth_config().
+# Compiled once at module load for single-pass re.sub() substitution.
+_FTTH_TEMPLATE_KEYS = (
+    "{{BRIDGE_LINES}}",
+    "{{VPLS_LINES}}",
+    "{{UPLINK_ETHERNET_LINES}}",
+    "{{OLT_ETHERNET_LINES}}",
+    "{{UPLINK_PRIMARY_PORT}}",
+    "{{UPLINK_PRIMARY_MTU}}",
+    "{{OLT1_TAG}}",
+    "{{OLT1_BONDING_LINE}}",
+    "{{OLT1_VLAN_LINES}}",
+    "{{OLT1_BRIDGE_PORTS}}",
+    "{{OLT1_IP_LINE}}",
+    "{{OLT1_OSPF_LINE}}",
+    "{{OLT2_BONDING_LINE}}",
+    "{{OLT2_VLAN_LINES}}",
+    "{{OLT2_BRIDGE_PORTS}}",
+    "{{OLT2_IP_LINE}}",
+    "{{OLT2_OSPF_LINE}}",
+    "{{CGNAT_POOL_START}}",
+    "{{CGNAT_POOL_END}}",
+    "{{CPE_POOL_START}}",
+    "{{CPE_POOL_END}}",
+    "{{UNAUTH_POOL_START}}",
+    "{{UNAUTH_POOL_END}}",
+    "{{ROUTER_ID}}",
+    "{{OSPF_AREA_NAME}}",
+    "{{OSPF_AREA_ID}}",
+    "{{CPE_GATEWAY}}",
+    "{{CPE_PREFIX}}",
+    "{{CPE_NETWORK_BASE}}",
+    "{{LOOPBACK_IP}}",
+    "{{UNAUTH_GATEWAY}}",
+    "{{UNAUTH_PREFIX}}",
+    "{{UNAUTH_NETWORK_BASE}}",
+    "{{CGNAT_GATEWAY}}",
+    "{{CGNAT_PREFIX}}",
+    "{{CGNAT_NETWORK_BASE}}",
+    "{{OLT1_IP}}",
+    "{{OLT1_PREFIX}}",
+    "{{OLT1_NETWORK_BASE}}",
+    "{{CGNAT_PUBLIC}}",
+    "{{UPLINK_IP_LINES}}",
+    "{{UPLINK_OSPF_LINES}}",
+    "{{UPLINK_LDP_LINES}}",
+    "{{MPLS_ACCEPT_FILTERS}}",
+    "{{MPLS_ADVERTISE_FILTERS}}",
+    "{{OLT1_NAME}}",
+    "{{ROUTER_IDENTITY}}",
+    "{{LOCATION}}",
+    "{{SNMP_CONTACT}}",
+    "{{GENERATED_AT}}",
+    "{{BGP_INSTANCE_BLOCK}}",
+    "{{BGP_TEMPLATE_LINE}}",
+    "{{BGP_CONNECTION_LINES}}",
+    "{{USER_ROOT_PASSWORD}}",
+    "{{USER_DEPLOYMENT_PASSWORD}}",
+    "{{USER_INFRA_PASSWORD}}",
+    "{{USER_IDO_PASSWORD}}",
+    "{{USER_STS_PASSWORD}}",
+    "{{USER_ENG_PASSWORD}}",
+    "{{USER_NOC_PASSWORD}}",
+    "{{USER_COMENG_PASSWORD}}",
+    "{{USER_DEVOPS_PASSWORD}}",
+    "{{USER_ACQ_PASSWORD}}",
+    "{{USER_ADMIN_PASSWORD}}",
+)
+# All keys use {{UPPER_SNAKE_CASE}} — no regex metacharacters.
+_FTTH_TEMPLATE_RE = re.compile("|".join(re.escape(k) for k in _FTTH_TEMPLATE_KEYS))
+
 MPLS_ACCEPT_FILTERS = [
     "add accept=no disabled=no prefix=10.2.0.14/32",
     "add accept=no disabled=no prefix=10.2.0.21/32",
@@ -352,30 +423,44 @@ def _strip_matching_lines(config: str, predicates):
     return "\n".join(out).strip() + "\n"
 
 
+# Pure-substring predicates for out-of-state transport-only pruning.
+# Extracted to module level so the tuple is created once, not on every call.
+_OUTSTATE_SKIP_SUBSTRINGS = (
+    "lan-bridge",
+    "add name=lan-bridge",
+    "add name=nat-public-bridge",
+    "interface=lan-bridge",
+    ' comment="CPE/Tower Gear"',
+    ' comment="CGNAT Private"',
+    ' comment="CGNAT Public"',
+    "interface=bridge3000 network=",
+    "interfaces=bridge3000 ",
+    "src-address-list=unauth",
+    "WALLED-GARDEN",
+    "NAT-EXEMPT-DST",
+    "Voip-Servers",
+    "NETFLIX",
+)
+
+
 def _prune_outstate_transport_only(config: str) -> str:
     # Out-of-state should keep transport/routing only:
     # - no LAN bridge, no subscriber/NAT addressing
     # - IP addressing limited to loopback + routed backhaul uplinks
-    predicates = [
-        lambda s: "lan-bridge" in s,
-        lambda s: "add name=lan-bridge" in s,
-        lambda s: "add name=nat-public-bridge" in s,
-        lambda s: "interface=lan-bridge" in s,
-        lambda s: " comment=\"CPE/Tower Gear\"" in s,
-        lambda s: " comment=UNAUTH " in f" {s} ",
-        lambda s: " comment=\"CGNAT Private\"" in s,
-        lambda s: " comment=\"CGNAT Public\"" in s,
-        lambda s: "interface=bridge3000 network=" in s,
-        lambda s: "interfaces=bridge3000 " in s,
-        lambda s: " list=bgp-networks" in s and ("UNAUTH" in s or "CGNAT_" in s),
-        lambda s: "src-address-list=unauth" in s,
-        lambda s: "WALLED-GARDEN" in s,
-        lambda s: "NAT-EXEMPT-DST" in s,
-        lambda s: "Voip-Servers" in s,
-        lambda s: "NETFLIX" in s,
-        lambda s: "dst-address=10.0.0.1" in s and "NTP Allow" in s,
-    ]
-    return _strip_matching_lines(config, predicates)
+    def _should_skip(s: str) -> bool:
+        if any(sub in s for sub in _OUTSTATE_SKIP_SUBSTRINGS):
+            return True
+        # Compound conditions that cannot be reduced to a single substring:
+        if " comment=UNAUTH " in f" {s} ":  # word-boundary guard; must keep f-string form
+            return True
+        if " list=bgp-networks" in s and ("UNAUTH" in s or "CGNAT_" in s):
+            return True
+        if "dst-address=10.0.0.1" in s and "NTP Allow" in s:
+            return True
+        return False
+
+    out = [line for line in config.splitlines() if not _should_skip(line)]
+    return "\n".join(out).strip() + "\n"
 
 
 def _dedupe_preserve_order(lines):
@@ -429,14 +514,14 @@ def render_ftth_config(data: dict) -> str:
     if not TEMPLATE_PATH.exists():
         raise FileNotFoundError(f"FTTH template missing: {TEMPLATE_PATH}")
 
+    def _s(key, fallback=''):
+        """Normalize a string field: get, coerce to str, strip whitespace."""
+        return (data.get(key) or fallback).strip()
+
     router_identity = data.get('router_identity', 'RTR-MTCCR2216.FTTH-BNG')
     deployment_type = str(data.get('deployment_type', 'instate') or 'instate').strip().lower()
     is_outstate = deployment_type in ('outstate', 'out_of_state', 'out-of-state')
-    location = (data.get('location', '') or '').strip()
-    if location:
-        location = location.replace('"', '')
-    else:
-        location = '0,0'
+    location = _s('location').replace('"', '') or '0,0'
 
     loopback_ip = data.get('loopback_ip', '')
     cpe_network = data.get('cpe_network', '')
@@ -445,19 +530,15 @@ def render_ftth_config(data: dict) -> str:
     unauth_network = data.get('unauth_network', '')
 
     olt_network = data.get('olt_network', '') or data.get('olt_network_primary', '')
-    olt_network_100g = (data.get('olt_network_100g', '') or '').strip()
-    olt_network_secondary = (
-        data.get('olt_network_secondary')
-        or data.get('olt_network2')
-        or ''
-    ).strip()
-    olt_name = (data.get('olt_name', '') or '').strip() or (data.get('olt_name_primary', '') or '').strip() or 'OLT-MF2-1'
-    olt_name_secondary = (data.get('olt_name_secondary', '') or '').strip()
-    olt_name_100g = (data.get('olt_name_100g', '') or '').strip()
+    olt_network_100g = _s('olt_network_100g')
+    olt_network_secondary = _s('olt_network_secondary') or _s('olt_network2')
+    olt_name = _s('olt_name') or _s('olt_name_primary') or 'OLT-MF2-1'
+    olt_name_secondary = _s('olt_name_secondary')
+    olt_name_100g = _s('olt_name_100g')
     if olt_network_secondary and not olt_name_secondary:
         olt_name_secondary = 'OLT-MF2-2'
 
-    routeros_version = (data.get('routeros_version', '') or '').strip()
+    routeros_version = _s('routeros_version')
     uplinks = data.get('uplinks', [])
     if not uplinks:
         uplinks = [{
@@ -473,9 +554,17 @@ def render_ftth_config(data: dict) -> str:
         }]
 
     olt_ports = data.get('olt_ports', [])
-    has_olt2_ports = any(str(p.get('group') or '1') == '2' for p in olt_ports)
-    has_olt1_ports = any(str(p.get('group') or '1') == '1' for p in olt_ports)
-    has_100g_ports = any(str(p.get('group') or '').lower() == '100g' for p in olt_ports)
+    has_olt2_ports = has_olt1_ports = has_100g_ports = False
+    for _p in olt_ports:
+        _g = str(_p.get('group') or '')
+        if _g == '2':
+            has_olt2_ports = True
+        if _g == '1' or _g == '':  # '' is falsy so original `or '1'` treated it as group 1
+            has_olt1_ports = True
+        if _g.lower() == '100g':
+            has_100g_ports = True
+        if has_olt2_ports and has_olt1_ports and has_100g_ports:
+            break
 
     if has_100g_ports and olt_network_100g:
         olt_network = olt_network_100g
@@ -791,8 +880,7 @@ def render_ftth_config(data: dict) -> str:
     }
 
     template = TEMPLATE_PATH.read_text(encoding='utf-8')
-    for key, value in replacements.items():
-        template = template.replace(key, value)
+    template = _FTTH_TEMPLATE_RE.sub(lambda m: replacements[m.group(0)], template)
 
     if has_100g_ports:
         template = re.sub(

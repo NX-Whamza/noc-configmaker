@@ -177,6 +177,9 @@ class MTTowerConfig:
                 if not sw.get("name") or not sw.get("port"):
                     raise ValueError(f"Invalid switch params: {sw}.")
 
+            self._bgp_md5_key = os.getenv("NEXTLINK_BGP_MD5_KEY", "m8M5JwvdYM")
+            self._ospf_md5_key = os.getenv("NEXTLINK_OSPF_MD5_KEY", "m8M5JwvdYM")
+
             self._validate_port_policy()
 
             if self.is_tarana:
@@ -249,15 +252,16 @@ class MTTowerConfig:
             for x in range(self.tarana_sector_count)
         ]
 
-        return [
-            {
-                "name": TARANA_SECTORS[i]["name"],
-                "port": TARANA_SECTORS[i]["port"],
-                "address_offset": TARANA_SECTORS[i]["address_offset"],
+        result = []
+        for i in range(self.tarana_sector_count):
+            sector = TARANA_SECTORS[i]
+            result.append({
+                "name": sector["name"],
+                "port": sector["port"],
+                "address_offset": sector["address_offset"],
                 "azimuth": azimuths[i],
-            }
-            for i in range(self.tarana_sector_count)
-        ]
+            })
+        return result
 
     def get_base_params(self, params=None):
         if not params:
@@ -272,8 +276,8 @@ class MTTowerConfig:
         params["peer1"] = self.peer_1_address
         params["peer2_name"] = self.peer_2_name
         params["peer2"] = self.peer_2_address
-        params["bgp_md5_key"] = os.getenv("NEXTLINK_BGP_MD5_KEY", "m8M5JwvdYM")
-        params["ospf_md5_key"] = os.getenv("NEXTLINK_OSPF_MD5_KEY", "m8M5JwvdYM")
+        params["bgp_md5_key"] = self._bgp_md5_key
+        params["ospf_md5_key"] = self._ospf_md5_key
         params["cgn_pub"] = self.cgn_pub
         params["cgn_pub_ip"] = str(self.cgn_pub_subnet.ip)
         params["cgn_pub_sub"] = self.cgn_pub_subnet.prefixlen

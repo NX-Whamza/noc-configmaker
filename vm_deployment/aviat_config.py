@@ -58,6 +58,25 @@ LOGIN_TIMEOUT = int(os.getenv("AVIAT_WEB_LOGIN_TIMEOUT", "10"))
 _ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _CTRL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
+# Created once at module level to avoid tuple allocation on every function call.
+_TRANSIENT_CLI_MARKERS = (
+    "socket is closed",
+    "not connected",
+    "connection reset",
+    "broken pipe",
+    "timeout",
+    "timed out",
+    "channel closed",
+)
+_TRANSIENT_PROCESSING_MARKERS = (
+    "unable to connect to port 22",
+    "connection failed",
+    "connection timeout",
+    "authentication failed",
+    "ssh error",
+    "device did not recover",
+)
+
 
 def _clean_cli_output(text: str) -> str:
     """Normalize CLI output so parsers are resilient to pager/ANSI noise."""
@@ -357,31 +376,35 @@ def change_password(client: AviatSSHClient, callback=None) -> Tuple[bool, str]:
         
         output = client.send_command("change-password", wait_for=[':', '#', '>'])
         log(f"  [{client.ip}]   > change-password", "info", callback=callback)
-        
+
         # Check if it's asking for current/old password
-        if 'current' in output.lower() or 'old' in output.lower() or 'password' in output.lower():
+        lowered = output.lower()
+        if 'current' in lowered or 'old' in lowered or 'password' in lowered:
             # Send current password
             output = client.send_password(CONFIG.default_password)
             log(f"  [{client.ip}]   > [current password]")
-            
+
             # Send new password
-            if 'new' in output.lower() or 'password' in output.lower():
+            lowered = output.lower()
+            if 'new' in lowered or 'password' in lowered:
                 output = client.send_password(CONFIG.new_password)
                 log(f"  [{client.ip}]   > [new password]")
-                
+
                 # Confirm new password
-                if 'confirm' in output.lower() or 'again' in output.lower() or 'retype' in output.lower() or 'password' in output.lower():
+                lowered = output.lower()
+                if 'confirm' in lowered or 'again' in lowered or 'retype' in lowered or 'password' in lowered:
                     output = client.send_password(CONFIG.new_password)
                     log(f"  [{client.ip}]   > [confirm password]")
-            
+
             # Check for success
             time.sleep(1)
             final_output = client._read_until_prompt(timeout=3)
-            
-            if 'success' in final_output.lower() or 'changed' in final_output.lower():
+            final_lower = final_output.lower()
+
+            if 'success' in final_lower or 'changed' in final_lower:
                 log(f"  [{client.ip}] ✓ Password changed via change-password", "success")
                 return True, "Password changed successfully"
-            elif 'error' in final_output.lower() or 'fail' in final_output.lower() or 'invalid' in final_output.lower():
+            elif 'error' in final_lower or 'fail' in final_lower or 'invalid' in final_lower:
                 log(f"  [{client.ip}]   change-password method failed, trying config mode...", "warning")
             else:
                 # Might have worked, continue
@@ -405,34 +428,37 @@ def change_password(client: AviatSSHClient, callback=None) -> Tuple[bool, str]:
         # Then waits for (<string>): prompt and sends the password
         output = client.send_command("user admin password", wait_for=[':', '#', '>'])
         log(f"  [{client.ip}]   > user admin password")
-        
-        if ':' in output or 'string' in output.lower():
+        lowered = output.lower()
+        if ':' in output or 'string' in lowered:
             # It's prompting for the password
             output = client.send_password(CONFIG.new_password)
             log(f"  [{client.ip}]   > [new password entered]")
-        
+            lowered = output.lower()
+
         # Commit the changes
         output = client.send_command("commit", wait_for=['#', '>', '[', ':'], timeout=10)
         log(f"  [{client.ip}]   > commit")
-        
+        lowered = output.lower()
+
         # Check if commit asks for confirmation
-        if '[' in output or 'yes' in output.lower() or 'confirm' in output.lower():
+        if '[' in output or 'yes' in lowered or 'confirm' in lowered:
             output = client.send_command("yes")
             log(f"  [{client.ip}]   > yes")
-        
+            lowered = output.lower()
+
         # Check for the specific error about using change-password
-        if 'change-password' in output.lower() and 'please use' in output.lower():
+        if 'change-password' in lowered and 'please use' in lowered:
             log(f"  [{client.ip}]   ! Config method blocked - password must be changed via change-password", "warning")
             # Exit config mode
             client.send_command("exit")
             return False, "Use change-password command - cannot change own password via config"
-        
+
         # Exit config mode
         exit_config_mode(client)
         log(f"  [{client.ip}]   > exit")
-        
+
         # Check for errors
-        if 'error' in output.lower() or 'invalid' in output.lower() or 'abort' in output.lower():
+        if 'error' in lowered or 'invalid' in lowered or 'abort' in lowered:
             return False, f"Password change may have failed: {output[-200:]}"
         
         log(f"  [{client.ip}] ✓ Password change commands sent", "success")
@@ -458,7 +484,7 @@ def configure_snmp(client: AviatSSHClient, callback=None) -> Tuple[bool, str]:
         # Enter config mode
         output = client.send_command("config terminal")
         log(f"  [{client.ip}]   > config terminal", "info", callback=callback)
-        
+
         if 'config' not in output.lower() and '#' not in output:
             output = client.send_command("configure terminal")
             log(f"  [{client.ip}]   > configure terminal", "info", callback=callback)
@@ -466,15 +492,15 @@ def configure_snmp(client: AviatSSHClient, callback=None) -> Tuple[bool, str]:
         # Set SNMP mode
         output = client.send_command(f"snmp {CONFIG.snmp_mode}")
         log(f"  [{client.ip}]   > snmp {CONFIG.snmp_mode}", "info", callback=callback)
-        
-        if 'invalid' in output.lower() or 'error' in output.lower():
+        lowered = output.lower()
+        if 'invalid' in lowered or 'error' in lowered:
             log(f"  [{client.ip}]   ! Warning: SNMP mode command may have issue", "warning", callback=callback)
-        
+
         # Set SNMP community
         output = client.send_command(f"snmp community {CONFIG.snmp_community}")
         log(f"  [{client.ip}]   > snmp community {CONFIG.snmp_community}", "info", callback=callback)
-        
-        if 'invalid' in output.lower() or 'error' in output.lower():
+        lowered = output.lower()
+        if 'invalid' in lowered or 'error' in lowered:
             log(f"  [{client.ip}]   ! Warning: SNMP community command may have issue", "warning", callback=callback)
         
         # Commit changes
@@ -482,16 +508,18 @@ def configure_snmp(client: AviatSSHClient, callback=None) -> Tuple[bool, str]:
         log(f"  [{client.ip}]   > commit", "info", callback=callback)
         
         # Handle confirmation prompt if any
-        if '[' in output or 'yes' in output.lower() or 'confirm' in output.lower():
+        lowered = output.lower()
+        if '[' in output or 'yes' in lowered or 'confirm' in lowered:
             output = client.send_command("yes")
             log(f"  [{client.ip}]   > yes", "info", callback=callback)
-        
+            lowered = output.lower()
+
         # Exit config mode
         exit_config_mode(client)
         log(f"  [{client.ip}]   > exit", "info", callback=callback)
-        
+
         # Check for errors
-        if 'error' in output.lower() and 'abort' in output.lower():
+        if 'error' in lowered and 'abort' in lowered:
             return False, f"SNMP config may have failed: {output[-200:]}"
         
         log(f"  [{client.ip}] ✓ SNMP configured", "success")
@@ -568,7 +596,8 @@ def configure_buffer(client: AviatSSHClient, callback=None) -> Tuple[bool, str]:
         log(f"  [{client.ip}]   Applying QoS Buffer settings...", "info", callback=callback)
         out_config = client.send_command("config")
         log(f"  [{client.ip}]   > config", "info", callback=callback)
-        if "syntax error" in out_config.lower() or "invalid" in out_config.lower():
+        out_config_lower = out_config.lower()
+        if "syntax error" in out_config_lower or "invalid" in out_config_lower:
             log(f"  [{client.ip}]   ✗ Command rejected: {out_config.strip()}", "error", callback=callback)
             exit_config_mode(client)
             return False, "Configuration failed: config command rejected"
@@ -579,7 +608,8 @@ def configure_buffer(client: AviatSSHClient, callback=None) -> Tuple[bool, str]:
         )
         out_line = client.send_command(line_cmd)
         log(f"  [{client.ip}]   > {line_cmd}", "info", callback=callback)
-        if "syntax error" in out_line.lower() or "invalid" in out_line.lower():
+        out_line_lower = out_line.lower()
+        if "syntax error" in out_line_lower or "invalid" in out_line_lower:
             log(f"  [{client.ip}]   ✗ Command rejected: {out_line.strip()}", "error", callback=callback)
             client.send_command("rollback")
             exit_config_mode(client)
@@ -587,10 +617,11 @@ def configure_buffer(client: AviatSSHClient, callback=None) -> Tuple[bool, str]:
         # Commit changes
         output = client.send_command("commit", wait_for=['#', '>', '[', ':'], timeout=10)
         log(f"  [{client.ip}]   > commit", "info", callback=callback)
-        
-        if '[' in output or 'yes' in output.lower() or 'confirm' in output.lower():
+        lowered = output.lower()
+        if '[' in output or 'yes' in lowered or 'confirm' in lowered:
             output = client.send_command("yes")
             log(f"  [{client.ip}]   > yes", "info", callback=callback)
+            lowered = output.lower()
         
         # Exit config mode
         exit_config_mode(client)
@@ -620,14 +651,12 @@ def configure_buffer(client: AviatSSHClient, callback=None) -> Tuple[bool, str]:
 
 
 def _is_plausible_version(parts: List[str]) -> bool:
-    try:
-        nums = [int(p) for p in parts]
-    except Exception:
-        return False
     # Aviat versions are small (e.g., 2.11.11, 6.1.0). Filter IP-like tokens.
-    if any(n > 50 for n in nums):
+    # Generator lets any() short-circuit without building an intermediate list.
+    try:
+        return not any(int(p) > 50 for p in parts)
+    except (ValueError, TypeError):
         return False
-    return True
 
 
 def _parse_version(version_output: str) -> Optional[str]:
@@ -765,16 +794,7 @@ def _version_tuple(version: Optional[str]) -> Tuple[int, int, int]:
 
 def _is_transient_cli_error(exc: Exception) -> bool:
     text = str(exc or "").lower()
-    transient_markers = (
-        "socket is closed",
-        "not connected",
-        "connection reset",
-        "broken pipe",
-        "timeout",
-        "timed out",
-        "channel closed",
-    )
-    return any(marker in text for marker in transient_markers)
+    return any(marker in text for marker in _TRANSIENT_CLI_MARKERS)
 
 def _is_transient_processing_error(exc: Exception) -> bool:
     if isinstance(exc, (TimeoutError, socket.timeout, EOFError, ConnectionError)):
@@ -782,15 +802,7 @@ def _is_transient_processing_error(exc: Exception) -> bool:
     if _is_transient_cli_error(exc):
         return True
     text = str(exc or "").lower()
-    markers = (
-        "unable to connect to port 22",
-        "connection failed",
-        "connection timeout",
-        "authentication failed",
-        "ssh error",
-        "device did not recover",
-    )
-    return any(marker in text for marker in markers)
+    return any(marker in text for marker in _TRANSIENT_PROCESSING_MARKERS)
 
 
 def get_firmware_version(client: AviatSSHClient, callback=None) -> Optional[str]:
@@ -1059,6 +1071,19 @@ def _get_snmp_output(client: AviatSSHClient) -> str:
     )
 
 
+def _check_snmp_output(snmp_output: str) -> Tuple[bool, bool]:
+    """Check SNMP mode and community in a config dump.
+
+    Compiles the two dynamic patterns once per call and returns
+    (mode_ok, community_ok) so callers don't duplicate regex logic.
+    """
+    mode_pat = re.compile(rf"\bsnmp\s+{re.escape(CONFIG.snmp_mode)}\b", re.I)
+    comm_pat = re.compile(
+        rf"\bsnmp\s+community\s+{re.escape(CONFIG.snmp_community)}\b", re.I
+    )
+    return mode_pat.search(snmp_output) is not None, comm_pat.search(snmp_output) is not None
+
+
 def _get_buffer_output(client: AviatSSHClient) -> str:
     return _first_valid_output(
         client,
@@ -1261,12 +1286,7 @@ def _evaluate_sop(client: AviatSSHClient, callback=None) -> Tuple[bool, List[Dic
     )
 
     snmp_output = _get_snmp_output(client)
-    snmp_mode_ok = re.search(
-        rf"\bsnmp\s+{re.escape(CONFIG.snmp_mode)}\b", snmp_output, re.I
-    ) is not None
-    snmp_comm_ok = re.search(
-        rf"\bsnmp\s+community\s+{re.escape(CONFIG.snmp_community)}\b", snmp_output, re.I
-    ) is not None
+    snmp_mode_ok, snmp_comm_ok = _check_snmp_output(snmp_output)
     results.append(
         {
             "name": "SNMP mode",
@@ -1419,14 +1439,7 @@ def check_device_status(ip: str, callback=None) -> Dict[str, Any]:
         version = get_firmware_version(client, callback=callback)
         result["firmware"] = version
         snmp_output = _get_snmp_output(client)
-        snmp_mode_ok = re.search(
-            rf"\bsnmp\s+{re.escape(CONFIG.snmp_mode)}\b", snmp_output, re.I
-        ) is not None
-        snmp_comm_ok = re.search(
-            rf"\bsnmp\s+community\s+{re.escape(CONFIG.snmp_community)}\b",
-            snmp_output,
-            re.I,
-        ) is not None
+        snmp_mode_ok, snmp_comm_ok = _check_snmp_output(snmp_output)
         result["snmp_ok"] = snmp_mode_ok and snmp_comm_ok
         buffer_output = _get_buffer_output(client)
         result["buffer_ok"] = re.search(
@@ -1683,6 +1696,13 @@ def process_radio(
 
     try:
         start_time = time.time()
+        task_set = frozenset(tasks)
+        _has_all = "all" in task_set
+
+        def _task(*names: str) -> bool:
+            """True if any of `names` or 'all' is in the task set."""
+            return _has_all or any(n in task_set for n in names)
+
         log(f"[{ip}] Connecting...", "info", callback=callback)
         # Always try new password first, then fall back to default.
         try:
@@ -1701,7 +1721,7 @@ def process_radio(
             login_password = CONFIG.default_password
             stage("CONNECTED(default)")
 
-        if "firmware" in tasks or "all" in tasks or "sop" in tasks:
+        if _task("firmware", "sop"):
             result.firmware_version_before = get_firmware_version(client, callback=callback)
 
         # Always collect precheck health for queue/UI visibility.
@@ -1780,7 +1800,7 @@ def process_radio(
                 return result
 
         # 0. Firmware download / scheduling
-        if "firmware" in tasks or "all" in tasks:
+        if _task("firmware"):
             if abort_if_needed():
                 return result
             current_version = result.firmware_version_before
@@ -2017,7 +2037,7 @@ def process_radio(
                     return result
 
         # Activation-only step for scheduled queue
-        if "activate" in tasks:
+        if _task("activate"):
             if abort_if_needed():
                 return result
             current_version = get_firmware_version(client, callback=callback)
@@ -2095,7 +2115,7 @@ def process_radio(
                     return result
         
         # 1. Change Credentials
-        if "password" in tasks or "all" in tasks:
+        if _task("password"):
             if login_password == CONFIG.new_password:
                 log(
                     f"[{ip}] Skipping password change (already using new password).",
@@ -2114,7 +2134,7 @@ def process_radio(
                 stage("PASSWORD_SET" if success else "PASSWORD_FAIL")
 
         # 2. Configure SNMP
-        if "snmp" in tasks or "all" in tasks:
+        if _task("snmp"):
             if abort_if_needed():
                 return result
             success, msg = configure_snmp(client, callback=callback)
@@ -2124,7 +2144,7 @@ def process_radio(
             stage("SNMP_SET" if success else "SNMP_FAIL")
 
         # 3. Run Buffer Script
-        if "buffer" in tasks or "all" in tasks:
+        if _task("buffer"):
             if abort_if_needed():
                 return result
             success, msg = configure_buffer(client, callback=callback)
@@ -2133,7 +2153,7 @@ def process_radio(
             stage("BUFFER_SET" if success else "BUFFER_SKIP_OR_FAIL")
 
         # 4. SOP checks (skip until firmware final is active)
-        if "sop" in tasks or "all" in tasks:
+        if _task("sop"):
             if abort_if_needed():
                 return result
             if result.status in ("loading", "scheduled", "manual"):
@@ -2167,25 +2187,25 @@ def process_radio(
                         result.error = "SOP checks failed"
                     stage("SOP_OK" if passed else "SOP_FAIL")
 
-        if "firmware" in tasks or "all" in tasks or "sop" in tasks:
+        if _task("firmware", "sop"):
             result.firmware_version_after = get_firmware_version(client, callback=callback)
             
         # Overall success check
         result.success = True
-        if ("firmware" in tasks or "all" in tasks) and not (
+        if _task("firmware") and not (
             result.firmware_downloaded
             or result.firmware_activated
             or result.firmware_scheduled
             or result.status in ("loading", "scheduled", "manual", "pending_verify", "reboot_pending")
         ):
             result.success = False
-        if ("password" in tasks or "all" in tasks) and not result.password_changed:
+        if _task("password") and not result.password_changed:
             result.success = False
-        if ("snmp" in tasks or "all" in tasks) and not result.snmp_configured:
+        if _task("snmp") and not result.snmp_configured:
             result.success = False
-        if ("buffer" in tasks or "all" in tasks) and not result.buffer_configured:
+        if _task("buffer") and not result.buffer_configured:
             result.success = False
-        if ("sop" in tasks or "all" in tasks) and result.sop_checked and not result.sop_passed:
+        if _task("sop") and result.sop_checked and not result.sop_passed:
             result.success = False
             
         result.output = client.output_buffer
