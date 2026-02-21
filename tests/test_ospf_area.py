@@ -14,8 +14,7 @@ sys.path.insert(0, str(repo_root))
 
 # Test-mode guard
 os.environ["NOC_CONFIGMAKER_TESTS"] = "1"
-os.environ["AI_PROVIDER"] = "ollama"
-os.environ["OLLAMA_API_URL"] = "http://127.0.0.1:59999"
+os.environ["AI_PROVIDER"] = "none"
 
 import api_server  # noqa: WPS433
 

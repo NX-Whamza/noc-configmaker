@@ -14,9 +14,8 @@ sys.path.insert(0, str(repo_root))
 
 # Avoid heavy timezone loading during tests
 os.environ["NOC_CONFIGMAKER_TESTS"] = "1"
-# Force Ollama to be unavailable
-os.environ["AI_PROVIDER"] = "ollama"
-os.environ["OLLAMA_API_URL"] = "http://127.0.0.1:59999"
+# Disable AI for deterministic testing
+os.environ["AI_PROVIDER"] = "none"
 
 import api_server  # noqa: WPS433 - repo-local import (shim -> vm_deployment)
 

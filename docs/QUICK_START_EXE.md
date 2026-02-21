@@ -45,7 +45,6 @@ Share the `NOC-ConfigMaker.exe` file with your team. They can:
 
 - Windows 10/11
 - Internet connection (for AI features)
-- Ollama (optional, for AI - install from https://ollama.com/download)
 
 ## Troubleshooting
 

@@ -25,23 +25,35 @@ COMPLIANCE_MARKER = "# ENGINEERING-COMPLIANCE-APPLIED"
 TEMPLATE_TOKEN = "{{NEXTLINK_RFC_BLOCKS}}"
 
 COMPLIANCE_ORDER = [
-    "dns",
-    "firewall_address_lists",
-    "firewall_filter_input",
-    "firewall_raw",
-    "firewall_forward",
-    "firewall_nat",
-    "firewall_mangle",
+    # Keys from both GitLab parser and hardcoded fallback.
+    # GitLab parser may combine blocks under different key names;
+    # missing keys are silently skipped so listing both is safe.
+    "variables",            # GitLab: LoopIP / curDate / curTime variables
+    "ip_services",          # GitLab: ip service disable
+    "dns",                  # GitLab: combined dns + all firewall blocks
+    "firewall_address_lists",  # hardcoded fallback
+    "firewall_filter_input",   # hardcoded fallback
+    "firewall_raw",            # hardcoded fallback
+    "firewall_forward",        # hardcoded fallback
+    "firewall_nat",            # hardcoded fallback
+    "firewall_mangle",         # hardcoded fallback
+    "sip_alg_off",          # GitLab: service-port sip disable
     "clock_ntp",
     "snmp",
-    "system_settings",
-    "vpls_edge",
-    "logging",
+    "auto_upgrade",         # GitLab: routerboard auto-upgrade
+    "system_settings",      # hardcoded fallback
+    "web_proxy_off",        # GitLab: ip proxy disable
+    "vpls_edge",            # hardcoded fallback
+    "vpls_edge_ports",      # GitLab: combined vpls_edge + logging/syslog
+    "logging",              # hardcoded fallback
     "user_aaa",
-    "user_groups",
+    "user_groups",          # hardcoded fallback
+    "user_profiles",        # GitLab: combined user groups
     "dhcp_options",
-    "radius",
-    "ldp_filters",
+    "radius",               # GitLab: combined radius + LDP filters
+    "ldp_filters",          # hardcoded fallback
+    "watchdog_timer",       # GitLab: watchdog timer
+    "sys_note",             # GitLab: system note
 ]
 
 SAFE_DEDUPE_PREFIXES = (

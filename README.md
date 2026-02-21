@@ -140,7 +140,6 @@ RouterOS Ver Interface Mapping   Syntax Validation   Audit Trail    Verify
 
 ### Intelligent Features
 
-- ✅ **AI Validation**: Powered by Ollama (local) or OpenAI (cloud)
 - ✅ **Auto-Syntax Conversion**: RouterOS v6 ↔ v7
 - ✅ **Device Detection**: Automatic interface mapping for CCR models
 - ✅ **Compliance Checking**: Enforces organizational policies
@@ -492,7 +491,6 @@ Follow steps 5-8 from Scenario 1
 - **Frontend**: HTML5, JavaScript (ES6+), CSS3
 - **Backend**: Python 3.10+, Flask
 - **Database**: SQLite (portable, no setup required)
-- **AI**: Ollama (local) or OpenAI (cloud)
 - **Authentication**: JWT tokens, bcrypt password hashing
 - **Packaging**: PyInstaller (standalone executable)
 
@@ -593,7 +591,6 @@ tar -xzf noc-configmaker-vm-*.tar.gz
 cat > .env << EOF
 ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 AI_PROVIDER=openai
-# OLLAMA_MODEL=llama3.1:8b
 # NEXTLINK_SSH_USERNAME=
 # NEXTLINK_SSH_PASSWORD=
 # BASE_CONFIG_PATH=/opt/base_configs
@@ -709,7 +706,6 @@ curl http://localhost:5000/api/health
 **Solution**: Ensure your email is in `ADMIN_EMAILS` and you are logged in
 
 **Issue**: AI validation not working  
-**Solution**: Verify Ollama is running or OpenAI API key is set
 
 **Issue**: Configs not saving  
 **Solution**: Check `secure_data/` folder permissions

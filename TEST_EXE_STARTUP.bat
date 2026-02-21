@@ -82,14 +82,12 @@ echo    ║    Backend + AI + Frontend         ║
 echo    ╚════════════════════════════════════╝
 echo.
 echo 2. Startup messages:
-echo    [OLLAMA] Checking Ollama AI service...
 echo    [BACKEND] Starting API server on port 5000...
 echo    [FRONTEND] Starting web server on port 8000...
 echo.
 echo 3. Service status summary:
 echo    Backend API:  ✓ READY - http://localhost:5000
 echo    Frontend:     ✓ READY - http://localhost:8000/NOC-configMaker.html
-echo    Ollama AI:    ✓ RUNNING (or ✗ NOT RUNNING if not installed)
 echo.
 echo 4. Browser opens automatically to:
 echo    http://localhost:8000/NOC-configMaker.html

@@ -20,8 +20,7 @@ def _load_api_v2_client(monkeypatch: object):
     monkeypatch.setenv("NOC_API_V2_REQUIRE_SIGNATURE", "false")
     monkeypatch.setenv("NOC_API_V2_REQUIRE_IDEMPOTENCY", "true")
     monkeypatch.setenv("NOC_API_V2_JOB_WORKERS", "2")
-    monkeypatch.setenv("AI_PROVIDER", "ollama")
-    monkeypatch.setenv("OLLAMA_API_URL", "http://127.0.0.1:59999")
+    monkeypatch.setenv("AI_PROVIDER", "none")
 
     module_name = "vm_deployment.api_v2"
     if module_name in sys.modules:

@@ -73,7 +73,6 @@ start_backend_services.bat
 ```
 
 This single script will:
-1. ✅ Start Ollama AI service (if installed)
 2. ✅ Start Flask Backend API (port 5000)
 3. ✅ Start HTML Frontend Server (port 8000)
 4. ✅ Verify all services are running
@@ -85,9 +84,6 @@ This single script will:
    - Download from: https://www.python.org/downloads/
    - Make sure to check "Add Python to PATH" during installation
 
-2. **Ollama (for AI features)**
-   - Download from: https://ollama.com/download
-   - Install and ensure `ollama` is in your PATH
 
 3. **Python Dependencies**
    ```bash
@@ -163,7 +159,6 @@ Configure sensitive data via environment variables:
 - `NEXTLINK_DNS_SECONDARY` - Secondary DNS server
 - `NEXTLINK_SYSLOG_SERVER` - Syslog server IP
 - `NEXTLINK_VPLS_PEER` - VPLS peer IP
-- `OPENAI_API_KEY` - OpenAI API key (if using OpenAI instead of Ollama)
 
 ---
 
@@ -272,7 +267,6 @@ These sections are **only included** if configured:
 
 ### Backend (`api_server.py`)
 - Flask REST API on port 5000
-- Ollama/OpenAI integration for AI features
 - Config generation endpoints
 - Validation and suggestion endpoints
 
@@ -541,7 +535,6 @@ Windows Firewall may block incoming connections. To allow network access:
 
 **Backend API not responding:**
 1. Check if `api_server.py` is running
-2. Check if Ollama is running (required for AI features)
 3. Test API: `curl http://localhost:5000/api/health`
 
 **CORS errors:**
@@ -642,7 +635,6 @@ All infrastructure values dynamically retrieved from `nextlink_constants.js`.
 
 2. **Configuration generation fails:**
    - Verify backend API is running
-   - Check Ollama is running (for AI features)
    - Review browser console for errors
 
 3. **Dark/light mode not working:**

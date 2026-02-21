@@ -375,7 +375,6 @@ Consolidated all backend functionality into a single, unified structure for bett
 **After (Unified)**:
 - ✅ `api_server.py` - **UNIFIED BACKEND** (5700+ lines, handles EVERYTHING)
   - Flask REST API (all endpoints)
-  - AI integration (Ollama/OpenAI)
   - Configuration generation (Tower, Enterprise, MPLS)
   - Migration/translation engine
   - SQLite database management (activity, configs, feedback)
@@ -1158,7 +1157,6 @@ These errors are **normal and expected**:
 ## Automatic Model Selection
 
 ### Smart Model Selection
-- **Detects**: Available Ollama models dynamically
 - **Selects**: Best model based on:
   - Config size (lines/characters)
   - Task type (translation, generation, etc.)
@@ -1224,7 +1222,6 @@ The tool now ensures:
 
 ## Known Issues & Limitations
 
-1. **Ollama is external** - Users need to install Ollama separately for AI features
 2. **First run warning** - Windows may show "Unknown publisher" warning (normal for unsigned executables)
 3. **File size** - Large file size due to embedded Python runtime
 4. **Port conflicts** - Users need to ensure ports 5000/8000 are free

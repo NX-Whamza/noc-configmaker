@@ -1925,184 +1925,10 @@ def apply_ros6_to_ros7_syntax(config_text):
 
 
 # ========================================
-# AI PROVIDER CONFIGURATION (Early definition for model selection)
+# AI PROVIDER CONFIGURATION
 # ========================================
-# Supports: 'ollama' (free, local) or 'openai' (paid, cloud)
 AI_PROVIDER = os.getenv('AI_PROVIDER', 'openai').lower()
-OLLAMA_API_URL = os.getenv('OLLAMA_API_URL', 'http://localhost:11434')
-OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'phi3:mini')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
-
-# ========================================
-# SMART MODEL SELECTION WITH AUTO-DETECTION
-# ========================================
-
-# Cache for available models (refresh every 5 minutes)
-_available_models_cache = None
-_models_cache_time = 0
-_MODELS_CACHE_TTL = 300  # 5 minutes
-
-def get_available_ollama_models():
-    """
-    Get list of available Ollama models with automatic refresh
-    Returns list of model names, or empty list if Ollama is unavailable
-    """
-    global _available_models_cache, _models_cache_time
-    
-    # Return cached models if still valid
-    import time
-    current_time = time.time()
-    if _available_models_cache is not None and (current_time - _models_cache_time) < _MODELS_CACHE_TTL:
-        return _available_models_cache
-    
-    # Try to fetch available models from Ollama
-    try:
-        response = requests.get(f"{OLLAMA_API_URL}/api/tags", timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            models = [model['name'] for model in data.get('models', [])]
-            _available_models_cache = models
-            _models_cache_time = current_time
-            safe_print(f"[MODEL SELECTION] Found {len(models)} available Ollama models: {', '.join(models[:5])}{'...' if len(models) > 5 else ''}")
-            return models
-    except Exception as e:
-        safe_print(f"[MODEL SELECTION] Could not fetch Ollama models: {e} - using defaults")
-    
-    # Fallback to default models if Ollama is unavailable
-    return ['phi3:mini', 'llama3.2:3b', 'qwen2.5-coder:7b', 'llama3.2', 'qwen2.5-coder']
-
-def select_best_model(task_type: str, config_size: int = 0, available_models: list = None) -> str:
-    """
-    Auto-select the best model based on task type, complexity, and available models
-    Prioritizes models that are actually installed in Ollama
-    
-    Args:
-        task_type: Type of task (chat, validation, translation, etc.)
-        config_size: Size of config in characters (0 = unknown)
-        available_models: List of available Ollama models (auto-detected if None)
-    
-    Returns:
-        Model name that should work best for the task
-    """
-    if available_models is None:
-        available_models = get_available_ollama_models()
-    
-    # Model performance profiles with priority order
-    # Models are ordered by preference (fastest/smallest first, then larger)
-    model_profiles = [
-        {
-            'name': 'phi3:mini',
-            'speed': 'very_fast',
-            'accuracy': 'good',
-            'context': 4000,
-            'max_config_size': 10000,  # ~10KB configs
-            'best_for': ['chat', 'validation', 'suggestion', 'small_configs'],
-            'timeout': 30
-        },
-        {
-            'name': 'llama3.2:3b',
-            'speed': 'fast',
-            'accuracy': 'good',
-            'context': 8000,
-            'max_config_size': 20000,  # ~20KB configs
-            'best_for': ['quick_tasks', 'simple_chat', 'medium_configs'],
-            'timeout': 45
-        },
-        {
-            'name': 'llama3.2',
-            'speed': 'medium',
-            'accuracy': 'very_good',
-            'context': 8000,
-            'max_config_size': 30000,  # ~30KB configs
-            'best_for': ['translation', 'medium_configs', 'analysis'],
-            'timeout': 60
-        },
-        {
-            'name': 'qwen2.5-coder:7b',
-            'speed': 'medium', 
-            'accuracy': 'excellent',
-            'context': 32000,
-            'max_config_size': 100000,  # ~100KB configs
-            'best_for': ['translation', 'complex_configs', 'detailed_analysis', 'large_configs'],
-            'timeout': 120
-        },
-        {
-            'name': 'qwen2.5-coder',
-            'speed': 'medium',
-            'accuracy': 'excellent',
-            'context': 32000,
-            'max_config_size': 100000,
-            'best_for': ['translation', 'complex_configs', 'large_configs'],
-            'timeout': 120
-        },
-        {
-            'name': 'llama3.1:8b',
-            'speed': 'slow',
-            'accuracy': 'excellent',
-            'context': 8000,
-            'max_config_size': 50000,
-            'best_for': ['complex_configs', 'detailed_analysis'],
-            'timeout': 90
-        }
-    ]
-    
-    # Filter to only available models
-    available_profiles = [p for p in model_profiles if p['name'] in available_models]
-    
-    # If no models match, use first available or default
-    if not available_profiles:
-        if available_models:
-            safe_print(f"[MODEL SELECTION] Using first available model: {available_models[0]}")
-            return available_models[0]
-        return 'phi3:mini'  # Ultimate fallback
-    
-    # Select based on config size and task type
-    if task_type in ['chat', 'validation', 'suggestion']:
-        # For quick tasks, prefer fastest available model
-        for profile in available_profiles:
-            if profile['speed'] in ['very_fast', 'fast']:
-                return profile['name']
-        return available_profiles[0]['name']  # Fallback to first available
-    
-    elif task_type in ['translation', 'upgrade']:
-        # For translations, select based on config size
-        # Estimate: ~50 chars per line average, so 1000 lines ≈ 50KB
-        estimated_lines = config_size // 50 if config_size > 0 else 0
-        
-        if config_size == 0:
-            # Unknown size - use medium model
-            for profile in available_profiles:
-                if profile['speed'] in ['fast', 'medium']:
-                    return profile['name']
-            return available_profiles[0]['name']
-        
-        # For very large configs (>1000 lines ≈ >50KB), prefer largest available model
-        if estimated_lines > 1000 or config_size > 50000:
-            safe_print(f"[MODEL SELECTION] Very large config detected (~{estimated_lines} lines, {config_size} chars) - selecting largest available model")
-            # Prefer qwen2.5-coder for very large configs (best context window)
-            for profile in reversed(available_profiles):  # Start from largest
-                if profile['name'].startswith('qwen') or profile['context'] >= 32000:
-                    return profile['name']
-            return available_profiles[-1]['name']  # Fallback to largest available
-        
-        # Select model that can handle the config size
-        for profile in available_profiles:
-            if config_size <= profile['max_config_size']:
-                return profile['name']
-        
-        # Config is larger than any model's max - use largest available
-        return available_profiles[-1]['name']
-    
-    elif task_type in ['analysis', 'detailed_review']:
-        # For analysis, prefer models with better accuracy
-        for profile in available_profiles:
-            if profile['accuracy'] in ['excellent', 'very_good']:
-                return profile['name']
-        return available_profiles[-1]['name']  # Use largest available
-    
-    else:
-        # Default: use fastest available
-        return available_profiles[0]['name']
 
 # ========================================
 # TRAINING DATA LOADER (External directory)
@@ -2936,122 +2762,13 @@ if AI_PROVIDER == 'openai':
         safe_print(f"Using OpenAI (API Key: {'configured' if OPENAI_API_KEY else 'MISSING'})")
     except ImportError:
         safe_print("WARNING: OpenAI library not installed. Install with: pip install openai")
-        AI_PROVIDER = 'ollama'
+        AI_PROVIDER = 'none'
 else:
-    safe_print(f"Using Ollama (Local AI)")
-    safe_print(f"Default Model: {OLLAMA_MODEL} (will auto-select best model based on config size)")
-    safe_print(f"API URL: {OLLAMA_API_URL}")
-    safe_print(f"[INFO] Model selection is automatic - will choose best model for each request")
+    safe_print(f"AI Provider: {AI_PROVIDER} (no AI features available)")
 
 # ========================================
 # AI-POWERED CONFIG HELPERS
 # ========================================
-
-def call_ollama(messages, model=None, temperature=0.1, max_tokens=4000, timeout=None, task_type='chat', config_size=0):
-    """
-    Call Ollama local LLM API with automatic timeout and model selection
-    
-    Args:
-        messages: List of message dicts with 'role' and 'content'
-        model: Model name (auto-selected if None)
-        temperature: Sampling temperature
-        max_tokens: Maximum tokens to generate
-        timeout: Request timeout in seconds (auto-calculated if None)
-        task_type: Task type for timeout calculation
-        config_size: Config size in characters for timeout calculation
-    """
-    if model is None:
-        available_models = get_available_ollama_models()
-        model = select_best_model(task_type, config_size, available_models)
-        estimated_lines = config_size // 50 if config_size > 0 else 0
-        safe_print(f"[AUTO MODEL SELECTION] Selected: {model} for {task_type} (size: {config_size} chars, ~{estimated_lines} lines)")
-    
-    # Calculate timeout based on config size and model
-    if timeout is None:
-        # Estimate lines: ~50 chars per line average
-        estimated_lines = config_size // 50 if config_size > 0 else 0
-        
-        # Validation tasks use shorter timeouts (frontend has 30s timeout)
-        if task_type == 'validation':
-            if config_size > 30000 or estimated_lines > 600:
-                timeout = 25  # 25 seconds max for validation (frontend timeout is 30s)
-            elif config_size > 10000 or estimated_lines > 200:
-                timeout = 20  # 20 seconds for medium configs
-            else:
-                timeout = 15  # 15 seconds for small configs
-        # Base timeout: scale with config size and lines
-        elif config_size > 50000 or estimated_lines > 1000:
-            timeout = 240  # 4 minutes for very large configs (>1000 lines)
-        elif config_size > 20000 or estimated_lines > 500:
-            timeout = 180  # 3 minutes for large configs (500-1000 lines)
-        elif config_size > 10000 or estimated_lines > 200:
-            timeout = 120  # 2 minutes for medium-large configs (200-500 lines)
-        elif config_size > 5000 or estimated_lines > 100:
-            timeout = 90   # 90 seconds for medium configs (100-200 lines)
-        elif task_type in ['translation', 'upgrade']:
-            timeout = 60   # 1 minute for translations
-        else:
-            timeout = 30   # 30 seconds for quick tasks
-    
-    try:
-        # Convert messages to Ollama format
-        prompt = "\n\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in messages])
-        
-        estimated_lines = len(prompt) // 50
-        safe_print(f"[OLLAMA] Calling {model} with timeout {timeout}s (prompt: {len(prompt)} chars, ~{estimated_lines} lines)")
-        
-        response = requests.post(
-            f"{OLLAMA_API_URL}/api/generate",
-            json={
-                "model": model,
-                "prompt": prompt,
-                "stream": False,
-                "options": {
-                    "temperature": temperature,
-                    "num_predict": max_tokens
-                }
-            },
-            timeout=timeout
-        )
-        
-        if response.status_code != 200:
-            raise Exception(f"Ollama API returned {response.status_code}: {response.text}")
-        
-        result = response.json()
-        response_text = result.get('response', '')
-        safe_print(f"[OLLAMA] Successfully got response ({len(response_text)} chars)")
-        return response_text
-        
-    except requests.exceptions.ConnectionError:
-        raise Exception(
-            "Cannot connect to Ollama. Make sure Ollama is running and reachable. "
-            "If you're running via Docker Compose, start the Ollama service with: "
-            "`docker compose up -d --build ollama`. "
-            "If you're running Ollama on the host, install from: https://ollama.com/download "
-            "and set OLLAMA_API_URL (default: http://localhost:11434)."
-        )
-    except requests.exceptions.Timeout:
-        # Automatic fallback to smaller/faster model on timeout
-        available_models = get_available_ollama_models()
-        current_index = available_models.index(model) if model in available_models else -1
-        
-        # Try next smaller/faster model
-        fallback_models = ['phi3:mini', 'llama3.2:3b', 'llama3.2']
-        for fallback in fallback_models:
-            if fallback in available_models and fallback != model:
-                safe_print(f"[OLLAMA TIMEOUT] Model {model} timed out. Trying faster model: {fallback}")
-                try:
-                    # Retry with smaller model and shorter timeout
-                    return call_ollama(messages, model=fallback, temperature=temperature, 
-                                     max_tokens=min(max_tokens, 2000), timeout=30, 
-                                     task_type=task_type, config_size=config_size)
-                except Exception:
-                    continue  # Try next fallback
-        
-        raise Exception(f"Ollama request timed out with model '{model}'. Tried fallback models but all failed. The config might be too large or your system is under heavy load.")
-    except Exception as e:
-        raise Exception(f"Ollama Error: {str(e)}")
-
 
 def call_openai_chat(messages, model="gpt-4o", temperature=0.1, max_tokens=4000):
     """
@@ -3077,43 +2794,19 @@ def call_openai_chat(messages, model="gpt-4o", temperature=0.1, max_tokens=4000)
 
 def call_ai(messages, model=None, temperature=0.1, max_tokens=16000, task_type='chat', config_size=0):
     """
-    Universal AI caller with smart model selection and automatic fallback
-    Auto-selects best model based on task type, complexity, and available models
-    Automatically falls back to smaller/faster models on timeout
-    
+    Universal AI caller — uses OpenAI when configured.
+
     Args:
         messages: List of message dicts with 'role' and 'content'
-        model: Model name (auto-selected if None based on task and config size)
+        model: Model name (defaults to gpt-4o for OpenAI)
         temperature: Sampling temperature
         max_tokens: Maximum tokens to generate
         task_type: Task type (chat, validation, translation, etc.)
-        config_size: Config size in characters (for model selection)
+        config_size: Config size in characters (informational)
     """
-    # Calculate config size from messages if not provided
-    if config_size == 0:
-        total_content = sum(len(str(msg.get('content', ''))) for msg in messages)
-        config_size = total_content
-    
-    # Auto-select model if not specified
-    if not model:
-        available_models = get_available_ollama_models()
-        model = select_best_model(task_type, config_size, available_models)
-        estimated_lines = config_size // 50 if config_size > 0 else 0
-        safe_print(f"[AUTO MODEL SELECTION] Selected: {model} for {task_type} (size: {config_size} chars, ~{estimated_lines} lines)")
-    
-    if AI_PROVIDER == 'ollama':
-        return call_ollama(messages, model, temperature, max_tokens, 
-                          timeout=None, task_type=task_type, config_size=config_size)
-    
-    # Prefer OpenAI if configured, but fall back to Ollama on any error
-    try:
+    if AI_PROVIDER == 'openai':
         return call_openai_chat(messages, model or "gpt-4o", temperature, max_tokens)
-    except Exception as e:
-        safe_print(f"[AI FALLBACK] OpenAI failed: {e}. Falling back to Ollama...")
-        available_models = get_available_ollama_models()
-        fallback_model = select_best_model(task_type, config_size, available_models)
-        return call_ollama(messages, fallback_model, temperature, max_tokens,
-                          timeout=None, task_type=task_type, config_size=config_size)
+    raise Exception("No AI provider configured. Set AI_PROVIDER=openai and provide OPENAI_API_KEY.")
 
 
 def build_training_context() -> str:
@@ -9537,7 +9230,7 @@ Requirements:
 - Output complete Nokia configuration ready for deployment"""
         
         try:
-            # Try to use Ollama if available
+            # Try AI for Nokia migration
             nokia_config = call_ai([
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -9743,26 +9436,14 @@ def health():
     """Check if API server is running and configured
     
     This is the unified backend - api_server.py handles all AI internally.
-    Backend is considered 'online' if this endpoint responds, regardless of Ollama/OpenAI status.
+    Backend is considered 'online' if this endpoint responds.
     The backend will handle AI provider availability and fallbacks internally.
     """
-    # Check if Ollama is available (informational only - doesn't affect 'online' status)
-    ollama_available = False
-    if AI_PROVIDER == 'ollama':
-        try:
-            resp = requests.get(f"{OLLAMA_API_URL}/api/tags", timeout=2)
-            ollama_available = resp.status_code == 200
-        except:
-            pass
-    
     # Backend is always 'online' if this endpoint responds
-    # AI provider availability is handled internally by api_server.py
     return jsonify({
-        'status': 'online',  # Always 'online' if endpoint responds - unified backend is ready
+        'status': 'online',
         'ai_provider': AI_PROVIDER,
         'api_key_configured': bool(OPENAI_API_KEY) if AI_PROVIDER == 'openai' else None,
-        'ollama_available': ollama_available if AI_PROVIDER == 'ollama' else None,  # Informational only
-        'ollama_model': OLLAMA_MODEL if AI_PROVIDER == 'ollama' else None,
         'timestamp': get_cst_timestamp(),
         'message': 'Unified backend (api_server.py) is online and ready'
     })
@@ -13134,14 +12815,10 @@ if __name__ == '__main__':
     print("=" * 50)
     print(f"AI Provider: {AI_PROVIDER.upper()}")
 
-    if AI_PROVIDER == 'ollama':
-        print(f"Ollama Model: {OLLAMA_MODEL}")
-        print(f"Ollama URL: {OLLAMA_API_URL}")
-        print("\n[!] Make sure Ollama is installed and running!")
-        print("    Install: https://ollama.com/download")
-        print(f"    Then run: ollama pull {OLLAMA_MODEL}")
-    else:
+    if AI_PROVIDER == 'openai':
         print(f"OpenAI API Key: {'[CONFIGURED]' if OPENAI_API_KEY else '[MISSING]'}")
+    else:
+        print("[INFO] No AI provider configured — AI features disabled")
 
     print("\nEndpoints:")
     print("  POST /api/validate-config      - Validate RouterOS config")
