@@ -93,7 +93,6 @@ except Exception as e:
 # Configuration
 BACKEND_PORT = 5000
 FRONTEND_PORT = 8000
-OLLAMA_PORT = 11434
 BACKEND_URL = f"http://localhost:{BACKEND_PORT}"
 FRONTEND_URL = f"http://localhost:{FRONTEND_PORT}/NOC-configMaker.html"
 
@@ -615,17 +614,6 @@ def start_frontend():
         print(f"[FRONTEND] ⚠ May still be starting...")
 
 
-def check_ollama():
-    """Check if Ollama is available"""
-    try:
-        response = requests.get(f"http://localhost:{OLLAMA_PORT}/api/tags", timeout=2)
-        if response.status_code == 200:
-            return True
-    except:
-        pass
-    return False
-
-
 def main():
     """Main launcher function"""
     # Force output immediately with visible header
@@ -653,15 +641,6 @@ def main():
             sys.stdout.flush()
         except:
             pass
-    
-    # Check Ollama (optional)
-    print("[OLLAMA] Checking Ollama AI service...", flush=True)
-    if check_ollama():
-        print("[OLLAMA] ✓ Ollama is running", flush=True)
-    else:
-        print("[OLLAMA] ⚠ Ollama not detected (AI features may be limited)", flush=True)
-        print("[OLLAMA]    Install from: https://ollama.com/download", flush=True)
-    print(flush=True)
     
     # Start backend
     print("[MAIN] Starting backend...", flush=True)
@@ -709,11 +688,9 @@ def main():
     
     backend_status = "✓ READY" if backend_ready else "✗ NOT READY"
     frontend_status = "✓ READY" if frontend_ready else "✗ NOT READY"
-    ollama_status = "✓ RUNNING" if check_ollama() else "✗ NOT RUNNING"
     
     print(f"Backend API:  {backend_status:15} - {BACKEND_URL}")
     print(f"Frontend:     {frontend_status:15} - {FRONTEND_URL}")
-    print(f"Ollama AI:    {ollama_status:15} - http://localhost:{OLLAMA_PORT}")
     print("")
     
     if not backend_ready:

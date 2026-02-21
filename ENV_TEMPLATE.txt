@@ -8,9 +8,6 @@ ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 # DEFAULT_PASSWORD=CHANGE_ME
 
 # AI Provider (optional)
-# AI_PROVIDER=openai            # openai | azure | ollama
-# OLLAMA_API_URL=http://127.0.0.1:11434
-# OLLAMA_MODEL=llama3.1:8b
 # OPENAI_API_KEY=your-key-here
 # OPENAI_COMPAT_MODEL=gpt-4o-mini
 # AZURE_TENANT_ID=your-tenant-id

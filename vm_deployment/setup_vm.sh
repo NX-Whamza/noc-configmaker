@@ -96,9 +96,6 @@ if [ ! -f ".env" ]; then
     cat > .env << EOF
 ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 # JWT_SECRET=your-secret-here
-# AI_PROVIDER=ollama
-# OLLAMA_API_URL=http://127.0.0.1:11434
-# OLLAMA_MODEL=llama3.1:8b
 # NEXTLINK_SSH_USERNAME=
 # NEXTLINK_SSH_PASSWORD=
 EOF

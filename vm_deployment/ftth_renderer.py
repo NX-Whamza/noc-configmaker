@@ -205,24 +205,32 @@ MPLS_ACCEPT_FILTERS = [
 # ---------------------------------------------------------------------------
 
 # Compliance block keys to include in the FTTH overlay.
-# Excluded:  user_aaa       — FTTH uses use-radius=yes (compliance sets use-radius=no)
+# Keys from both GitLab parser and hardcoded fallback are listed;
+# missing keys are silently skipped so listing both is safe.
+# Excluded:  user_aaa / user_profiles — FTTH uses use-radius=yes (compliance sets use-radius=no)
 #            user_groups     — FTTH has specific groups (ENG, NOC, LTE, …)
 #            firewall_mangle — compliance only removes; FTTH has its own QoS/TOS marking
 #            dhcp_options    — FTTH has its own DHCP option 43
-#            radius          — FTTH has its own RADIUS config
+#            radius          — FTTH has its own RADIUS config (GitLab combines radius+ldp_filters)
 #            vpls_edge       — FTTH manages its own bridge/VPLS ports
 _FTTH_COMPLIANCE_BLOCKS = [
-    "dns",
-    "firewall_address_lists",
-    "firewall_filter_input",
-    "firewall_raw",
-    "firewall_forward",
-    "firewall_nat",
+    "ip_services",              # GitLab: ip service disable
+    "dns",                      # GitLab: combined dns + all firewall blocks
+    "firewall_address_lists",   # hardcoded fallback
+    "firewall_filter_input",    # hardcoded fallback
+    "firewall_raw",             # hardcoded fallback
+    "firewall_forward",         # hardcoded fallback
+    "firewall_nat",             # hardcoded fallback
+    "sip_alg_off",              # GitLab: service-port sip disable
     "clock_ntp",
     "snmp",
-    "system_settings",
-    "logging",
-    "ldp_filters",
+    "auto_upgrade",             # GitLab: routerboard auto-upgrade
+    "system_settings",          # hardcoded fallback
+    "web_proxy_off",            # GitLab: ip proxy disable
+    "vpls_edge_ports",          # GitLab: combined vpls_edge + logging/syslog
+    "logging",                  # hardcoded fallback
+    "ldp_filters",              # hardcoded fallback
+    "watchdog_timer",           # GitLab: watchdog timer
 ]
 
 # RouterOS section headers to strip from the rendered config when GitLab

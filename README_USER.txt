@@ -10,9 +10,6 @@ QUICK START:
 REQUIREMENTS:
 - Windows 10/11
 - Internet connection (for AI features)
-- Ollama (optional, for AI features)
-  - Download from: https://ollama.com/download
-  - Install and run: ollama pull phi3:mini
 
 PORTS USED:
 - Port 5000: Backend API (internal)
@@ -26,7 +23,6 @@ Port Already in Use:
 
 Backend Not Starting:
 - Check the console window for error messages
-- Ensure Ollama is installed if using AI features
 - Try running as Administrator
 
 Browser Doesn't Open:

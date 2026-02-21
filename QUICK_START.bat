@@ -22,7 +22,6 @@ if %errorlevel%==0 (
   echo.
   echo App:     http://localhost:8000/app
   echo Health:  http://localhost:8000/api/health
-  echo Ollama:  http://localhost:11434
   echo.
   echo Opening browser...
   start http://localhost:8000/app
@@ -38,7 +37,6 @@ echo.
 echo Docker start failed or Docker not found.
 echo Falling back to local Python servers (less consistent).
 echo.
-echo NOTE: This mode may not support all features (nginx proxy, Ollama, etc).
 echo.
 
 REM Start backend in new window

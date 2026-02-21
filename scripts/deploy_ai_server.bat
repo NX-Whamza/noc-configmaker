@@ -40,22 +40,14 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
-echo [2/8] Installing Ollama...
-curl -fsSL https://ollama.com/install.sh | sh
 if %ERRORLEVEL% NEQ 0 (
-    echo [!] Ollama installation failed. Please install manually from ollama.com
     pause
     exit /b 1
 )
 
-echo [3/8] Starting Ollama service...
-start "" "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" serve
 timeout /t 5 /nobreak >nul
 
 echo [4/8] Downloading AI models...
-ollama pull phi3:mini
-ollama pull qwen2.5-coder:7b
-ollama pull llama3.2:3b
 
 echo [5/8] Installing Python dependencies...
 py -3.11 -m pip install --upgrade pip
@@ -68,16 +60,11 @@ netsh advfirewall firewall add rule name="NOC AI Server WebUI" dir=in action=all
 echo [7/8] Creating auto-start service...
 echo @echo off > "%USERPROFILE%\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\start_ai_server.bat"
 echo cd /d "%~dp0" >> "%USERPROFILE%\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\start_ai_server.bat"
-echo start "" "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" serve >> "%USERPROFILE%\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\start_ai_server.bat"
 echo timeout /t 10 /nobreak ^>nul >> "%USERPROFILE%\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\start_ai_server.bat"
-echo set AI_PROVIDER=ollama >> "%USERPROFILE%\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\start_ai_server.bat"
-echo set OLLAMA_MODEL=phi3:mini >> "%USERPROFILE%\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\start_ai_server.bat"
 echo set ROS_TRAINING_DIR=%CD%\ros-migration-trainer-v3 >> "%USERPROFILE%\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\start_ai_server.bat"
 echo python api_server.py >> "%USERPROFILE%\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\start_ai_server.bat"
 
 echo [8/8] Starting AI server...
-set AI_PROVIDER=ollama
-set OLLAMA_MODEL=phi3:mini
 set ROS_TRAINING_DIR=%CD%\ros-migration-trainer-v3
 
 echo [CHAT] Initializing chat history database...

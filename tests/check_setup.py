@@ -57,7 +57,7 @@ def check_pip_packages() -> bool:
 
 
 def check_openai_key() -> bool:
-    ai_provider = os.getenv("AI_PROVIDER", "ollama").strip().lower()
+    ai_provider = os.getenv("AI_PROVIDER", "openai").strip().lower()
     if ai_provider != "openai":
         safe_print(f"[OK] AI_PROVIDER={ai_provider} (OpenAI key not required)")
         return True

@@ -30,9 +30,8 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(repo_root))
 
-    # Force Ollama to be "unavailable" so we can validate non-AI fallbacks deterministically.
-    os.environ["AI_PROVIDER"] = "ollama"
-    os.environ["OLLAMA_API_URL"] = "http://127.0.0.1:59999"
+    # Disable AI for deterministic testing
+    os.environ["AI_PROVIDER"] = "none"
 
     import api_server  # noqa: WPS433 - repo-local import (shim -> vm_deployment)
 

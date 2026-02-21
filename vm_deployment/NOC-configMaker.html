@@ -15941,7 +15941,7 @@
                     }, 3, 1000);
                 })
                     .catch(function (err) {
-                        // If AI suggestions fail (e.g., Ollama not running on the VM), continue without them.
+                        // If AI suggestions fail, continue without them.
                         if (startedEnterpriseGeneration) throw err;
                         console.warn('[ENTERPRISE] AI suggestions unavailable; continuing without them:', err);
                         addProgressLog('warning', 'AI suggestions unavailable; continuing without suggestions');
@@ -18023,7 +18023,7 @@
                             });
 
                             if (warnBox) {
-                                warnBox.innerHTML = '<div style="color: #6c757d; font-style: italic;"> Configuration generated. AI validation timeout (Ollama may be processing - check backend console).</div>';
+                                warnBox.innerHTML = '<div style="color: #6c757d; font-style: italic;"> Configuration generated. AI validation timeout (AI may be processing - check backend console).</div>';
                             }
                         } else if (aiError.message && (aiError.message.includes('Failed to fetch') || aiError.message.includes('NetworkError'))) {
                             window.addProgressLog('warning', 'Cannot reach AI backend');
@@ -19489,7 +19489,7 @@
 
 
         // Check if backend is running - unified through api_server.py
-        // api_server.py handles all AI internally (Ollama/OpenAI), so we just check if the main backend is online
+        // api_server.py handles all AI internally (OpenAI), so we just check if the main backend is online
         async function checkAIBackend() {
             // Use the same robust health check as the main backend check
             // api_server.py is the unified backend that handles everything
@@ -19503,7 +19503,7 @@
                         const data = await response.json();
 
                         // If api_server.py is online, it's ready - it handles AI internally
-                        // Don't fail if Ollama isn't available - api_server.py will handle fallbacks
+                        // Don't fail if AI isn't available - api_server.py will handle fallbacks
                         if (data.status === 'online') {
                             console.log('[BACKEND]  Unified backend (api_server.py) is online and ready');
                             // Store backend status globally

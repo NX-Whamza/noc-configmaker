@@ -20,7 +20,6 @@
 URLs:
 - App: `http://localhost:8000/app`
 - Health: `http://localhost:8000/api/health`
-- Ollama: `http://localhost:11434`
 
 ### `build_exe.py` (in root folder)
 **Purpose**: Build the distributable EXE  
@@ -33,7 +32,6 @@ URLs:
 
 ### `start_backend_services.bat`
 **Status**: OBSOLETE - Replaced by `QUICK_START.bat` in root  
-**Old Purpose**: Started backend + Ollama + frontend separately  
 **Why obsolete**: New launcher handles this automatically
 
 ### `deploy_ai_server.bat`
@@ -46,14 +44,9 @@ URLs:
 **Old Purpose**: Build EXE with batch wrapper  
 **Why obsolete**: Direct Python script is cleaner
 
-### `setup_ollama.bat`
-**Status**: REFERENCE ONLY - Manual Ollama installation  
-**Old Purpose**: Install and configure Ollama  
-**Why kept**: Useful for first-time Ollama setup
 
 ### `install_fast_model.bat` / `install_phi3.bat`
 **Status**: REFERENCE ONLY  
-**Purpose**: Quick install specific Ollama models  
 **Why kept**: Useful shortcuts for model installation
 
 ### GitHub Scripts
@@ -97,16 +90,11 @@ python launcher.py
 python build_exe.py
 ```
 
-### Install Ollama (one-time):
 ```bash
-# Download from: https://ollama.com/download
-# Or use: scripts/setup_ollama.bat
 ```
 
 ### Install AI Model (one-time):
 ```bash
-ollama pull phi3:mini
-# Or: ollama pull qwen2.5-coder:7b
 ```
 
 ---
@@ -120,7 +108,6 @@ ollama pull phi3:mini
 | `start_backend_services.bat` | ❌ OBSOLETE | Don't use |
 | `deploy_ai_server.bat` | ❌ OBSOLETE | Don't use |
 | `build_exe.bat` | ❌ OBSOLETE | Don't use |
-| `setup_ollama.bat` | 📖 REFERENCE | First-time Ollama setup |
 | `install_*.bat` | 📖 REFERENCE | Model installers |
 | Network/GitHub scripts | 📖 REFERENCE | Useful for specific tasks |
 

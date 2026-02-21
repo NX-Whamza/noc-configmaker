@@ -80,7 +80,6 @@ NOC Config Maker - Quick Start
 Requirements:
 - Windows 10/11
 - Internet connection (for AI features)
-- Ollama (optional, for AI - install from https://ollama.com/download)
 
 Ports Used:
 - 5000: Backend API
@@ -133,7 +132,6 @@ Troubleshooting:
 - [ ] Backend starts successfully
 - [ ] Frontend loads in browser
 - [ ] All features work (config generation, validation, etc.)
-- [ ] Ollama integration works (if applicable)
 - [ ] Ports don't conflict with other apps
 - [ ] Error messages are clear
 - [ ] README instructions are accurate
