@@ -55,9 +55,9 @@ MSTP_STATES = {
 MSTP_STATE_CODES = frozenset(MSTP_STATES.values())
 
 TARANA_SECTORS = [
-    {"name": "Alpha", "port": "sfp-sfpplus8", "address_offset": 2},
-    {"name": "Beta", "port": "sfp-sfpplus9", "address_offset": 3},
-    {"name": "Gamma", "port": "sfp-sfpplus10", "address_offset": 4},
+    {"name": "Alpha", "port": "sfp-sfpplus9", "address_offset": 2},
+    {"name": "Beta", "port": "sfp-sfpplus10", "address_offset": 3},
+    {"name": "Gamma", "port": "sfp-sfpplus11", "address_offset": 4},
     {"name": "Delta", "port": "sfp-sfpplus6", "address_offset": 5},
 ]
 
@@ -130,6 +130,11 @@ class MTBNG2Config:
                 self.tarana_subnet = IPNetwork(params["tarana_subnet"])
                 self.tarana_sector_count = int(params.get("tarana_sector_count", 3))
                 self.tarana_sector_start = int(params.get("tarana_sector_start", 0))
+                # Accept custom sector port assignments from frontend
+                self._custom_sectors = params.get("tarana_sectors", None)
+                # Unicorn MGMT subnet (defaults to tarana_subnet if not provided)
+                raw_unicorn = params.get("unicorn_mgmt_subnet") or str(self.tarana_subnet)
+                self.unicorn_mgmt_subnet = IPNetwork(raw_unicorn)
 
                 if self.tarana_sector_count > len(TARANA_SECTORS):
                     raise ValueError(
@@ -190,15 +195,23 @@ class MTBNG2Config:
             for x in range(self.tarana_sector_count)
         ]
 
-        return [
-            {
-                "name": TARANA_SECTORS[i]["name"],
-                "port": TARANA_SECTORS[i]["port"],
+        # Use custom sector ports from frontend if provided
+        custom = getattr(self, "_custom_sectors", None)
+        result = []
+        for i in range(self.tarana_sector_count):
+            if custom and i < len(custom) and custom[i].get("port"):
+                port = str(custom[i]["port"]).strip()
+                name = custom[i].get("name", TARANA_SECTORS[i]["name"])
+            else:
+                port = TARANA_SECTORS[i]["port"]
+                name = TARANA_SECTORS[i]["name"]
+            result.append({
+                "name": name,
+                "port": port,
                 "address_offset": TARANA_SECTORS[i]["address_offset"],
                 "azimuth": azimuths[i],
-            }
-            for i in range(self.tarana_sector_count)
-        ]
+            })
+        return result
 
     def get_base_params(self, params=None):
         if not params:
@@ -281,6 +294,11 @@ class MTBNG2Config:
                 self.tarana_subnet.network + sector["address_offset"]
             )
             params["tarana_sectors"].append(sector)
+
+        # Unicorn MGMT subnet params for the template
+        params["unicorn_mgmt_ip"] = str(self.unicorn_mgmt_subnet.network + 1)
+        params["unicorn_mgmt_prefix"] = self.unicorn_mgmt_subnet.prefixlen
+        params["unicorn_mgmt_network"] = str(self.unicorn_mgmt_subnet.network)
 
         return params
 

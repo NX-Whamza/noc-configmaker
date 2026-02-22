@@ -10,6 +10,9 @@ add name=bridge1000 protocol-mode=none comment=DYNAMIC
 add name=bridge2000 protocol-mode=none comment=STATIC
 add name=bridge3000 protocol-mode=none comment=INFRA
 add name=bridge4000 protocol-mode=none comment=CPE
+{% if is_tarana %}
+add comment=UNICORN name="UNICORN MGMT" port-cost-mode=short
+{% endif %}
 
 /ip address
 add address={{ loopip }}/32 interface=loop0 network={{ loopip }} comment=Loopback
@@ -20,6 +23,9 @@ add address={{ switch_ip.ip }}/{{ switch_ip.prefixlen }} interface=bridge3000 ne
 {% for bh in backhauls %}
 add address={{ bh.bhip }}/{{ bh.bhip_sub }} interface={{ bh.port }} network={{ bh.bh_net }} comment="{{ bh.bhname }}"
 {% endfor %}
+{% if is_tarana %}
+add address={{ unicorn_mgmt_ip }}/{{ unicorn_mgmt_prefix }} comment="UNICORN MGMT" interface="UNICORN MGMT" network={{ unicorn_mgmt_network }}
+{% endif %}
 
 /routing ospf instance
 add name=default-v2 router-id={{ loopip }}
@@ -30,6 +36,9 @@ add area=area{{ OSPF_area }} interfaces=loop0 networks={{ loopip }}/32 passive
 {% for bh in backhauls %}
 add area=area{{ OSPF_area }} interfaces={{ bh.port }} networks={{ bh.bh_net }}/{{ bh.bhip_sub }} type=ptp
 {% endfor %}
+{% if is_tarana %}
+add area=area{{ OSPF_area }} disabled=no interfaces="UNICORN MGMT" networks={{ unicorn_mgmt_network }}/{{ unicorn_mgmt_prefix }} priority=1
+{% endif %}
 
 /mpls interface
 add interface=all mpls-mtu={{ mpls_mtu }}
@@ -52,9 +61,25 @@ add address={{ bbu_mgmt_ip }}/{{ bbu_mgmt_subnet_mask }} interface=bridge3000 ne
 {% endif %}
 
 {% if is_tarana %}
-# Tarana
-/ip address
-add address={{ tarana_gateway }}/29 interface=bridge3000 comment=Tarana-GW
+# Tarana Sectors
+/interface ethernet
+{% for s in tarana_sectors %}
+set [ find default-name={{ s.port }} ] comment="{{ s.name }} {{ s.azimuth }} deg" l2mtu=9212 mtu=9198
+{% endfor %}
+
+/interface vlan
+{% for s in tarana_sectors %}
+add interface={{ s.port }} name=vlan1000-{{ s.port }} vlan-id=1000
+add interface={{ s.port }} name=vlan2000-{{ s.port }} vlan-id=2000
+add interface={{ s.port }} name=vlan3000-{{ s.port }} vlan-id=3000
+{% endfor %}
+
+/interface bridge port
+{% for s in tarana_sectors %}
+add bridge=bridge1000 ingress-filtering=no interface=vlan1000-{{ s.port }}
+add bridge=bridge2000 ingress-filtering=no interface=vlan2000-{{ s.port }}
+add bridge=bridge3000 ingress-filtering=no interface=vlan3000-{{ s.port }}
+{% endfor %}
 {% endif %}
 
 {% if enable_contractor_login %}

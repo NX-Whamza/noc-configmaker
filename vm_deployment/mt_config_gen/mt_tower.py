@@ -75,10 +75,10 @@ PORT_POLICY = {
 }
 
 TARANA_SECTORS = [
-    {"name": "Alpha", "port": "sfp-sfpplus6", "address_offset": 2},
-    {"name": "Beta", "port": "sfp-sfpplus7", "address_offset": 3},
-    {"name": "Gamma", "port": "sfp-sfpplus8", "address_offset": 4},
-    {"name": "Delta", "port": "sfp-sfpplus9", "address_offset": 5},
+    {"name": "Alpha", "port": "sfp-sfpplus8", "address_offset": 2},
+    {"name": "Beta", "port": "sfp-sfpplus9", "address_offset": 3},
+    {"name": "Gamma", "port": "sfp-sfpplus10", "address_offset": 4},
+    {"name": "Delta", "port": "sfp-sfpplus11", "address_offset": 5},
 ]
 
 
@@ -184,8 +184,13 @@ class MTTowerConfig:
 
             if self.is_tarana:
                 self.tarana_subnet = IPNetwork(params["tarana_subnet"])
-                self.tarana_sector_count = int(params["tarana_sector_count"])
-                self.tarana_sector_start = int(params["tarana_sector_start"])
+                self.tarana_sector_count = int(params.get("tarana_sector_count", 3))
+                self.tarana_sector_start = int(params.get("tarana_sector_start", 0))
+                # Accept custom sector port assignments from frontend
+                self._custom_sectors = params.get("tarana_sectors", None)
+                # Unicorn MGMT subnet (defaults to tarana_subnet if not provided)
+                raw_unicorn = params.get("unicorn_mgmt_subnet") or str(self.tarana_subnet)
+                self.unicorn_mgmt_subnet = IPNetwork(raw_unicorn)
 
         except KeyError as err:
             raise ValueError(f"Missing parameter: {err}")
@@ -229,14 +234,19 @@ class MTTowerConfig:
 
         # MT2004 tower policy (Engineering):
         # ether1 = management, sfp-sfpplus1-2 = switch, sfp-sfpplus4+ = backhaul
-        # sfp-sfpplus6 reserved for LTE when enabled
-        # sfp-sfpplus6-8 reserved for Tarana when enabled
         if self.router_type == "MT2004":
             reserved = set()
             if getattr(self, "is_lte", False):
                 reserved.add("sfp-sfpplus6")
             if getattr(self, "is_tarana", False):
-                reserved.update({"sfp-sfpplus6", "sfp-sfpplus7", "sfp-sfpplus8"})
+                # Reserve the actual Tarana sector ports (custom or default)
+                custom = getattr(self, "_custom_sectors", None)
+                if custom:
+                    reserved.update(normalize_port_name(s.get("port", "")) for s in custom if s.get("port"))
+                else:
+                    count = getattr(self, "tarana_sector_count", 3)
+                    for i in range(min(count, len(TARANA_SECTORS))):
+                        reserved.add(TARANA_SECTORS[i]["port"])
 
             violations = sorted(set(backhaul_ports).intersection(reserved))
             if violations:
@@ -252,13 +262,20 @@ class MTTowerConfig:
             for x in range(self.tarana_sector_count)
         ]
 
+        # Use custom sector ports from frontend if provided
+        custom = getattr(self, "_custom_sectors", None)
         result = []
         for i in range(self.tarana_sector_count):
-            sector = TARANA_SECTORS[i]
+            if custom and i < len(custom) and custom[i].get("port"):
+                port = normalize_port_name(custom[i]["port"])
+                name = custom[i].get("name", TARANA_SECTORS[i]["name"])
+            else:
+                port = TARANA_SECTORS[i]["port"]
+                name = TARANA_SECTORS[i]["name"]
             result.append({
-                "name": sector["name"],
-                "port": sector["port"],
-                "address_offset": sector["address_offset"],
+                "name": name,
+                "port": port,
+                "address_offset": TARANA_SECTORS[i]["address_offset"],
                 "azimuth": azimuths[i],
             })
         return result
@@ -371,6 +388,11 @@ class MTTowerConfig:
         params["tarana_gateway"] = str(self.tarana_subnet.network + 1)
         params["tarana_netmask_bits"] = str(self.tarana_subnet.netmask.netmask_bits())
         params["tarana_sectors"] = self.get_tarana_sectors()
+
+        # Unicorn MGMT subnet params for the template
+        params["unicorn_mgmt_ip"] = str(self.unicorn_mgmt_subnet.network + 1)
+        params["unicorn_mgmt_prefix"] = self.unicorn_mgmt_subnet.prefixlen
+        params["unicorn_mgmt_network"] = str(self.unicorn_mgmt_subnet.network)
 
         return params
 

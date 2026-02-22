@@ -3154,6 +3154,83 @@
                                     <label for="mtUbWaveSubnet">UB WAVE Subnet</label>
                                     <input type="text" id="mtUbWaveSubnet" placeholder="10.246.39.160/29">
                                 </div>
+                                <div id="mtCrs326SubnetRow" style="display:none;">
+                                    <label for="mtCrs326Subnet">CRS326 Mgmt Subnet</label>
+                                    <input type="text" id="mtCrs326Subnet" placeholder="10.246.39.0/29">
+                                </div>
+                            </div>
+                            <div id="mtTaranaConfigRow" style="display:none; margin-top: 12px; background: #2a4a2a; padding: 15px; border-radius: 5px;">
+                                <h4 style="margin-top: 0; color: #4CAF50;">Tarana Sector Configuration</h4>
+                                <div class="device-selection-grid" style="grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                                    <div>
+                                        <label for="mtTaranaSubnet">UNICORN MGMT Subnet</label>
+                                        <input type="text" id="mtTaranaSubnet" placeholder="10.246.19.96/29">
+                                    </div>
+                                    <div>
+                                        <label for="mtTaranaSectorCount">Sector Count</label>
+                                        <select id="mtTaranaSectorCount">
+                                            <option value="3" selected>3 (Alpha/Beta/Gamma)</option>
+                                            <option value="4">4 (Alpha/Beta/Gamma/Delta)</option>
+                                        </select>
+                                    </div>
+                                    <div></div>
+                                    <div>
+                                        <label for="mtTaranaAlphaPort">Alpha Port</label>
+                                        <select id="mtTaranaAlphaPort">
+                                            <option value="sfp-sfpplus4">sfp-sfpplus4</option>
+                                            <option value="sfp-sfpplus5">sfp-sfpplus5</option>
+                                            <option value="sfp-sfpplus6">sfp-sfpplus6</option>
+                                            <option value="sfp-sfpplus7">sfp-sfpplus7</option>
+                                            <option value="sfp-sfpplus8" selected>sfp-sfpplus8</option>
+                                            <option value="sfp-sfpplus9">sfp-sfpplus9</option>
+                                            <option value="sfp-sfpplus10">sfp-sfpplus10</option>
+                                            <option value="sfp-sfpplus11">sfp-sfpplus11</option>
+                                            <option value="sfp-sfpplus12">sfp-sfpplus12</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label for="mtTaranaBetaPort">Beta Port</label>
+                                        <select id="mtTaranaBetaPort">
+                                            <option value="sfp-sfpplus4">sfp-sfpplus4</option>
+                                            <option value="sfp-sfpplus5">sfp-sfpplus5</option>
+                                            <option value="sfp-sfpplus6">sfp-sfpplus6</option>
+                                            <option value="sfp-sfpplus7">sfp-sfpplus7</option>
+                                            <option value="sfp-sfpplus8">sfp-sfpplus8</option>
+                                            <option value="sfp-sfpplus9" selected>sfp-sfpplus9</option>
+                                            <option value="sfp-sfpplus10">sfp-sfpplus10</option>
+                                            <option value="sfp-sfpplus11">sfp-sfpplus11</option>
+                                            <option value="sfp-sfpplus12">sfp-sfpplus12</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label for="mtTaranaGammaPort">Gamma Port</label>
+                                        <select id="mtTaranaGammaPort">
+                                            <option value="sfp-sfpplus4">sfp-sfpplus4</option>
+                                            <option value="sfp-sfpplus5">sfp-sfpplus5</option>
+                                            <option value="sfp-sfpplus6">sfp-sfpplus6</option>
+                                            <option value="sfp-sfpplus7">sfp-sfpplus7</option>
+                                            <option value="sfp-sfpplus8">sfp-sfpplus8</option>
+                                            <option value="sfp-sfpplus9">sfp-sfpplus9</option>
+                                            <option value="sfp-sfpplus10" selected>sfp-sfpplus10</option>
+                                            <option value="sfp-sfpplus11">sfp-sfpplus11</option>
+                                            <option value="sfp-sfpplus12">sfp-sfpplus12</option>
+                                        </select>
+                                    </div>
+                                    <div id="mtTaranaDeltaRow" style="display:none;">
+                                        <label for="mtTaranaDeltaPort">Delta Port</label>
+                                        <select id="mtTaranaDeltaPort">
+                                            <option value="sfp-sfpplus4">sfp-sfpplus4</option>
+                                            <option value="sfp-sfpplus5">sfp-sfpplus5</option>
+                                            <option value="sfp-sfpplus6">sfp-sfpplus6</option>
+                                            <option value="sfp-sfpplus7">sfp-sfpplus7</option>
+                                            <option value="sfp-sfpplus8">sfp-sfpplus8</option>
+                                            <option value="sfp-sfpplus9">sfp-sfpplus9</option>
+                                            <option value="sfp-sfpplus10">sfp-sfpplus10</option>
+                                            <option value="sfp-sfpplus11" selected>sfp-sfpplus11</option>
+                                            <option value="sfp-sfpplus12">sfp-sfpplus12</option>
+                                        </select>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -12860,18 +12937,31 @@
                 const is6 = !!document.getElementById('mtFeature6ghz')?.checked;
                 const isTachyon = !!document.getElementById('mtFeatureTachyon')?.checked;
                 const isUbWave = !!document.getElementById('mtFeatureUbWave')?.checked;
+                const isTarana = !!document.getElementById('mtFeatureTarana')?.checked;
+                const is326 = !!document.getElementById('mtFeatureCrs326')?.checked;
 
                 const section = document.getElementById('mtTowerFeatureSubnets');
                 const sixRow = document.getElementById('mt6ghzSubnetRow');
                 const ubRow = document.getElementById('mtUbWaveSubnetRow');
+                const crs326Row = document.getElementById('mtCrs326SubnetRow');
+                const taranaRow = document.getElementById('mtTaranaConfigRow');
+                const deltaRow = document.getElementById('mtTaranaDeltaRow');
 
                 const showSix = isTower && (is6 || isTachyon);
                 const showUb = isTower && isUbWave;
-                const showSection = showSix || showUb;
+                const show326 = isTower && is326;
+                const showTarana = isTarana;
+                const showSection = showSix || showUb || show326 || showTarana;
 
                 if (section) section.style.display = showSection ? 'block' : 'none';
                 if (sixRow) sixRow.style.display = showSix ? 'block' : 'none';
                 if (ubRow) ubRow.style.display = showUb ? 'block' : 'none';
+                if (crs326Row) crs326Row.style.display = show326 ? 'block' : 'none';
+                if (taranaRow) taranaRow.style.display = showTarana ? 'block' : 'none';
+
+                // Show/hide Delta port based on sector count
+                const sectorCount = parseInt(document.getElementById('mtTaranaSectorCount')?.value || '3', 10);
+                if (deltaRow) deltaRow.style.display = (showTarana && sectorCount >= 4) ? 'block' : 'none';
             }
 
             function syncMtConfigTypeUI() {
@@ -13539,13 +13629,18 @@
                     });
                     zipDownloadBtn.dataset.bound = '1';
                 }
-                ['mtFeatureTachyon', 'mtFeature6ghz', 'mtFeatureUbWave'].forEach((id) => {
+                ['mtFeatureTachyon', 'mtFeature6ghz', 'mtFeatureUbWave', 'mtFeatureTarana', 'mtFeatureCrs326'].forEach((id) => {
                     const cb = document.getElementById(id);
                     if (cb && !cb.dataset.bound) {
                         cb.addEventListener('change', syncMtFeatureSubnetVisibility);
                         cb.dataset.bound = '1';
                     }
                 });
+                const sectorCountSel = document.getElementById('mtTaranaSectorCount');
+                if (sectorCountSel && !sectorCountSel.dataset.bound) {
+                    sectorCountSel.addEventListener('change', syncMtFeatureSubnetVisibility);
+                    sectorCountSel.dataset.bound = '1';
+                }
 
                 const rows = document.querySelectorAll('#mtBackhaulRows .mt-backhaul-row');
                 if (rows.length === 0) {
@@ -13744,6 +13839,28 @@
                 };
                 if (is6ghz || isTachyon) payload["6ghz_subnet"] = sixGhzSubnet;
                 if (isUbWave) payload["ub_wave_subnet"] = ubWaveSubnet;
+                if (is326) {
+                    const crs326Subnet = ensureCIDR((document.getElementById('mtCrs326Subnet')?.value || '').trim(), 29);
+                    if (!crs326Subnet) throw new Error('CRS326 is enabled. Please provide a valid CRS326 Mgmt Subnet.');
+                    payload["326_mgmt_subnet"] = crs326Subnet;
+                }
+                if (isTarana) {
+                    const taranaSubnet = ensureCIDR((document.getElementById('mtTaranaSubnet')?.value || document.getElementById('mtBng2TaranaSubnet')?.value || '').trim(), 29);
+                    if (!taranaSubnet) throw new Error('Tarana is enabled. Please provide a valid UNICORN MGMT Subnet.');
+                    payload["tarana_subnet"] = taranaSubnet;
+                    payload["unicorn_mgmt_subnet"] = taranaSubnet;
+                    payload["tarana_sector_count"] = parseInt(document.getElementById('mtTaranaSectorCount')?.value || '3', 10);
+                    payload["tarana_sector_start"] = 0;
+                    const sectors = [
+                        { name: "Alpha", port: (document.getElementById('mtTaranaAlphaPort')?.value || 'sfp-sfpplus8').trim() },
+                        { name: "Beta", port: (document.getElementById('mtTaranaBetaPort')?.value || 'sfp-sfpplus9').trim() },
+                        { name: "Gamma", port: (document.getElementById('mtTaranaGammaPort')?.value || 'sfp-sfpplus10').trim() }
+                    ];
+                    if (payload["tarana_sector_count"] >= 4) {
+                        sectors.push({ name: "Delta", port: (document.getElementById('mtTaranaDeltaPort')?.value || 'sfp-sfpplus11').trim() });
+                    }
+                    payload["tarana_sectors"] = sectors;
+                }
                 return payload;
             }
 
@@ -13780,9 +13897,20 @@
                     bbu_s1_subnet: ensureCIDR((document.getElementById('mtBng2BbuS1')?.value || '').trim(), 29),
                     bbu_mgmt_subnet: ensureCIDR((document.getElementById('mtBng2BbuMgmt')?.value || '').trim(), 29),
                     is_tarana: !!document.getElementById('mtFeatureTarana')?.checked,
-                    tarana_subnet: ensureCIDR((document.getElementById('mtBng2TaranaSubnet')?.value || '').trim(), 29),
-                    tarana_sector_count: parseInt(document.getElementById('mtBng2TaranaSectors')?.value || '3', 10),
+                    tarana_subnet: ensureCIDR((document.getElementById('mtTaranaSubnet')?.value || document.getElementById('mtBng2TaranaSubnet')?.value || '').trim(), 29),
+                    unicorn_mgmt_subnet: ensureCIDR((document.getElementById('mtTaranaSubnet')?.value || document.getElementById('mtBng2TaranaSubnet')?.value || '').trim(), 29),
+                    tarana_sector_count: parseInt(document.getElementById('mtTaranaSectorCount')?.value || document.getElementById('mtBng2TaranaSectors')?.value || '3', 10),
                     tarana_sector_start: 0,
+                    tarana_sectors: (function() {
+                        const sectors = [
+                            { name: "Alpha", port: (document.getElementById('mtTaranaAlphaPort')?.value || 'sfp-sfpplus9').trim() },
+                            { name: "Beta", port: (document.getElementById('mtTaranaBetaPort')?.value || 'sfp-sfpplus10').trim() },
+                            { name: "Gamma", port: (document.getElementById('mtTaranaGammaPort')?.value || 'sfp-sfpplus11').trim() }
+                        ];
+                        const cnt = parseInt(document.getElementById('mtTaranaSectorCount')?.value || '3', 10);
+                        if (cnt >= 4) sectors.push({ name: "Delta", port: (document.getElementById('mtTaranaDeltaPort')?.value || 'sfp-sfpplus6').trim() });
+                        return sectors;
+                    })(),
                     is_326: !!document.getElementById('mtFeatureCrs326')?.checked,
                     is_6ghz: !!document.getElementById('mtFeature6ghz')?.checked,
                     enable_contractor_login: !!document.getElementById('mtFeatureContractor')?.checked,
@@ -13806,7 +13934,18 @@
                 const allowedBackhaulPorts = new Set(policy.backhaulPorts || []);
                 const managementPort = policy.managementPort || 'ether1';
                 const taranaEnabled = !!document.getElementById('mtFeatureTarana')?.checked;
-                const taranaReserved = new Set(['sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8']);
+                const taranaReserved = new Set();
+                if (taranaEnabled) {
+                    ['mtTaranaAlphaPort', 'mtTaranaBetaPort', 'mtTaranaGammaPort'].forEach(id => {
+                        const v = document.getElementById(id)?.value;
+                        if (v) taranaReserved.add(v);
+                    });
+                    const cnt = parseInt(document.getElementById('mtTaranaSectorCount')?.value || '3', 10);
+                    if (cnt >= 4) {
+                        const v = document.getElementById('mtTaranaDeltaPort')?.value;
+                        if (v) taranaReserved.add(v);
+                    }
+                }
 
                 for (const p of switchPorts) {
                     if (!allowedSwitchPorts.has(p)) {
