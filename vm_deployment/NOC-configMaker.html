@@ -557,6 +557,127 @@
             color: #fff;
         }
 
+        .command-vault-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin: 20px 0 24px;
+        }
+
+        .command-vault-tab {
+            background: var(--input-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 8px 16px;
+            border-radius: 999px;
+            cursor: pointer;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            transition: all 0.2s ease;
+        }
+
+        .command-vault-tab.active {
+            background: var(--button-primary);
+            border-color: var(--button-primary);
+            color: #fff;
+        }
+
+        .command-vault-section {
+            display: none;
+        }
+
+        .command-vault-section.active {
+            display: block;
+        }
+
+        .command-search {
+            width: 100%;
+            max-width: 720px;
+            margin: 0 auto 20px;
+            display: block;
+        }
+
+        .command-guide-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 14px;
+        }
+
+        .command-guide-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 14px;
+        }
+
+        .command-guide-card h4 {
+            margin: 0 0 6px;
+            color: var(--text-color);
+        }
+
+        .command-guide-card p {
+            margin: 0 0 10px;
+            color: var(--text-color-secondary);
+            font-size: 13px;
+        }
+
+        .command-snippet {
+            background: #101725;
+            border: 1px solid #30405d;
+            color: #d8f0ff;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-family: "Courier New", monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            white-space: pre;
+        }
+
+        .command-card-actions {
+            margin-top: 10px;
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .command-copy-btn {
+            background: #1c78dd;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 10px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .command-hierarchy-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .command-hierarchy-item {
+            background: rgba(20, 30, 50, 0.5);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px 12px;
+        }
+
+        .command-hierarchy-item code {
+            font-size: 12px;
+            color: #9fd7ff;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .command-hierarchy-item span {
+            color: var(--text-color-secondary);
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
         .ftth-home-dropdown {
             position: relative;
             display: inline-flex;
@@ -2563,6 +2684,23 @@
                         <a data-tab="ftth" style="display:none;">FTTH</a>
                     </div>
                 </div>
+                <div class="nav-item dropdown" data-tab="command-vault">
+                    <button>COMMAND VAULT</button>
+                    <div class="dropdown-menu">
+                        <a data-tab="command-vault" data-command-vault-tab="nokia">
+                            Nokia Command Vault
+                            <span class="desc">Nokia 7750 BNG command guide</span>
+                        </a>
+                        <a data-tab="command-vault" data-command-vault-tab="cisco">
+                            Cisco Command Vault
+                            <span class="desc">Cisco command quick reference (coming soon)</span>
+                        </a>
+                        <a data-tab="command-vault" data-command-vault-tab="mikrotik">
+                            MikroTik Command Vault
+                            <span class="desc">MikroTik command quick reference (coming soon)</span>
+                        </a>
+                    </div>
+                </div>
                 <button class="nav-item" data-tab="cisco-config">CISCO CONFIG</button>
                 <button class="nav-item" data-tab="completed-configs"> CONFIGS</button>
                 <button class="nav-item" data-tab="log-history"> LOG HISTORY</button>
@@ -2937,10 +3075,11 @@
             <div class="content-pane" id="tower-pane">
                 <div class="container">
                     <div
-                        style="background: #2196F3; color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 5px solid #1565C0;">
-                        <strong>TESTING</strong>
-                        <p style="margin: 10px 0 0 0; font-size: 14px;">This feature is currently undergoing testing.
-                            Please review all generated configurations before deploying to production.</p>
+                        style="background: #ff6b35; color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 5px solid #ff4500;">
+                        <strong> IN DEVELOPMENT - DO NOT USE IN PRODUCTION</strong>
+                        <p style="margin: 10px 0 0 0; font-size: 14px;">This feature is currently under development and
+                            testing. Do not use generated configurations in production environments without thorough
+                            review.</p>
                     </div>
                     <h1> MikroTik Config Generator</h1>
                     <p style="text-align: center; color: var(--text-color); max-width: 900px; margin: 0 auto;">
@@ -3152,51 +3291,6 @@
                                 <div id="mtUbWaveSubnetRow" style="display:none;">
                                     <label for="mtUbWaveSubnet">UB WAVE Subnet</label>
                                     <input type="text" id="mtUbWaveSubnet" placeholder="10.246.39.160/29">
-                                </div>
-                                <div id="mtCrs326SubnetRow" style="display:none;">
-                                    <label for="mtCrs326Subnet">CRS326 Mgmt Subnet</label>
-                                    <input type="text" id="mtCrs326Subnet" placeholder="10.246.39.0/29">
-                                </div>
-                            </div>
-                            <div id="mtTaranaConfigRow" style="display:none; margin-top: 12px; background: #2a4a2a; padding: 15px; border-radius: 5px;">
-                                <h4 style="margin-top: 0; color: #4CAF50;">Tarana Sector Configuration</h4>
-                                <div class="device-selection-grid" style="grid-template-columns: repeat(3, 1fr); gap: 10px;">
-                                    <div>
-                                        <label for="mtTaranaSubnet">UNICORN MGMT Subnet</label>
-                                        <input type="text" id="mtTaranaSubnet" placeholder="10.246.19.96/29">
-                                    </div>
-                                    <div>
-                                        <label for="mtTaranaSectorCount">Sector Count</label>
-                                        <select id="mtTaranaSectorCount">
-                                            <option value="3" selected>3 (Alpha/Beta/Gamma)</option>
-                                            <option value="4">4 (Alpha/Beta/Gamma/Delta)</option>
-                                        </select>
-                                    </div>
-                                    <div></div>
-                                    <div>
-                                        <label for="mtTaranaAlphaPort">Alpha Port</label>
-                                        <select id="mtTaranaAlphaPort">
-                                            <!-- populated dynamically by refreshModernPortOptions() -->
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label for="mtTaranaBetaPort">Beta Port</label>
-                                        <select id="mtTaranaBetaPort">
-                                            <!-- populated dynamically by refreshModernPortOptions() -->
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label for="mtTaranaGammaPort">Gamma Port</label>
-                                        <select id="mtTaranaGammaPort">
-                                            <!-- populated dynamically by refreshModernPortOptions() -->
-                                        </select>
-                                    </div>
-                                    <div id="mtTaranaDeltaRow" style="display:none;">
-                                        <label for="mtTaranaDeltaPort">Delta Port</label>
-                                        <select id="mtTaranaDeltaPort">
-                                            <!-- populated dynamically by refreshModernPortOptions() -->
-                                        </select>
-                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -5697,10 +5791,11 @@
             <div class="content-pane" id="nokia7250-maker-pane">
                 <div class="container">
                     <div
-                        style="background: #2196F3; color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 5px solid #1565C0;">
-                        <strong>TESTING</strong>
-                        <p style="margin: 10px 0 0 0; font-size: 14px;">This feature is currently undergoing testing.
-                            Please review all generated configurations before deploying to production.</p>
+                        style="background: #ff6b35; color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 5px solid #ff4500;">
+                        <strong> IN DEVELOPMENT - DO NOT USE IN PRODUCTION</strong>
+                        <p style="margin: 10px 0 0 0; font-size: 14px;">This feature is currently under development and
+                            testing. Do not use generated configurations in production environments without thorough
+                            review.</p>
                     </div>
                     <h1 style="color: var(--text-color); margin-bottom: 30px;"> IN-STATE Nokia 7250 Configuration
                         Maker</h1>
@@ -5872,10 +5967,11 @@
             <div class="content-pane" id="mikrotik-to-nokia-pane">
                 <div class="container">
                     <div
-                        style="background: #2196F3; color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 5px solid #1565C0;">
-                        <strong>TESTING</strong>
-                        <p style="margin: 10px 0 0 0; font-size: 14px;">This feature is currently undergoing testing.
-                            Please review all generated configurations before deploying to production.</p>
+                        style="background: #ff6b35; color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 5px solid #ff4500;">
+                        <strong> IN DEVELOPMENT - DO NOT USE IN PRODUCTION</strong>
+                        <p style="margin: 10px 0 0 0; font-size: 14px;">This feature is currently under development and
+                            testing. Do not use generated configurations in production environments without thorough
+                            review.</p>
                     </div>
                     <h1 style="color: var(--text-color); margin-bottom: 30px;"> NOKIA MIGRATION</h1>
                     <p style="color: var(--text-color-secondary); margin-bottom: 30px;">
@@ -6651,6 +6747,350 @@
                 </div>
                 <div id="logBox" class="aviat-log" style="margin-top: 10px;">
                     <div class="aviat-log-entry"><span class="aviat-log-time">[--:--:--]</span> Ready. Add radio IPs to begin.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- COMMAND VAULT TAB -->
+    <div class="content-pane" id="command-vault-pane">
+        <div class="container">
+            <h1 style="text-align: center; margin-bottom: 8px;">Command Vault</h1>
+            <p style="text-align: center; color: var(--text-color-secondary); margin-bottom: 14px;">
+                Quick command references for day-to-day NOC operations.
+            </p>
+
+            <div class="command-vault-tabs">
+                <button type="button" class="command-vault-tab active" data-command-vault-tab="nokia"
+                    onclick="showCommandVaultSubTab('nokia')">Nokia Command Vault</button>
+                <button type="button" class="command-vault-tab" data-command-vault-tab="cisco"
+                    onclick="showCommandVaultSubTab('cisco')">Cisco Command Vault</button>
+                <button type="button" class="command-vault-tab" data-command-vault-tab="mikrotik"
+                    onclick="showCommandVaultSubTab('mikrotik')">MikroTik Command Vault</button>
+            </div>
+
+            <div id="command-vault-nokia-section" class="command-vault-section active">
+                <div class="section">
+                    <h2>Nokia 7750 - BNG Commands Guide</h2>
+                    <p style="margin: 0 0 14px; color: var(--text-color-secondary);">Common commands with quick copy.</p>
+                    <input id="nokiaCommandSearch" class="command-search" type="text"
+                        placeholder="Search commands (example: lease, sdp, stp, ipoe, sla)..."
+                        oninput="filterNokiaVaultCommands()">
+
+                    <div class="command-guide-grid">
+                        <article class="command-guide-card nokia-command-card" data-search="ipoe session sap plan ip session type mac">
+                            <h4>Lookup IPOE Session/SAP/Plan/IP/Session Type</h4>
+                            <p>MAC must be lowercase.</p>
+                            <div class="command-snippet">/show service id 300 ipoe session detail mac &lt;mac&gt;</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/show service id 300 ipoe session detail mac &lt;mac&gt;')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card nokia-command-card" data-search="lease dhcp mac lookup">
+                            <h4>Lookup Lease by MAC</h4>
+                            <p>Useful for DHCP lease verification in service 300.</p>
+                            <div class="command-snippet">/show service id 300 dhcp lease-state mac &lt;mac&gt;</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/show service id 300 dhcp lease-state mac &lt;mac&gt;')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card nokia-command-card" data-search="clear subscriber ipoe sap mac">
+                            <h4>Clear Subscriber IPOE Session</h4>
+                            <p>Requires subscriber SAP and MAC. No output after a successful clear.</p>
+                            <div class="command-snippet">/clear service id 300 ipoe session sap &lt;sap&gt; mac &lt;mac&gt;</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/clear service id 300 ipoe session sap &lt;sap&gt; mac &lt;mac&gt;')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card nokia-command-card" data-search="verify sdp tunnel vpls">
+                            <h4>Verify SDP Tunnels under BNG VPLS</h4>
+                            <p>Examples: 1245, 1249, 4245, 4249.</p>
+                            <div class="command-snippet">/show service id &lt;service-id&gt; sdp</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/show service id &lt;service-id&gt; sdp')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card nokia-command-card" data-search="verify stp vpls">
+                            <h4>Verify STP for BNG VPLS</h4>
+                            <p>Check bridge state and role quickly.</p>
+                            <div class="command-snippet">/show service id &lt;service-id&gt; stp</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/show service id &lt;service-id&gt; stp')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card nokia-command-card" data-search="speed plan sla profile statistics count">
+                            <h4>View Speed Plan Count per Subscriber Profile</h4>
+                            <p>Shows SLA profile counters.</p>
+                            <div class="command-snippet">/show subscriber-mgmt statistics sla-profiles</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/show subscriber-mgmt statistics sla-profiles')">Copy</button>
+                            </div>
+                        </article>
+                    </div>
+                </div>
+            </div>
+
+            <div id="command-vault-cisco-section" class="command-vault-section">
+                <div class="section">
+                    <h2>Cisco Command Vault - IOS/XE Quick Guide</h2>
+                    <p style="margin: 0 0 14px; color: var(--text-color-secondary);">Common troubleshooting and verification commands.</p>
+                    <input id="ciscoCommandSearch" class="command-search" type="text"
+                        placeholder="Search Cisco commands (example: bgp, ospf, interface, route, arp)..."
+                        oninput="filterCiscoVaultCommands()">
+
+                    <div class="command-guide-grid">
+                        <article class="command-guide-card cisco-command-card" data-search="interface status up down error">
+                            <h4>Interface Status Overview</h4>
+                            <p>Quick health check for all interfaces.</p>
+                            <div class="command-snippet">show interfaces status</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, 'show interfaces status')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card cisco-command-card" data-search="interface errors crc drops">
+                            <h4>Interface Error Counters</h4>
+                            <p>Use for CRC/input/output error investigation.</p>
+                            <div class="command-snippet">show interfaces &lt;interface&gt;</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, 'show interfaces &lt;interface&gt;')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card cisco-command-card" data-search="bgp summary neighbors">
+                            <h4>BGP Neighbor Summary</h4>
+                            <p>Checks BGP session state and prefixes.</p>
+                            <div class="command-snippet">show ip bgp summary</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, 'show ip bgp summary')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card cisco-command-card" data-search="ospf neighbor database route">
+                            <h4>OSPF Neighbor Check</h4>
+                            <p>Confirm adjacency and state.</p>
+                            <div class="command-snippet">show ip ospf neighbor</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, 'show ip ospf neighbor')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card cisco-command-card" data-search="route default lookup forwarding">
+                            <h4>Routing Table Lookup</h4>
+                            <p>Verify route selection and next hop.</p>
+                            <div class="command-snippet">show ip route &lt;prefix&gt;</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, 'show ip route &lt;prefix&gt;')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card cisco-command-card" data-search="arp mac address table">
+                            <h4>ARP / MAC Correlation</h4>
+                            <p>Map endpoint IP-to-MAC and MAC-to-port.</p>
+                            <div class="command-snippet">show ip arp | include &lt;ip-or-mac&gt;
+show mac address-table | include &lt;mac&gt;</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, 'show ip arp | include &lt;ip-or-mac&gt;\nshow mac address-table | include &lt;mac&gt;')">Copy</button>
+                            </div>
+                        </article>
+                    </div>
+                </div>
+            </div>
+
+            <div id="command-vault-mikrotik-section" class="command-vault-section">
+                <div class="section">
+                    <h2>MikroTik Command Vault - RouterOS Quick Guide</h2>
+                    <p style="margin: 0 0 14px; color: var(--text-color-secondary);">High-use RouterOS commands for NOC troubleshooting, grouped by hierarchy.</p>
+                    <input id="mikrotikCommandSearch" class="command-search" type="text"
+                        placeholder="Search MikroTik commands (example: romon, bgp, ospf, firewall, mpls, snmp)..."
+                        oninput="filterMikrotikVaultCommands()">
+
+                    <h3 style="margin: 4px 0 10px;">Hierarchy Map (Top-Level Paths)</h3>
+                    <div class="command-hierarchy-grid">
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="interface bridge vlan ethernet bonding vpls">
+                            <code>/interface *</code>
+                            <span>Physical and logical interfaces: ethernet, bridge, vlan, bonding, vpls, bridge ports.</span>
+                        </div>
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="ip address route dns arp service dhcp">
+                            <code>/ip *</code>
+                            <span>Layer-3 and services: addressing, routes, DNS, ARP, IP services, DHCP and helper tables.</span>
+                        </div>
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="routing bgp ospf template connection">
+                            <code>/routing *</code>
+                            <span>Control-plane protocols and templates: BGP peers/templates, OSPF instances/areas/interfaces.</span>
+                        </div>
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="mpls ldp interface accept advertise filter">
+                            <code>/mpls *</code>
+                            <span>MPLS forwarding and LDP behavior: interfaces, LDP config, accept/advertise filters.</span>
+                        </div>
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="firewall filter nat raw mangle address-list service-port">
+                            <code>/ip firewall *</code>
+                            <span>Policy enforcement and traffic handling: filter, NAT, raw, mangle, address-list, service-port.</span>
+                        </div>
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="system logging clock ntp identity note watchdog routerboard">
+                            <code>/system *</code>
+                            <span>System identity, clock/NTP, logging, watchdog, notes, and routerboard platform settings.</span>
+                        </div>
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="snmp community trap">
+                            <code>/snmp *</code>
+                            <span>SNMP runtime and community controls for polling and trap source behavior.</span>
+                        </div>
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="user group aaa password role policy">
+                            <code>/user *</code>
+                            <span>User accounts, RBAC groups, auth model (`/user aaa`), and privilege policy controls.</span>
+                        </div>
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="tool romon mac-winbox mac-server packet-sniffer">
+                            <code>/tool *</code>
+                            <span>Operational tooling including RoMON, packet capture/sniffer, troubleshooting and diagnostics.</span>
+                        </div>
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="radius authentication dhcp login">
+                            <code>/radius *</code>
+                            <span>RADIUS servers, shared secrets, source-address, and service binding (dhcp/login).</span>
+                        </div>
+                    </div>
+
+                    <h3 style="margin: 8px 0 10px;">Operational Commands</h3>
+                    <div class="command-guide-grid">
+                        <article class="command-guide-card mikrotik-command-card" data-search="interface status monitor">
+                            <h4>Interface Status and Traffic</h4>
+                            <p>Live status/throughput view per interface.</p>
+                            <div class="command-snippet">/interface print terse
+/interface monitor-traffic &lt;interface&gt;</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/interface print terse\n/interface monitor-traffic &lt;interface&gt;')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="bgp session peers">
+                            <h4>BGP Session State</h4>
+                            <p>RouterOS 7 BGP session summary.</p>
+                            <div class="command-snippet">/routing bgp session print detail</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/routing bgp session print detail')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="ospf neighbor route">
+                            <h4>OSPF Neighbor State</h4>
+                            <p>Verify adjacency and interface participation.</p>
+                            <div class="command-snippet">/routing ospf neighbor print detail</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/routing ospf neighbor print detail')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="route lookup fib table">
+                            <h4>Route Lookup</h4>
+                            <p>Check selected route and distance.</p>
+                            <div class="command-snippet">/ip route print detail where dst-address~"&lt;prefix&gt;"</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/ip route print detail where dst-address~\"&lt;prefix&gt;\"')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="arp mac dhcp lease host lookup">
+                            <h4>ARP and DHCP Lease Lookup</h4>
+                            <p>Find endpoint by MAC or IP quickly.</p>
+                            <div class="command-snippet">/ip arp print where address=&lt;ip&gt; or mac-address=&lt;mac&gt;
+/ip dhcp-server lease print where address=&lt;ip&gt; or mac-address=&lt;mac&gt;</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/ip arp print where address=&lt;ip&gt; or mac-address=&lt;mac&gt;\n/ip dhcp-server lease print where address=&lt;ip&gt; or mac-address=&lt;mac&gt;')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="romon tool manage out-of-band">
+                            <h4>RoMON (Router Management Overlay)</h4>
+                            <p>Out-of-band L2 management plane between MikroTik devices.</p>
+                            <div class="command-snippet">/tool romon print
+/tool romon set enabled=yes
+/tool romon port print</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/tool romon print\n/tool romon set enabled=yes\n/tool romon port print')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="firewall filter nat raw mangle audit">
+                            <h4>Firewall Policy Snapshot</h4>
+                            <p>Quickly audit filter/NAT/raw/mangle rule sets.</p>
+                            <div class="command-snippet">/ip firewall filter print detail
+/ip firewall nat print detail
+/ip firewall raw print detail
+/ip firewall mangle print detail</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/ip firewall filter print detail\n/ip firewall nat print detail\n/ip firewall raw print detail\n/ip firewall mangle print detail')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="mpls ldp accept advertise filter troubleshoot">
+                            <h4>MPLS/LDP Verification</h4>
+                            <p>Validate LDP state and filter posture.</p>
+                            <div class="command-snippet">/mpls ldp print detail
+/mpls ldp interface print detail
+/mpls ldp accept-filter print detail
+/mpls ldp advertise-filter print detail</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/mpls ldp print detail\n/mpls ldp interface print detail\n/mpls ldp accept-filter print detail\n/mpls ldp advertise-filter print detail')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="snmp community poll trap source">
+                            <h4>SNMP Runtime and Communities</h4>
+                            <p>Confirm polling source and community setup.</p>
+                            <div class="command-snippet">/snmp print detail
+/snmp community print detail</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/snmp print detail\n/snmp community print detail')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="user group aaa policy auth">
+                            <h4>User / Group / AAA Audit</h4>
+                            <p>Review account posture and access model quickly.</p>
+                            <div class="command-snippet">/user print detail
+/user group print detail
+/user aaa print</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/user print detail\n/user group print detail\n/user aaa print')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="logs critical error warning">
+                            <h4>Recent System Logs</h4>
+                            <p>Filter log output for failures quickly.</p>
+                            <div class="command-snippet">/log print where message~"error|critical|warning"</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/log print where message~\"error|critical|warning\"')">Copy</button>
+                            </div>
+                        </article>
+                    </div>
                 </div>
             </div>
         </div>
@@ -11614,9 +12054,13 @@
                         if (!link.classList.contains('disabled')) {
                             const tabId = link.getAttribute('data-tab');
                             const ftthHomeTab = link.getAttribute('data-ftth-home-tab');
+                            const commandVaultTab = link.getAttribute('data-command-vault-tab');
                             navigateToTab(tabId);
                             if (tabId === 'ftth-home' && ftthHomeTab && typeof window.showFtthHomeSubTab === 'function') {
                                 window.showFtthHomeSubTab(ftthHomeTab);
+                            }
+                            if (tabId === 'command-vault' && commandVaultTab && typeof window.showCommandVaultSubTab === 'function') {
+                                window.showCommandVaultSubTab(commandVaultTab);
                             }
                         }
                     });
@@ -12902,31 +13346,18 @@
                 const is6 = !!document.getElementById('mtFeature6ghz')?.checked;
                 const isTachyon = !!document.getElementById('mtFeatureTachyon')?.checked;
                 const isUbWave = !!document.getElementById('mtFeatureUbWave')?.checked;
-                const isTarana = !!document.getElementById('mtFeatureTarana')?.checked;
-                const is326 = !!document.getElementById('mtFeatureCrs326')?.checked;
 
                 const section = document.getElementById('mtTowerFeatureSubnets');
                 const sixRow = document.getElementById('mt6ghzSubnetRow');
                 const ubRow = document.getElementById('mtUbWaveSubnetRow');
-                const crs326Row = document.getElementById('mtCrs326SubnetRow');
-                const taranaRow = document.getElementById('mtTaranaConfigRow');
-                const deltaRow = document.getElementById('mtTaranaDeltaRow');
 
                 const showSix = isTower && (is6 || isTachyon);
                 const showUb = isTower && isUbWave;
-                const show326 = isTower && is326;
-                const showTarana = isTarana;
-                const showSection = showSix || showUb || show326 || showTarana;
+                const showSection = showSix || showUb;
 
                 if (section) section.style.display = showSection ? 'block' : 'none';
                 if (sixRow) sixRow.style.display = showSix ? 'block' : 'none';
                 if (ubRow) ubRow.style.display = showUb ? 'block' : 'none';
-                if (crs326Row) crs326Row.style.display = show326 ? 'block' : 'none';
-                if (taranaRow) taranaRow.style.display = showTarana ? 'block' : 'none';
-
-                // Show/hide Delta port based on sector count
-                const sectorCount = parseInt(document.getElementById('mtTaranaSectorCount')?.value || '3', 10);
-                if (deltaRow) deltaRow.style.display = (showTarana && sectorCount >= 4) ? 'block' : 'none';
             }
 
             function syncMtConfigTypeUI() {
@@ -13027,38 +13458,18 @@
 
             function refreshModernPortOptions() {
                 const policy = getCurrentMtPortPolicy();
-                const bhPorts = policy.backhaulPorts || [];
-                const swPorts = policy.switchPorts || [];
-                const backhaulOptions = bhPorts.map((p) => `<option value="${p}">${p}</option>`).join('');
-                const switchOptions = swPorts.map((p) => `<option value="${p}">${p}</option>`).join('');
+                const backhaulOptions = (policy.backhaulPorts || []).map((p) => `<option value="${p}">${p}</option>`).join('');
+                const switchOptions = (policy.switchPorts || []).map((p) => `<option value="${p}">${p}</option>`).join('');
 
                 document.querySelectorAll('#mtBackhaulRows .mt-backhaul-row [data-field="port"]').forEach((sel) => {
                     const prev = sel.value;
                     sel.innerHTML = backhaulOptions;
-                    if (bhPorts.includes(prev)) sel.value = prev;
+                    if ((policy.backhaulPorts || []).includes(prev)) sel.value = prev;
                 });
                 document.querySelectorAll('#mtSwitchRows .mt-switch-row [data-field="port"]').forEach((sel) => {
                     const prev = sel.value;
                     sel.innerHTML = switchOptions;
-                    if (swPorts.includes(prev)) sel.value = prev;
-                });
-
-                // ── Tarana sector port selects: use backhaul port list with smart defaults ──
-                const taranaSectorIds = ['mtTaranaAlphaPort', 'mtTaranaBetaPort', 'mtTaranaGammaPort', 'mtTaranaDeltaPort'];
-                // Pick defaults from the upper range of available backhaul ports (offset -4 from end)
-                const defaultOffsets = bhPorts.length >= 4
-                    ? [bhPorts.length - 4, bhPorts.length - 3, bhPorts.length - 2, bhPorts.length - 1]
-                    : [0, Math.min(1, bhPorts.length - 1), Math.min(2, bhPorts.length - 1), Math.min(3, bhPorts.length - 1)];
-                taranaSectorIds.forEach((id, idx) => {
-                    const sel = document.getElementById(id);
-                    if (!sel) return;
-                    const prev = sel.value;
-                    sel.innerHTML = backhaulOptions;
-                    if (bhPorts.includes(prev)) {
-                        sel.value = prev;
-                    } else {
-                        sel.value = bhPorts[defaultOffsets[idx]] || bhPorts[0] || '';
-                    }
+                    if ((policy.switchPorts || []).includes(prev)) sel.value = prev;
                 });
             }
 
@@ -13614,18 +14025,13 @@
                     });
                     zipDownloadBtn.dataset.bound = '1';
                 }
-                ['mtFeatureTachyon', 'mtFeature6ghz', 'mtFeatureUbWave', 'mtFeatureTarana', 'mtFeatureCrs326'].forEach((id) => {
+                ['mtFeatureTachyon', 'mtFeature6ghz', 'mtFeatureUbWave'].forEach((id) => {
                     const cb = document.getElementById(id);
                     if (cb && !cb.dataset.bound) {
                         cb.addEventListener('change', syncMtFeatureSubnetVisibility);
                         cb.dataset.bound = '1';
                     }
                 });
-                const sectorCountSel = document.getElementById('mtTaranaSectorCount');
-                if (sectorCountSel && !sectorCountSel.dataset.bound) {
-                    sectorCountSel.addEventListener('change', syncMtFeatureSubnetVisibility);
-                    sectorCountSel.dataset.bound = '1';
-                }
 
                 const rows = document.querySelectorAll('#mtBackhaulRows .mt-backhaul-row');
                 if (rows.length === 0) {
@@ -13824,28 +14230,6 @@
                 };
                 if (is6ghz || isTachyon) payload["6ghz_subnet"] = sixGhzSubnet;
                 if (isUbWave) payload["ub_wave_subnet"] = ubWaveSubnet;
-                if (is326) {
-                    const crs326Subnet = ensureCIDR((document.getElementById('mtCrs326Subnet')?.value || '').trim(), 29);
-                    if (!crs326Subnet) throw new Error('CRS326 is enabled. Please provide a valid CRS326 Mgmt Subnet.');
-                    payload["326_mgmt_subnet"] = crs326Subnet;
-                }
-                if (isTarana) {
-                    const taranaSubnet = ensureCIDR((document.getElementById('mtTaranaSubnet')?.value || document.getElementById('mtBng2TaranaSubnet')?.value || '').trim(), 29);
-                    if (!taranaSubnet) throw new Error('Tarana is enabled. Please provide a valid UNICORN MGMT Subnet.');
-                    payload["tarana_subnet"] = taranaSubnet;
-                    payload["unicorn_mgmt_subnet"] = taranaSubnet;
-                    payload["tarana_sector_count"] = parseInt(document.getElementById('mtTaranaSectorCount')?.value || '3', 10);
-                    payload["tarana_sector_start"] = 0;
-                    const sectors = [
-                        { name: "Alpha", port: (document.getElementById('mtTaranaAlphaPort')?.value || 'sfp-sfpplus8').trim() },
-                        { name: "Beta", port: (document.getElementById('mtTaranaBetaPort')?.value || 'sfp-sfpplus9').trim() },
-                        { name: "Gamma", port: (document.getElementById('mtTaranaGammaPort')?.value || 'sfp-sfpplus10').trim() }
-                    ];
-                    if (payload["tarana_sector_count"] >= 4) {
-                        sectors.push({ name: "Delta", port: (document.getElementById('mtTaranaDeltaPort')?.value || 'sfp-sfpplus11').trim() });
-                    }
-                    payload["tarana_sectors"] = sectors;
-                }
                 return payload;
             }
 
@@ -13882,47 +14266,14 @@
                     bbu_s1_subnet: ensureCIDR((document.getElementById('mtBng2BbuS1')?.value || '').trim(), 29),
                     bbu_mgmt_subnet: ensureCIDR((document.getElementById('mtBng2BbuMgmt')?.value || '').trim(), 29),
                     is_tarana: !!document.getElementById('mtFeatureTarana')?.checked,
-                    tarana_subnet: ensureCIDR((document.getElementById('mtTaranaSubnet')?.value || document.getElementById('mtBng2TaranaSubnet')?.value || '').trim(), 29),
-                    unicorn_mgmt_subnet: ensureCIDR((document.getElementById('mtTaranaSubnet')?.value || document.getElementById('mtBng2TaranaSubnet')?.value || '').trim(), 29),
-                    tarana_sector_count: parseInt(document.getElementById('mtTaranaSectorCount')?.value || document.getElementById('mtBng2TaranaSectors')?.value || '3', 10),
+                    tarana_subnet: ensureCIDR((document.getElementById('mtBng2TaranaSubnet')?.value || '').trim(), 29),
+                    tarana_sector_count: parseInt(document.getElementById('mtBng2TaranaSectors')?.value || '3', 10),
                     tarana_sector_start: 0,
-                    tarana_sectors: (function() {
-                        const sectors = [
-                            { name: "Alpha", port: (document.getElementById('mtTaranaAlphaPort')?.value || 'sfp-sfpplus9').trim() },
-                            { name: "Beta", port: (document.getElementById('mtTaranaBetaPort')?.value || 'sfp-sfpplus10').trim() },
-                            { name: "Gamma", port: (document.getElementById('mtTaranaGammaPort')?.value || 'sfp-sfpplus11').trim() }
-                        ];
-                        const cnt = parseInt(document.getElementById('mtTaranaSectorCount')?.value || '3', 10);
-                        if (cnt >= 4) sectors.push({ name: "Delta", port: (document.getElementById('mtTaranaDeltaPort')?.value || 'sfp-sfpplus6').trim() });
-                        return sectors;
-                    })(),
                     is_326: !!document.getElementById('mtFeatureCrs326')?.checked,
                     is_6ghz: !!document.getElementById('mtFeature6ghz')?.checked,
-                    is_ub_wave: !!document.getElementById('mtFeatureUbWave')?.checked,
                     enable_contractor_login: !!document.getElementById('mtFeatureContractor')?.checked,
                     backhauls
                 };
-
-                // 6GHz subnet
-                if (payload.is_6ghz) {
-                    const sixGhzSubnet = ensureCIDR((document.getElementById('mt6ghzSubnet')?.value || '').trim(), 29);
-                    if (!sixGhzSubnet) throw new Error('6 GHz is enabled. Please provide a valid 6 GHz Subnet.');
-                    payload["6ghz_subnet"] = sixGhzSubnet;
-                }
-                // UB Wave subnet
-                if (payload.is_ub_wave) {
-                    const ubWaveSubnet = ensureCIDR((document.getElementById('mtUbWaveSubnet')?.value || '').trim(), 29);
-                    if (!ubWaveSubnet) throw new Error('UB WAVE is enabled. Please provide a valid UB WAVE Subnet.');
-                    payload["ub_wave_subnet"] = ubWaveSubnet;
-                }
-                // CRS326 Mgmt subnet
-                if (payload.is_326) {
-                    const crs326Subnet = ensureCIDR((document.getElementById('mtCrs326Subnet')?.value || '').trim(), 29);
-                    if (!crs326Subnet) throw new Error('CRS326 is enabled. Please provide a valid CRS326 Mgmt Subnet.');
-                    payload["326_mgmt_subnet"] = crs326Subnet;
-                }
-
-                return payload;
             }
 
             function buildMtBackendPayload(configType) {
@@ -13941,18 +14292,7 @@
                 const allowedBackhaulPorts = new Set(policy.backhaulPorts || []);
                 const managementPort = policy.managementPort || 'ether1';
                 const taranaEnabled = !!document.getElementById('mtFeatureTarana')?.checked;
-                const taranaReserved = new Set();
-                if (taranaEnabled) {
-                    ['mtTaranaAlphaPort', 'mtTaranaBetaPort', 'mtTaranaGammaPort'].forEach(id => {
-                        const v = document.getElementById(id)?.value;
-                        if (v) taranaReserved.add(v);
-                    });
-                    const cnt = parseInt(document.getElementById('mtTaranaSectorCount')?.value || '3', 10);
-                    if (cnt >= 4) {
-                        const v = document.getElementById('mtTaranaDeltaPort')?.value;
-                        if (v) taranaReserved.add(v);
-                    }
-                }
+                const taranaReserved = new Set(['sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8']);
 
                 for (const p of switchPorts) {
                     if (!allowedSwitchPorts.has(p)) {
@@ -22817,6 +23157,77 @@ Ready for translation!`);
         })();
 
         // ========================================
+        // COMMAND VAULT
+        // ========================================
+        window.showCommandVaultSubTab = function (tabKey) {
+            const sections = document.querySelectorAll('#command-vault-pane .command-vault-section');
+            const tabs = document.querySelectorAll('#command-vault-pane .command-vault-tab');
+            sections.forEach(section => {
+                const isActive = section.id === `command-vault-${tabKey}-section`;
+                section.classList.toggle('active', isActive);
+                section.style.display = isActive ? 'block' : 'none';
+            });
+            tabs.forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.commandVaultTab === tabKey);
+            });
+        };
+
+        window.filterNokiaVaultCommands = function () {
+            const query = (document.getElementById('nokiaCommandSearch')?.value || '').trim().toLowerCase();
+            const cards = document.querySelectorAll('#command-vault-nokia-section .nokia-command-card');
+            cards.forEach(card => {
+                const searchText = ((card.dataset.search || '') + ' ' + card.textContent).toLowerCase();
+                card.style.display = !query || searchText.includes(query) ? '' : 'none';
+            });
+        };
+
+        window.filterCiscoVaultCommands = function () {
+            const query = (document.getElementById('ciscoCommandSearch')?.value || '').trim().toLowerCase();
+            const cards = document.querySelectorAll('#command-vault-cisco-section .cisco-command-card');
+            cards.forEach(card => {
+                const searchText = ((card.dataset.search || '') + ' ' + card.textContent).toLowerCase();
+                card.style.display = !query || searchText.includes(query) ? '' : 'none';
+            });
+        };
+
+        window.filterMikrotikVaultCommands = function () {
+            const query = (document.getElementById('mikrotikCommandSearch')?.value || '').trim().toLowerCase();
+            const cards = document.querySelectorAll('#command-vault-mikrotik-section .mikrotik-command-card');
+            cards.forEach(card => {
+                const searchText = ((card.dataset.search || '') + ' ' + card.textContent).toLowerCase();
+                card.style.display = !query || searchText.includes(query) ? '' : 'none';
+            });
+        };
+
+        window.copyVaultCommand = async function (btn, commandText) {
+            const value = (commandText || '').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+            try {
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(value);
+                } else {
+                    const area = document.createElement('textarea');
+                    area.value = value;
+                    document.body.appendChild(area);
+                    area.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(area);
+                }
+                const original = btn.textContent;
+                btn.textContent = 'Copied';
+                setTimeout(() => { btn.textContent = original; }, 1200);
+            } catch (error) {
+                console.error('[COMMAND VAULT] Copy failed:', error);
+                alert('Failed to copy command.');
+            }
+        };
+
+        function initCommandVaultTabs() {
+            if (typeof window.showCommandVaultSubTab === 'function') {
+                window.showCommandVaultSubTab('nokia');
+            }
+        }
+
+        // ========================================
         // FTTH HOME (OLT CONFIG + BNG SUB TABS)
         // ========================================
 
@@ -22978,9 +23389,11 @@ Ready for translation!`);
 
         document.addEventListener('DOMContentLoaded', () => {
             initFtthHomeTabs();
+            initCommandVaultTabs();
         });
         window.addEventListener('load', () => {
             if (typeof initFtthHomeTabs === 'function') initFtthHomeTabs();
+            if (typeof initCommandVaultTabs === 'function') initCommandVaultTabs();
         });
 
         // ========================================
@@ -24576,9 +24989,16 @@ Ready for translation!`);
                             lowerMsg.includes('not ready') ||
                             lowerMsg.includes('defer') ||
                             lowerMsg.includes('socket is closed') ||
+                            lowerMsg.includes('channel closed') ||
+                            lowerMsg.includes('connection reset') ||
+                            lowerMsg.includes('broken pipe') ||
                             lowerMsg.includes('unable to connect to port 22') ||
+                            lowerMsg.includes('unable to connect') ||
+                            lowerMsg.includes('connection failed') ||
                             lowerMsg.includes('connection timeout') ||
+                            lowerMsg.includes('timed out') ||
                             lowerMsg.includes('authentication failed') ||
+                            lowerMsg.includes('device did not recover') ||
                             lowerMsg.includes('reachability check') ||
                             lowerMsg.includes('availability check');
                         const normalizedStatus = aviatNormalizeStatus(radio.status);
@@ -24636,7 +25056,12 @@ Ready for translation!`);
                             } else {
                                 radio.status = 'error';
                             }
-                        } else if (data.level === 'error' && lowerMsg.includes('failed') && !isTransientFailure) {
+                        } else if (
+                            data.level === 'error' &&
+                            lowerMsg.includes('failed') &&
+                            !isTransientFailure &&
+                            !isTransientFailureMessage
+                        ) {
                             radio.status = 'error';
                         }
                     }

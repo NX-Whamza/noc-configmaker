@@ -513,6 +513,11 @@ def _aviat_version_tuple(version):
         parts.append(0)
     return tuple(parts)
 
+
+def _aviat_firmware_is_final(version):
+    target = _aviat_extract_version(getattr(AVIAT_CONFIG, "firmware_final_version", "6.1.0"))
+    return _aviat_version_tuple(_aviat_extract_version(version)) >= _aviat_version_tuple(target)
+
 def _aviat_queue_update_from_result(result, username=None):
     if not result:
         return
@@ -11796,12 +11801,9 @@ def get_activity():
 # ========================================
 
 def _aviat_should_log(result):
-    status = (result or {}).get('status')
-    if _aviat_is_transient_result(result):
-        return False
-    if status in ('scheduled', 'manual', 'aborted', 'loading', 'pending_verify', 'reboot_required', 'reboot_pending', 'rebooting'):
-        return False
-    return True
+    status = _aviat_status_from_result(result or {})
+    # Only write terminal outcomes to activity history.
+    return status in ("success", "error")
 
 def _log_aviat_activity(result):
     try:
@@ -11819,7 +11821,8 @@ def _log_aviat_activity(result):
         site_name = result.get('ip') or 'Unknown'
         device = 'Aviat Backhaul'
         routeros = result.get('firmware_version_after') or result.get('firmware_version_before') or ''
-        success = 1 if result.get('success') else 0
+        normalized_status = _aviat_status_from_result(result)
+        success = 1 if normalized_status == "success" else 0
         c.execute('''INSERT INTO activities 
                      (username, activity_type, device, site_name, routeros_version, success, timestamp, timestamp_unix)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
@@ -11854,6 +11857,24 @@ def _aviat_result_dict(result, username=None):
         'firmware_version_after': result.firmware_version_after,
         'error': result.error
     }
+    normalized_status = _aviat_status_from_result(payload)
+    payload['raw_status'] = payload['status']
+    payload['status'] = normalized_status
+    if normalized_status == "success":
+        payload['success'] = True
+    elif normalized_status in (
+        "loading",
+        "pending_verify",
+        "scheduled",
+        "manual",
+        "pending",
+        "reboot_required",
+        "reboot_pending",
+        "rebooting",
+    ):
+        # Transitional/precheck states are not hard failures.
+        payload['success'] = True
+
     if username:
         payload['username'] = username
     return payload
@@ -12387,7 +12408,7 @@ def aviat_check_status():
         ):
             # Do not downgrade in-progress upgrade radios to hard-failed due transient SSH loss.
             continue
-        firmware_ok = bool(res.get("firmware") and str(res.get("firmware")).startswith("6."))
+        firmware_ok = _aviat_firmware_is_final(res.get("firmware"))
         snmp_ok = bool(res.get("snmp_ok"))
         buffer_ok = bool(res.get("buffer_ok"))
         license_ok = res.get("license_ok")
