@@ -142,7 +142,16 @@ class MTBNG2Config:
                     )
 
             self.is_326 = params.get("is_326", False)
+            if self.is_326:
+                self.crs_326_mgmt_subnet = IPNetwork(params["326_mgmt_subnet"])
+
             self.is_6ghz = params.get("is_6ghz", False)
+            if self.is_6ghz:
+                self.six_ghz_subnet = IPNetwork(params["6ghz_subnet"])
+
+            self.is_ub_wave = params.get("is_ub_wave", False)
+            if self.is_ub_wave:
+                self.ub_wave_subnet = IPNetwork(params["ub_wave_subnet"])
 
             self.enable_contractor_login = params.get("enable_contractor_login", False)
 
@@ -236,6 +245,8 @@ class MTBNG2Config:
         params["is_tarana"] = self.is_tarana
         params["is_switchless"] = self.is_switchless
         params["is_326"] = self.is_326
+        params["is_6ghz"] = self.is_6ghz
+        params["is_ub_wave"] = self.is_ub_wave
         params["enable_contractor_login"] = self.enable_contractor_login
 
         return params
@@ -323,6 +334,42 @@ class MTBNG2Config:
 
         return params
 
+    def get_6ghz_params(self, params=None):
+        if not params:
+            params = {}
+
+        params["six_ghz_network"] = self.six_ghz_subnet.network
+        params["six_ghz_address"] = str(self.six_ghz_subnet.network + 1)
+        params["six_ghz_prefixlen"] = self.six_ghz_subnet.prefixlen
+        params["six_ghz_range_low"] = str(self.six_ghz_subnet.network + 2)
+        params["six_ghz_range_high"] = str(self.six_ghz_subnet.broadcast - 1)
+
+        return params
+
+    def get_ub_wave_params(self, params=None):
+        if not params:
+            params = {}
+
+        params["ub_wave_network"] = self.ub_wave_subnet.network
+        params["ub_wave_address"] = str(self.ub_wave_subnet.network + 1)
+        params["ub_wave_prefixlen"] = self.ub_wave_subnet.prefixlen
+        params["ub_wave_range_low"] = str(self.ub_wave_subnet.network + 2)
+        params["ub_wave_range_high"] = str(self.ub_wave_subnet.broadcast - 1)
+
+        return params
+
+    def get_326_params(self, params=None):
+        if not params:
+            params = {}
+
+        params["crs_326_mgmt_network"] = self.crs_326_mgmt_subnet.network
+        params["crs_326_mgmt_mask_bits"] = (
+            self.crs_326_mgmt_subnet.netmask.netmask_bits()
+        )
+        params["crs_326_mgmt_address"] = self.crs_326_mgmt_subnet
+
+        return params
+
     def generate_config(self):
         params = self.get_base_params()
         params = self.get_backhaul_params(params)
@@ -331,6 +378,12 @@ class MTBNG2Config:
             params = self.get_bbu_params(params)
         if self.is_tarana:
             params = self.get_tarana_params(params)
+        if self.is_6ghz:
+            params = self.get_6ghz_params(params)
+        if self.is_ub_wave:
+            params = self.get_ub_wave_params(params)
+        if self.is_326:
+            params = self.get_326_params(params)
 
         template = self.jinja_env.get_template(
             ROUTER_TYPES[self.router_type]["config_template"]

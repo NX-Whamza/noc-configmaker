@@ -26,6 +26,15 @@ add address={{ bh.bhip }}/{{ bh.bhip_sub }} interface={{ bh.port }} network={{ b
 {% if is_tarana %}
 add address={{ unicorn_mgmt_ip }}/{{ unicorn_mgmt_prefix }} comment="UNICORN MGMT" interface="UNICORN MGMT" network={{ unicorn_mgmt_network }}
 {% endif %}
+{% if is_6ghz %}
+add address={{ six_ghz_address }}/{{ six_ghz_prefixlen }} interface=bridge3000 network={{ six_ghz_network }} comment="6Ghz Equipment"
+{% endif %}
+{% if is_ub_wave %}
+add address={{ ub_wave_address }}/{{ ub_wave_prefixlen }} interface=bridge3000 network={{ ub_wave_network }} comment=UB-WAVE
+{% endif %}
+{% if is_326 %}
+add address={{ crs_326_mgmt_address.ip }}/{{ crs_326_mgmt_mask_bits }} interface=bridge3000 network={{ crs_326_mgmt_network }} comment=CRS326-MGMT
+{% endif %}
 
 /routing ospf instance
 add name=default-v2 router-id={{ loopip }}
@@ -38,6 +47,12 @@ add area=area{{ OSPF_area }} interfaces={{ bh.port }} networks={{ bh.bh_net }}/{
 {% endfor %}
 {% if is_tarana %}
 add area=area{{ OSPF_area }} disabled=no interfaces="UNICORN MGMT" networks={{ unicorn_mgmt_network }}/{{ unicorn_mgmt_prefix }} priority=1
+{% endif %}
+{% if is_6ghz %}
+add area=area{{ OSPF_area }} comment="6Ghz Equipment" cost=10 disabled=no interfaces=bridge3000 networks={{ six_ghz_network }}/{{ six_ghz_prefixlen }} priority=1
+{% endif %}
+{% if is_ub_wave %}
+add area=area{{ OSPF_area }} comment="UB WAVE" cost=10 disabled=no interfaces=bridge3000 networks={{ ub_wave_network }}/{{ ub_wave_prefixlen }} priority=1
 {% endif %}
 
 /mpls interface

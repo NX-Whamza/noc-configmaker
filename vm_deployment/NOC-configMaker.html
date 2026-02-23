@@ -13898,9 +13898,31 @@
                     })(),
                     is_326: !!document.getElementById('mtFeatureCrs326')?.checked,
                     is_6ghz: !!document.getElementById('mtFeature6ghz')?.checked,
+                    is_ub_wave: !!document.getElementById('mtFeatureUbWave')?.checked,
                     enable_contractor_login: !!document.getElementById('mtFeatureContractor')?.checked,
                     backhauls
                 };
+
+                // 6GHz subnet
+                if (payload.is_6ghz) {
+                    const sixGhzSubnet = ensureCIDR((document.getElementById('mt6ghzSubnet')?.value || '').trim(), 29);
+                    if (!sixGhzSubnet) throw new Error('6 GHz is enabled. Please provide a valid 6 GHz Subnet.');
+                    payload["6ghz_subnet"] = sixGhzSubnet;
+                }
+                // UB Wave subnet
+                if (payload.is_ub_wave) {
+                    const ubWaveSubnet = ensureCIDR((document.getElementById('mtUbWaveSubnet')?.value || '').trim(), 29);
+                    if (!ubWaveSubnet) throw new Error('UB WAVE is enabled. Please provide a valid UB WAVE Subnet.');
+                    payload["ub_wave_subnet"] = ubWaveSubnet;
+                }
+                // CRS326 Mgmt subnet
+                if (payload.is_326) {
+                    const crs326Subnet = ensureCIDR((document.getElementById('mtCrs326Subnet')?.value || '').trim(), 29);
+                    if (!crs326Subnet) throw new Error('CRS326 is enabled. Please provide a valid CRS326 Mgmt Subnet.');
+                    payload["326_mgmt_subnet"] = crs326Subnet;
+                }
+
+                return payload;
             }
 
             function buildMtBackendPayload(configType) {
