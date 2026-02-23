@@ -22,6 +22,7 @@ import json
 import subprocess
 import socket
 import shutil
+import ipaddress
 import requests
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -1109,10 +1110,23 @@ def check_subnet_mask(client: AviatSSHClient) -> Tuple[Optional[bool], str]:
     output = _get_subnet_output(client)
     if not output:
         return None, "No output"
+
+    # Prefer explicit mask entries when available.
     match = re.search(r"(?:subnet\s+mask|subnet-mask|mask)\s*[:=]?\s*([0-9.]+)", output, re.I)
-    if not match:
+    actual = match.group(1) if match else None
+
+    # Fallback for UI/CLI variants that expose only CIDR (e.g. 10.249.73.67/29).
+    if not actual:
+        cidr = re.search(r"\b\d{1,3}(?:\.\d{1,3}){3}/(\d{1,2})\b", output)
+        if cidr:
+            try:
+                prefix = int(cidr.group(1))
+                actual = str(ipaddress.IPv4Network(f"0.0.0.0/{prefix}", strict=False).netmask)
+            except Exception:
+                actual = None
+
+    if not actual:
         return None, "Mask not found"
-    actual = match.group(1)
     return actual == expected, actual
 
 
@@ -1123,16 +1137,39 @@ def check_license_bundles(client: AviatSSHClient) -> Tuple[Optional[bool], str]:
     )
     if not output:
         return None, "No output"
-    bundles = []
-    for line in output.splitlines():
-        line = line.strip()
-        if not line or line.lower() in ("bundle", "entity", "name"):
+    bundles: List[str] = []
+    header_markers = {
+        "bundle",
+        "bundles",
+        "entity",
+        "name",
+        "installed",
+        "licenses",
+        "license",
+        "features",
+        "serial",
+        "numbers",
+    }
+    token_re = re.compile(r"\b[A-Z][A-Z0-9_]*(?:-[A-Z0-9_]+)+\b")
+
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line:
             continue
-        if re.match(r"^-{3,}$", line):
+        lowered = line.lower()
+        if lowered in header_markers:
             continue
-        if re.match(r"^[A-Za-z0-9-]+$", line):
-            if line.lower() != "trial":
-                bundles.append(line)
+        if re.match(r"^[=\-]{3,}$", line):
+            continue
+
+        # Extract bundle tokens from table-style or sentence-style outputs.
+        for token in token_re.findall(line.upper()):
+            if token == "TRIAL":
+                continue
+            # Keep likely bundle names only.
+            if token.startswith(("WZ", "WZF", "WZL", "WZE", "WZM", "WZH", "WZC")):
+                bundles.append(token)
+
     if bundles:
         return True, ", ".join(sorted(set(bundles)))
     if "trial" in output.lower():
