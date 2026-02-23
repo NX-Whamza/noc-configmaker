@@ -49,9 +49,12 @@ COMPLIANCE_ORDER = [
     "user_aaa",
     "user_groups",          # hardcoded fallback
     "user_profiles",        # GitLab: combined user groups
+    "users",                # GitLab: explicit /user block
     "dhcp_options",
     "radius",               # GitLab: combined radius + LDP filters
     "ldp_filters",          # hardcoded fallback
+    "scripts",              # GitLab: compliance script section
+    "scheduler",            # GitLab: compliance scheduler section
     "watchdog_timer",       # GitLab: watchdog timer
     "sys_note",             # GitLab: system note
 ]

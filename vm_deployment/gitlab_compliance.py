@@ -334,22 +334,91 @@ def _normalise_section_name(header_line: str) -> str:
     key  = text.lower().replace(" ", "_").replace("-", "_")
     # collapse repeated underscores
     import re as _re
+    key = _re.sub(r"[^a-z0-9_]+", "_", key)
     key = _re.sub(r"_+", "_", key).strip("_")
     return key or "unknown"
 
 
-# Section headers: lines that start with  ##  or  # ---  or  # ===
 import re as _section_re
-_SECTION_HEADER_RE = _section_re.compile(
-    r"^#[-=\s]{2,}|^##\s",
-    _section_re.MULTILINE,
-)
 
-# Also detect  # BLOCK_NAME  style (all-caps comment line, at least 3 chars)
-_ALLCAPS_HEADER_RE = _section_re.compile(
-    r"^#\s+([A-Z][A-Z0-9 _/]{2,})\s*$",
-    _section_re.MULTILINE,
-)
+_DECORATED_HEADER_RE = _section_re.compile(r"^#[-=\s]{2,}|^##\s")
+_ALLCAPS_HEADER_RE = _section_re.compile(r"^#\s*([A-Z][A-Z0-9 _/\-()]{2,})\s*$")
+
+
+def _is_section_header(stripped: str) -> bool:
+    """
+    Detect comment headers that start a new compliance section.
+
+    We intentionally support:
+      - # --- SECTION ---
+      - ## SECTION
+      - # FIREWALL - INPUT CHAIN
+      - # FIREALL - FORWARD (legacy typo in source script)
+    """
+    if not stripped.startswith("#"):
+        return False
+    if _DECORATED_HEADER_RE.match(stripped):
+        return True
+    if _ALLCAPS_HEADER_RE.match(stripped):
+        return True
+
+    body = stripped.lstrip("#").strip()
+    if not body:
+        return False
+    if body[0] in ("/", ":", "."):
+        # Commented command, not a section header.
+        return False
+    if len(body) > 100:
+        return False
+    if not any(ch.isalpha() for ch in body):
+        return False
+    # Fallback for mixed-case headings like:
+    #   # ENGINEERING COMPLIANCE (dynamic — GitLab-first)
+    upper_body = body.upper()
+    if upper_body.startswith("ENGINEERING COMPLIANCE"):
+        return True
+    if upper_body.startswith((
+        "VARIABLES",
+        "IP SERVICES",
+        "DNS",
+        "FIREWALL",
+        "FIREALL",
+        "SIP ALG",
+        "CLOCK",
+        "SNMP",
+        "WATCHDOG",
+        "AUTO UPGRADE",
+        "UDP CONNECTION TRACKING",
+        "WEB PROXY",
+        "VPLS EDGE",
+        "LOGGING",
+        "USER AAA",
+        "USER PROFILES",
+        "USER GROUP",
+        "USERS",
+        "AAA",
+        "DHCP",
+        "RADIUS",
+        "LDP",
+        "MPLS LDP",
+        "SCRIPTS",
+        "SCHEDULER",
+        "SYS NOTE",
+        "SYSTEM NOTE",
+    )):
+        return True
+    # Generic mixed-case header fallback (e.g. "FIREWALL ACLs", "LDP Filters")
+    # Treat short, command-free comment lines as section headers.
+    if "/" in body or "=" in body or ":" in body:
+        return False
+    words = [w for w in body.replace("-", " ").replace("_", " ").split() if w]
+    if not words or len(words) > 8:
+        return False
+    alpha_chars = [c for c in body if c.isalpha()]
+    if not alpha_chars:
+        return False
+    upper_ratio = sum(1 for c in alpha_chars if c.isupper()) / len(alpha_chars)
+    return upper_ratio >= 0.55
 
 
 def _parse_compliance_script(
@@ -368,24 +437,37 @@ def _parse_compliance_script(
     # Build a mapping from whatever section names appear in the file to the
     # canonical keys used by COMPLIANCE_ORDER.
     CANONICAL_MAP = {
+        # Variables
+        "variables":              "variables",
+        # IP services
+        "ip_services":            "ip_services",
         # DNS
         "dns": "dns",
         "dns_servers": "dns",
         # Firewall
+        "firewall_acls":          "firewall_address_lists",
+        "firewall_acls_s":        "firewall_address_lists",
         "firewall_address_lists": "firewall_address_lists",
         "firewall_address_list":  "firewall_address_lists",
         "address_lists":          "firewall_address_lists",
         "firewall_filter":        "firewall_filter_input",
         "firewall_filter_input":  "firewall_filter_input",
+        "firewall_input_chain":   "firewall_filter_input",
         "firewall_input":         "firewall_filter_input",
         "firewall_raw":           "firewall_raw",
         "raw":                    "firewall_raw",
         "firewall_forward":       "firewall_forward",
+        "fireall_forward":        "firewall_forward",
         "forward":                "firewall_forward",
         "firewall_nat":           "firewall_nat",
         "nat":                    "firewall_nat",
         "firewall_mangle":        "firewall_mangle",
         "mangle":                 "firewall_mangle",
+        # Service-port / proxy / conntrack / edge settings
+        "sip_alg_off":            "sip_alg_off",
+        "udp_connection_tracking_timeout": "system_settings",
+        "web_proxy_off":          "web_proxy_off",
+        "vpls_edge_ports":        "vpls_edge_ports",
         # Clock / NTP
         "clock_ntp":              "clock_ntp",
         "ntp":                    "clock_ntp",
@@ -394,6 +476,8 @@ def _parse_compliance_script(
         # SNMP
         "snmp":                   "snmp",
         # System
+        "watchdog_timer":         "watchdog_timer",
+        "auto_upgrade":           "auto_upgrade",
         "system_settings":        "system_settings",
         "system":                 "system_settings",
         # VPLS
@@ -405,8 +489,11 @@ def _parse_compliance_script(
         # Users / AAA
         "user_aaa":               "user_aaa",
         "aaa":                    "user_aaa",
-        "users":                  "user_aaa",
+        "users":                  "users",
+        "aaa_users":              "user_aaa",
+        "users_1":                "users",
         "user_groups":            "user_groups",
+        "user_profiles":          "user_profiles",
         "groups":                 "user_groups",
         # DHCP
         "dhcp_options":           "dhcp_options",
@@ -415,8 +502,14 @@ def _parse_compliance_script(
         "radius":                 "radius",
         # LDP
         "ldp_filters":            "ldp_filters",
+        "ldp_filter":             "ldp_filters",
         "ldp":                    "ldp_filters",
         "mpls_ldp":               "ldp_filters",
+        # Script/scheduler/note blocks
+        "scripts":                "scripts",
+        "scheduler":              "scheduler",
+        "sys_note":               "sys_note",
+        "system_note":            "sys_note",
     }
 
     blocks: dict = {}
@@ -440,14 +533,7 @@ def _parse_compliance_script(
         stripped = line.strip()
         is_header = False
 
-        # Check for decorated headers: # --- or # === or ##
-        if _SECTION_HEADER_RE.match(stripped):
-            is_header = True
-            _flush(current_key, current_lines)
-            current_key   = _normalise_section_name(stripped)
-            current_lines = []
-        # Check for ALL-CAPS comment headers: # DNS SERVERS
-        elif _ALLCAPS_HEADER_RE.match(stripped):
+        if _is_section_header(stripped):
             is_header = True
             _flush(current_key, current_lines)
             current_key   = _normalise_section_name(stripped)

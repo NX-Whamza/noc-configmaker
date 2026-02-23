@@ -8034,9 +8034,12 @@ def inject_compliance_blocks(config: str, compliance_blocks: dict) -> str:
         'user_aaa',               # Both
         'user_groups',            # Hardcoded only
         'user_profiles',          # GitLab only (includes user groups)
+        'users',                  # GitLab only
         'dhcp_options',           # Both
         'radius',                 # Both (GitLab includes LDP filters)
         'ldp_filters',            # Hardcoded only
+        'scripts',                # GitLab only
+        'scheduler',              # GitLab only
         'sys_note',               # GitLab only
     ]
     
@@ -12879,8 +12882,7 @@ def get_compliance_blocks_api():
         return jsonify({'error': 'Compliance reference not available'}), 503
     try:
         loop_ip = request.args.get('loopback_ip', '10.0.0.1')
-        blocks = get_all_compliance_blocks(loop_ip)
-        # Determine source for diagnostics
+        blocks = None
         source = 'hardcoded'
         try:
             from gitlab_compliance import get_loader as _gl
@@ -12888,9 +12890,14 @@ def get_compliance_blocks_api():
             if loader.is_configured():
                 gl_blocks = loader.get_compliance_blocks_from_script(loopback_ip=loop_ip)
                 if gl_blocks:
+                    blocks = gl_blocks
                     source = 'gitlab'
         except Exception:
-            pass
+            blocks = None
+
+        if not blocks:
+            blocks = get_all_compliance_blocks(loop_ip)
+            source = 'hardcoded'
         return jsonify({
             'success': True,
             'source': source,
