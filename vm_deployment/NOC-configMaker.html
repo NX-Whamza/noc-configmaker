@@ -557,6 +557,100 @@
             color: #fff;
         }
 
+        .command-vault-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin: 20px 0 24px;
+        }
+
+        .command-vault-tab {
+            background: var(--input-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 8px 16px;
+            border-radius: 999px;
+            cursor: pointer;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            transition: all 0.2s ease;
+        }
+
+        .command-vault-tab.active {
+            background: var(--button-primary);
+            border-color: var(--button-primary);
+            color: #fff;
+        }
+
+        .command-vault-section {
+            display: none;
+        }
+
+        .command-vault-section.active {
+            display: block;
+        }
+
+        .command-search {
+            width: 100%;
+            max-width: 720px;
+            margin: 0 auto 20px;
+            display: block;
+        }
+
+        .command-guide-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 14px;
+        }
+
+        .command-guide-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 14px;
+        }
+
+        .command-guide-card h4 {
+            margin: 0 0 6px;
+            color: var(--text-color);
+        }
+
+        .command-guide-card p {
+            margin: 0 0 10px;
+            color: var(--text-color-secondary);
+            font-size: 13px;
+        }
+
+        .command-snippet {
+            background: #101725;
+            border: 1px solid #30405d;
+            color: #d8f0ff;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-family: "Courier New", monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            white-space: pre;
+        }
+
+        .command-card-actions {
+            margin-top: 10px;
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .command-copy-btn {
+            background: #1c78dd;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 10px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
         .ftth-home-dropdown {
             position: relative;
             display: inline-flex;
@@ -2561,6 +2655,23 @@
                             <span class="desc">FTTH BNG configuration generator</span>
                         </a>
                         <a data-tab="ftth" style="display:none;">FTTH</a>
+                    </div>
+                </div>
+                <div class="nav-item dropdown" data-tab="command-vault">
+                    <button>COMMAND VAULT</button>
+                    <div class="dropdown-menu">
+                        <a data-tab="command-vault" data-command-vault-tab="nokia">
+                            Nokia Command Vault
+                            <span class="desc">Nokia 7750 BNG command guide</span>
+                        </a>
+                        <a data-tab="command-vault" data-command-vault-tab="cisco">
+                            Cisco Command Vault
+                            <span class="desc">Cisco command quick reference (coming soon)</span>
+                        </a>
+                        <a data-tab="command-vault" data-command-vault-tab="mikrotik">
+                            MikroTik Command Vault
+                            <span class="desc">MikroTik command quick reference (coming soon)</span>
+                        </a>
                     </div>
                 </div>
                 <button class="nav-item" data-tab="cisco-config">CISCO CONFIG</button>
@@ -6609,6 +6720,244 @@
                 </div>
                 <div id="logBox" class="aviat-log" style="margin-top: 10px;">
                     <div class="aviat-log-entry"><span class="aviat-log-time">[--:--:--]</span> Ready. Add radio IPs to begin.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- COMMAND VAULT TAB -->
+    <div class="content-pane" id="command-vault-pane">
+        <div class="container">
+            <h1 style="text-align: center; margin-bottom: 8px;">Command Vault</h1>
+            <p style="text-align: center; color: var(--text-color-secondary); margin-bottom: 14px;">
+                Quick command references for day-to-day NOC operations.
+            </p>
+
+            <div class="command-vault-tabs">
+                <button type="button" class="command-vault-tab active" data-command-vault-tab="nokia"
+                    onclick="showCommandVaultSubTab('nokia')">Nokia Command Vault</button>
+                <button type="button" class="command-vault-tab" data-command-vault-tab="cisco"
+                    onclick="showCommandVaultSubTab('cisco')">Cisco Command Vault</button>
+                <button type="button" class="command-vault-tab" data-command-vault-tab="mikrotik"
+                    onclick="showCommandVaultSubTab('mikrotik')">MikroTik Command Vault</button>
+            </div>
+
+            <div id="command-vault-nokia-section" class="command-vault-section active">
+                <div class="section">
+                    <h2>Nokia 7750 - BNG Commands Guide</h2>
+                    <p style="margin: 0 0 14px; color: var(--text-color-secondary);">Common commands with quick copy.</p>
+                    <input id="nokiaCommandSearch" class="command-search" type="text"
+                        placeholder="Search commands (example: lease, sdp, stp, ipoe, sla)..."
+                        oninput="filterNokiaVaultCommands()">
+
+                    <div class="command-guide-grid">
+                        <article class="command-guide-card nokia-command-card" data-search="ipoe session sap plan ip session type mac">
+                            <h4>Lookup IPOE Session/SAP/Plan/IP/Session Type</h4>
+                            <p>MAC must be lowercase.</p>
+                            <div class="command-snippet">/show service id 300 ipoe session detail mac &lt;mac&gt;</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/show service id 300 ipoe session detail mac &lt;mac&gt;')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card nokia-command-card" data-search="lease dhcp mac lookup">
+                            <h4>Lookup Lease by MAC</h4>
+                            <p>Useful for DHCP lease verification in service 300.</p>
+                            <div class="command-snippet">/show service id 300 dhcp lease-state mac &lt;mac&gt;</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/show service id 300 dhcp lease-state mac &lt;mac&gt;')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card nokia-command-card" data-search="clear subscriber ipoe sap mac">
+                            <h4>Clear Subscriber IPOE Session</h4>
+                            <p>Requires subscriber SAP and MAC. No output after a successful clear.</p>
+                            <div class="command-snippet">/clear service id 300 ipoe session sap &lt;sap&gt; mac &lt;mac&gt;</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/clear service id 300 ipoe session sap &lt;sap&gt; mac &lt;mac&gt;')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card nokia-command-card" data-search="verify sdp tunnel vpls">
+                            <h4>Verify SDP Tunnels under BNG VPLS</h4>
+                            <p>Examples: 1245, 1249, 4245, 4249.</p>
+                            <div class="command-snippet">/show service id &lt;service-id&gt; sdp</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/show service id &lt;service-id&gt; sdp')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card nokia-command-card" data-search="verify stp vpls">
+                            <h4>Verify STP for BNG VPLS</h4>
+                            <p>Check bridge state and role quickly.</p>
+                            <div class="command-snippet">/show service id &lt;service-id&gt; stp</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/show service id &lt;service-id&gt; stp')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card nokia-command-card" data-search="speed plan sla profile statistics count">
+                            <h4>View Speed Plan Count per Subscriber Profile</h4>
+                            <p>Shows SLA profile counters.</p>
+                            <div class="command-snippet">/show subscriber-mgmt statistics sla-profiles</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/show subscriber-mgmt statistics sla-profiles')">Copy</button>
+                            </div>
+                        </article>
+                    </div>
+                </div>
+            </div>
+
+            <div id="command-vault-cisco-section" class="command-vault-section">
+                <div class="section">
+                    <h2>Cisco Command Vault - IOS/XE Quick Guide</h2>
+                    <p style="margin: 0 0 14px; color: var(--text-color-secondary);">Common troubleshooting and verification commands.</p>
+                    <input id="ciscoCommandSearch" class="command-search" type="text"
+                        placeholder="Search Cisco commands (example: bgp, ospf, interface, route, arp)..."
+                        oninput="filterCiscoVaultCommands()">
+
+                    <div class="command-guide-grid">
+                        <article class="command-guide-card cisco-command-card" data-search="interface status up down error">
+                            <h4>Interface Status Overview</h4>
+                            <p>Quick health check for all interfaces.</p>
+                            <div class="command-snippet">show interfaces status</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, 'show interfaces status')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card cisco-command-card" data-search="interface errors crc drops">
+                            <h4>Interface Error Counters</h4>
+                            <p>Use for CRC/input/output error investigation.</p>
+                            <div class="command-snippet">show interfaces &lt;interface&gt;</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, 'show interfaces &lt;interface&gt;')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card cisco-command-card" data-search="bgp summary neighbors">
+                            <h4>BGP Neighbor Summary</h4>
+                            <p>Checks BGP session state and prefixes.</p>
+                            <div class="command-snippet">show ip bgp summary</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, 'show ip bgp summary')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card cisco-command-card" data-search="ospf neighbor database route">
+                            <h4>OSPF Neighbor Check</h4>
+                            <p>Confirm adjacency and state.</p>
+                            <div class="command-snippet">show ip ospf neighbor</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, 'show ip ospf neighbor')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card cisco-command-card" data-search="route default lookup forwarding">
+                            <h4>Routing Table Lookup</h4>
+                            <p>Verify route selection and next hop.</p>
+                            <div class="command-snippet">show ip route &lt;prefix&gt;</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, 'show ip route &lt;prefix&gt;')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card cisco-command-card" data-search="arp mac address table">
+                            <h4>ARP / MAC Correlation</h4>
+                            <p>Map endpoint IP-to-MAC and MAC-to-port.</p>
+                            <div class="command-snippet">show ip arp | include &lt;ip-or-mac&gt;
+show mac address-table | include &lt;mac&gt;</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, 'show ip arp | include &lt;ip-or-mac&gt;\nshow mac address-table | include &lt;mac&gt;')">Copy</button>
+                            </div>
+                        </article>
+                    </div>
+                </div>
+            </div>
+
+            <div id="command-vault-mikrotik-section" class="command-vault-section">
+                <div class="section">
+                    <h2>MikroTik Command Vault - RouterOS Quick Guide</h2>
+                    <p style="margin: 0 0 14px; color: var(--text-color-secondary);">High-use RouterOS commands for NOC troubleshooting.</p>
+                    <input id="mikrotikCommandSearch" class="command-search" type="text"
+                        placeholder="Search MikroTik commands (example: bgp, ospf, interface, arp, logs)..."
+                        oninput="filterMikrotikVaultCommands()">
+
+                    <div class="command-guide-grid">
+                        <article class="command-guide-card mikrotik-command-card" data-search="interface status monitor">
+                            <h4>Interface Status and Traffic</h4>
+                            <p>Live status/throughput view per interface.</p>
+                            <div class="command-snippet">/interface print terse
+/interface monitor-traffic &lt;interface&gt;</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/interface print terse\n/interface monitor-traffic &lt;interface&gt;')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="bgp session peers">
+                            <h4>BGP Session State</h4>
+                            <p>RouterOS 7 BGP session summary.</p>
+                            <div class="command-snippet">/routing bgp session print detail</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/routing bgp session print detail')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="ospf neighbor route">
+                            <h4>OSPF Neighbor State</h4>
+                            <p>Verify adjacency and interface participation.</p>
+                            <div class="command-snippet">/routing ospf neighbor print detail</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/routing ospf neighbor print detail')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="route lookup fib table">
+                            <h4>Route Lookup</h4>
+                            <p>Check selected route and distance.</p>
+                            <div class="command-snippet">/ip route print detail where dst-address~"&lt;prefix&gt;"</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/ip route print detail where dst-address~\"&lt;prefix&gt;\"')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="arp mac dhcp lease host lookup">
+                            <h4>ARP and DHCP Lease Lookup</h4>
+                            <p>Find endpoint by MAC or IP quickly.</p>
+                            <div class="command-snippet">/ip arp print where address=&lt;ip&gt; or mac-address=&lt;mac&gt;
+/ip dhcp-server lease print where address=&lt;ip&gt; or mac-address=&lt;mac&gt;</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/ip arp print where address=&lt;ip&gt; or mac-address=&lt;mac&gt;\n/ip dhcp-server lease print where address=&lt;ip&gt; or mac-address=&lt;mac&gt;')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="logs critical error warning">
+                            <h4>Recent System Logs</h4>
+                            <p>Filter log output for failures quickly.</p>
+                            <div class="command-snippet">/log print where message~"error|critical|warning"</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/log print where message~\"error|critical|warning\"')">Copy</button>
+                            </div>
+                        </article>
+                    </div>
                 </div>
             </div>
         </div>
@@ -11572,9 +11921,13 @@
                         if (!link.classList.contains('disabled')) {
                             const tabId = link.getAttribute('data-tab');
                             const ftthHomeTab = link.getAttribute('data-ftth-home-tab');
+                            const commandVaultTab = link.getAttribute('data-command-vault-tab');
                             navigateToTab(tabId);
                             if (tabId === 'ftth-home' && ftthHomeTab && typeof window.showFtthHomeSubTab === 'function') {
                                 window.showFtthHomeSubTab(ftthHomeTab);
+                            }
+                            if (tabId === 'command-vault' && commandVaultTab && typeof window.showCommandVaultSubTab === 'function') {
+                                window.showCommandVaultSubTab(commandVaultTab);
                             }
                         }
                     });
@@ -22671,6 +23024,77 @@ Ready for translation!`);
         })();
 
         // ========================================
+        // COMMAND VAULT
+        // ========================================
+        window.showCommandVaultSubTab = function (tabKey) {
+            const sections = document.querySelectorAll('#command-vault-pane .command-vault-section');
+            const tabs = document.querySelectorAll('#command-vault-pane .command-vault-tab');
+            sections.forEach(section => {
+                const isActive = section.id === `command-vault-${tabKey}-section`;
+                section.classList.toggle('active', isActive);
+                section.style.display = isActive ? 'block' : 'none';
+            });
+            tabs.forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.commandVaultTab === tabKey);
+            });
+        };
+
+        window.filterNokiaVaultCommands = function () {
+            const query = (document.getElementById('nokiaCommandSearch')?.value || '').trim().toLowerCase();
+            const cards = document.querySelectorAll('#command-vault-nokia-section .nokia-command-card');
+            cards.forEach(card => {
+                const searchText = ((card.dataset.search || '') + ' ' + card.textContent).toLowerCase();
+                card.style.display = !query || searchText.includes(query) ? '' : 'none';
+            });
+        };
+
+        window.filterCiscoVaultCommands = function () {
+            const query = (document.getElementById('ciscoCommandSearch')?.value || '').trim().toLowerCase();
+            const cards = document.querySelectorAll('#command-vault-cisco-section .cisco-command-card');
+            cards.forEach(card => {
+                const searchText = ((card.dataset.search || '') + ' ' + card.textContent).toLowerCase();
+                card.style.display = !query || searchText.includes(query) ? '' : 'none';
+            });
+        };
+
+        window.filterMikrotikVaultCommands = function () {
+            const query = (document.getElementById('mikrotikCommandSearch')?.value || '').trim().toLowerCase();
+            const cards = document.querySelectorAll('#command-vault-mikrotik-section .mikrotik-command-card');
+            cards.forEach(card => {
+                const searchText = ((card.dataset.search || '') + ' ' + card.textContent).toLowerCase();
+                card.style.display = !query || searchText.includes(query) ? '' : 'none';
+            });
+        };
+
+        window.copyVaultCommand = async function (btn, commandText) {
+            const value = (commandText || '').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+            try {
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(value);
+                } else {
+                    const area = document.createElement('textarea');
+                    area.value = value;
+                    document.body.appendChild(area);
+                    area.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(area);
+                }
+                const original = btn.textContent;
+                btn.textContent = 'Copied';
+                setTimeout(() => { btn.textContent = original; }, 1200);
+            } catch (error) {
+                console.error('[COMMAND VAULT] Copy failed:', error);
+                alert('Failed to copy command.');
+            }
+        };
+
+        function initCommandVaultTabs() {
+            if (typeof window.showCommandVaultSubTab === 'function') {
+                window.showCommandVaultSubTab('nokia');
+            }
+        }
+
+        // ========================================
         // FTTH HOME (OLT CONFIG + BNG SUB TABS)
         // ========================================
 
@@ -22832,9 +23256,11 @@ Ready for translation!`);
 
         document.addEventListener('DOMContentLoaded', () => {
             initFtthHomeTabs();
+            initCommandVaultTabs();
         });
         window.addEventListener('load', () => {
             if (typeof initFtthHomeTabs === 'function') initFtthHomeTabs();
+            if (typeof initCommandVaultTabs === 'function') initCommandVaultTabs();
         });
 
         // ========================================
