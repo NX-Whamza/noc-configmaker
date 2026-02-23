@@ -442,7 +442,6 @@ def _aviat_error_is_transient(error_text):
         "firmware version not ready",
         "failed to parse firmware version",
         "failed to parse inactive firmware version",
-        "no software ready to activate",
     )
     return any(marker in text for marker in markers)
 
@@ -471,6 +470,10 @@ def _aviat_status_from_result(result):
     if final_ok and not hard_component_error and not hard_precheck_error:
         return "success"
     if "precheck blocked upgrade" in err_text:
+        return "pending"
+    if "software operation already in progress" in err_text:
+        return "loading"
+    if "no software ready to activate" in err_text:
         return "pending"
     if status in ("reboot_pending", "rebooting"):
         return status
@@ -700,6 +703,7 @@ def _aviat_loading_check_loop():
                     def local_log(message, level):
                         _aviat_broadcast_log(message, level)
                     client = _aviat_connect_with_fallback(ip, callback=local_log)
+                    software_state = _aviat_software_state(client)
                     active_version = aviat_get_firmware_version(client, callback=local_log)
                     inactive_raw = aviat_get_inactive_firmware_version(client, callback=local_log)
                     # Enforce reboot-first if uptime exceeds threshold
@@ -741,6 +745,13 @@ def _aviat_loading_check_loop():
                     )
                     to_schedule.append(entry)
                     continue
+                if software_state == "loadok":
+                    _aviat_broadcast_log(
+                        f"[{ip}] Firmware state is loadOk; moving to scheduled queue.",
+                        "success",
+                    )
+                    to_schedule.append(entry)
+                    continue
                 inactive_version = _aviat_extract_version(inactive_raw)
                 active_version = _aviat_extract_version(active_version)
                 target_version = _aviat_extract_version(entry.get("target_version"))
@@ -751,13 +762,71 @@ def _aviat_loading_check_loop():
                 if target_version:
                     ready_versions.add(target_version)
 
-                # If inactive firmware is ready, move to scheduled (activation) regardless of active version.
-                if inactive_version and inactive_version in ready_versions:
+                # Do not schedule activation solely from inactive version text. Radios can show
+                # inactive final while software state is idle/loadError and not activation-ready.
+                if inactive_version and inactive_version in ready_versions and software_state != "loadok":
+                    entry["check_count"] = current_check_count + 1
+                    entry["unknown_count"] = 0
+                    entry["updated_at"] = datetime.utcnow().isoformat() + "Z"
+                    still_loading.append(entry)
                     _aviat_broadcast_log(
-                        f"[{ip}] Firmware {inactive_version} loaded (inactive). Moving to scheduled queue.",
-                        "success",
+                        f"[{ip}] Inactive firmware {inactive_version} present but state={software_state}; waiting for loadOk before scheduling activation.",
+                        "info",
                     )
-                    to_schedule.append(entry)
+                    continue
+
+                if software_state in ("loaderror", "rollbackerror"):
+                    retry_count = int(entry.get("loaderror_retries") or 0)
+                    target_ver = _aviat_extract_version(entry.get("target_version"))
+                    target_uri = AVIAT_CONFIG.firmware_final_uri
+                    if target_ver and _aviat_version_tuple(target_ver) <= _aviat_version_tuple(AVIAT_CONFIG.firmware_baseline_version):
+                        target_uri = AVIAT_CONFIG.firmware_baseline_uri
+                    if retry_count < 2:
+                        _aviat_broadcast_log(
+                            f"[{ip}] Software state {software_state}; retrying load ({retry_count + 1}/2).",
+                            "warning",
+                        )
+                        try:
+                            client_retry = _aviat_connect_with_fallback(ip, callback=local_log)
+                            try:
+                                client_retry.send_command("software abort", timeout=12)
+                            except Exception:
+                                pass
+                            retry_cmd = f"software load uri {target_uri} force activation-immediately"
+                            retry_out = client_retry.send_command(retry_cmd, timeout=20) or ""
+                            client_retry.close()
+                            if "loading started" in retry_out.lower():
+                                entry["loaderror_retries"] = retry_count + 1
+                                entry["check_count"] = current_check_count + 1
+                                entry["unknown_count"] = 0
+                                entry["updated_at"] = datetime.utcnow().isoformat() + "Z"
+                                still_loading.append(entry)
+                                _aviat_broadcast_log(
+                                    f"[{ip}] Load retry accepted; keeping in loading queue.",
+                                    "info",
+                                )
+                                continue
+                            entry["defer_reason"] = "load_retry_failed"
+                            deferred_verify.append(entry)
+                            _aviat_broadcast_log(
+                                f"[{ip}] Load retry failed to start; moving to deferred verification.",
+                                "warning",
+                            )
+                            continue
+                        except Exception as exc:
+                            entry["defer_reason"] = "load_retry_failed"
+                            deferred_verify.append(entry)
+                            _aviat_broadcast_log(
+                                f"[{ip}] Load retry failed: {exc}",
+                                "warning",
+                            )
+                            continue
+                    entry["defer_reason"] = "load_error"
+                    deferred_verify.append(entry)
+                    _aviat_broadcast_log(
+                        f"[{ip}] Software state {software_state} after retries; moving to deferred verification.",
+                        "warning",
+                    )
                     continue
 
                 # If active firmware already meets target (or final), remove from loading queue.
@@ -817,6 +886,8 @@ def _aviat_loading_check_loop():
                     ip = entry.get("ip")
                     if ip:
                         reason = "timeout" if entry.get("started_at") else "parse_stalled"
+                        if entry.get("defer_reason"):
+                            reason = entry.get("defer_reason")
                         if int(entry.get("unknown_count") or 0) >= AVIAT_LOADING_UNKNOWN_MAX_CHECKS:
                             reason = "parse_stalled"
                         _aviat_queue_upsert(ip, {
@@ -956,6 +1027,18 @@ def _aviat_activate_entries(task_id, to_activate, username=None):
     _aviat_save_shared_queue()
     if task_id in aviat_log_queues:
         aviat_log_queues[task_id].put(None)
+
+
+def _aviat_software_state(client) -> str:
+    """Return normalized software status token (e.g. loadok/loaderror/idle/activate)."""
+    try:
+        raw = client.send_command("show software-status status", timeout=10) or ""
+    except Exception:
+        return "unknown"
+    m = re.search(r"software-status\s+status\s+([A-Za-z0-9_-]+)", raw, flags=re.I)
+    if not m:
+        return "unknown"
+    return (m.group(1) or "").strip().lower()
 
 def _aviat_auto_activate_loop():
     while True:

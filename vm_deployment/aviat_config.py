@@ -1275,6 +1275,27 @@ def _restart_device_after_activation(client: AviatSSHClient, callback=None) -> T
 
 
 def activate_firmware(client: AviatSSHClient, callback=None) -> Tuple[bool, str]:
+    def _software_status_text() -> str:
+        try:
+            return client.send_command("show software-status status", timeout=10) or ""
+        except Exception:
+            return ""
+
+    def _software_state_from_text(text: str) -> str:
+        lowered_text = (text or "").lower()
+        if "software-status status" in lowered_text:
+            if re.search(r"\bactivate\b", lowered_text):
+                return "activate"
+            if re.search(r"\bload\b", lowered_text):
+                return "load"
+            if re.search(r"\bidle\b", lowered_text):
+                return "idle"
+        if "resp activating new software now" in lowered_text:
+            return "activate"
+        if "loading started" in lowered_text:
+            return "load"
+        return "unknown"
+
     log(f"  [{client.ip}] Activating firmware...", "info", callback=callback)
     # Avoid ':' prompt matching here; it can terminate reads too early.
     output = client.send_command("software activate", wait_for=['#', '>', ']', '?', '[no,yes]'], timeout=20)
@@ -1285,17 +1306,53 @@ def activate_firmware(client: AviatSSHClient, callback=None) -> Tuple[bool, str]
         output = (output or "") + "\n" + (confirm or "")
         lowered = output.lower()
     if "no software ready to activate" in lowered:
+        status_output = ""
         try:
-            status_output = client.send_command("show software-status status", timeout=10)
+            status_output = client.send_command("show software-status", timeout=10)
             status_lowered = (status_output or "").lower()
             if "software-status status activate" in status_lowered:
                 return _restart_device_after_activation(client, callback=callback)
         except Exception:
             pass
+        try:
+            active_version, inactive_version = _parse_versions_from_status(status_output or "")
+        except Exception:
+            active_version, inactive_version = (None, None)
+
+        # For activate-now flows, if device is not final and direct activation is not ready,
+        # force the automatic activation load path to avoid dead-end "no software ready".
+        if _version_tuple(active_version) < _version_tuple(CONFIG.firmware_final_version):
+            try:
+                client.send_command("software abort", timeout=8)
+            except Exception:
+                pass
+            cmd = f"software load uri {CONFIG.firmware_final_uri} force activation-immediately"
+            out = client.send_command(cmd, timeout=20)
+            out_lowered = (out or "").lower()
+            if "loading started" in out_lowered:
+                log(f"  [{client.ip}]   > {cmd}", "info", callback=callback)
+                # Confirm radio really entered an operation state before marking as loading.
+                time.sleep(2)
+                status_now = _software_status_text()
+                state_now = _software_state_from_text(status_now)
+                if state_now in ("load", "activate"):
+                    return True, f"Activation fallback: automatic activation {state_now} started"
+                tail = (status_now or "").strip().replace("\r", "")[-200:]
+                return False, f"Activation fallback did not enter load/activate state: {tail or 'no status'}"
+            tail = (out or "").strip().replace("\r", "")[-200:]
+            return False, f"Firmware activation fallback failed: {tail}"
+
         return False, "Firmware activation failed: no software ready to activate"
 
     if re.search(r"\b(activat(ing|ion)|scheduled|reboot|restarting)\b", lowered) or "resp activating" in lowered:
         return _restart_device_after_activation(client, callback=callback)
+    # Some radios return minimal/no text; verify operation state before failing.
+    status_now = _software_status_text()
+    state_now = _software_state_from_text(status_now)
+    if state_now == "activate":
+        return _restart_device_after_activation(client, callback=callback)
+    if state_now == "load":
+        return True, "Activation accepted; software load in progress"
     if not (output or "").strip():
         return _restart_device_after_activation(client, callback=callback)
     tail = (output or "").strip().replace("\r", "")[-200:]
@@ -2103,6 +2160,13 @@ def process_radio(
                 if not success and not result.error:
                     result.error = msg
                     return result
+                if isinstance(msg, str) and msg.lower().startswith("activation fallback:"):
+                    msg_lower = msg.lower()
+                    if "load" in msg_lower:
+                        result.status = "loading"
+                        result.success = True
+                        stage("ACTIVATE_FALLBACK_LOAD")
+                        return result
                 stage("ACTIVATE")
                 client.close()
                 client = wait_for_device_ready_and_reconnect(
