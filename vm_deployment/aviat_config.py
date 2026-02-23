@@ -67,14 +67,18 @@ _TRANSIENT_CLI_MARKERS = (
     "timeout",
     "timed out",
     "channel closed",
+    "connection refused",
+    "eof",
 )
 _TRANSIENT_PROCESSING_MARKERS = (
     "unable to connect to port 22",
+    "unable to connect",
     "connection failed",
     "connection timeout",
     "authentication failed",
     "ssh error",
     "device did not recover",
+    "no existing session",
 )
 
 
@@ -2216,7 +2220,16 @@ def process_radio(
         if upgrade_related and _is_transient_processing_error(e):
             # During activation/reboot windows, transient SSH/CLI errors are expected.
             # Keep radios in deferred queue states instead of hard-failing them.
-            if result.status not in ("loading", "scheduled", "manual"):
+            if result.status not in (
+                "loading",
+                "scheduled",
+                "manual",
+                "pending_verify",
+                "reboot_required",
+                "reboot_pending",
+                "rebooting",
+                "precheck_failed",
+            ):
                 result.status = "pending_verify"
             result.success = True
             stage("DEFERRED_TRANSIENT")

@@ -24989,9 +24989,16 @@ Ready for translation!`);
                             lowerMsg.includes('not ready') ||
                             lowerMsg.includes('defer') ||
                             lowerMsg.includes('socket is closed') ||
+                            lowerMsg.includes('channel closed') ||
+                            lowerMsg.includes('connection reset') ||
+                            lowerMsg.includes('broken pipe') ||
                             lowerMsg.includes('unable to connect to port 22') ||
+                            lowerMsg.includes('unable to connect') ||
+                            lowerMsg.includes('connection failed') ||
                             lowerMsg.includes('connection timeout') ||
+                            lowerMsg.includes('timed out') ||
                             lowerMsg.includes('authentication failed') ||
+                            lowerMsg.includes('device did not recover') ||
                             lowerMsg.includes('reachability check') ||
                             lowerMsg.includes('availability check');
                         const normalizedStatus = aviatNormalizeStatus(radio.status);
@@ -25049,7 +25056,12 @@ Ready for translation!`);
                             } else {
                                 radio.status = 'error';
                             }
-                        } else if (data.level === 'error' && lowerMsg.includes('failed') && !isTransientFailure) {
+                        } else if (
+                            data.level === 'error' &&
+                            lowerMsg.includes('failed') &&
+                            !isTransientFailure &&
+                            !isTransientFailureMessage
+                        ) {
                             radio.status = 'error';
                         }
                     }
