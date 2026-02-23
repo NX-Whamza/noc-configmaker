@@ -1250,7 +1250,8 @@ def _restart_device_after_activation(client: AviatSSHClient, callback=None) -> T
     try:
         output = client.send_command(
             "restart",
-            wait_for=['#', '>', ':', ']', '?', '[no,yes]'],
+            # Avoid ':' prompt matching here; it can appear in normal output lines.
+            wait_for=['#', '>', ']', '?', '[no,yes]'],
             timeout=15,
         )
         log(f"  [{client.ip}]   > restart", "info", callback=callback)
@@ -1275,11 +1276,12 @@ def _restart_device_after_activation(client: AviatSSHClient, callback=None) -> T
 
 def activate_firmware(client: AviatSSHClient, callback=None) -> Tuple[bool, str]:
     log(f"  [{client.ip}] Activating firmware...", "info", callback=callback)
-    output = client.send_command("software activate", wait_for=['#', '>', ':', ']', '?'], timeout=20)
+    # Avoid ':' prompt matching here; it can terminate reads too early.
+    output = client.send_command("software activate", wait_for=['#', '>', ']', '?', '[no,yes]'], timeout=20)
     log(f"  [{client.ip}]   > software activate", "info", callback=callback)
     lowered = (output or "").lower()
     if "are you sure" in lowered or "[no,yes]" in lowered or "proceed" in lowered:
-        confirm = client.send_command("yes", wait_for=['#', '>', ':', ']', '?'], timeout=20)
+        confirm = client.send_command("yes", wait_for=['#', '>', ']', '?'], timeout=20)
         output = (output or "") + "\n" + (confirm or "")
         lowered = output.lower()
     if "no software ready to activate" in lowered:
@@ -2129,6 +2131,23 @@ def process_radio(
                 if _version_tuple(current_version) < _version_tuple(
                     CONFIG.firmware_final_version
                 ):
+                    inactive_after_activate = get_inactive_firmware_version(client, callback=callback)
+                    inactive_after_activate = (inactive_after_activate or "").strip()
+                    if _version_tuple(inactive_after_activate) >= _version_tuple(
+                        CONFIG.firmware_final_version
+                    ):
+                        # Final is already loaded in inactive slot; do not re-download and
+                        # do not move to loading queue. Keep in deferred verification/scheduled.
+                        log(
+                            f"[{ip}] Final firmware already present as inactive ({inactive_after_activate}); awaiting reboot/version flip.",
+                            "warning",
+                            callback=callback,
+                        )
+                        result.firmware_scheduled = True
+                        result.status = "pending_verify"
+                        result.success = True
+                        stage("ACTIVATE_DEFERRED")
+                        return result
                     if _version_tuple(current_version) >= _version_tuple(
                         CONFIG.firmware_baseline_version
                     ):

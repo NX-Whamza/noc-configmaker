@@ -12392,8 +12392,6 @@ def aviat_check_status():
             continue
         current = _aviat_queue_find(ip) or {}
         current_status = current.get("status")
-        if current_status in ("loading", "scheduled", "manual", "success", "error"):
-            continue
         if current_status == "processing" and (res.get("error") or not res.get("reachable", True)):
             continue
         err_text = res.get("error")
