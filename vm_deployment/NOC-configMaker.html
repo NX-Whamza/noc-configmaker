@@ -651,6 +651,33 @@
             font-weight: 600;
         }
 
+        .command-hierarchy-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .command-hierarchy-item {
+            background: rgba(20, 30, 50, 0.5);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px 12px;
+        }
+
+        .command-hierarchy-item code {
+            font-size: 12px;
+            color: #9fd7ff;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .command-hierarchy-item span {
+            color: var(--text-color-secondary);
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
         .ftth-home-dropdown {
             position: relative;
             display: inline-flex;
@@ -6890,11 +6917,56 @@ show mac address-table | include &lt;mac&gt;</div>
             <div id="command-vault-mikrotik-section" class="command-vault-section">
                 <div class="section">
                     <h2>MikroTik Command Vault - RouterOS Quick Guide</h2>
-                    <p style="margin: 0 0 14px; color: var(--text-color-secondary);">High-use RouterOS commands for NOC troubleshooting.</p>
+                    <p style="margin: 0 0 14px; color: var(--text-color-secondary);">High-use RouterOS commands for NOC troubleshooting, grouped by hierarchy.</p>
                     <input id="mikrotikCommandSearch" class="command-search" type="text"
-                        placeholder="Search MikroTik commands (example: bgp, ospf, interface, arp, logs)..."
+                        placeholder="Search MikroTik commands (example: romon, bgp, ospf, firewall, mpls, snmp)..."
                         oninput="filterMikrotikVaultCommands()">
 
+                    <h3 style="margin: 4px 0 10px;">Hierarchy Map (Top-Level Paths)</h3>
+                    <div class="command-hierarchy-grid">
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="interface bridge vlan ethernet bonding vpls">
+                            <code>/interface *</code>
+                            <span>Physical and logical interfaces: ethernet, bridge, vlan, bonding, vpls, bridge ports.</span>
+                        </div>
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="ip address route dns arp service dhcp">
+                            <code>/ip *</code>
+                            <span>Layer-3 and services: addressing, routes, DNS, ARP, IP services, DHCP and helper tables.</span>
+                        </div>
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="routing bgp ospf template connection">
+                            <code>/routing *</code>
+                            <span>Control-plane protocols and templates: BGP peers/templates, OSPF instances/areas/interfaces.</span>
+                        </div>
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="mpls ldp interface accept advertise filter">
+                            <code>/mpls *</code>
+                            <span>MPLS forwarding and LDP behavior: interfaces, LDP config, accept/advertise filters.</span>
+                        </div>
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="firewall filter nat raw mangle address-list service-port">
+                            <code>/ip firewall *</code>
+                            <span>Policy enforcement and traffic handling: filter, NAT, raw, mangle, address-list, service-port.</span>
+                        </div>
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="system logging clock ntp identity note watchdog routerboard">
+                            <code>/system *</code>
+                            <span>System identity, clock/NTP, logging, watchdog, notes, and routerboard platform settings.</span>
+                        </div>
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="snmp community trap">
+                            <code>/snmp *</code>
+                            <span>SNMP runtime and community controls for polling and trap source behavior.</span>
+                        </div>
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="user group aaa password role policy">
+                            <code>/user *</code>
+                            <span>User accounts, RBAC groups, auth model (`/user aaa`), and privilege policy controls.</span>
+                        </div>
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="tool romon mac-winbox mac-server packet-sniffer">
+                            <code>/tool *</code>
+                            <span>Operational tooling including RoMON, packet capture/sniffer, troubleshooting and diagnostics.</span>
+                        </div>
+                        <div class="command-hierarchy-item mikrotik-command-card" data-search="radius authentication dhcp login">
+                            <code>/radius *</code>
+                            <span>RADIUS servers, shared secrets, source-address, and service binding (dhcp/login).</span>
+                        </div>
+                    </div>
+
+                    <h3 style="margin: 8px 0 10px;">Operational Commands</h3>
                     <div class="command-guide-grid">
                         <article class="command-guide-card mikrotik-command-card" data-search="interface status monitor">
                             <h4>Interface Status and Traffic</h4>
@@ -6945,6 +7017,67 @@ show mac address-table | include &lt;mac&gt;</div>
                             <div class="command-card-actions">
                                 <button type="button" class="command-copy-btn"
                                     onclick="copyVaultCommand(this, '/ip arp print where address=&lt;ip&gt; or mac-address=&lt;mac&gt;\n/ip dhcp-server lease print where address=&lt;ip&gt; or mac-address=&lt;mac&gt;')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="romon tool manage out-of-band">
+                            <h4>RoMON (Router Management Overlay)</h4>
+                            <p>Out-of-band L2 management plane between MikroTik devices.</p>
+                            <div class="command-snippet">/tool romon print
+/tool romon set enabled=yes
+/tool romon port print</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/tool romon print\n/tool romon set enabled=yes\n/tool romon port print')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="firewall filter nat raw mangle audit">
+                            <h4>Firewall Policy Snapshot</h4>
+                            <p>Quickly audit filter/NAT/raw/mangle rule sets.</p>
+                            <div class="command-snippet">/ip firewall filter print detail
+/ip firewall nat print detail
+/ip firewall raw print detail
+/ip firewall mangle print detail</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/ip firewall filter print detail\n/ip firewall nat print detail\n/ip firewall raw print detail\n/ip firewall mangle print detail')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="mpls ldp accept advertise filter troubleshoot">
+                            <h4>MPLS/LDP Verification</h4>
+                            <p>Validate LDP state and filter posture.</p>
+                            <div class="command-snippet">/mpls ldp print detail
+/mpls ldp interface print detail
+/mpls ldp accept-filter print detail
+/mpls ldp advertise-filter print detail</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/mpls ldp print detail\n/mpls ldp interface print detail\n/mpls ldp accept-filter print detail\n/mpls ldp advertise-filter print detail')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="snmp community poll trap source">
+                            <h4>SNMP Runtime and Communities</h4>
+                            <p>Confirm polling source and community setup.</p>
+                            <div class="command-snippet">/snmp print detail
+/snmp community print detail</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/snmp print detail\n/snmp community print detail')">Copy</button>
+                            </div>
+                        </article>
+
+                        <article class="command-guide-card mikrotik-command-card" data-search="user group aaa policy auth">
+                            <h4>User / Group / AAA Audit</h4>
+                            <p>Review account posture and access model quickly.</p>
+                            <div class="command-snippet">/user print detail
+/user group print detail
+/user aaa print</div>
+                            <div class="command-card-actions">
+                                <button type="button" class="command-copy-btn"
+                                    onclick="copyVaultCommand(this, '/user print detail\n/user group print detail\n/user aaa print')">Copy</button>
                             </div>
                         </article>
 
