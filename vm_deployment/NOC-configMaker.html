@@ -24700,27 +24700,100 @@ Ready for translation!`);
                 }
             };
 
-            window.aviatShowPrecheck = function (type, detail, ip) {
+            function aviatApplyRecheckResult(ip, payload) {
+                const radio = aviatState.radios.find(r => r.ip === ip);
+                if (!radio || !payload || !payload.updates) return;
+                const updates = payload.updates;
+                Object.assign(radio, updates);
+                aviatUpdateUI();
+            }
+
+            async function aviatRecheckPrecheck(ip) {
+                const response = await aviatFetchWithTimeout('/check-status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ips: [ip] })
+                }, 20000);
+                const data = await parseAviatJson(response);
+                if (!response.ok) {
+                    throw new Error(data.error || `Precheck recheck failed (${response.status})`);
+                }
+                const first = (data.results || [])[0] || {};
+                const updates = {
+                    status: (first.error || !first.reachable) ? 'pending' : 'pending',
+                    firmwareStatus: (first.firmware && /^6\./.test(String(first.firmware))) ? 'success' : 'pending',
+                    snmpStatus: first.snmp_ok ? 'success' : 'pending',
+                    bufferStatus: first.buffer_ok ? 'success' : 'pending',
+                    sopStatus: (first.firmware && /^6\./.test(String(first.firmware)) && first.snmp_ok && first.buffer_ok) ? 'success' : 'pending',
+                    licenseStatus: first.license_ok === true ? 'success' : (first.license_ok === false ? 'error' : 'pending'),
+                    stpStatus: first.stp_ok === true ? 'success' : (first.stp_ok === false ? 'error' : 'pending'),
+                    subnetStatus: first.subnet_ok === true ? 'success' : (first.subnet_ok === false ? 'error' : 'pending'),
+                    licenseDetail: first.license_detail,
+                    stpDetail: first.stp_detail,
+                    subnetDetail: first.subnet_actual
+                };
+                const payload = {
+                    ip,
+                    result: first,
+                    updates,
+                    precheck_clear: updates.stpStatus !== 'error' && updates.licenseStatus !== 'error' && updates.subnetStatus !== 'error'
+                };
+                aviatApplyRecheckResult(ip, payload);
+                return payload;
+            }
+
+            window.aviatShowPrecheck = async function (type, detail, ip) {
                 const value = (detail || '').trim();
-                const message = value
-                    ? `${type} check failed for ${ip}: ${value}`
-                    : `${type} check failed for ${ip}.`;
-                alert(message);
+                const typeNorm = String(type || '').toUpperCase();
+                if (typeNorm.includes('STP')) {
+                    const fix = confirm(
+                        `STP is enabled on ${ip}${value ? ` (${value})` : ''}.\n\nDo you want to fix this now (set STP admin status to down), recheck, and continue?`
+                    );
+                    if (!fix) return;
+                    try {
+                        const fixResponse = await aviatFetchWithTimeout('/fix-stp', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ip })
+                        }, 20000);
+                        const fixData = await parseAviatJson(fixResponse);
+                        if (!fixResponse.ok) {
+                            throw new Error(fixData.error || `STP fix failed (${fixResponse.status})`);
+                        }
+                        aviatAddLog(`STP disabled on ${ip}. Rechecking prechecks...`, 'success');
+                        const recheck = await aviatRecheckPrecheck(ip);
+                        if (recheck.precheck_clear) {
+                            aviatAddLog(`Prechecks cleared on ${ip}. Continuing upgrade path...`, 'success');
+                            await aviatRunSingle(ip);
+                        } else {
+                            aviatAddLog(`Prechecks still blocked on ${ip}.`, 'warning');
+                        }
+                    } catch (err) {
+                        aviatAddLog(`STP fix/recheck failed for ${ip}: ${err.message}`, 'error');
+                    }
+                    return;
+                }
+
+                const prompt = confirm(
+                    `${type} detected on ${ip}${value ? ` (${value})` : ''}.\n\nIs this fixed now by agent?`
+                );
+                if (!prompt) return;
+                try {
+                    aviatAddLog(`Rechecking ${type} on ${ip}...`, 'info');
+                    const recheck = await aviatRecheckPrecheck(ip);
+                    if (recheck.precheck_clear) {
+                        aviatAddLog(`Prechecks cleared on ${ip}.`, 'success');
+                    } else {
+                        aviatAddLog(`Precheck still present on ${ip}.`, 'warning');
+                    }
+                } catch (err) {
+                    aviatAddLog(`Precheck recheck failed for ${ip}: ${err.message}`, 'error');
+                }
             };
 
             window.aviatFixStp = async function (ip) {
                 try {
-                    const response = await aviatFetchWithTimeout('/fix-stp', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ ip })
-                    }, 20000);
-                    const data = await parseAviatJson(response);
-                    if (!response.ok) {
-                        throw new Error(data.error || `STP fix failed (${response.status})`);
-                    }
-                    aviatAddLog(`STP disabled on ${ip}`, 'success');
-                    aviatRefreshStatus({ quiet: true });
+                    await window.aviatShowPrecheck('STP ENABLED', '', ip);
                 } catch (err) {
                     aviatAddLog(`STP fix failed for ${ip}: ${err.message}`, 'error');
                 }

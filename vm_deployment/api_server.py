@@ -12435,6 +12435,61 @@ def aviat_check_status():
     return jsonify({'results': results})
 
 
+@app.route('/api/aviat/precheck/recheck', methods=['POST'])
+def aviat_recheck_precheck():
+    if not HAS_AVIAT:
+        return jsonify({'error': 'Aviat backend not available'}), 503
+    data = request.json or {}
+    ip = data.get("ip")
+    if not ip:
+        return jsonify({"error": "Missing ip"}), 400
+
+    result = aviat_check_device_status(ip)
+    err_text = result.get("error")
+    transient_err = _aviat_error_is_transient(err_text)
+    firmware_ok = _aviat_firmware_is_final(result.get("firmware"))
+    snmp_ok = bool(result.get("snmp_ok"))
+    buffer_ok = bool(result.get("buffer_ok"))
+    license_ok = result.get("license_ok")
+    stp_ok = result.get("stp_ok")
+    subnet_ok = result.get("subnet_ok")
+
+    status = "success" if firmware_ok and snmp_ok and buffer_ok else "pending"
+    if err_text and not transient_err:
+        status = "error"
+
+    updates = {
+        "status": status,
+        "firmwareStatus": "success" if firmware_ok else "pending",
+        "snmpStatus": "success" if snmp_ok else "pending",
+        "bufferStatus": "success" if buffer_ok else "pending",
+        "sopStatus": "success" if firmware_ok and snmp_ok and buffer_ok else "pending",
+        "licenseStatus": "success" if license_ok is True else ("error" if license_ok is False else "pending"),
+        "stpStatus": "success" if stp_ok is True else ("error" if stp_ok is False else "pending"),
+        "subnetStatus": "success" if subnet_ok is True else ("error" if subnet_ok is False else "pending"),
+        "licenseDetail": result.get("license_detail"),
+        "stpDetail": result.get("stp_detail"),
+        "subnetDetail": result.get("subnet_actual"),
+    }
+    _aviat_queue_upsert(ip, updates)
+    _aviat_save_shared_queue()
+
+    precheck_clear = (
+        updates["stpStatus"] != "error"
+        and updates["licenseStatus"] != "error"
+        and updates["subnetStatus"] != "error"
+    )
+    return jsonify(
+        {
+            "ip": ip,
+            "reachable": bool(result.get("reachable")),
+            "result": result,
+            "updates": updates,
+            "precheck_clear": precheck_clear,
+        }
+    )
+
+
 @app.route('/api/aviat/fix-stp', methods=['POST'])
 def aviat_fix_stp():
     if not HAS_AVIAT:
