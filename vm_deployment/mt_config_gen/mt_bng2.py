@@ -154,6 +154,7 @@ class MTBNG2Config:
                 self.ub_wave_subnet = IPNetwork(params["ub_wave_subnet"])
 
             self.enable_contractor_login = params.get("enable_contractor_login", False)
+            self.switches = params.get("switches", []) or []
 
             # Validate backhauls
             self.backhauls = params["backhauls"]
@@ -234,12 +235,18 @@ class MTBNG2Config:
         params["bng2_ip"] = self.bng_2_ip
         params["OSPF_area"] = self.ospf_area
         params["state"] = MSTP_STATES[self.ospf_area]
+        params["state_lc"] = str(params["state"]).lower()
+        params["ospf_area_id"] = f"0.0.0.{self.ospf_area}"
         params["vpls1000"] = self.vlan_1000_cisco
         params["vpls2000"] = self.vlan_2000_cisco
         params["vpls3000"] = self.vlan_3000_cisco
         params["vpls4000"] = self.vlan_4000_cisco
         params["mpls_mtu"] = self.mpls_mtu
         params["vpls_l2mtu"] = self.vpls_l2_mtu
+        state_mesh_base = f"10.{self.ospf_area}.0"
+        params["mesh_peer_1"] = str(params.get("mesh_peer_1") or f"{state_mesh_base}.3")
+        params["mesh_peer_2"] = str(params.get("mesh_peer_2") or f"{state_mesh_base}.4")
+        params["state_vpls_peer"] = str(params.get("state_vpls_peer") or f"{state_mesh_base}.1")
 
         params["is_lte"] = self.is_lte
         params["is_tarana"] = self.is_tarana
@@ -248,6 +255,7 @@ class MTBNG2Config:
         params["is_6ghz"] = self.is_6ghz
         params["is_ub_wave"] = self.is_ub_wave
         params["enable_contractor_login"] = self.enable_contractor_login
+        params["switches"] = self.switches
 
         return params
 

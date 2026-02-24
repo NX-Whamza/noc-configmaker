@@ -5,24 +5,62 @@
 set name={{ sysname }}
 
 /interface bridge
-add name=loop0 protocol-mode=none comment=LOOPBACK
-add name=bridge1000 protocol-mode=none comment=DYNAMIC
-add name=bridge2000 protocol-mode=none comment=STATIC
-add name=bridge3000 protocol-mode=none comment=INFRA
-add name=bridge4000 protocol-mode=none comment=CPE
+add comment=IDEATEK-MGMT name=bridge600 port-cost-mode=short protocol-mode=none
+add comment=IDEATEK-CUST name=bridge800 port-cost-mode=short protocol-mode=none
+add comment=DYNAMIC name=bridge1000 port-cost-mode=short protocol-mode=none
+add comment=STATIC name=bridge2000 port-cost-mode=short protocol-mode=none
+add comment=INFRA name=bridge3000 port-cost-mode=short protocol-mode=none
+add comment=CPE name=bridge4000 port-cost-mode=short protocol-mode=none
+add name=loop0 port-cost-mode=short
+add name=vpls-bridge port-cost-mode=short
 {% if is_tarana %}
 add comment=UNICORN name="UNICORN MGMT" port-cost-mode=short
 {% endif %}
 
+/interface ethernet
+{% for sw in switches %}
+set [ find default-name={{ sw.port }} ] comment="{{ sw.comment or sw.name }}" l2mtu=9212
+{% endfor %}
+{% for bh in backhauls %}
+set [ find default-name={{ bh.port }} ] comment={{ bh.bhname }} l2mtu=9212 mtu=9198
+{% endfor %}
+{% if is_tarana %}
+{% for s in tarana_sectors %}
+set [ find default-name={{ s.port }} ] comment="{{ s.name }} {{ s.azimuth }} deg" l2mtu=9212 mtu=9198
+{% endfor %}
+{% endif %}
+
+/interface vpls
+add cisco-static-id=3 name=vpls-bng1 peer={{ mesh_peer_1 }} pw-l2mtu={{ vpls_l2mtu }} pw-type=raw-ethernet
+add cisco-static-id=3 name=vpls-bng2 peer={{ mesh_peer_2 }} pw-l2mtu={{ vpls_l2mtu }} pw-type=raw-ethernet
+add cisco-static-id=600 comment=VPLS600-BNG-{{ state }}-NET name=vpls600-bng-{{ state_lc }}-net peer={{ state_vpls_peer }} pw-l2mtu={{ vpls_l2mtu }} pw-type=raw-ethernet
+add cisco-static-id=800 comment=VPLS800-BNG-{{ state }}-NET name=vpls800-bng-{{ state_lc }}-net peer={{ state_vpls_peer }} pw-l2mtu={{ vpls_l2mtu }} pw-type=raw-ethernet
+add cisco-static-id={{ vpls1000 }} comment=VPLS1000-BNG-{{ state }} name=vpls1000-bng-{{ state_lc }} peer={{ bng1_ip }} pw-l2mtu={{ vpls_l2mtu }} pw-type=raw-ethernet
+add cisco-static-id={{ vpls2000 }} comment=VPLS2000-BNG-{{ state }} name=vpls2000-bng-{{ state_lc }} peer={{ bng1_ip }} pw-l2mtu={{ vpls_l2mtu }} pw-type=raw-ethernet
+add cisco-static-id={{ vpls3000 }} comment=VPLS3000-BNG-{{ state }} name=vpls3000-bng-{{ state_lc }} peer={{ bng1_ip }} pw-l2mtu={{ vpls_l2mtu }} pw-type=raw-ethernet
+add cisco-static-id={{ vpls4000 }} comment=VPLS4000-BNG-{{ state }} name=vpls4000-bng-{{ state_lc }} peer={{ bng1_ip }} pw-l2mtu={{ vpls_l2mtu }} pw-type=raw-ethernet
+
+/interface bridge port
+{% for sw in switches %}
+add bridge=vpls-bridge ingress-filtering=no interface={{ sw.port }} internal-path-cost=10 path-cost=10
+{% endfor %}
+add bridge=vpls-bridge edge=yes horizon=1 ingress-filtering=no interface=vpls-bng1 internal-path-cost=10 path-cost=10
+add bridge=vpls-bridge edge=yes horizon=1 ingress-filtering=no interface=vpls-bng2 internal-path-cost=10 path-cost=10
+add bridge=bridge600 edge=yes horizon=1 ingress-filtering=no interface=vpls600-bng-{{ state_lc }}-net internal-path-cost=10 path-cost=10
+add bridge=bridge800 edge=yes horizon=1 ingress-filtering=no interface=vpls800-bng-{{ state_lc }}-net internal-path-cost=10 path-cost=10
+add bridge=bridge1000 edge=yes horizon=1 ingress-filtering=no interface=vpls1000-bng-{{ state_lc }} internal-path-cost=10 path-cost=10
+add bridge=bridge2000 edge=yes horizon=1 ingress-filtering=no interface=vpls2000-bng-{{ state_lc }} internal-path-cost=10 path-cost=10
+add bridge=bridge3000 edge=yes horizon=1 ingress-filtering=no interface=vpls3000-bng-{{ state_lc }} internal-path-cost=10 path-cost=10
+add bridge=bridge4000 edge=yes horizon=1 ingress-filtering=no interface=vpls4000-bng-{{ state_lc }} internal-path-cost=10 path-cost=10
+
 /ip address
-add address={{ loopip }}/32 interface=loop0 network={{ loopip }} comment=Loopback
-add address={{ gateway_ip }}/{{ gateway_prefix }} interface=bridge1000 network={{ gateway_network }} comment=Gateway
+add address={{ loopip }} comment=loop0 interface=loop0 network={{ loopip }}
+{% for bh in backhauls %}
+add address={{ bh.bhip }}/{{ bh.bhip_sub }} comment={{ bh.bhname }} interface={{ bh.port }} network={{ bh.bh_net }}
+{% endfor %}
 {% if not is_switchless %}
 add address={{ switch_ip.ip }}/{{ switch_ip.prefixlen }} interface=bridge3000 network={{ switch_ip.network }} comment=Switch-Mgmt
 {% endif %}
-{% for bh in backhauls %}
-add address={{ bh.bhip }}/{{ bh.bhip_sub }} interface={{ bh.port }} network={{ bh.bh_net }} comment="{{ bh.bhname }}"
-{% endfor %}
 {% if is_tarana %}
 add address={{ unicorn_mgmt_ip }}/{{ unicorn_mgmt_prefix }} comment="UNICORN MGMT" interface="UNICORN MGMT" network={{ unicorn_mgmt_network }}
 {% endif %}
@@ -39,49 +77,34 @@ add address={{ crs_326_mgmt_address.ip }}/{{ crs_326_mgmt_mask_bits }} interface
 /routing ospf instance
 add name=default-v2 router-id={{ loopip }}
 /routing ospf area
-add name=area{{ OSPF_area }} area-id=0.0.0.{{ OSPF_area }} instance=default-v2
+add area-id={{ ospf_area_id }} disabled=no instance=default-v2 name=area{{ OSPF_area }}-v2
 /routing ospf interface-template
-add area=area{{ OSPF_area }} interfaces=loop0 networks={{ loopip }}/32 passive
+add area=area{{ OSPF_area }}-v2 interfaces=loop0 networks={{ loopip }}/32 passive
 {% for bh in backhauls %}
-add area=area{{ OSPF_area }} interfaces={{ bh.port }} networks={{ bh.bh_net }}/{{ bh.bhip_sub }} type=ptp
+add area=area{{ OSPF_area }}-v2 interfaces={{ bh.port }} networks={{ bh.bh_net }}/{{ bh.bhip_sub }} type=ptp
 {% endfor %}
 {% if is_tarana %}
-add area=area{{ OSPF_area }} disabled=no interfaces="UNICORN MGMT" networks={{ unicorn_mgmt_network }}/{{ unicorn_mgmt_prefix }} priority=1
+add area=area{{ OSPF_area }}-v2 disabled=no interfaces="UNICORN MGMT" networks={{ unicorn_mgmt_network }}/{{ unicorn_mgmt_prefix }} priority=1
 {% endif %}
 {% if is_6ghz %}
-add area=area{{ OSPF_area }} comment="6Ghz Equipment" cost=10 disabled=no interfaces=bridge3000 networks={{ six_ghz_network }}/{{ six_ghz_prefixlen }} priority=1
+add area=area{{ OSPF_area }}-v2 comment="6Ghz Equipment" cost=10 disabled=no interfaces=bridge3000 networks={{ six_ghz_network }}/{{ six_ghz_prefixlen }} priority=1
 {% endif %}
 {% if is_ub_wave %}
-add area=area{{ OSPF_area }} comment="UB WAVE" cost=10 disabled=no interfaces=bridge3000 networks={{ ub_wave_network }}/{{ ub_wave_prefixlen }} priority=1
+add area=area{{ OSPF_area }}-v2 comment="UB WAVE" cost=10 disabled=no interfaces=bridge3000 networks={{ ub_wave_network }}/{{ ub_wave_prefixlen }} priority=1
 {% endif %}
 
 /mpls interface
 add interface=all mpls-mtu={{ mpls_mtu }}
-
-/interface vpls
-add name=vpls1000-bng1 cisco-static-id={{ vpls1000 }} peer={{ bng1_ip }} pw-l2mtu={{ vpls_l2mtu }}
-add name=vpls1000-bng2 cisco-static-id={{ vpls1000 }} peer={{ bng2_ip }} pw-l2mtu={{ vpls_l2mtu }}
-add name=vpls2000-bng1 cisco-static-id={{ vpls2000 }} peer={{ bng1_ip }} pw-l2mtu={{ vpls_l2mtu }}
-add name=vpls2000-bng2 cisco-static-id={{ vpls2000 }} peer={{ bng2_ip }} pw-l2mtu={{ vpls_l2mtu }}
-add name=vpls3000-bng1 cisco-static-id={{ vpls3000 }} peer={{ bng1_ip }} pw-l2mtu={{ vpls_l2mtu }}
-add name=vpls3000-bng2 cisco-static-id={{ vpls3000 }} peer={{ bng2_ip }} pw-l2mtu={{ vpls_l2mtu }}
-add name=vpls4000-bng1 cisco-static-id={{ vpls4000 }} peer={{ bng1_ip }} pw-l2mtu={{ vpls_l2mtu }}
-add name=vpls4000-bng2 cisco-static-id={{ vpls4000 }} peer={{ bng2_ip }} pw-l2mtu={{ vpls_l2mtu }}
+/mpls ldp
+add disabled=no lsr-id={{ loopip }} transport-addresses={{ loopip }}
 
 {% if is_lte %}
-# LTE BBU
 /ip address
 add address={{ bbu_s1_gateway }}/{{ bbu_s1_subnet_mask }} interface={{ bbu_port }} network={{ bbu_s1_subnet_network }} comment=BBU-S1
 add address={{ bbu_mgmt_ip }}/{{ bbu_mgmt_subnet_mask }} interface=bridge3000 network={{ bbu_mgmt_subnet_network }} comment=BBU-MGMT
 {% endif %}
 
 {% if is_tarana %}
-# Tarana Sectors
-/interface ethernet
-{% for s in tarana_sectors %}
-set [ find default-name={{ s.port }} ] comment="{{ s.name }} {{ s.azimuth }} deg" l2mtu=9212 mtu=9198
-{% endfor %}
-
 /interface vlan
 {% for s in tarana_sectors %}
 add interface={{ s.port }} name=vlan1000-{{ s.port }} vlan-id=1000
