@@ -3130,6 +3130,10 @@
                                 <input type="text" id="mtSiteName" placeholder="HALLETTSVILLE-NW-1">
                             </div>
                             <div>
+                                <label for="mtRouterIdentity">Router Identity (Auto-generated)</label>
+                                <input type="text" id="mtRouterIdentity" placeholder="RTR-2004.HALLETTSVILLE-NW-1" readonly>
+                            </div>
+                            <div>
                                 <label for="mtLatitude">Latitude</label>
                                 <input type="text" id="mtLatitude" placeholder="29.08256">
                             </div>
@@ -13162,11 +13166,44 @@ show mac address-table | include &lt;mac&gt;</div>
                 URL.revokeObjectURL(url);
             }
 
+            function getMtModelTokenForIdentity(modelValue) {
+                const v = String(modelValue || '').trim().toLowerCase();
+                if (!v) return '2004';
+                const m = v.match(/(\d{3,4})/);
+                return m ? m[1] : '2004';
+            }
+
+            function sanitizeSiteNameForIdentity(value) {
+                const raw = String(value || '').trim().toUpperCase();
+                if (!raw) return '';
+                return raw
+                    .replace(/[_\s]+/g, '-')
+                    .replace(/[^A-Z0-9-]/g, '-')
+                    .replace(/-+/g, '-')
+                    .replace(/^-+|-+$/g, '');
+            }
+
+            function getMtRouterIdentity() {
+                const siteName = (document.getElementById('mtSiteName')?.value || document.getElementById('siteName')?.value || '').trim();
+                const modelValue = (document.getElementById('mtRouterModel')?.value || document.getElementById('targetDevice')?.value || 'ccr2004').trim();
+                const siteToken = sanitizeSiteNameForIdentity(siteName);
+                if (!siteToken) return '';
+                const modelToken = getMtModelTokenForIdentity(modelValue);
+                return `RTR-${modelToken}.${siteToken}`;
+            }
+
+            function syncMtRouterIdentity() {
+                const identityEl = document.getElementById('mtRouterIdentity');
+                if (!identityEl) return;
+                identityEl.value = getMtRouterIdentity();
+            }
+
             function getTowerBaseFilename() {
-                const siteName = (document.getElementById('mtSiteName')?.value || document.getElementById('siteName')?.value || 'mikrotik').trim() || 'mikrotik';
-                const targetDevice = (document.getElementById('mtRouterModel')?.value || document.getElementById('targetDevice')?.value || 'ccr2004').trim();
+                const identity = getMtRouterIdentity();
+                const siteName = sanitizeSiteNameForIdentity((document.getElementById('mtSiteName')?.value || document.getElementById('siteName')?.value || 'mikrotik').trim()) || 'mikrotik';
                 const timestamp = new Date().toISOString().split('T')[0];
-                return `${siteName}-${targetDevice}-${timestamp}`;
+                if (identity) return `${identity}-${timestamp}`;
+                return `${siteName}-${timestamp}`;
             }
 
             // Cache for backend-generated artifacts so downloads use authoritative backend output.
@@ -13384,6 +13421,7 @@ show mac address-table | include &lt;mac&gt;</div>
                 }
                 refreshModernPortOptions();
                 syncMtFeatureSubnetVisibility();
+                syncMtRouterIdentity();
             }
 
             function addModernBackhaulRow(seed = {}) {
@@ -13883,8 +13921,16 @@ show mac address-table | include &lt;mac&gt;</div>
                 }
                 const modelSel = document.getElementById('mtRouterModel');
                 if (modelSel && !modelSel.dataset.bound) {
-                    modelSel.addEventListener('change', refreshModernPortOptions);
+                    modelSel.addEventListener('change', () => {
+                        refreshModernPortOptions();
+                        syncMtRouterIdentity();
+                    });
                     modelSel.dataset.bound = '1';
+                }
+                const siteNameEl = document.getElementById('mtSiteName');
+                if (siteNameEl && !siteNameEl.dataset.identityBound) {
+                    siteNameEl.addEventListener('input', syncMtRouterIdentity);
+                    siteNameEl.dataset.identityBound = '1';
                 }
                 const bng2StateSel = document.getElementById('mtBng2StateCode');
                 if (bng2StateSel && !bng2StateSel.dataset.bound) {
@@ -14076,6 +14122,7 @@ show mac address-table | include &lt;mac&gt;</div>
                 syncMtConfigTypeUI();
                 syncBng2StateProfileFields();
                 syncMtFeatureSubnetVisibility();
+                syncMtRouterIdentity();
                 refreshIdoCapabilities();
                 renderFieldConfigToolState();
                 switchMode('new');
@@ -14169,6 +14216,7 @@ show mac address-table | include &lt;mac&gt;</div>
 
             function buildTowerBackendPayload() {
                 const siteName = (document.getElementById('mtSiteName')?.value || document.getElementById('siteName')?.value || '').trim();
+                const routerIdentity = getMtRouterIdentity();
                 const loopbackRaw = (document.getElementById('mtLoopbackSubnet')?.value || document.getElementById('routerId')?.value || '').trim();
                 const routerId = ensureCIDR(loopbackRaw, 32);
                 const targetDevice = normalizeRouterModelToLegacy((document.getElementById('mtRouterModel')?.value || document.getElementById('targetDevice')?.value || '').trim());
@@ -14210,7 +14258,7 @@ show mac address-table | include &lt;mac&gt;</div>
                     unauth_subnet: unauthRange,
                     cgn_priv: cgnatRange,
                     cgn_pub: natPublicIP,
-                    tower_name: siteName || 'RTR-MIKROTIK',
+                    tower_name: routerIdentity || siteName || 'RTR-MIKROTIK',
                     latitude,
                     longitude,
                     state_code: stateCode,
@@ -14235,6 +14283,7 @@ show mac address-table | include &lt;mac&gt;</div>
 
             function buildBng2BackendPayload() {
                 const siteName = (document.getElementById('mtSiteName')?.value || '').trim();
+                const routerIdentity = getMtRouterIdentity();
                 const loopIp = ensureCIDR((document.getElementById('mtLoopbackSubnet')?.value || '').trim(), 32);
                 const latitude = (document.getElementById('mtLatitude')?.value || '').trim();
                 const longitude = (document.getElementById('mtLongitude')?.value || '').trim();
@@ -14246,7 +14295,7 @@ show mac address-table | include &lt;mac&gt;</div>
                 return {
                     router_type: mapRouterModelForBng2(routerRaw),
                     loop_ip: loopIp,
-                    tower_name: siteName || 'RTR-BNG2',
+                    tower_name: routerIdentity || siteName || 'RTR-BNG2',
                     gateway: ensureCIDR((document.getElementById('mtBng2Gateway')?.value || '').trim(), 29),
                     latitude,
                     longitude,
@@ -15812,6 +15861,7 @@ show mac address-table | include &lt;mac&gt;</div>
                 }
 
                 const siteName = (document.getElementById('mtSiteName')?.value || document.getElementById('siteName')?.value || '').trim();
+                const routerIdentity = getMtRouterIdentity() || siteName;
                 const targetDevice = normalizeRouterModelToLegacy((document.getElementById('mtRouterModel')?.value || document.getElementById('targetDevice')?.value || 'ccr2004').trim());
                 const targetRouterOS = (document.getElementById('mtRouterOSVersion')?.value || document.getElementById('targetRouterOS')?.value || 'RouterOS v7').trim();
                 const mtType = getSelectedMtConfigType();
@@ -15878,7 +15928,7 @@ show mac address-table | include &lt;mac&gt;</div>
                     if (typeof saveCompletedConfig === 'function') {
                         saveCompletedConfig({
                             config_type: backendResult.configType || 'tower',
-                            device_name: siteName,
+                            device_name: routerIdentity,
                             device_type: targetDevice,
                             routeros_version: targetRouterOS,
                             config_content: backendResult.configText,
