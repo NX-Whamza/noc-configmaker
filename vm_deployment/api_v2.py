@@ -454,6 +454,9 @@ def _render_mt(action: str, payload: Dict[str, Any]) -> Any:
     config_text = cfg.generate_config()
     if apply_compliance:
         config_text = ido_apply_compliance(config_text, payload_loopback)
+    if config_type == "bng2":
+        # Compliance blocks are shared across profiles; sanitize transport-only BNG2 output after compliance merge.
+        config_text = MTBNG2Config._sanitize_transport_only_output(config_text)
     if action == "mt.config":
         return config_text
     return {"config": config_text, "portmap": cfg.generate_port_map(), "config_type": config_type}

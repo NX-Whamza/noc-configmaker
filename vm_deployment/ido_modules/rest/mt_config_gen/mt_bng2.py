@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from netaddr import IPNetwork
 from jinja2 import Environment, FileSystemLoader
 
@@ -22,6 +23,25 @@ ROUTER_TYPES = {
     }
 }
 
+BNG2_PORT_POLICY = {
+    "MT2004": {
+        "management": "ether1",
+        "backhaul": [
+            "sfp-sfpplus4", "sfp-sfpplus5", "sfp-sfpplus6", "sfp-sfpplus7",
+            "sfp-sfpplus8", "sfp-sfpplus9", "sfp-sfpplus10", "sfp-sfpplus11",
+            "sfp-sfpplus12", "sfp28-1", "sfp28-2"
+        ],
+    },
+    "7535": {
+        "management": "ether1",
+        "backhaul": ["ether3", "ether4", "ether5", "ether6", "ether7", "ether8"],
+    },
+    "7316": {
+        "management": "ether1",
+        "backhaul": ["ether3", "ether4", "ether5", "ether6", "ether7", "ether8"],
+    },
+}
+
 MSTP_STATES = {
     "42": "IA",
     "241": "IN",
@@ -32,11 +52,12 @@ MSTP_STATES = {
     "250": "LA",
     "0": "IL",
 }
+MSTP_STATE_CODES = frozenset(MSTP_STATES.values())
 
 TARANA_SECTORS = [
-    {"name": "Alpha", "port": "sfp-sfpplus8", "address_offset": 2},
-    {"name": "Beta", "port": "sfp-sfpplus9", "address_offset": 3},
-    {"name": "Gamma", "port": "sfp-sfpplus10", "address_offset": 4},
+    {"name": "Alpha", "port": "sfp-sfpplus9", "address_offset": 2},
+    {"name": "Beta", "port": "sfp-sfpplus10", "address_offset": 3},
+    {"name": "Gamma", "port": "sfp-sfpplus11", "address_offset": 4},
     {"name": "Delta", "port": "sfp-sfpplus6", "address_offset": 5},
 ]
 
@@ -55,8 +76,15 @@ UPLINK_2_6GHZ = "SWT-MT2004/CRS309"
 ###        Config Paths         ###
 ###################################
 
-CONFIG_TEMPLATE_PATH = os.getenv("BASE_CONFIG_PATH") + "/Router/BNG2/config/"
-PORT_MAP_TEMPLATE_PATH = os.getenv("BASE_CONFIG_PATH") + "/Router/BNG2/port_map/"
+def _base_config_path() -> Path:
+    env = os.getenv("BASE_CONFIG_PATH") or os.getenv("NEXTLINK_BASE_CONFIG_PATH")
+    if env:
+        configured = Path(env)
+        required = configured / "Router" / "BNG2" / "config"
+        if required.is_dir():
+            return configured
+    # Bundled fallback inside noc-configmaker repo
+    return Path(__file__).resolve().parent.parent / "base_configs"
 
 
 class MTBNG2Config:
@@ -81,7 +109,7 @@ class MTBNG2Config:
             self.vpls_l2_mtu = params["vpls_l2_mtu"]
 
             self.state_code = params["state_code"]
-            if self.state_code not in MSTP_STATES.values():
+            if self.state_code not in MSTP_STATE_CODES:
                 raise ValueError(
                     f"State '{self.state_code}' is not valid for this config type."
                 )
@@ -102,6 +130,11 @@ class MTBNG2Config:
                 self.tarana_subnet = IPNetwork(params["tarana_subnet"])
                 self.tarana_sector_count = int(params.get("tarana_sector_count", 3))
                 self.tarana_sector_start = int(params.get("tarana_sector_start", 0))
+                # Accept custom sector port assignments from frontend
+                self._custom_sectors = params.get("tarana_sectors", None)
+                # Unicorn MGMT subnet (defaults to tarana_subnet if not provided)
+                raw_unicorn = params.get("unicorn_mgmt_subnet") or str(self.tarana_subnet)
+                self.unicorn_mgmt_subnet = IPNetwork(raw_unicorn)
 
                 if self.tarana_sector_count > len(TARANA_SECTORS):
                     raise ValueError(
@@ -109,17 +142,25 @@ class MTBNG2Config:
                     )
 
             self.is_326 = params.get("is_326", False)
+            if self.is_326:
+                self.crs_326_mgmt_subnet = IPNetwork(params["326_mgmt_subnet"])
+
             self.is_6ghz = params.get("is_6ghz", False)
+            if self.is_6ghz:
+                self.six_ghz_subnet = IPNetwork(params["6ghz_subnet"])
+
+            self.is_ub_wave = params.get("is_ub_wave", False)
+            if self.is_ub_wave:
+                self.ub_wave_subnet = IPNetwork(params["ub_wave_subnet"])
 
             self.enable_contractor_login = params.get("enable_contractor_login", False)
+            self.switches = self._normalize_switches(params.get("switches", []) or [])
 
             # Validate backhauls
             self.backhauls = params["backhauls"]
             if not self.backhauls:
                 raise ValueError("No backhauls provided.")
             for backhaul in self.backhauls:
-                # port_num = re.match(r".*?(\d+)", backhaul.get("port", ""))
-
                 if not all((
                     backhaul.get("name"),
                     backhaul.get("subnet"),
@@ -127,16 +168,69 @@ class MTBNG2Config:
                     backhaul.get("port") is not None,
                 )):
                     raise ValueError(f"Invalid backhaul params: {backhaul}")
+            self._validate_port_policy()
+            self._validate_switch_policy()
 
         except KeyError as err:
             raise ValueError(f"Missing parameter: {err}")
 
+        base_path = _base_config_path()
+        config_template_path = str(base_path / "Router" / "BNG2" / "config")
+        port_map_template_path = str(base_path / "Router" / "BNG2" / "port_map")
+
         # Configure jinja environment
         self.jinja_env = Environment(
-            loader=FileSystemLoader([CONFIG_TEMPLATE_PATH, PORT_MAP_TEMPLATE_PATH])
+            loader=FileSystemLoader([config_template_path, port_map_template_path])
         )
         self.jinja_env.trim_blocks = True
         self.jinja_env.lstrip_blocks = True
+
+    def _validate_port_policy(self):
+        policy = BNG2_PORT_POLICY.get(self.router_type)
+        if not policy:
+            return
+        management_port = policy["management"]
+        allowed_backhaul = set(policy["backhaul"])
+        for backhaul in self.backhauls:
+            port = str(backhaul.get("port", "")).strip()
+            if port == management_port or port not in allowed_backhaul:
+                raise ValueError(
+                    f"Backhaul port '{port}' is not valid for {self.router_type}. "
+                    f"Allowed backhaul ports: {sorted(allowed_backhaul)}"
+                )
+
+    def _validate_switch_policy(self):
+        policy = BNG2_PORT_POLICY.get(self.router_type)
+        if not policy:
+            return
+        management_port = policy["management"]
+        backhaul_ports = {str(b.get("port", "")).strip() for b in self.backhauls}
+        seen: set[str] = set()
+        for sw in self.switches:
+            port = str(sw.get("port", "")).strip()
+            if not port:
+                continue
+            if port == management_port:
+                raise ValueError(f"Switch uplink port '{port}' cannot be the management port.")
+            if port in backhaul_ports:
+                raise ValueError(f"Switch uplink port '{port}' collides with a backhaul port.")
+            if port in seen:
+                raise ValueError(f"Duplicate switch uplink port '{port}' is not allowed.")
+            seen.add(port)
+
+    @staticmethod
+    def _normalize_switches(switches):
+        out = []
+        seen = set()
+        for sw in list(switches or []):
+            if not isinstance(sw, dict):
+                continue
+            port = str(sw.get("port", "")).strip()
+            if not port or port in seen:
+                continue
+            seen.add(port)
+            out.append(sw)
+        return out
 
     def get_tarana_sectors(self):
         azimuths = [
@@ -145,15 +239,23 @@ class MTBNG2Config:
             for x in range(self.tarana_sector_count)
         ]
 
-        return [
-            {
-                "name": TARANA_SECTORS[i]["name"],
-                "port": TARANA_SECTORS[i]["port"],
+        # Use custom sector ports from frontend if provided
+        custom = getattr(self, "_custom_sectors", None)
+        result = []
+        for i in range(self.tarana_sector_count):
+            if custom and i < len(custom) and custom[i].get("port"):
+                port = str(custom[i]["port"]).strip()
+                name = custom[i].get("name", TARANA_SECTORS[i]["name"])
+            else:
+                port = TARANA_SECTORS[i]["port"]
+                name = TARANA_SECTORS[i]["name"]
+            result.append({
+                "name": name,
+                "port": port,
                 "address_offset": TARANA_SECTORS[i]["address_offset"],
                 "azimuth": azimuths[i],
-            }
-            for i in range(self.tarana_sector_count)
-        ]
+            })
+        return result
 
     def get_base_params(self, params=None):
         if not params:
@@ -167,18 +269,27 @@ class MTBNG2Config:
         params["bng2_ip"] = self.bng_2_ip
         params["OSPF_area"] = self.ospf_area
         params["state"] = MSTP_STATES[self.ospf_area]
+        params["state_lc"] = str(params["state"]).lower()
+        params["ospf_area_id"] = f"0.0.0.{self.ospf_area}"
         params["vpls1000"] = self.vlan_1000_cisco
         params["vpls2000"] = self.vlan_2000_cisco
         params["vpls3000"] = self.vlan_3000_cisco
         params["vpls4000"] = self.vlan_4000_cisco
         params["mpls_mtu"] = self.mpls_mtu
         params["vpls_l2mtu"] = self.vpls_l2_mtu
+        state_mesh_base = f"10.{self.ospf_area}.0"
+        params["mesh_peer_1"] = str(params.get("mesh_peer_1") or f"{state_mesh_base}.3")
+        params["mesh_peer_2"] = str(params.get("mesh_peer_2") or f"{state_mesh_base}.4")
+        params["state_vpls_peer"] = str(params.get("state_vpls_peer") or f"{state_mesh_base}.1")
 
         params["is_lte"] = self.is_lte
         params["is_tarana"] = self.is_tarana
         params["is_switchless"] = self.is_switchless
         params["is_326"] = self.is_326
+        params["is_6ghz"] = self.is_6ghz
+        params["is_ub_wave"] = self.is_ub_wave
         params["enable_contractor_login"] = self.enable_contractor_login
+        params["switches"] = self.switches
 
         return params
 
@@ -237,6 +348,11 @@ class MTBNG2Config:
             )
             params["tarana_sectors"].append(sector)
 
+        # Unicorn MGMT subnet params for the template
+        params["unicorn_mgmt_ip"] = str(self.unicorn_mgmt_subnet.network + 1)
+        params["unicorn_mgmt_prefix"] = self.unicorn_mgmt_subnet.prefixlen
+        params["unicorn_mgmt_network"] = str(self.unicorn_mgmt_subnet.network)
+
         return params
 
     def get_port_map_params(self, params=None):
@@ -245,6 +361,9 @@ class MTBNG2Config:
 
         params["gateway"] = self.gateway.ip
         params["subnet"] = self.gateway.netmask
+        params["gateway_ip"] = str(self.gateway.ip)
+        params["gateway_prefix"] = self.gateway.prefixlen
+        params["gateway_network"] = str(self.gateway.network)
         params["switch_ip"] = self.switch_ip
         params["switch"] = str(self.switch_ip.network)
         params["ups"] = str(self.switch_ip.network + 1)
@@ -257,13 +376,56 @@ class MTBNG2Config:
 
         return params
 
+    def get_6ghz_params(self, params=None):
+        if not params:
+            params = {}
+
+        params["six_ghz_network"] = self.six_ghz_subnet.network
+        params["six_ghz_address"] = str(self.six_ghz_subnet.network + 1)
+        params["six_ghz_prefixlen"] = self.six_ghz_subnet.prefixlen
+        params["six_ghz_range_low"] = str(self.six_ghz_subnet.network + 2)
+        params["six_ghz_range_high"] = str(self.six_ghz_subnet.broadcast - 1)
+
+        return params
+
+    def get_ub_wave_params(self, params=None):
+        if not params:
+            params = {}
+
+        params["ub_wave_network"] = self.ub_wave_subnet.network
+        params["ub_wave_address"] = str(self.ub_wave_subnet.network + 1)
+        params["ub_wave_prefixlen"] = self.ub_wave_subnet.prefixlen
+        params["ub_wave_range_low"] = str(self.ub_wave_subnet.network + 2)
+        params["ub_wave_range_high"] = str(self.ub_wave_subnet.broadcast - 1)
+
+        return params
+
+    def get_326_params(self, params=None):
+        if not params:
+            params = {}
+
+        params["crs_326_mgmt_network"] = self.crs_326_mgmt_subnet.network
+        params["crs_326_mgmt_mask_bits"] = (
+            self.crs_326_mgmt_subnet.netmask.netmask_bits()
+        )
+        params["crs_326_mgmt_address"] = self.crs_326_mgmt_subnet
+
+        return params
+
     def generate_config(self):
         params = self.get_base_params()
         params = self.get_backhaul_params(params)
+        params = self.get_port_map_params(params)
         if self.is_lte:
             params = self.get_bbu_params(params)
         if self.is_tarana:
             params = self.get_tarana_params(params)
+        if self.is_6ghz:
+            params = self.get_6ghz_params(params)
+        if self.is_ub_wave:
+            params = self.get_ub_wave_params(params)
+        if self.is_326:
+            params = self.get_326_params(params)
 
         template = self.jinja_env.get_template(
             ROUTER_TYPES[self.router_type]["config_template"]
@@ -292,7 +454,7 @@ class MTBNG2Config:
         return port_map_text
 
     @staticmethod
-    def _sanitize_transport_only_output(config_text: str):
+    def _sanitize_transport_only_output(config_text: str) -> str:
         banned_fragments = (
             "lan-bridge",
             "nat-public-bridge",
@@ -300,10 +462,17 @@ class MTBNG2Config:
             "/ip pool",
             "address-pool=",
             "comment=Switch-Mgmt",
+            "src-address-list=unauth",
         )
+        seen = set()
         kept = []
         for line in str(config_text or "").splitlines():
             if any(fragment in line for fragment in banned_fragments):
                 continue
+            normalized = line.strip()
+            if normalized and normalized in seen:
+                continue
+            if normalized:
+                seen.add(normalized)
             kept.append(line)
         return "\n".join(kept).strip() + "\n"

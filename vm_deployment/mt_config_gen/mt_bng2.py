@@ -154,7 +154,7 @@ class MTBNG2Config:
                 self.ub_wave_subnet = IPNetwork(params["ub_wave_subnet"])
 
             self.enable_contractor_login = params.get("enable_contractor_login", False)
-            self.switches = params.get("switches", []) or []
+            self.switches = self._normalize_switches(params.get("switches", []) or [])
 
             # Validate backhauls
             self.backhauls = params["backhauls"]
@@ -169,6 +169,7 @@ class MTBNG2Config:
                 )):
                     raise ValueError(f"Invalid backhaul params: {backhaul}")
             self._validate_port_policy()
+            self._validate_switch_policy()
 
         except KeyError as err:
             raise ValueError(f"Missing parameter: {err}")
@@ -197,6 +198,39 @@ class MTBNG2Config:
                     f"Backhaul port '{port}' is not valid for {self.router_type}. "
                     f"Allowed backhaul ports: {sorted(allowed_backhaul)}"
                 )
+
+    def _validate_switch_policy(self):
+        policy = BNG2_PORT_POLICY.get(self.router_type)
+        if not policy:
+            return
+        management_port = policy["management"]
+        backhaul_ports = {str(b.get("port", "")).strip() for b in self.backhauls}
+        seen: set[str] = set()
+        for sw in self.switches:
+            port = str(sw.get("port", "")).strip()
+            if not port:
+                continue
+            if port == management_port:
+                raise ValueError(f"Switch uplink port '{port}' cannot be the management port.")
+            if port in backhaul_ports:
+                raise ValueError(f"Switch uplink port '{port}' collides with a backhaul port.")
+            if port in seen:
+                raise ValueError(f"Duplicate switch uplink port '{port}' is not allowed.")
+            seen.add(port)
+
+    @staticmethod
+    def _normalize_switches(switches):
+        out = []
+        seen = set()
+        for sw in list(switches or []):
+            if not isinstance(sw, dict):
+                continue
+            port = str(sw.get("port", "")).strip()
+            if not port or port in seen:
+                continue
+            seen.add(port)
+            out.append(sw)
+        return out
 
     def get_tarana_sectors(self):
         azimuths = [
@@ -428,10 +462,17 @@ class MTBNG2Config:
             "/ip pool",
             "address-pool=",
             "comment=Switch-Mgmt",
+            "src-address-list=unauth",
         )
+        seen = set()
         kept = []
         for line in str(config_text or "").splitlines():
             if any(fragment in line for fragment in banned_fragments):
                 continue
+            normalized = line.strip()
+            if normalized and normalized in seen:
+                continue
+            if normalized:
+                seen.add(normalized)
             kept.append(line)
         return "\n".join(kept).strip() + "\n"

@@ -60,12 +60,14 @@ COMPLIANCE_ORDER = [
 ]
 
 SAFE_DEDUPE_PREFIXES = (
+    "/ip service set ",
     "/ip dns set servers=",
     "/system ntp client set enabled=",
     "/system clock set time-zone-name=",
     "/ip proxy set enabled=",
     "/ip firewall service-port set sip disabled=",
     "/system routerboard settings set auto-upgrade=",
+    "/system note set note=",
 )
 
 
@@ -172,6 +174,18 @@ def load_compliance_text(loopback_ip: str) -> str:
 
 
 def apply_engineering_compliance(config_text: str, loopback_ip: str | None = None) -> str:
+    def _compliance_source_note() -> str:
+        if _HAS_GITLAB and _get_gitlab_loader is not None:
+            try:
+                loader = _get_gitlab_loader()
+                if loader.is_configured():
+                    ref = os.getenv("GITLAB_COMPLIANCE_REF", "main")
+                    path = os.getenv("GITLAB_COMPLIANCE_SCRIPT_PATH", "TX-ARv2.rsc")
+                    return f"# compliance_source=gitlab ref={ref} path={path}"
+            except Exception:
+                pass
+        return "# compliance_source=fallback(local/reference)"
+
     def _dedupe_safe_single_line_commands(text: str) -> str:
         seen: set[str] = set()
         out: list[str] = []
@@ -196,6 +210,8 @@ def apply_engineering_compliance(config_text: str, loopback_ip: str | None = Non
         + "\n\n"
         + COMPLIANCE_MARKER
         + "\n# Compliance baseline loaded from backend policy file\n"
+        + _compliance_source_note()
+        + "\n"
         + compliance_text
         + "\n"
     )
