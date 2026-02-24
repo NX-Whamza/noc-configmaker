@@ -72,10 +72,16 @@ def test_ftth_ui_contract_outstate_renders_nebraska_style_blocks():
     assert "/interface vpls" in config
     assert "name=vpls1000-bng1" in config
     assert "cisco-static-id=1249" in config
-    assert "/ip dhcp-server" not in config
-    assert "/ip dhcp-server network" not in config
+    assert "# ENGINEERING-COMPLIANCE-APPLIED" in config
+    assert "/ip firewall address-list rem [find list=WALLED-GARDEN]" in config
+    assert "/system note set note=\"COMPLIANCE SCRIPT LAST RUN ON $CurDT\"" in config
+    assert "require-message-auth=no" in config
+
+    # Outstate remains transport-focused: no DHCP servers/pools, but compliance
+    # DHCP option/network-set lines are allowed.
+    assert "/ip dhcp-server\n" not in config
     assert "/ip pool" not in config
-    assert "/ip dhcp-server option" not in config
+    assert "/ip dhcp-server option add code=43 name=opt43" in config
 
 
 def test_ftth_ui_contract_instate_keeps_standard_bridge_layout():
