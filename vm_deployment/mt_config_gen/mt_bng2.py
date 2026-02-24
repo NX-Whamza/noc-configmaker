@@ -88,6 +88,11 @@ def _base_config_path() -> Path:
 
 
 class MTBNG2Config:
+    @staticmethod
+    def _strip_prefix(ip_or_cidr: str) -> str:
+        value = str(ip_or_cidr or "").strip()
+        return value.split("/")[0] if "/" in value else value
+
     def __init__(self, **params):
         try:
             self.router_type = params["router_type"]
@@ -158,6 +163,19 @@ class MTBNG2Config:
             self._ospf_auth_type = os.getenv("NEXTLINK_OSPF_AUTH_TYPE", "md5")
             self._ospf_auth_id = os.getenv("NEXTLINK_OSPF_AUTH_ID", "1")
             self._ospf_md5_key = os.getenv("NEXTLINK_OSPF_MD5_KEY", "m8M5JwvdYM")
+            self._bgp_md5_key = str(
+                params.get("bgp_md5_key")
+                or os.getenv("NEXTLINK_BGP_MD5_KEY", "m8M5JwvdYM")
+            ).strip()
+            self.asn = str(params.get("asn", "26077")).strip()
+            self.peer_1_name = str(params.get("peer_1_name", "CR7")).strip() or "CR7"
+            self.peer_2_name = str(params.get("peer_2_name", "CR8")).strip() or "CR8"
+            self.peer_1_address = self._strip_prefix(
+                params.get("peer_1_address", "10.2.0.107/32")
+            )
+            self.peer_2_address = self._strip_prefix(
+                params.get("peer_2_address", "10.2.0.108/32")
+            )
 
             # Validate backhauls
             self.backhauls = params["backhauls"]
@@ -283,6 +301,12 @@ class MTBNG2Config:
         params["ospf_auth_type"] = self._ospf_auth_type
         params["ospf_auth_id"] = self._ospf_auth_id
         params["ospf_md5_key"] = self._ospf_md5_key
+        params["bgp_md5_key"] = self._bgp_md5_key
+        params["asn"] = self.asn
+        params["peer1_name"] = self.peer_1_name
+        params["peer2_name"] = self.peer_2_name
+        params["peer1"] = self.peer_1_address
+        params["peer2"] = self.peer_2_address
         state_mesh_base = f"10.{self.ospf_area}.0"
         params["mesh_peer_1"] = str(params.get("mesh_peer_1") or f"{state_mesh_base}.3")
         params["mesh_peer_2"] = str(params.get("mesh_peer_2") or f"{state_mesh_base}.4")

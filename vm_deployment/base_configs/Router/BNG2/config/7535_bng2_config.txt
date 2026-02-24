@@ -26,10 +26,17 @@ add name=default-v2 router-id={{ loopip }}
 /routing ospf area
 add name=area{{ OSPF_area }} area-id=0.0.0.{{ OSPF_area }} instance=default-v2
 /routing ospf interface-template
-add area=area{{ OSPF_area }} interfaces=loop0 networks={{ loopip }}/32 passive
+add area=area{{ OSPF_area }} cost=10 disabled=no interfaces=loop0 networks={{ loopip }}/32 passive priority=1
 {% for bh in backhauls %}
-add area=area{{ OSPF_area }} auth={{ ospf_auth_type }} auth-id={{ ospf_auth_id }} auth-key={{ ospf_md5_key }} interfaces={{ bh.port }} networks={{ bh.bh_net }}/{{ bh.bhip_sub }} type=ptp
+add area=area{{ OSPF_area }} auth={{ ospf_auth_type }} auth-id={{ ospf_auth_id }} auth-key={{ ospf_md5_key }} cost=10 disabled=no interfaces={{ bh.port }} networks={{ bh.bh_net }}/{{ bh.bhip_sub }} priority=1 type=ptp use-bfd=no
 {% endfor %}
+
+/routing bgp template
+set default as={{ asn }} disabled=no output.network=bgp-networks router-id={{ loopip }}
+
+/routing bgp connection
+add cisco-vpls-nlri-len-fmt=auto-bits connect=yes listen=yes local.address={{ loopip }} .role=ibgp multihop=yes name={{ peer1_name }} remote.address={{ peer1 }} .as={{ asn }} .port=179 tcp-md5-key={{ bgp_md5_key }} templates=default
+add cisco-vpls-nlri-len-fmt=auto-bits connect=yes listen=yes local.address={{ loopip }} .role=ibgp multihop=yes name={{ peer2_name }} remote.address={{ peer2 }} .as={{ asn }} .port=179 tcp-md5-key={{ bgp_md5_key }} templates=default
 
 /mpls interface
 add interface=all mpls-mtu={{ mpls_mtu }}

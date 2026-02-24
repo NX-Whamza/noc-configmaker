@@ -76,9 +76,9 @@ add name=default-v2 router-id={{ loopip }}
 /routing ospf area
 add area-id={{ ospf_area_id }} disabled=no instance=default-v2 name=area{{ OSPF_area }}-v2
 /routing ospf interface-template
-add area=area{{ OSPF_area }}-v2 interfaces=loop0 networks={{ loopip }}/32 passive
+add area=area{{ OSPF_area }}-v2 cost=10 disabled=no interfaces=loop0 networks={{ loopip }}/32 passive priority=1
 {% for bh in backhauls %}
-add area=area{{ OSPF_area }}-v2 auth={{ ospf_auth_type }} auth-id={{ ospf_auth_id }} auth-key={{ ospf_md5_key }} interfaces={{ bh.port }} networks={{ bh.bh_net }}/{{ bh.bhip_sub }} type=ptp
+add area=area{{ OSPF_area }}-v2 auth={{ ospf_auth_type }} auth-id={{ ospf_auth_id }} auth-key={{ ospf_md5_key }} cost=10 disabled=no interfaces={{ bh.port }} networks={{ bh.bh_net }}/{{ bh.bhip_sub }} priority=1 type=ptp use-bfd=no
 {% endfor %}
 {% if is_tarana %}
 add area=area{{ OSPF_area }}-v2 disabled=no interfaces="UNICORN MGMT" networks={{ unicorn_mgmt_network }}/{{ unicorn_mgmt_prefix }} priority=1
@@ -89,6 +89,13 @@ add area=area{{ OSPF_area }}-v2 comment="6Ghz Equipment" cost=10 disabled=no int
 {% if is_ub_wave %}
 add area=area{{ OSPF_area }}-v2 comment="UB WAVE" cost=10 disabled=no interfaces=bridge3000 networks={{ ub_wave_network }}/{{ ub_wave_prefixlen }} priority=1
 {% endif %}
+
+/routing bgp template
+set default as={{ asn }} disabled=no output.network=bgp-networks router-id={{ loopip }}
+
+/routing bgp connection
+add cisco-vpls-nlri-len-fmt=auto-bits connect=yes listen=yes local.address={{ loopip }} .role=ibgp multihop=yes name={{ peer1_name }} remote.address={{ peer1 }} .as={{ asn }} .port=179 tcp-md5-key={{ bgp_md5_key }} templates=default
+add cisco-vpls-nlri-len-fmt=auto-bits connect=yes listen=yes local.address={{ loopip }} .role=ibgp multihop=yes name={{ peer2_name }} remote.address={{ peer2 }} .as={{ asn }} .port=179 tcp-md5-key={{ bgp_md5_key }} templates=default
 
 /mpls interface
 add interface=all mpls-mtu={{ mpls_mtu }}
