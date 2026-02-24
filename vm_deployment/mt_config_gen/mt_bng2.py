@@ -155,6 +155,9 @@ class MTBNG2Config:
 
             self.enable_contractor_login = params.get("enable_contractor_login", False)
             self.switches = self._normalize_switches(params.get("switches", []) or [])
+            self._ospf_auth_type = os.getenv("NEXTLINK_OSPF_AUTH_TYPE", "md5")
+            self._ospf_auth_id = os.getenv("NEXTLINK_OSPF_AUTH_ID", "1")
+            self._ospf_md5_key = os.getenv("NEXTLINK_OSPF_MD5_KEY", "m8M5JwvdYM")
 
             # Validate backhauls
             self.backhauls = params["backhauls"]
@@ -277,6 +280,9 @@ class MTBNG2Config:
         params["vpls4000"] = self.vlan_4000_cisco
         params["mpls_mtu"] = self.mpls_mtu
         params["vpls_l2mtu"] = self.vpls_l2_mtu
+        params["ospf_auth_type"] = self._ospf_auth_type
+        params["ospf_auth_id"] = self._ospf_auth_id
+        params["ospf_md5_key"] = self._ospf_md5_key
         state_mesh_base = f"10.{self.ospf_area}.0"
         params["mesh_peer_1"] = str(params.get("mesh_peer_1") or f"{state_mesh_base}.3")
         params["mesh_peer_2"] = str(params.get("mesh_peer_2") or f"{state_mesh_base}.4")

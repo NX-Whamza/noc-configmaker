@@ -28,7 +28,7 @@ add name=area{{ OSPF_area }} area-id=0.0.0.{{ OSPF_area }} instance=default-v2
 /routing ospf interface-template
 add area=area{{ OSPF_area }} interfaces=loop0 networks={{ loopip }}/32 passive
 {% for bh in backhauls %}
-add area=area{{ OSPF_area }} interfaces={{ bh.port }} networks={{ bh.bh_net }}/{{ bh.bhip_sub }} type=ptp
+add area=area{{ OSPF_area }} auth={{ ospf_auth_type }} auth-id={{ ospf_auth_id }} auth-key={{ ospf_md5_key }} interfaces={{ bh.port }} networks={{ bh.bh_net }}/{{ bh.bhip_sub }} type=ptp
 {% endfor %}
 
 /mpls interface

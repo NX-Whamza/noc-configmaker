@@ -78,7 +78,7 @@ add area-id={{ ospf_area_id }} disabled=no instance=default-v2 name=area{{ OSPF_
 /routing ospf interface-template
 add area=area{{ OSPF_area }}-v2 interfaces=loop0 networks={{ loopip }}/32 passive
 {% for bh in backhauls %}
-add area=area{{ OSPF_area }}-v2 interfaces={{ bh.port }} networks={{ bh.bh_net }}/{{ bh.bhip_sub }} type=ptp
+add area=area{{ OSPF_area }}-v2 auth={{ ospf_auth_type }} auth-id={{ ospf_auth_id }} auth-key={{ ospf_md5_key }} interfaces={{ bh.port }} networks={{ bh.bh_net }}/{{ bh.bhip_sub }} type=ptp
 {% endfor %}
 {% if is_tarana %}
 add area=area{{ OSPF_area }}-v2 disabled=no interfaces="UNICORN MGMT" networks={{ unicorn_mgmt_network }}/{{ unicorn_mgmt_prefix }} priority=1
