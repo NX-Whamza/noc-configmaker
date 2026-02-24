@@ -3218,14 +3218,6 @@
                                         <option value="IL">IL (Illinois)</option>
                                     </select>
                                 </div>
-                                <div id="mtBng2GatewayRow">
-                                    <label for="mtBng2Gateway">Gateway Subnet</label>
-                                    <input type="text" id="mtBng2Gateway" placeholder="10.248.80.208/30">
-                                </div>
-                                <div id="mtBng2SwitchIpRow">
-                                    <label for="mtBng2SwitchIp">Switch IP Subnet</label>
-                                    <input type="text" id="mtBng2SwitchIp" placeholder="10.248.249.8/29">
-                                </div>
                                 <div>
                                     <label for="mtBng2Ip1">BNG IP 1</label>
                                     <input type="text" id="mtBng2Ip1" value="10.249.0.200" placeholder="10.249.0.200">
@@ -13421,16 +13413,12 @@ show mac address-table | include &lt;mac&gt;</div>
                 const taranaSectorsRow = document.getElementById('mtBng2TaranaSectorsRow');
                 const bbuS1Row = document.getElementById('mtBng2BbuS1Row');
                 const bbuMgmtRow = document.getElementById('mtBng2BbuMgmtRow');
-                const gatewayRow = document.getElementById('mtBng2GatewayRow');
-                const switchIpRow = document.getElementById('mtBng2SwitchIpRow');
                 const switchSection = document.getElementById('mtSwitchSection');
 
                 if (taranaSubnetRow) taranaSubnetRow.style.display = (isBng2 && isTarana) ? 'block' : 'none';
                 if (taranaSectorsRow) taranaSectorsRow.style.display = (isBng2 && isTarana) ? 'block' : 'none';
                 if (bbuS1Row) bbuS1Row.style.display = (isBng2 && is6ghz) ? 'block' : 'none';
                 if (bbuMgmtRow) bbuMgmtRow.style.display = (isBng2 && is6ghz) ? 'block' : 'none';
-                if (gatewayRow) gatewayRow.style.display = 'none';
-                if (switchIpRow) switchIpRow.style.display = 'none';
                 if (switchSection) switchSection.style.display = (isBng2 && isTachyon) ? 'none' : 'block';
             }
 
