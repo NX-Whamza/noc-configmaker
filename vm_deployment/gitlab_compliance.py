@@ -19,6 +19,7 @@ Optional env vars
 GITLAB_COMPLIANCE_HOST       defaults to "tested.nxlink.com"
 GITLAB_COMPLIANCE_REF        git ref to read from, defaults to "main"
 GITLAB_COMPLIANCE_TTL        cache TTL in seconds, defaults to 900 (15 min)
+GITLAB_COMPLIANCE_SCRIPT_PATH defaults to "TX-ARv2.rsc"
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ from typing import Any, Dict, List, Optional, Tuple
 _DEFAULT_HOST = "tested.nxlink.com"
 _DEFAULT_REF  = "main"
 _DEFAULT_TTL  = 900  # 15 minutes
+_DEFAULT_SCRIPT_PATH = "TX-ARv2.rsc"
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +133,12 @@ class GitLabComplianceLoader:
             return int(os.getenv("GITLAB_COMPLIANCE_TTL", str(_DEFAULT_TTL)))
         except (ValueError, TypeError):
             return _DEFAULT_TTL
+
+    @staticmethod
+    def _script_path() -> str:
+        value = os.getenv("GITLAB_COMPLIANCE_SCRIPT_PATH", _DEFAULT_SCRIPT_PATH)
+        value = (value or "").strip()
+        return value or _DEFAULT_SCRIPT_PATH
 
     def _url(self, path: str) -> str:
         """Build GitLab raw-file API URL for a repository path."""
@@ -238,27 +246,28 @@ class GitLabComplianceLoader:
             print(f"[GITLAB-COMPLIANCE] list_repository_tree failed: {exc}")
             return None
 
-    def get_raw_compliance_script(self, path: str = "archive/compliance-commands.txt") -> Optional[str]:
+    def get_raw_compliance_script(self, path: Optional[str] = None) -> Optional[str]:
         """
         Fetch the raw compliance commands text file from the repository.
         Returns the text content, or None on failure.
 
-        Default path matches the confirmed file location:
-            archive/compliance-commands.txt
+        Default path:
+            TX-ARv2.rsc
         """
+        effective_path = path or self._script_path()
         try:
-            return self.load_file_cached(path)
+            return self.load_file_cached(effective_path)
         except Exception as exc:
-            print(f"[GITLAB-COMPLIANCE] get_raw_compliance_script('{path}') failed: {exc}")
+            print(f"[GITLAB-COMPLIANCE] get_raw_compliance_script('{effective_path}') failed: {exc}")
             return None
 
     def get_compliance_blocks_from_script(
         self,
         loopback_ip: Optional[str] = None,
-        path: str = "archive/compliance-commands.txt",
+        path: Optional[str] = None,
     ) -> Optional[dict]:
         """
-        Fetch compliance-commands.txt and parse it into a compliance blocks dict
+        Fetch the compliance script and parse it into a compliance blocks dict
         that matches the signature of get_all_compliance_blocks() in
         nextlink_compliance_reference.py.
 
@@ -273,21 +282,22 @@ class GitLabComplianceLoader:
 
         Returns None on any failure so callers fall back to hardcoded.
         """
+        effective_path = path or self._script_path()
         lp = loopback_ip or "10.0.0.1/32"
         try:
-            raw = self.load_file_cached(path)
+            raw = self.load_file_cached(effective_path)
         except Exception as exc:
-            print(f"[GITLAB-COMPLIANCE] fetch failed for '{path}': {exc}")
+            print(f"[GITLAB-COMPLIANCE] fetch failed for '{effective_path}': {exc}")
             return None
 
         try:
             blocks = _parse_compliance_script(raw, loopback_ip=lp)
             if not blocks:
-                print(f"[GITLAB-COMPLIANCE] parsed 0 blocks from '{path}' — falling back")
+                print(f"[GITLAB-COMPLIANCE] parsed 0 blocks from '{effective_path}' - falling back")
                 return None
             return blocks
         except Exception as exc:
-            print(f"[GITLAB-COMPLIANCE] parse error for '{path}': {exc}")
+            print(f"[GITLAB-COMPLIANCE] parse error for '{effective_path}': {exc}")
             return None
 
     def get_compliance_rsc_template(
@@ -559,3 +569,4 @@ def get_loader() -> GitLabComplianceLoader:
     if _loader_instance is None:
         _loader_instance = GitLabComplianceLoader()
     return _loader_instance
+
