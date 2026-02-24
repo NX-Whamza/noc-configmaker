@@ -522,6 +522,8 @@ def mt_generate_config(config_type: str, payload: Dict[str, Any] = Body(default_
         config_text = cfg.generate_config()
         if apply_compliance:
             config_text = ido_apply_compliance(config_text, payload_loopback)
+        if config_type == "bng2":
+            config_text = MTBNG2Config._sanitize_transport_only_output(config_text)
         return JSONResponse(content=config_text)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -579,6 +581,8 @@ def ido_render(config_type: str, payload: Dict[str, Any] = Body(default_factory=
         config_text = cfg.generate_config()
         if apply_compliance:
             config_text = ido_apply_compliance(config_text, payload_loopback)
+        if config_type == "bng2":
+            config_text = MTBNG2Config._sanitize_transport_only_output(config_text)
         return JSONResponse(
             content={
                 "config": config_text,
