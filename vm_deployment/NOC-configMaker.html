@@ -3165,19 +3165,19 @@
                                 <label for="mtLoopbackSubnet">Loopback Subnet</label>
                                 <input type="text" id="mtLoopbackSubnet" placeholder="10.25.0.46/32">
                             </div>
-                            <div>
+                            <div id="mtTowerCpeRow">
                                 <label for="mtCpeSubnet">CPE Subnet</label>
                                 <input type="text" id="mtCpeSubnet" placeholder="10.45.40.0/22">
                             </div>
-                            <div>
+                            <div id="mtTowerUnauthRow">
                                 <label for="mtUnauthSubnet">Unauth Subnet</label>
                                 <input type="text" id="mtUnauthSubnet" placeholder="10.145.40.0/22">
                             </div>
-                            <div>
+                            <div id="mtTowerCgnPrivateRow">
                                 <label for="mtCgnatPrivate">CGNAT Private</label>
                                 <input type="text" id="mtCgnatPrivate" placeholder="100.64.112.0/22">
                             </div>
-                            <div>
+                            <div id="mtTowerCgnPublicRow">
                                 <label for="mtCgnatPublic">CGNAT Public</label>
                                 <input type="text" id="mtCgnatPublic" placeholder="142.147.123.163/32">
                             </div>
@@ -3218,7 +3218,7 @@
                                         <option value="IL">IL (Illinois)</option>
                                     </select>
                                 </div>
-                                <div>
+                                <div id="mtBng2GatewayRow">
                                     <label for="mtBng2Gateway">Gateway Subnet</label>
                                     <input type="text" id="mtBng2Gateway" placeholder="10.248.80.208/30">
                                 </div>
@@ -13421,6 +13421,7 @@ show mac address-table | include &lt;mac&gt;</div>
                 const taranaSectorsRow = document.getElementById('mtBng2TaranaSectorsRow');
                 const bbuS1Row = document.getElementById('mtBng2BbuS1Row');
                 const bbuMgmtRow = document.getElementById('mtBng2BbuMgmtRow');
+                const gatewayRow = document.getElementById('mtBng2GatewayRow');
                 const switchIpRow = document.getElementById('mtBng2SwitchIpRow');
                 const switchSection = document.getElementById('mtSwitchSection');
 
@@ -13428,7 +13429,8 @@ show mac address-table | include &lt;mac&gt;</div>
                 if (taranaSectorsRow) taranaSectorsRow.style.display = (isBng2 && isTarana) ? 'block' : 'none';
                 if (bbuS1Row) bbuS1Row.style.display = (isBng2 && is6ghz) ? 'block' : 'none';
                 if (bbuMgmtRow) bbuMgmtRow.style.display = (isBng2 && is6ghz) ? 'block' : 'none';
-                if (switchIpRow) switchIpRow.style.display = (isBng2 && !isTachyon) ? 'block' : 'none';
+                if (gatewayRow) gatewayRow.style.display = 'none';
+                if (switchIpRow) switchIpRow.style.display = 'none';
                 if (switchSection) switchSection.style.display = (isBng2 && isTachyon) ? 'none' : 'block';
             }
 
@@ -13436,7 +13438,16 @@ show mac address-table | include &lt;mac&gt;</div>
                 const type = getSelectedMtConfigType();
                 const bng2Fields = document.getElementById('mtBng2Fields');
                 const routerModel = document.getElementById('mtRouterModel');
+                const cpeRow = document.getElementById('mtTowerCpeRow');
+                const unauthRow = document.getElementById('mtTowerUnauthRow');
+                const cgnPrivateRow = document.getElementById('mtTowerCgnPrivateRow');
+                const cgnPublicRow = document.getElementById('mtTowerCgnPublicRow');
                 if (bng2Fields) bng2Fields.style.display = type === 'bng2' ? 'block' : 'none';
+                const showTowerLegacySubnets = type !== 'bng2';
+                if (cpeRow) cpeRow.style.display = showTowerLegacySubnets ? 'block' : 'none';
+                if (unauthRow) unauthRow.style.display = showTowerLegacySubnets ? 'block' : 'none';
+                if (cgnPrivateRow) cgnPrivateRow.style.display = showTowerLegacySubnets ? 'block' : 'none';
+                if (cgnPublicRow) cgnPublicRow.style.display = showTowerLegacySubnets ? 'block' : 'none';
                 if (!routerModel) return;
 
                 if (type === 'bng2') {
@@ -14336,6 +14347,7 @@ show mac address-table | include &lt;mac&gt;</div>
                 const longitude = (document.getElementById('mtLongitude')?.value || '').trim();
                 const stateCode = ((document.getElementById('mtBng2StateCode')?.value || '').trim() || 'KS').toUpperCase();
                 const stateProfile = window.getStateProfile(stateCode);
+                const area = String(stateProfile.ospf_area || '248');
                 const backhauls = collectTowerBackhaulsForBackend();
                 const switches = readModernSwitches();
                 const routerRaw = (document.getElementById('mtRouterModel')?.value || 'mt2004').trim();
@@ -14353,12 +14365,16 @@ show mac address-table | include &lt;mac&gt;</div>
                         throw new Error('6 GHz is enabled. Please provide BBU S1 and BBU Mgmt subnets.');
                     }
                 }
+                const derivedGatewayDefault = `10.${area}.80.208/30`;
+                const derivedSwitchDefault = `10.${area}.249.8/29`;
+                const gatewaySubnet = ensureCIDR((document.getElementById('mtBng2Gateway')?.value || '').trim(), 30) || derivedGatewayDefault;
+                const switchSubnet = ensureCIDR((document.getElementById('mtBng2SwitchIp')?.value || '').trim(), 29) || derivedSwitchDefault;
 
                 return {
                     router_type: mapRouterModelForBng2(routerRaw),
                     loop_ip: loopIp,
                     tower_name: routerIdentity || siteName || 'RTR-BNG2',
-                    gateway: ensureCIDR((document.getElementById('mtBng2Gateway')?.value || '').trim(), 29),
+                    gateway: gatewaySubnet,
                     latitude,
                     longitude,
                     state_code: stateProfile.code,
@@ -14372,7 +14388,7 @@ show mac address-table | include &lt;mac&gt;</div>
                     mpls_mtu: (document.getElementById('mtBng2MplsMtu')?.value || '9000').trim(),
                     vpls_l2_mtu: (document.getElementById('mtBng2VplsL2Mtu')?.value || '1580').trim(),
                     is_switchless: isTachyon,
-                    switch_ip: ensureCIDR((document.getElementById('mtBng2SwitchIp')?.value || '').trim(), 29),
+                    switch_ip: switchSubnet,
                     is_lte: is6ghz,
                     bbu_s1_subnet: ensureCIDR((document.getElementById('mtBng2BbuS1')?.value || '').trim(), 29),
                     bbu_mgmt_subnet: ensureCIDR((document.getElementById('mtBng2BbuMgmt')?.value || '').trim(), 29),
@@ -14553,7 +14569,7 @@ show mac address-table | include &lt;mac&gt;</div>
                         return null;
                     }
                 } else if (configType === 'bng2') {
-                    if (!payload.router_type || !payload.loop_ip || !payload.gateway || !payload.switch_ip || !payload.ospf_area) {
+                    if (!payload.router_type || !payload.loop_ip || !payload.ospf_area) {
                         return null;
                     }
                 }
