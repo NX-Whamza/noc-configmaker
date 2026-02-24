@@ -58,9 +58,6 @@ add address={{ loopip }} comment=loop0 interface=loop0 network={{ loopip }}
 {% for bh in backhauls %}
 add address={{ bh.bhip }}/{{ bh.bhip_sub }} comment={{ bh.bhname }} interface={{ bh.port }} network={{ bh.bh_net }}
 {% endfor %}
-{% if not is_switchless %}
-add address={{ switch_ip.ip }}/{{ switch_ip.prefixlen }} interface=bridge3000 network={{ switch_ip.network }} comment=Switch-Mgmt
-{% endif %}
 {% if is_tarana %}
 add address={{ unicorn_mgmt_ip }}/{{ unicorn_mgmt_prefix }} comment="UNICORN MGMT" interface="UNICORN MGMT" network={{ unicorn_mgmt_network }}
 {% endif %}

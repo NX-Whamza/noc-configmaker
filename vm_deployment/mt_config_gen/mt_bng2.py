@@ -427,6 +427,7 @@ class MTBNG2Config:
             "/ip dhcp-server",
             "/ip pool",
             "address-pool=",
+            "comment=Switch-Mgmt",
         )
         kept = []
         for line in str(config_text or "").splitlines():
