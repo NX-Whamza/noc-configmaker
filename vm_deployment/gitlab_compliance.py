@@ -40,6 +40,7 @@ _DEFAULT_HOST = "tested.nxlink.com"
 _DEFAULT_REF  = "main"
 _DEFAULT_TTL  = 900  # 15 minutes
 _DEFAULT_SCRIPT_PATH = "TX-ARv2.rsc"
+_DEFAULT_REPO_PATH = "netforge/compliance"
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +139,44 @@ class GitLabComplianceLoader:
     def _script_path() -> str:
         value = os.getenv("GITLAB_COMPLIANCE_SCRIPT_PATH", _DEFAULT_SCRIPT_PATH)
         value = (value or "").strip()
-        return value or _DEFAULT_SCRIPT_PATH
+        if not value:
+            value = _DEFAULT_SCRIPT_PATH
+        return GitLabComplianceLoader._normalize_repo_path(value)
+
+    @staticmethod
+    def _repo_path() -> str:
+        value = os.getenv("GITLAB_COMPLIANCE_REPO_PATH", _DEFAULT_REPO_PATH)
+        value = (value or "").strip().strip("/")
+        return value or _DEFAULT_REPO_PATH
+
+    @staticmethod
+    def _normalize_repo_path(value: str) -> str:
+        """
+        Accept either a repo-relative file path (preferred) OR a full GitLab blob URL
+        and normalize to repo-relative path used by /repository/files/:path/raw.
+        """
+        raw = (value or "").strip()
+        if not raw:
+            return _DEFAULT_SCRIPT_PATH
+        # Already a relative path
+        if not raw.startswith(("http://", "https://")):
+            return raw.lstrip("/")
+        try:
+            parsed = urllib.parse.urlparse(raw)
+            # Expected shapes:
+            #   /group/project/-/blob/main/TX-ARv2.rsc
+            #   /group/project/-/blob/<sha>/path/to/file.rsc
+            marker = "/-/blob/"
+            if marker not in parsed.path:
+                return _DEFAULT_SCRIPT_PATH
+            tail = parsed.path.split(marker, 1)[1]
+            # tail => "<ref>/path/to/file"
+            parts = tail.split("/", 1)
+            if len(parts) != 2:
+                return _DEFAULT_SCRIPT_PATH
+            return parts[1].lstrip("/")
+        except Exception:
+            return _DEFAULT_SCRIPT_PATH
 
     def _url(self, path: str) -> str:
         """Build GitLab raw-file API URL for a repository path."""
@@ -150,6 +188,17 @@ class GitLabComplianceLoader:
             f"https://{host}/api/v4/projects/{project_id}"
             f"/repository/files/{encoded}/raw?ref={ref}"
         )
+
+    def _raw_url(self, path: str) -> str:
+        """
+        Build GitLab web raw URL fallback:
+          https://<host>/<group>/<project>/-/raw/<ref>/<path>
+        """
+        host = self._host()
+        repo_path = self._repo_path()
+        ref = self._ref()
+        encoded_path = urllib.parse.quote(path.lstrip("/"), safe="/")
+        return f"https://{host}/{repo_path}/-/raw/{urllib.parse.quote(ref, safe='')}/{encoded_path}"
 
     # ------------------------------------------------------------------ low-level fetch
 
@@ -170,13 +219,27 @@ class GitLabComplianceLoader:
                 "must both be set to fetch from GitLab."
             )
 
-        url = self._url(path)
-        req = urllib.request.Request(url, headers={"PRIVATE-TOKEN": token})
-
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        api_url = self._url(path)
+        req = urllib.request.Request(api_url, headers={"PRIVATE-TOKEN": token})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                if resp.status != 200:
+                    raise RuntimeError(
+                        f"GitLab returned HTTP {resp.status} for path '{path}'"
+                    )
+                return resp.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            # Some GitLab deployments return 404 for repository/files raw endpoint
+            # while the file is accessible via web raw URL. Try that path next.
+            if exc.code not in (400, 404):
+                raise
+        # Fallback: web raw URL by repo path.
+        raw_url = self._raw_url(path)
+        raw_req = urllib.request.Request(raw_url, headers={"PRIVATE-TOKEN": token})
+        with urllib.request.urlopen(raw_req, timeout=5) as resp:
             if resp.status != 200:
                 raise RuntimeError(
-                    f"GitLab returned HTTP {resp.status} for path '{path}'"
+                    f"GitLab raw URL returned HTTP {resp.status} for path '{path}'"
                 )
             return resp.read().decode("utf-8")
 
@@ -302,16 +365,17 @@ class GitLabComplianceLoader:
 
     def get_compliance_rsc_template(
         self,
-        path: str = "mikrotik_engineering_compliance.rsc",
+        path: Optional[str] = None,
     ) -> Optional[str]:
         """
         Fetch the engineering compliance RSC template from GitLab.
         Returns raw text or None on failure.
         """
+        effective_path = self._normalize_repo_path(path or self._script_path())
         try:
-            return self.load_file_cached(path)
+            return self.load_file_cached(effective_path)
         except Exception as exc:
-            print(f"[GITLAB-COMPLIANCE] RSC template fetch failed: {exc}")
+            print(f"[GITLAB-COMPLIANCE] RSC template fetch failed for '{effective_path}': {exc}")
             return None
 
     def refresh(self) -> None:
