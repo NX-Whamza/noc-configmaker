@@ -7138,18 +7138,24 @@
                                     </select>
                                 </div>
 
-                                <div style="background: #1a3a1a; padding: 10px; border-radius: 6px; margin-bottom: 12px; border-left: 3px solid #4CAF50;">
-                                    <p style="margin: 0; color: #90EE90; font-size: 12px;"><strong>Secure:</strong> Credentials loaded from server environment at generate-time.</p>
+                                <div class="form-group">
+                                    <label for="nokia7250_snmp_community">SNMP Community</label>
+                                    <input type="text" id="nokia7250_snmp_community" placeholder="SNMP community string">
                                 </div>
-                                <input type="hidden" id="nokia7250_snmp_community">
-                                <input type="hidden" id="nokia7250_nlroot_pw">
-                                <input type="hidden" id="nokia7250_admin_pw">
-                                <input type="hidden" id="nokia7250_bgp_key">
-                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                                    <div style="padding:8px 12px; background:var(--input-bg); border:1px solid var(--border-color); border-radius:6px; color:var(--text-color-secondary); font-size:13px;">SNMP Community <span style="float:right; color:#4CAF50;">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span></div>
-                                    <div style="padding:8px 12px; background:var(--input-bg); border:1px solid var(--border-color); border-radius:6px; color:var(--text-color-secondary); font-size:13px;">nlroot Password <span style="float:right; color:#4CAF50;">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span></div>
-                                    <div style="padding:8px 12px; background:var(--input-bg); border:1px solid var(--border-color); border-radius:6px; color:var(--text-color-secondary); font-size:13px;">admin Password <span style="float:right; color:#4CAF50;">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span></div>
-                                    <div style="padding:8px 12px; background:var(--input-bg); border:1px solid var(--border-color); border-radius:6px; color:var(--text-color-secondary); font-size:13px;">BGP Auth Key <span style="float:right; color:#4CAF50;">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span></div>
+
+                                <div class="form-group">
+                                    <label for="nokia7250_nlroot_pw">nlroot Password</label>
+                                    <input type="password" id="nokia7250_nlroot_pw" placeholder="nlroot password">
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="nokia7250_admin_pw">admin Password</label>
+                                    <input type="password" id="nokia7250_admin_pw" placeholder="admin password">
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="nokia7250_bgp_key">BGP Authentication Key</label>
+                                    <input type="password" id="nokia7250_bgp_key" placeholder="BGP auth key">
                                 </div>
 
                                 <div class="form-group">
@@ -24323,23 +24329,28 @@ Ready for translation!`);
             if (!hostname) { alert('Please enter a Hostname.'); return; }
             if (!loopback) { alert('Please enter a Loopback / System IP.'); return; }
 
-            // Fetch credentials securely from backend
-            let snmpCommunity, nlrootPw, adminPw, bgpKey;
-            try {
-                const credsResp = await fetch(`${AI_API_BASE}/nokia7250-defaults`);
-                if (!credsResp.ok) throw new Error(`HTTP ${credsResp.status}`);
-                const creds = await credsResp.json();
-                snmpCommunity = creds.snmp_community;
-                nlrootPw = creds.nlroot_pw;
-                adminPw = creds.admin_pw;
-                bgpKey = creds.bgp_auth_key;
-                if (!snmpCommunity || !nlrootPw || !adminPw || !bgpKey) {
-                    alert('Nokia 7250 credentials are not fully configured on the server.\nPlease set NOKIA7250_SNMP_COMMUNITY, NOKIA7250_NLROOT_PW, NOKIA7250_ADMIN_PW, and NOKIA7250_BGP_AUTH_KEY in the backend .env.');
-                    return;
+            // Read credentials from form fields; if empty, fetch from backend env
+            let snmpCommunity = v('nokia7250_snmp_community');
+            let nlrootPw = v('nokia7250_nlroot_pw');
+            let adminPw = v('nokia7250_admin_pw');
+            let bgpKey = v('nokia7250_bgp_key');
+
+            if (!snmpCommunity || !nlrootPw || !adminPw || !bgpKey) {
+                try {
+                    const credsResp = await fetch(`${AI_API_BASE}/nokia7250-defaults`);
+                    if (credsResp.ok) {
+                        const creds = await credsResp.json();
+                        if (!snmpCommunity) snmpCommunity = creds.snmp_community || '';
+                        if (!nlrootPw) nlrootPw = creds.nlroot_pw || '';
+                        if (!adminPw) adminPw = creds.admin_pw || '';
+                        if (!bgpKey) bgpKey = creds.bgp_auth_key || '';
+                    }
+                } catch (err) {
+                    console.warn('[7250 CONFIG] Could not fetch defaults from backend:', err);
                 }
-            } catch (err) {
-                console.error('[7250 CONFIG] Failed to fetch credentials:', err);
-                alert('Could not load credentials from backend. Check that the backend is running and the Nokia 7250 env vars are configured.');
+            }
+            if (!snmpCommunity || !nlrootPw || !adminPw || !bgpKey) {
+                alert('Please fill in all credential fields (SNMP Community, nlroot Password, admin Password, BGP Auth Key), or configure NOKIA7250_* env vars on the server.');
                 return;
             }
 
