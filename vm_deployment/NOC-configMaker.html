@@ -3273,9 +3273,9 @@
                             </select>
                         </div>
 
-                        <div class="form-group">
+                        <div class="form-group" id="feedbackExperienceGroup">
                             <label for="feedbackExperience">Overall experience</label>
-                            <select id="feedbackExperience" required>
+                            <select id="feedbackExperience">
                                 <option value="">Pick a rating</option>
                                 <option value="5"> Excellent</option>
                                 <option value="4"> Good</option>
@@ -12190,49 +12190,7 @@ show mac address-table | include &lt;mac&gt;</div>
                 const savedFontSize = localStorage.getItem('fontSize') || 'comfortable';
                 document.body.setAttribute('data-font-size', savedFontSize);
 
-                // Handle feedback form submission
-                document.getElementById('feedbackForm').addEventListener('submit', async function (e) {
-                    e.preventDefault();
-
-                    const submitBtn = this.querySelector('.btn-submit');
-                    submitBtn.disabled = true;
-                    submitBtn.textContent = 'Sending...';
-
-                    const activeTab = document.querySelector('.feedback-tab.active').dataset.type;
-                    const formData = {
-                        type: activeTab,
-                        subject: document.getElementById('feedbackSubject').value,
-                        category: document.getElementById('feedbackCategory').value,
-                        experience: document.getElementById('feedbackExperience').value,
-                        details: document.getElementById('feedbackDetails').value,
-                        name: document.getElementById('feedbackName').value || 'Anonymous',
-                        timestamp: getCSTTimestamp()
-                    };
-
-                    try {
-                        const response = await fetch(`${AI_API_BASE}/feedback`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(formData)
-                        });
-
-                        if (response.ok) {
-                            document.getElementById('feedbackSuccess').classList.add('show');
-                            document.getElementById('feedbackForm').reset();
-                            setTimeout(() => {
-                                closeFeedbackModal();
-                            }, 2000);
-                        } else {
-                            alert('Failed to submit feedback. Please try again.');
-                        }
-                    } catch (err) {
-                        console.error('Feedback submission error:', err);
-                        alert('Could not connect to server. Please check your connection.');
-                    } finally {
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = ' SUBMIT';
-                    }
-                });
+                // Feedback form submission handled in RESTORED block below
             });
 
             function initializeEventHandlers() {
@@ -23338,6 +23296,28 @@ Ready for translation!`);
                 // Scroll to output
                 document.getElementById('nokia7250_output').scrollIntoView({ behavior: 'smooth', block: 'start' });
                 console.log('[NOKIA7250] Configuration generated client-side, length:', output.length);
+
+                // Auto-save to completed configs
+                if (typeof saveCompletedConfig === 'function') {
+                    saveCompletedConfig({
+                        config_type: 'nokia-7250',
+                        device_name: hostname,
+                        device_type: 'Nokia 7250 IXR',
+                        customer_code: '',
+                        loopback_ip: loopback,
+                        config_content: output,
+                        site_name: hostname,
+                        metadata: {
+                            latitude: lat,
+                            longitude: lon,
+                            timezone: tz,
+                            sdp_far_end: sdpFarEnd,
+                            connector_count: connectors.length,
+                            uplink_count: uplinks.length,
+                            bgp_neighbor_count: bgpNeighbors.length
+                        }
+                    });
+                }
             };
 
             window.copyNokia7250Config = function () {
@@ -23635,6 +23615,11 @@ Ready for translation!`);
                 modal.style.display = 'none';
                 modal.classList.remove('show');
             }
+            // Reset form visibility so it's ready when reopened
+            const form = document.getElementById('feedbackForm');
+            const success = document.getElementById('feedbackSuccess');
+            if (form) { form.style.display = 'block'; form.reset(); }
+            if (success) { success.style.display = 'none'; success.classList.remove('show'); }
         };
 
         window.switchFeedbackTab = function (btn) {
@@ -23654,6 +23639,19 @@ Ready for translation!`);
                 subjectInput.placeholder = "What should we add?";
             } else {
                 subjectInput.placeholder = "Give your request a short title";
+            }
+
+            // Hide "Overall experience" for Bug Report and Feature Request
+            const expGroup = document.getElementById('feedbackExperienceGroup');
+            const expSelect = document.getElementById('feedbackExperience');
+            if (expGroup) {
+                if (type === 'bug' || type === 'feature') {
+                    expGroup.style.display = 'none';
+                    if (expSelect) { expSelect.removeAttribute('required'); expSelect.value = ''; }
+                } else {
+                    expGroup.style.display = '';
+                    if (expSelect) expSelect.setAttribute('required', '');
+                }
             }
         };
 
@@ -23695,9 +23693,13 @@ Ready for translation!`);
                         });
 
                         if (response.ok) {
-                            // Show success
+                            // Show success message, hide form
                             document.getElementById('feedbackForm').style.display = 'none';
                             document.getElementById('feedbackSuccess').style.display = 'block';
+                            document.getElementById('feedbackSuccess').classList.add('show');
+
+                            // Reset form so it's clean when reopened
+                            document.getElementById('feedbackForm').reset();
 
                             // Close after 2 seconds
                             setTimeout(closeFeedbackModal, 2000);
