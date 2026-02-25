@@ -562,6 +562,26 @@ def _aviat_abort(payload: Dict[str, Any]) -> Any:
     return _legacy_call({"method": "POST", "path": f"/api/aviat/abort/{task_id}", "body": body})
 
 
+def _aviat_status(payload: Dict[str, Any]) -> Any:
+    task_id = str(payload.get("task_id") or "").strip()
+    if not task_id:
+        raise ValueError("Missing 'task_id'")
+    return _legacy_call({"method": "GET", "path": f"/api/aviat/status/{task_id}"})
+
+
+def _admin_feedback_update_status(payload: Dict[str, Any]) -> Any:
+    feedback_id = _require_int(payload, "feedback_id")
+    body = {k: v for k, v in payload.items() if k != "feedback_id"}
+    return _legacy_call({"method": "PUT", "path": f"/api/admin/feedback/{feedback_id}/status", "body": body})
+
+
+def _compliance_policy_get(payload: Dict[str, Any]) -> Any:
+    policy_name = str(payload.get("policy_name") or "").strip()
+    if not policy_name:
+        raise ValueError("Missing 'policy_name'")
+    return _legacy_call({"method": "GET", "path": f"/api/get-config-policy/{policy_name}"})
+
+
 @dataclass
 class JobEvent:
     ts: str
@@ -832,6 +852,35 @@ _ACTION_HANDLERS: Dict[str, Callable[[Dict[str, Any]], Any]] = {
 
     # Nokia
     "nokia.generate_7250": _legacy_post("/api/generate-nokia7250"),
+    "nokia.defaults": _legacy_get("/api/nokia7250-defaults"),
+
+    # Enterprise
+    "enterprise.generate_non_mpls": _legacy_post("/api/gen-enterprise-non-mpls"),
+
+    # Tarana
+    "tarana.generate": _legacy_post("/api/gen-tarana-config"),
+
+    # SSH Config Fetch
+    "device.fetch_config_ssh": _legacy_post("/api/fetch-config-ssh"),
+
+    # Feedback
+    "feedback.submit": _legacy_post("/api/feedback"),
+
+    # Admin
+    "admin.feedback.list": _legacy_get("/api/admin/feedback"),
+    "admin.feedback.update_status": _admin_feedback_update_status,
+    "admin.feedback.export": _legacy_get("/api/admin/feedback/export"),
+    "admin.users.reset_password": _legacy_post("/api/admin/users/reset-password"),
+
+    # Compliance / Config Policies
+    "compliance.policies.list": _legacy_get("/api/get-config-policies"),
+    "compliance.policies.get": _compliance_policy_get,
+    "compliance.policies.bundle": _legacy_get("/api/get-config-policy-bundle"),
+    "compliance.policies.reload": _legacy_post("/api/reload-config-policies"),
+    "compliance.reload": _legacy_post("/api/reload-compliance"),
+    "compliance.status": _legacy_get("/api/compliance-status"),
+    "compliance.blocks": _legacy_get("/api/compliance/blocks"),
+    "compliance.engineering": _legacy_get("/api/compliance/engineering"),
 
     # IDO / Field Config Studio capabilities + proxy actions
     "ido.capabilities": _legacy_get("/api/ido/capabilities"),
@@ -878,6 +927,8 @@ _ACTION_HANDLERS: Dict[str, Callable[[Dict[str, Any]], Any]] = {
     "aviat.fix_stp": _legacy_post("/api/aviat/fix-stp"),
     "aviat.stream.global": _legacy_get("/api/aviat/stream/global"),
     "aviat.abort": _aviat_abort,
+    "aviat.status": _aviat_status,
+    "aviat.precheck_recheck": _legacy_post("/api/aviat/precheck/recheck"),
 }
 
 
@@ -886,18 +937,33 @@ _OMNI_WORKFLOWS: Dict[str, Any] = {
         "health": "health.get",
         "activity_list": "activity.list",
         "configs_list": "configs.list",
+        "infrastructure": "infrastructure.get",
     },
     "mikrotik": {
         "render": {"action": "mt.render", "required": ["config_type", "payload"]},
         "config_only": {"action": "mt.config", "required": ["config_type", "payload"]},
         "portmap_only": {"action": "mt.portmap", "required": ["config_type", "payload"]},
     },
+    "nokia_7250": {
+        "defaults": "nokia.defaults",
+        "generate": "nokia.generate_7250",
+        "generate_ido": "ido.nokia7250.generate",
+        "migrate_from_mikrotik": "migration.mikrotik_to_nokia",
+    },
+    "enterprise": {
+        "generate_non_mpls": "enterprise.generate_non_mpls",
+    },
+    "tarana": {
+        "generate": "tarana.generate",
+    },
     "field_config_studio": {
+        "capabilities": "ido.capabilities",
         "ap": ["ido.ap.device_info", "ido.ap.running_config", "ido.ap.standard_config", "ido.ap.generate"],
         "bh": ["ido.bh.device_info", "ido.bh.running_config", "ido.bh.standard_config", "ido.bh.generate"],
         "switch": ["ido.swt.device_info", "ido.swt.running_config", "ido.swt.standard_config", "ido.swt.generate"],
         "ups": ["ido.ups.device_info", "ido.ups.running_config", "ido.ups.standard_config", "ido.ups.generate"],
         "rpc": ["ido.rpc.device_info", "ido.rpc.running_config", "ido.rpc.standard_config", "ido.rpc.generate"],
+        "wave": "ido.wave.config",
     },
     "aviat": {
         "run": "aviat.run",
@@ -905,11 +971,45 @@ _OMNI_WORKFLOWS: Dict[str, Any] = {
         "activate_scheduled": "aviat.activate_scheduled",
         "queue_get": "aviat.queue.get",
         "queue_update": "aviat.queue.update",
+        "status": "aviat.status",
+        "precheck_recheck": "aviat.precheck_recheck",
+        "scheduled_get": "aviat.scheduled.get",
+        "loading_get": "aviat.loading.get",
+        "reboot_required_get": "aviat.reboot_required.get",
+        "reboot_required_run": "aviat.reboot_required.run",
+        "scheduled_sync": "aviat.scheduled.sync",
+        "fix_stp": "aviat.fix_stp",
+        "abort": "aviat.abort",
     },
     "ftth": {
         "preview_bng": "ftth.preview_bng",
         "generate_bng": "ftth.generate_bng",
         "mf2_package": "ftth.mf2_package",
+    },
+    "compliance": {
+        "apply": "compliance.apply",
+        "status": "compliance.status",
+        "blocks": "compliance.blocks",
+        "engineering": "compliance.engineering",
+        "policies_list": "compliance.policies.list",
+        "policies_get": "compliance.policies.get",
+        "policies_bundle": "compliance.policies.bundle",
+        "policies_reload": "compliance.policies.reload",
+        "reload": "compliance.reload",
+    },
+    "device_ops": {
+        "fetch_config_ssh": "device.fetch_config_ssh",
+        "ping": "ido.ping",
+        "generic_device_info": "ido.generic.device_info",
+    },
+    "feedback": {
+        "submit": "feedback.submit",
+    },
+    "admin": {
+        "feedback_list": "admin.feedback.list",
+        "feedback_update_status": "admin.feedback.update_status",
+        "feedback_export": "admin.feedback.export",
+        "users_reset_password": "admin.users.reset_password",
     },
 }
 
