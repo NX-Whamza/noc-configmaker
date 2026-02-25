@@ -6123,10 +6123,10 @@
                         <div class="nokia7250-right-col">
                             <!-- 100G Connectors -->
                             <div class="section" style="background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 16px;">
-                                <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">100G Connectors (QSFP28)</h2>
+                                <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">100G Connectors</h2>
                                 <p style="color: var(--text-color-secondary); font-size: 13px; margin-bottom: 12px;">High-speed fiber connections. Each connector creates a breakout port (e.g., 1/1/c23/1).</p>
                                 <table class="nokia7250-table" id="nokia7250_conn_tbl">
-                                    <thead><tr><th>Connector</th><th>Description</th><th>IP/CIDR</th><th></th></tr></thead>
+                                    <thead><tr><th>Connector</th><th>Description</th><th>IP/CIDR</th><th>MTU</th><th></th></tr></thead>
                                     <tbody></tbody>
                                 </table>
                                 <button type="button" class="aviat-btn" onclick="nokia7250MainAddConnector()" style="font-size:13px;">+ Add 100G Connector</button>
@@ -6134,10 +6134,10 @@
 
                             <!-- SFP+ Uplinks -->
                             <div class="section" style="background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 16px;">
-                                <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">Uplinks (SFP+ / 10G)</h2>
-                                <p style="color: var(--text-color-secondary); font-size: 13px; margin-bottom: 12px;">Standard SFP+ uplink ports for microwave, switch, and NNI connections.</p>
+                                <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">Uplinks</h2>
+                                <p style="color: var(--text-color-secondary); font-size: 13px; margin-bottom: 12px;">Standard uplink ports for microwave, switch, and NNI connections.</p>
                                 <table class="nokia7250-table" id="nokia7250_uplink_tbl">
-                                    <thead><tr><th>Port</th><th>Description</th><th>IP/CIDR</th><th>Speed</th><th></th></tr></thead>
+                                    <thead><tr><th>Port</th><th>Description</th><th>IP/CIDR</th><th>Speed</th><th>MTU</th><th></th></tr></thead>
                                     <tbody></tbody>
                                 </table>
                                 <button type="button" class="aviat-btn" onclick="nokia7250MainAddUplink()" style="font-size:13px;">+ Add Uplink</button>
@@ -22726,6 +22726,7 @@ Ready for translation!`);
                     <td><select style="min-width:100px"><option>1/1/c23</option><option>1/1/c24</option><option>1/1/c25</option><option>1/1/c26</option><option>1/1/c27</option><option>1/1/c28</option><option>1/1/c29</option><option>1/1/c30</option><option>1/1/c31</option><option>1/1/c32</option></select></td>
                     <td><input placeholder="TX-LAGRANGE-FC-1"></td>
                     <td><input placeholder="10.36.1.53/30"></td>
+                    <td><input placeholder="9212" style="width:70px"></td>
                     <td><button type="button" class="nokia7250-del-btn" onclick="this.closest('tr').remove()">×</button></td>`;
                 tbody.appendChild(tr);
             };
@@ -22738,6 +22739,7 @@ Ready for translation!`);
                     <td><input placeholder="UPLINK-TO-2004-1"></td>
                     <td><input placeholder="10.45.248.105/30"></td>
                     <td><select><option>1000</option><option selected>10000</option><option>25000</option></select></td>
+                    <td><input placeholder="9212" style="width:70px"></td>
                     <td><button type="button" class="nokia7250-del-btn" onclick="this.closest('tr').remove()">×</button></td>`;
                 tbody.appendChild(tr);
             };
@@ -22757,7 +22759,8 @@ Ready for translation!`);
                 return [...document.querySelectorAll('#nokia7250_conn_tbl tbody tr')].map(tr => ({
                     port: tr.cells[0].querySelector('select').value,
                     desc: tr.cells[1].querySelector('input').value.trim(),
-                    ip: tr.cells[2].querySelector('input').value.trim()
+                    ip: tr.cells[2].querySelector('input').value.trim(),
+                    mtu: tr.cells[3].querySelector('input').value.trim()
                 })).filter(c => c.desc);
             }
 
@@ -22766,7 +22769,8 @@ Ready for translation!`);
                     port: tr.cells[0].querySelector('select').value,
                     desc: tr.cells[1].querySelector('input').value.trim(),
                     ip: tr.cells[2].querySelector('input').value.trim(),
-                    speed: tr.cells[3].querySelector('select').value
+                    speed: tr.cells[3].querySelector('select').value,
+                    mtu: tr.cells[4].querySelector('input').value.trim()
                 })).filter(u => u.desc);
             }
 
@@ -22854,8 +22858,8 @@ Ready for translation!`);
                 const bgpNeighbors = nokia7250MainGetBgpNeighbors();
                 const allInterfaces = [];
 
-                connectors.forEach(c => allInterfaces.push({ port: c.port + '/1', desc: c.desc, ip: c.ip, speed: '100000', isConnector: true, connPort: c.port }));
-                uplinks.forEach(u => allInterfaces.push({ port: u.port, desc: u.desc, ip: u.ip, speed: u.speed, isConnector: false }));
+                connectors.forEach(c => allInterfaces.push({ port: c.port + '/1', desc: c.desc, ip: c.ip, speed: '100000', isConnector: true, connPort: c.port, mtu: c.mtu }));
+                uplinks.forEach(u => allInterfaces.push({ port: u.port, desc: u.desc, ip: u.ip, speed: u.speed, isConnector: false, mtu: u.mtu }));
 
                 const tzInfo = nokia7250MainTzMap[tz];
                 const L = [];
@@ -23021,6 +23025,7 @@ Ready for translation!`);
                     L.push(`    port ${c.port}/1`);
                     L.push(`        description "${c.desc}"`);
                     L.push('        ethernet');
+                    if (c.mtu) L.push(`            mtu ${c.mtu}`);
                     L.push('            speed 100000');
                     L.push('            no autonegotiate');
                     L.push('            rs-fec-mode cl91-514-528');
@@ -23032,6 +23037,7 @@ Ready for translation!`);
                     L.push(`    port ${u.port}`);
                     L.push(`        description "${u.desc}"`);
                     L.push('        ethernet');
+                    if (u.mtu) L.push(`            mtu ${u.mtu}`);
                     L.push(`            speed ${u.speed}`);
                     L.push('            no autonegotiate');
                     L.push('        exit');
@@ -23722,11 +23728,18 @@ Ready for translation!`);
                             document.getElementById('feedbackSuccess').style.display = 'block';
                             document.getElementById('feedbackSuccess').classList.add('show');
 
-                            // Reset form so it's clean when reopened
+                            // Reset form so it's clean when brought back
                             document.getElementById('feedbackForm').reset();
 
-                            // Close after 2 seconds
-                            setTimeout(closeFeedbackModal, 2000);
+                            // After 3 seconds, bring user back to form (not close modal)
+                            setTimeout(function () {
+                                document.getElementById('feedbackSuccess').style.display = 'none';
+                                document.getElementById('feedbackSuccess').classList.remove('show');
+                                document.getElementById('feedbackForm').style.display = 'block';
+                                // Reset tab back to Feedback
+                                const defaultTab = document.querySelector('.feedback-tab[data-type="feedback"]');
+                                if (defaultTab && typeof switchFeedbackTab === 'function') switchFeedbackTab(defaultTab);
+                            }, 3000);
                         } else {
                             throw new Error('Submission failed');
                         }
