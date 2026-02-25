@@ -23318,6 +23318,30 @@ Ready for translation!`);
                         }
                     });
                 }
+
+                // Live activity tracking
+                if (typeof sendActivityToBackend === 'function' || typeof window.sendActivityToBackend === 'function') {
+                    const activityFn = typeof sendActivityToBackend === 'function' ? sendActivityToBackend : window.sendActivityToBackend;
+                    activityFn({
+                        type: 'new-config',
+                        device: 'Nokia 7250 IXR',
+                        siteName: hostname,
+                        routeros: '',
+                        success: true
+                    });
+                }
+
+                // Save to local config history
+                if (typeof saveConfigToHistory === 'function' || typeof window.saveConfigToHistory === 'function') {
+                    const historyFn = typeof saveConfigToHistory === 'function' ? saveConfigToHistory : window.saveConfigToHistory;
+                    historyFn({
+                        type: 'nokia-7250-config',
+                        device: 'Nokia 7250 IXR',
+                        siteName: hostname,
+                        routeros: '',
+                        success: true
+                    });
+                }
             };
 
             window.copyNokia7250Config = function () {
