@@ -95,6 +95,11 @@ services:
       GITLAB_COMPLIANCE_REF: ${GITLAB_COMPLIANCE_REF:-main}
       GITLAB_COMPLIANCE_TTL: ${GITLAB_COMPLIANCE_TTL:-900}
       GITLAB_COMPLIANCE_SCRIPT_PATH: ${GITLAB_COMPLIANCE_SCRIPT_PATH:-TX-ARv2.rsc}
+      # Nokia 7250 config-maker credentials (served via /api/nokia7250-defaults)
+      NOKIA7250_SNMP_COMMUNITY: ${NOKIA7250_SNMP_COMMUNITY:-FBZ1yYdphf}
+      NOKIA7250_NLROOT_PW: ${NOKIA7250_NLROOT_PW:-K&J2Gxjt3vlmUD#X}
+      NOKIA7250_ADMIN_PW: ${NOKIA7250_ADMIN_PW:-xGA9KDm9o9}
+      NOKIA7250_BGP_AUTH_KEY: ${NOKIA7250_BGP_AUTH_KEY:-m8M5JwvdYM}
     volumes:
       - ./secure_data:/app/secure_data
     depends_on:

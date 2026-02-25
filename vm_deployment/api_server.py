@@ -8852,6 +8852,20 @@ def fetch_config_ssh():
 # NOKIA 7250 CONFIG GENERATION
 # ========================================
 
+@app.route('/api/nokia7250-defaults', methods=['GET'])
+def nokia7250_defaults():
+    """
+    Return Nokia 7250 credentials/secrets from environment variables.
+    Frontend fetches these at generate-time so secrets are never hardcoded in HTML.
+    """
+    return jsonify({
+        'snmp_community': os.getenv('NOKIA7250_SNMP_COMMUNITY', '').strip(),
+        'nlroot_pw':      os.getenv('NOKIA7250_NLROOT_PW', '').strip(),
+        'admin_pw':       os.getenv('NOKIA7250_ADMIN_PW', '').strip(),
+        'bgp_auth_key':   os.getenv('NOKIA7250_BGP_AUTH_KEY', '').strip(),
+    })
+
+
 @app.route('/api/generate-nokia7250', methods=['POST'])
 def generate_nokia7250():
     """
@@ -12736,7 +12750,10 @@ def generate_ftth_home_mf2_package():
     except ValueError:
         return jsonify({'error': 'primary_ip must be a valid IPv4 address'}), 400
 
-    base_dir = Path(__file__).parent / 'MF2'
+    base_dir = Path(__file__).parent / 'assets' / 'mf2'
+    if not base_dir.exists():
+        # Fallback to legacy path for backward compatibility
+        base_dir = Path(__file__).parent / 'MF2'
     if not base_dir.exists():
         return jsonify({'error': 'MF2 template directory not found'}), 500
 

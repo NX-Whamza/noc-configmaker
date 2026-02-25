@@ -64,7 +64,7 @@ def build_exe():
         data_arg("NOC-configMaker.html", "."),
         data_arg("login.html", "."),
         data_arg("change-password.html", "."),
-        f"--add-data=config_policies{sep}config_policies",
+        data_arg("config_policies", "config_policies"),
         data_arg("nextlink_standards.py", "."),
         data_arg("nextlink_enterprise_reference.py", "."),
         data_arg("nextlink_compliance_reference.py", "."),

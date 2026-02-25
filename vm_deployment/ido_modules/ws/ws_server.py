@@ -4,6 +4,7 @@ from urllib.parse import urlparse, parse_qs
 import io
 import sys
 import logging
+import threading
 import websockets
 from get_device_status import get_device_status
 from update_device import update_device
@@ -57,7 +58,7 @@ class LoggerAdapter(logging.LoggerAdapter):
         xff = websocket.request_headers.get("X-Forwarded-For")
         return f"{websocket.id} {xff} {msg}", kwargs
 
-def handle_endpoint_task(params, path, logstream):
+def handle_endpoint_task(params, path, logstream, lock=None):
     logger = logging.getLogger(__name__ + f"_{params.get('ip_address')}")
     log_handler = logging.StreamHandler(sys.stdout)
     log_handler.setFormatter(
@@ -68,7 +69,11 @@ def handle_endpoint_task(params, path, logstream):
     logger.addHandler(log_handler)
 
     def on_log(message):
-        logstream.write(str(message) + "\n")
+        if lock:
+            with lock:
+                logstream.write(str(message) + "\n")
+        else:
+            logstream.write(str(message) + "\n")
 
     try:
         path = path.replace(PATH_PREFIX, "")
@@ -151,6 +156,7 @@ def get_first_values(input_list):
 
 async def handle_socket(websocket, path):
     logstream = io.StringIO()
+    lock = threading.Lock()
     query = parse_qs(urlparse(path).query)
     print(path)
     if "/spectrum" in path:
@@ -169,18 +175,27 @@ async def handle_socket(websocket, path):
             get_first_values(query),
             urlparse(path).path,
             logstream,
+            lock,
         )
     )
     while not task.done():
         await asyncio.sleep(SEND_LOOP_PERIOD)
-        await send_output(logstream, websocket)
+        await send_output(logstream, websocket, lock)
+    # Flush any remaining output written after the last send (e.g. final success/error)
+    await send_output(logstream, websocket, lock)
     await websocket.close()
 
-async def send_output(f, websocket):
-    val = f.getvalue()
-    if len(val.replace("\n", "")) > 0:
+async def send_output(f, websocket, lock):
+    with lock:
+        val = f.getvalue()
+        if len(val.replace("\n", "")) > 0:
+            f.truncate(0)
+            f.seek(0)
+        else:
+            val = None
+    # Send outside the lock so the worker thread isn't blocked during I/O
+    if val:
         await websocket.send(val.replace("\0", ""))
-    f.truncate(0)
 
 async def run(port):
     async with websockets.serve(

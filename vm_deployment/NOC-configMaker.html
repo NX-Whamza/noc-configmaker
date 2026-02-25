@@ -591,6 +591,240 @@
             display: block;
         }
 
+        /* Nokia Vault Sub-Dropdown (7750 vs 7250) */
+        .nokia-vault-dropdown {
+            position: relative;
+            display: inline-flex;
+        }
+
+        .nokia-vault-dropdown-toggle {
+            background: var(--input-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 10px 18px;
+            border-radius: 999px;
+            cursor: pointer;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+            min-width: 320px;
+            justify-content: center;
+        }
+
+        .nokia-vault-dropdown-toggle:hover {
+            border-color: var(--button-primary);
+            color: var(--button-primary);
+        }
+
+        .nokia-vault-dropdown.open .nokia-vault-dropdown-toggle {
+            background: var(--button-primary);
+            border-color: var(--button-primary);
+            color: #fff;
+        }
+
+        .nokia-vault-dropdown-menu {
+            position: absolute;
+            top: calc(100% + 10px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            box-shadow: var(--shadow-md);
+            padding: 8px;
+            min-width: 320px;
+            display: none;
+            z-index: 20;
+        }
+
+        .nokia-vault-dropdown.open .nokia-vault-dropdown-menu {
+            display: block;
+        }
+
+        .nokia-vault-dropdown-item {
+            width: 100%;
+            background: transparent;
+            border: 1px solid transparent;
+            color: var(--text-color);
+            padding: 10px 12px;
+            border-radius: 8px;
+            text-align: left;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.15s ease;
+        }
+
+        .nokia-vault-dropdown-item:hover {
+            background: var(--input-bg);
+            border-color: var(--border-color);
+        }
+
+        .nokia-vault-dropdown-item.active {
+            background: rgba(255, 129, 35, 0.18);
+            border-color: var(--button-primary);
+            color: var(--button-primary);
+        }
+
+        .nokia-vault-subsection {
+            display: none;
+        }
+
+        .nokia-vault-subsection.active {
+            display: block;
+        }
+
+        .port-setup-form {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            max-width: 800px;
+            margin: 0 auto 20px;
+        }
+
+        .port-setup-form label {
+            font-weight: 600;
+            margin-bottom: 4px;
+            display: block;
+        }
+
+        .port-setup-form .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .port-setup-form .form-group.full-width {
+            grid-column: 1 / -1;
+        }
+
+        .port-setup-form input,
+        .port-setup-form select {
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--input-bg);
+            color: var(--text-color);
+            font-size: 14px;
+        }
+
+        .port-setup-form .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding-top: 24px;
+        }
+
+        .port-setup-form .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--button-primary);
+        }
+
+        .port-setup-output {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 16px;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-width: 800px;
+            margin: 16px auto 0;
+            min-height: 60px;
+            color: var(--text-color);
+        }
+
+        /* Nokia 7250 Full Config Generator Layout */
+        .nokia7250-config-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        @media (max-width: 900px) {
+            .nokia7250-config-container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .nokia7250-left-col .form-group,
+        .nokia7250-right-col .form-group {
+            margin-bottom: 12px;
+        }
+
+        .nokia7250-left-col label,
+        .nokia7250-right-col label {
+            font-weight: 600;
+            margin-bottom: 4px;
+            display: block;
+        }
+
+        .nokia7250-left-col input,
+        .nokia7250-left-col select,
+        .nokia7250-right-col input,
+        .nokia7250-right-col select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--input-bg);
+            color: var(--text-color);
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+
+        .nokia7250-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+
+        .nokia7250-table th {
+            background: var(--input-bg);
+            border: 1px solid var(--border-color);
+            padding: 6px 8px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 12px;
+        }
+
+        .nokia7250-table td {
+            border: 1px solid var(--border-color);
+            padding: 4px 6px;
+        }
+
+        .nokia7250-table input,
+        .nokia7250-table select {
+            width: 100%;
+            padding: 5px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: var(--input-bg);
+            color: var(--text-color);
+            font-size: 13px;
+            box-sizing: border-box;
+        }
+
+        .nokia7250-table .nokia7250-del-btn {
+            background: transparent;
+            border: none;
+            color: #e74c3c;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        .nokia7250-table .nokia7250-del-btn:hover {
+            background: rgba(231, 76, 60, 0.15);
+        }
+
         .command-search {
             width: 100%;
             max-width: 720px;
@@ -2689,7 +2923,7 @@
                     <div class="dropdown-menu">
                         <a data-tab="command-vault" data-command-vault-tab="nokia">
                             Nokia Command Vault
-                            <span class="desc">Nokia 7750 BNG command guide</span>
+                            <span class="desc">Nokia 7750 BNG &amp; 7250 Port Setup</span>
                         </a>
                         <a data-tab="command-vault" data-command-vault-tab="cisco">
                             Cisco Command Vault
@@ -5793,173 +6027,176 @@
             <!-- NOKIA 7250 MAKER TAB -->
             <div class="content-pane" id="nokia7250-maker-pane">
                 <div class="container">
-                    <div
-                        style="background: #2196F3; color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 5px solid #1565C0;">
-                        <strong>TESTING</strong>
-                        <p style="margin: 10px 0 0 0; font-size: 14px;">This feature is currently undergoing testing.
-                            Please review all generated configurations before deploying to production.</p>
-                    </div>
-                    <h1 style="color: var(--text-color); margin-bottom: 30px;"> IN-STATE Nokia 7250 Configuration
-                        Maker</h1>
-                    <p style="color: var(--text-color-secondary); margin-bottom: 30px;">
-                        Generate Nokia 7250 configurations for in-state sites. Fill in the required fields below. BGP
-                        and VPLS settings are automatically configured for in-state deployments.
+                    <h1 style="color: var(--text-color); margin-bottom: 10px; text-align: center;"> IN-STATE Nokia 7250 Configuration Maker</h1>
+                    <p style="color: var(--text-color-secondary); margin-bottom: 24px; text-align: center;">
+                        Generate full Nokia 7250 IXR classic CLI startup configuration. BGP, VPLS, LDP, MPLS, and RSVP are automatically configured for in-state deployments.
                     </p>
 
-                    <div class="section"
-                        style="background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                        <h2 style="color: var(--text-color); margin-top: 0;">System Information</h2>
-                        <div class="form-group">
-                            <label for="nokia7250_systemName">System Name (e.g., RTR-NK7250-TX-BRADSTEST-CN-1):</label>
-                            <input type="text" id="nokia7250_systemName" placeholder="RTR-NK7250-TX-BRADSTEST-CN-1"
-                                style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-color);">
-                        </div>
-                        <div class="form-group">
-                            <label for="nokia7250_systemIP">System IP (e.g., 10.42.12.88/32):</label>
-                            <input type="text" id="nokia7250_systemIP" placeholder="10.42.12.88/32"
-                                style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-color);">
-                        </div>
-                        <div class="form-group">
-                            <label for="nokia7250_location">Location (Latitude, Longitude):</label>
-                            <input type="text" id="nokia7250_location"
-                                placeholder="36.06078758688842, -107.96171907927412"
-                                style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-color);">
-                        </div>
-                    </div>
-
-                    <div class="section"
-                        style="background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                        <h2 style="color: var(--text-color); margin-top: 0;">Port Configuration</h2>
-                        <div class="form-group">
-                            <label for="nokia7250_port1_desc">Port 1/1/1 Description:</label>
-                            <input type="text" id="nokia7250_port1_desc" placeholder="Switch"
-                                style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-color);">
-                        </div>
-                        <div class="form-group">
-                            <label for="nokia7250_port2_desc">Port 1/1/2 Description:</label>
-                            <input type="text" id="nokia7250_port2_desc" placeholder="Switch"
-                                style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-color);">
-                        </div>
-                        <div class="form-group">
-                            <label>
-                                <input type="checkbox" id="nokia7250_port2_shutdown" style="margin-right: 8px;">
-                                Shutdown Port 1/1/2
-                            </label>
-                        </div>
-
-                        <!-- Backhauls (Required - Main Configuration) -->
-                        <div style="margin-top: 25px; padding-top: 25px; border-top: 2px solid var(--border-color);">
-                            <h3 style="color: var(--text-color); margin-top: 0; margin-bottom: 15px;">Backhauls</h3>
-                            <p style="color: var(--text-color-secondary); font-size: 13px; margin-bottom: 15px;">
-                                Configure backhaul connections. At least one backhaul is required.</p>
-                            <div id="nokia7250_backhauls">
-                                <div class="backhaul-entry"
-                                    style="margin-bottom: 15px; padding: 15px; background: var(--card-bg); border-radius: 4px; border: 1px solid var(--accent-color);">
-                                    <div class="form-group">
-                                        <label>Backhaul Name:</label>
-                                        <input type="text" class="backhaul-name" placeholder="TX-BRADSTEST-EA-1"
-                                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-color);">
-                                    </div>
-                                    <div class="form-group">
-                                        <label>Backhaul IP/Netmask:</label>
-                                        <input type="text" class="backhaul-ip" placeholder="10.10.10.49/29"
-                                            style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-color);">
-                                    </div>
-                                    <button type="button" onclick="removeBackhaul(this)"
-                                        style="background: #dc3545; color: white; padding: 5px 10px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Remove</button>
+                    <div class="nokia7250-config-container">
+                        <!-- LEFT COLUMN -->
+                        <div class="nokia7250-left-col">
+                            <div class="section" style="background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 16px;">
+                                <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">System Information</h2>
+                                <div class="form-group">
+                                    <label for="nokia7250_systemName">System Name</label>
+                                    <input type="text" id="nokia7250_systemName" placeholder="RTR-NK7250-TR1.TX-HALLETTSVILLE-NW-1" required
+                                        style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
+                                </div>
+                                <div class="form-group">
+                                    <label for="nokia7250_systemIP">System IP / Loopback (CIDR)</label>
+                                    <input type="text" id="nokia7250_systemIP" placeholder="10.25.0.46/32" required
+                                        style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
+                                </div>
+                                <label style="font-weight:600; margin-bottom:4px;">GPS Location</label>
+                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;">
+                                    <input type="text" id="nokia7250_lat" placeholder="Latitude (e.g. 29.4648)"
+                                        style="padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
+                                    <input type="text" id="nokia7250_lon" placeholder="Longitude (e.g. -96.9522)"
+                                        style="padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
+                                </div>
+                                <div class="form-group">
+                                    <label for="nokia7250_timezone_main">Timezone</label>
+                                    <select id="nokia7250_timezone_main"
+                                        style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
+                                        <option value="CST" selected>CST (Central)</option>
+                                        <option value="EST">EST (Eastern)</option>
+                                        <option value="MST">MST (Mountain)</option>
+                                        <option value="PST">PST (Pacific)</option>
+                                        <option value="UTC">UTC</option>
+                                    </select>
                                 </div>
                             </div>
-                            <button type="button" onclick="addBackhaul()"
-                                style="background: var(--accent-color); color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">+
-                                Add Backhaul</button>
-                        </div>
 
-                        <!-- Fiber Interface (Optional) -->
-                        <div style="margin-top: 25px; padding-top: 25px; border-top: 1px dashed var(--border-color);">
-                            <h3
-                                style="color: var(--text-color-secondary); margin-top: 0; margin-bottom: 15px; font-size: 16px;">
-                                Fiber Interface (Optional)</h3>
-                            <div class="form-group">
-                                <label>
-                                    <input type="checkbox" id="nokia7250_enableFiber" style="margin-right: 8px;">
-                                    Enable Fiber Interface
-                                </label>
+                            <div class="section" style="background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 16px;">
+                                <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">Security &amp; Credentials</h2>
+                                <div style="background: #1a3a1a; padding: 10px; border-radius: 6px; margin-bottom: 12px; border-left: 3px solid #4CAF50;">
+                                    <p style="margin: 0; color: #90EE90; font-size: 12px;">
+                                        <strong>Secure:</strong> Credentials are loaded from the server environment at generate-time. They are never embedded in the page.
+                                    </p>
+                                </div>
+                                <input type="hidden" id="nokia7250_snmpComm">
+                                <input type="hidden" id="nokia7250_nlrootPw">
+                                <input type="hidden" id="nokia7250_adminPw">
+                                <input type="hidden" id="nokia7250_bgpAuthKey">
+                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                                    <div style="padding:8px 12px; background:var(--input-bg); border:1px solid var(--border-color); border-radius:6px; color:var(--text-color-secondary); font-size:13px;">SNMP Community <span style="float:right; color:#4CAF50;">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span></div>
+                                    <div style="padding:8px 12px; background:var(--input-bg); border:1px solid var(--border-color); border-radius:6px; color:var(--text-color-secondary); font-size:13px;">nlroot Password <span style="float:right; color:#4CAF50;">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span></div>
+                                    <div style="padding:8px 12px; background:var(--input-bg); border:1px solid var(--border-color); border-radius:6px; color:var(--text-color-secondary); font-size:13px;">admin Password <span style="float:right; color:#4CAF50;">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span></div>
+                                    <div style="padding:8px 12px; background:var(--input-bg); border:1px solid var(--border-color); border-radius:6px; color:var(--text-color-secondary); font-size:13px;">BGP Auth Key <span style="float:right; color:#4CAF50;">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span></div>
+                                </div>
                             </div>
-                            <div class="form-group" id="nokia7250_fiberGroup" style="display: none;">
-                                <label for="nokia7250_fiber_interface">Fiber Interface Name:</label>
-                                <input type="text" id="nokia7250_fiber_interface" placeholder="FIBERCOMM"
-                                    style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-color);">
+
+                            <div class="section" style="background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 16px;">
+                                <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">Service Configuration</h2>
+                                <div class="form-group">
+                                    <label for="nokia7250_sdpFarEnd">SDP Far-End (BNG System IP)</label>
+                                    <input type="text" id="nokia7250_sdpFarEnd" value="10.249.0.200"
+                                        style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
+                                </div>
+                                <label style="font-weight:600; margin-bottom:4px;">VPLS Service IDs</label>
+                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;">
+                                    <input type="text" id="nokia7250_vplsId1" value="1245" placeholder="VPLS 1 (VLAN 1000)"
+                                        style="padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
+                                    <input type="text" id="nokia7250_vplsId2" value="2245" placeholder="VPLS 2 (VLAN 2000)"
+                                        style="padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
+                                    <input type="text" id="nokia7250_vplsId3" value="3245" placeholder="VPLS 3 (VLAN 3000)"
+                                        style="padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
+                                    <input type="text" id="nokia7250_vplsId4" value="4245" placeholder="VPLS 4 (VLAN 4000)"
+                                        style="padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
+                                </div>
                             </div>
-                            <div class="form-group" id="nokia7250_fiberIPGroup" style="display: none;">
-                                <label for="nokia7250_fiber_ip">Fiber Interface IP/Netmask:</label>
-                                <input type="text" id="nokia7250_fiber_ip" placeholder="10.42.10.90/30"
-                                    style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-color);">
+
+                            <div class="section" style="background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 16px;">
+                                <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">NTP Servers</h2>
+                                <textarea id="nokia7250_ntpServers" rows="4"
+                                    style="width:100%; font-size:13px; padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);"
+                                    placeholder="One per line">52.128.59.240
+52.128.59.241
+52.128.59.242
+52.128.59.243
+132.163.4.101
+132.163.4.102</textarea>
+                            </div>
+                        </div>
+
+                        <!-- RIGHT COLUMN -->
+                        <div class="nokia7250-right-col">
+                            <!-- 100G Connectors -->
+                            <div class="section" style="background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 16px;">
+                                <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">100G Connectors (QSFP28)</h2>
+                                <p style="color: var(--text-color-secondary); font-size: 13px; margin-bottom: 12px;">High-speed fiber connections. Each connector creates a breakout port (e.g., 1/1/c23/1).</p>
+                                <table class="nokia7250-table" id="nokia7250_conn_tbl">
+                                    <thead><tr><th>Connector</th><th>Description</th><th>IP/CIDR</th><th></th></tr></thead>
+                                    <tbody></tbody>
+                                </table>
+                                <button type="button" class="aviat-btn" onclick="nokia7250MainAddConnector()" style="font-size:13px;">+ Add 100G Connector</button>
+                            </div>
+
+                            <!-- SFP+ Uplinks -->
+                            <div class="section" style="background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 16px;">
+                                <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">Uplinks (SFP+ / 10G)</h2>
+                                <p style="color: var(--text-color-secondary); font-size: 13px; margin-bottom: 12px;">Standard SFP+ uplink ports for microwave, switch, and NNI connections.</p>
+                                <table class="nokia7250-table" id="nokia7250_uplink_tbl">
+                                    <thead><tr><th>Port</th><th>Description</th><th>IP/CIDR</th><th>Speed</th><th></th></tr></thead>
+                                    <tbody></tbody>
+                                </table>
+                                <button type="button" class="aviat-btn" onclick="nokia7250MainAddUplink()" style="font-size:13px;">+ Add Uplink</button>
+                            </div>
+
+                            <!-- LDP Deny Prefix List -->
+                            <div class="section" style="background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 16px;">
+                                <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">LDP Deny Prefix List</h2>
+                                <p style="color: var(--text-color-secondary); font-size: 13px; margin-bottom: 12px;">Prefixes to deny in LDP filter policy. One per line.</p>
+                                <textarea id="nokia7250_ldpDeny" rows="6"
+                                    style="width:100%; font-size:13px; padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color); font-family:'JetBrains Mono',monospace;"
+                                    placeholder="One prefix per line">10.2.0.14/32
+10.2.0.21/32
+10.2.0.107/32
+10.2.0.108/32
+10.17.0.11/32
+10.30.0.9/32
+10.240.0.3/32
+10.243.0.9/32
+10.248.0.220/32
+10.249.0.220/32
+10.254.247.9/32</textarea>
+                            </div>
+
+                            <!-- BGP Neighbors -->
+                            <div class="section" style="background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 16px;">
+                                <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">BGP Neighbors</h2>
+                                <div style="background: #2a4a2a; padding: 10px; border-radius: 6px; margin-bottom: 12px; border-left: 3px solid #4CAF50;">
+                                    <p style="margin: 0; color: #90EE90; font-size: 13px;">
+                                        <strong>Auto-configured for IN-STATE:</strong> Default group "DALLAS-RR" with AS 26077.
+                                    </p>
+                                </div>
+                                <table class="nokia7250-table" id="nokia7250_bgp_tbl">
+                                    <thead><tr><th>Group Name</th><th>Neighbor IP</th><th></th></tr></thead>
+                                    <tbody></tbody>
+                                </table>
+                                <button type="button" class="aviat-btn" onclick="nokia7250MainAddBgp()" style="font-size:13px;">+ Add BGP Neighbor</button>
                             </div>
                         </div>
                     </div>
 
-                    <div class="section"
-                        style="background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                        <h2 style="color: var(--text-color); margin-top: 0;">OSPF Configuration</h2>
-                        <div class="form-group">
-                            <label>
-                                <input type="checkbox" id="nokia7250_enableOSPF" checked style="margin-right: 8px;">
-                                Enable OSPF
-                            </label>
-                        </div>
-                    </div>
-
-                    <div class="section"
-                        style="background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                        <h2 style="color: var(--text-color); margin-top: 0;">BGP Configuration</h2>
-                        <div class="form-group">
-                            <label>
-                                <input type="checkbox" id="nokia7250_enableBGP" checked style="margin-right: 8px;">
-                                Enable BGP
-                            </label>
-                        </div>
-                        <div
-                            style="background: #2a4a2a; padding: 12px; border-radius: 4px; margin-bottom: 15px; border-left: 3px solid #4CAF50;">
-                            <p style="margin: 0; color: #90EE90; font-size: 13px;">
-                                <strong> Auto-configured for IN-STATE:</strong> BGP Group "DALLAS-RR" with neighbors
-                                10.2.0.107, 10.2.0.108
-                            </p>
-                        </div>
-                    </div>
-
-                    <div class="section"
-                        style="background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                        <h2 style="color: var(--text-color); margin-top: 0;">VPLS Services</h2>
-                        <div
-                            style="background: #2a4a2a; padding: 12px; border-radius: 4px; margin-bottom: 15px; border-left: 3px solid #4CAF50;">
-                            <p style="margin: 0; color: #90EE90; font-size: 13px;">
-                                <strong> Auto-configured for IN-STATE:</strong> VPLS Service IDs 1245, 2245, 3245,
-                                4245. SDP 101 and SDP 102 are automatically configured in the backend.
-                            </p>
-                        </div>
-                    </div>
-
-                    <div style="margin-top: 30px;">
-                        <button onclick="generateNokia7250Config()"
-                            style="background: var(--accent-color); color: white; padding: 15px 40px; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold;">
-                             Generate Nokia 7250 Configuration
+                    <!-- Generate / Copy / Download -->
+                    <div style="text-align: center; margin-top: 24px; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">
+                        <button type="button" class="aviat-btn success" onclick="generateNokia7250Config()" style="min-width: 220px; font-size: 16px; padding: 14px 32px;">
+                            Generate Nokia 7250 Configuration
+                        </button>
+                        <button type="button" class="aviat-btn" id="nokia7250_copyBtn" onclick="copyNokia7250Config()" style="min-width: 140px; display: none;">
+                            Copy
+                        </button>
+                        <button type="button" class="aviat-btn" id="nokia7250_dlBtn" onclick="downloadNokia7250Config()" style="min-width: 140px; display: none;">
+                            Download .rsc
                         </button>
                     </div>
 
-                    <div id="nokia7250_output" style="margin-top: 30px; display: none;">
-                        <div class="section"
-                            style="background: var(--container-bg); padding: 20px; border-radius: 8px; border: 2px solid var(--accent-color);">
+                    <div id="nokia7250_output" style="margin-top: 24px; display: none;">
+                        <div class="section" style="background: var(--container-bg); padding: 20px; border-radius: 8px; border: 2px solid var(--accent-color);">
                             <h3 style="color: var(--accent-color); margin-top: 0;">Generated Configuration</h3>
-                            <div style="margin-bottom: 15px;">
-                                <button onclick="copyNokia7250Config()"
-                                    style="background: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">
-                                    Copy</button>
-                                <button onclick="downloadNokia7250Config()"
-                                    style="background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">
-                                    Download</button>
-                            </div>
                             <textarea id="nokia7250_config_output" readonly
-                                style="width: 100%; min-height: 500px; padding: 15px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--output-bg); color: var(--text-color); font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.5; white-space: pre; overflow-x: auto;"></textarea>
+                                style="width: 100%; min-height: 500px; padding: 15px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--output-bg, #1a1a2e); color: var(--text-color); font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 12px; line-height: 1.5; white-space: pre; overflow-x: auto;"></textarea>
                         </div>
                     </div>
                 </div>
@@ -6771,75 +7008,254 @@
             </div>
 
             <div id="command-vault-nokia-section" class="command-vault-section active">
-                <div class="section">
-                    <h2>Nokia 7750 - BNG Commands Guide</h2>
-                    <p style="margin: 0 0 14px; color: var(--text-color-secondary);">Common commands with quick copy.</p>
-                    <input id="nokiaCommandSearch" class="command-search" type="text"
-                        placeholder="Search commands (example: lease, sdp, stp, ipoe, sla)..."
-                        oninput="filterNokiaVaultCommands()">
 
-                    <div class="command-guide-grid">
-                        <article class="command-guide-card nokia-command-card" data-search="ipoe session sap plan ip session type mac">
-                            <h4>Lookup IPOE Session/SAP/Plan/IP/Session Type</h4>
-                            <p>MAC must be lowercase.</p>
-                            <div class="command-snippet">/show service id 300 ipoe session detail mac &lt;mac&gt;</div>
-                            <div class="command-card-actions">
-                                <button type="button" class="command-copy-btn"
-                                    onclick="copyVaultCommand(this, '/show service id 300 ipoe session detail mac &lt;mac&gt;')">Copy</button>
-                            </div>
-                        </article>
-
-                        <article class="command-guide-card nokia-command-card" data-search="lease dhcp mac lookup">
-                            <h4>Lookup Lease by MAC</h4>
-                            <p>Useful for DHCP lease verification in service 300.</p>
-                            <div class="command-snippet">/show service id 300 dhcp lease-state mac &lt;mac&gt;</div>
-                            <div class="command-card-actions">
-                                <button type="button" class="command-copy-btn"
-                                    onclick="copyVaultCommand(this, '/show service id 300 dhcp lease-state mac &lt;mac&gt;')">Copy</button>
-                            </div>
-                        </article>
-
-                        <article class="command-guide-card nokia-command-card" data-search="clear subscriber ipoe sap mac">
-                            <h4>Clear Subscriber IPOE Session</h4>
-                            <p>Requires subscriber SAP and MAC. No output after a successful clear.</p>
-                            <div class="command-snippet">/clear service id 300 ipoe session sap &lt;sap&gt; mac &lt;mac&gt;</div>
-                            <div class="command-card-actions">
-                                <button type="button" class="command-copy-btn"
-                                    onclick="copyVaultCommand(this, '/clear service id 300 ipoe session sap &lt;sap&gt; mac &lt;mac&gt;')">Copy</button>
-                            </div>
-                        </article>
-
-                        <article class="command-guide-card nokia-command-card" data-search="verify sdp tunnel vpls">
-                            <h4>Verify SDP Tunnels under BNG VPLS</h4>
-                            <p>Examples: 1245, 1249, 4245, 4249.</p>
-                            <div class="command-snippet">/show service id &lt;service-id&gt; sdp</div>
-                            <div class="command-card-actions">
-                                <button type="button" class="command-copy-btn"
-                                    onclick="copyVaultCommand(this, '/show service id &lt;service-id&gt; sdp')">Copy</button>
-                            </div>
-                        </article>
-
-                        <article class="command-guide-card nokia-command-card" data-search="verify stp vpls">
-                            <h4>Verify STP for BNG VPLS</h4>
-                            <p>Check bridge state and role quickly.</p>
-                            <div class="command-snippet">/show service id &lt;service-id&gt; stp</div>
-                            <div class="command-card-actions">
-                                <button type="button" class="command-copy-btn"
-                                    onclick="copyVaultCommand(this, '/show service id &lt;service-id&gt; stp')">Copy</button>
-                            </div>
-                        </article>
-
-                        <article class="command-guide-card nokia-command-card" data-search="speed plan sla profile statistics count">
-                            <h4>View Speed Plan Count per Subscriber Profile</h4>
-                            <p>Shows SLA profile counters.</p>
-                            <div class="command-snippet">/show subscriber-mgmt statistics sla-profiles</div>
-                            <div class="command-card-actions">
-                                <button type="button" class="command-copy-btn"
-                                    onclick="copyVaultCommand(this, '/show subscriber-mgmt statistics sla-profiles')">Copy</button>
-                            </div>
-                        </article>
+                <!-- Nokia Sub-Tab Dropdown -->
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <div class="nokia-vault-dropdown" id="nokiaVaultDropdown">
+                        <button class="nokia-vault-dropdown-toggle" id="nokiaVaultDropdownToggle" type="button"
+                            aria-haspopup="true" aria-expanded="false">
+                            <span id="nokiaVaultDropdownLabel">Nokia 7750 - BNG Commands Guide</span>
+                            <span class="nokia-vault-dropdown-caret">&#9662;</span>
+                        </button>
+                        <div class="nokia-vault-dropdown-menu" id="nokiaVaultDropdownMenu" role="menu">
+                            <button class="nokia-vault-dropdown-item active" type="button"
+                                data-nokia-vault-tab="7750-bng">Nokia 7750 - BNG Commands Guide</button>
+                            <button class="nokia-vault-dropdown-item" type="button"
+                                data-nokia-vault-tab="7250-port">Nokia 7250 - IN-STATE Config Maker</button>
+                        </div>
                     </div>
                 </div>
+
+                <!-- Nokia 7750 BNG Commands Sub-Section -->
+                <div id="nokia-vault-7750-bng-section" class="nokia-vault-subsection active">
+                    <div class="section">
+                        <h2>Nokia 7750 - BNG Commands Guide</h2>
+                        <p style="margin: 0 0 14px; color: var(--text-color-secondary);">Common commands with quick copy.</p>
+                        <input id="nokiaCommandSearch" class="command-search" type="text"
+                            placeholder="Search commands (example: lease, sdp, stp, ipoe, sla)..."
+                            oninput="filterNokiaVaultCommands()">
+
+                        <div class="command-guide-grid">
+                            <article class="command-guide-card nokia-command-card" data-search="ipoe session sap plan ip session type mac">
+                                <h4>Lookup IPOE Session/SAP/Plan/IP/Session Type</h4>
+                                <p>MAC must be lowercase.</p>
+                                <div class="command-snippet">/show service id 300 ipoe session detail mac &lt;mac&gt;</div>
+                                <div class="command-card-actions">
+                                    <button type="button" class="command-copy-btn"
+                                        onclick="copyVaultCommand(this, '/show service id 300 ipoe session detail mac &lt;mac&gt;')">Copy</button>
+                                </div>
+                            </article>
+
+                            <article class="command-guide-card nokia-command-card" data-search="lease dhcp mac lookup">
+                                <h4>Lookup Lease by MAC</h4>
+                                <p>Useful for DHCP lease verification in service 300.</p>
+                                <div class="command-snippet">/show service id 300 dhcp lease-state mac &lt;mac&gt;</div>
+                                <div class="command-card-actions">
+                                    <button type="button" class="command-copy-btn"
+                                        onclick="copyVaultCommand(this, '/show service id 300 dhcp lease-state mac &lt;mac&gt;')">Copy</button>
+                                </div>
+                            </article>
+
+                            <article class="command-guide-card nokia-command-card" data-search="clear subscriber ipoe sap mac">
+                                <h4>Clear Subscriber IPOE Session</h4>
+                                <p>Requires subscriber SAP and MAC. No output after a successful clear.</p>
+                                <div class="command-snippet">/clear service id 300 ipoe session sap &lt;sap&gt; mac &lt;mac&gt;</div>
+                                <div class="command-card-actions">
+                                    <button type="button" class="command-copy-btn"
+                                        onclick="copyVaultCommand(this, '/clear service id 300 ipoe session sap &lt;sap&gt; mac &lt;mac&gt;')">Copy</button>
+                                </div>
+                            </article>
+
+                            <article class="command-guide-card nokia-command-card" data-search="verify sdp tunnel vpls">
+                                <h4>Verify SDP Tunnels under BNG VPLS</h4>
+                                <p>Examples: 1245, 1249, 4245, 4249.</p>
+                                <div class="command-snippet">/show service id &lt;service-id&gt; sdp</div>
+                                <div class="command-card-actions">
+                                    <button type="button" class="command-copy-btn"
+                                        onclick="copyVaultCommand(this, '/show service id &lt;service-id&gt; sdp')">Copy</button>
+                                </div>
+                            </article>
+
+                            <article class="command-guide-card nokia-command-card" data-search="verify stp vpls">
+                                <h4>Verify STP for BNG VPLS</h4>
+                                <p>Check bridge state and role quickly.</p>
+                                <div class="command-snippet">/show service id &lt;service-id&gt; stp</div>
+                                <div class="command-card-actions">
+                                    <button type="button" class="command-copy-btn"
+                                        onclick="copyVaultCommand(this, '/show service id &lt;service-id&gt; stp')">Copy</button>
+                                </div>
+                            </article>
+
+                            <article class="command-guide-card nokia-command-card" data-search="speed plan sla profile statistics count">
+                                <h4>View Speed Plan Count per Subscriber Profile</h4>
+                                <p>Shows SLA profile counters.</p>
+                                <div class="command-snippet">/show subscriber-mgmt statistics sla-profiles</div>
+                                <div class="command-card-actions">
+                                    <button type="button" class="command-copy-btn"
+                                        onclick="copyVaultCommand(this, '/show subscriber-mgmt statistics sla-profiles')">Copy</button>
+                                </div>
+                            </article>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Nokia 7250 IN-STATE Configuration Generator -->
+                <div id="nokia-vault-7250-port-section" class="nokia-vault-subsection">
+                    <div class="section">
+                        <h2>Nokia 7250 - IN-STATE Configuration Maker</h2>
+                        <p style="margin: 0 0 18px; color: var(--text-color-secondary);">
+                            Generate full Nokia 7250 IXR startup configuration (classic CLI).
+                        </p>
+
+                        <div class="nokia7250-config-container">
+                            <!-- LEFT COLUMN -->
+                            <div class="nokia7250-left-col">
+                                <div class="form-group">
+                                    <label for="nokia7250_hostname">Hostname</label>
+                                    <input type="text" id="nokia7250_hostname" placeholder="RTR-NK7250-TR1.TX-HALLETTSVILLE-NW-1" required>
+                                </div>
+
+                                <label style="font-weight:600; margin-bottom:4px;">GPS Coordinates &amp; Region</label>
+                                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:14px;">
+                                    <input type="text" id="nokia7250_lat" placeholder="Latitude" required>
+                                    <input type="text" id="nokia7250_lon" placeholder="Longitude" required>
+                                    <input type="text" id="nokia7250_region" placeholder="Region (TX, OK…)" value="TX">
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="nokia7250_loopback">Loopback (System IP)</label>
+                                    <input type="text" id="nokia7250_loopback" placeholder="10.25.0.46/32" required>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="nokia7250_timezone">Timezone</label>
+                                    <select id="nokia7250_timezone">
+                                        <option value="CST" selected>CST (Central)</option>
+                                        <option value="EST">EST (Eastern)</option>
+                                        <option value="MST">MST (Mountain)</option>
+                                        <option value="PST">PST (Pacific)</option>
+                                        <option value="UTC">UTC</option>
+                                    </select>
+                                </div>
+
+                                <div style="background: #1a3a1a; padding: 10px; border-radius: 6px; margin-bottom: 12px; border-left: 3px solid #4CAF50;">
+                                    <p style="margin: 0; color: #90EE90; font-size: 12px;"><strong>Secure:</strong> Credentials loaded from server environment at generate-time.</p>
+                                </div>
+                                <input type="hidden" id="nokia7250_snmp_community">
+                                <input type="hidden" id="nokia7250_nlroot_pw">
+                                <input type="hidden" id="nokia7250_admin_pw">
+                                <input type="hidden" id="nokia7250_bgp_key">
+                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                                    <div style="padding:8px 12px; background:var(--input-bg); border:1px solid var(--border-color); border-radius:6px; color:var(--text-color-secondary); font-size:13px;">SNMP Community <span style="float:right; color:#4CAF50;">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span></div>
+                                    <div style="padding:8px 12px; background:var(--input-bg); border:1px solid var(--border-color); border-radius:6px; color:var(--text-color-secondary); font-size:13px;">nlroot Password <span style="float:right; color:#4CAF50;">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span></div>
+                                    <div style="padding:8px 12px; background:var(--input-bg); border:1px solid var(--border-color); border-radius:6px; color:var(--text-color-secondary); font-size:13px;">admin Password <span style="float:right; color:#4CAF50;">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span></div>
+                                    <div style="padding:8px 12px; background:var(--input-bg); border:1px solid var(--border-color); border-radius:6px; color:var(--text-color-secondary); font-size:13px;">BGP Auth Key <span style="float:right; color:#4CAF50;">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span></div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="nokia7250_sdp_far_end">SDP Far-End (BNG System IP)</label>
+                                    <input type="text" id="nokia7250_sdp_far_end" value="10.249.0.200" placeholder="10.249.0.200">
+                                </div>
+
+                                <label style="font-weight:600; margin-bottom:4px;">VPLS Service IDs</label>
+                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:14px;">
+                                    <input type="text" id="nokia7250_vpls1" value="1245" placeholder="VPLS 1 (VLAN 1000)">
+                                    <input type="text" id="nokia7250_vpls2" value="2245" placeholder="VPLS 2 (VLAN 2000)">
+                                    <input type="text" id="nokia7250_vpls3" value="3245" placeholder="VPLS 3 (VLAN 3000)">
+                                    <input type="text" id="nokia7250_vpls4" value="4245" placeholder="VPLS 4 (VLAN 4000)">
+                                </div>
+
+                                <label style="font-weight:600; margin-bottom:4px;">NTP Servers</label>
+                                <textarea id="nokia7250_ntp_servers" rows="3" style="width:100%; font-size:13px; padding:8px; border:1px solid var(--border-color); border-radius:8px; background:var(--input-bg); color:var(--text-color);"
+                                    placeholder="One per line">52.128.59.240
+52.128.59.241
+52.128.59.242
+52.128.59.243
+132.163.4.101
+132.163.4.102</textarea>
+                            </div>
+
+                            <!-- RIGHT COLUMN -->
+                            <div class="nokia7250-right-col">
+                                <!-- 100G Connectors -->
+                                <h3 style="margin: 0 0 10px; font-size: 15px;">100G Connectors (QSFP28)</h3>
+                                <table class="nokia7250-table" id="nokia7250_connectors_table">
+                                    <thead>
+                                        <tr>
+                                            <th>Connector Port</th>
+                                            <th>Description</th>
+                                            <th>IP/CIDR</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                                <button type="button" class="aviat-btn" onclick="nokia7250AddConnectorRow()" style="margin-bottom: 18px; font-size: 13px;">+ Add 100G Connector</button>
+
+                                <!-- Uplinks (SFP+ / 10G) -->
+                                <h3 style="margin: 0 0 10px; font-size: 15px;">Uplinks (SFP+ / 10G)</h3>
+                                <table class="nokia7250-table" id="nokia7250_uplinks_table">
+                                    <thead>
+                                        <tr>
+                                            <th>Port</th>
+                                            <th>Description</th>
+                                            <th>IP/CIDR</th>
+                                            <th>Speed</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                                <button type="button" class="aviat-btn" onclick="nokia7250AddUplinkRow()" style="margin-bottom: 18px; font-size: 13px;">+ Add Uplink</button>
+
+                                <!-- LDP Deny Prefixes -->
+                                <h3 style="margin: 0 0 10px; font-size: 15px;">LDP Deny Prefix List</h3>
+                                <textarea id="nokia7250_ldp_deny" rows="6" style="width:100%; font-size:13px; padding:8px; border:1px solid var(--border-color); border-radius:8px; background:var(--input-bg); color:var(--text-color); font-family: 'JetBrains Mono', monospace;"
+                                    placeholder="One prefix per line (e.g. 10.2.0.14/32)">10.2.0.14/32
+10.2.0.21/32
+10.2.0.107/32
+10.2.0.108/32
+10.17.0.11/32
+10.30.0.9/32
+10.240.0.3/32
+10.243.0.9/32
+10.248.0.220/32
+10.249.0.220/32
+10.254.247.9/32</textarea>
+
+                                <!-- BGP Neighbors -->
+                                <h3 style="margin: 14px 0 10px; font-size: 15px;">BGP Neighbors</h3>
+                                <table class="nokia7250-table" id="nokia7250_bgp_table">
+                                    <thead>
+                                        <tr>
+                                            <th>Group Name</th>
+                                            <th>Neighbor IP</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                                <button type="button" class="aviat-btn" onclick="nokia7250AddBgpRow()" style="margin-bottom: 18px; font-size: 13px;">+ Add BGP Neighbor</button>
+                            </div>
+                        </div>
+
+                        <!-- Generate / Copy / Download buttons -->
+                        <div style="text-align: center; margin-top: 20px; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;">
+                            <button type="button" class="aviat-btn success" onclick="generate7250FullConfig()" style="min-width: 180px;">
+                                Generate Config
+                            </button>
+                            <button type="button" class="aviat-btn" id="copy7250FullBtn" onclick="copy7250FullOutput()" style="min-width: 140px; display: none;">
+                                Copy Output
+                            </button>
+                            <button type="button" class="aviat-btn" id="download7250Btn" onclick="download7250Config()" style="min-width: 140px; display: none;">
+                                Download .rsc
+                            </button>
+                        </div>
+
+                        <div id="nokia7250_full_output" class="port-setup-output" style="display: none; max-height: 600px; overflow-y: auto;"></div>
+                    </div>
+                </div>
+
             </div>
 
             <div id="command-vault-cisco-section" class="command-vault-section">
@@ -22437,214 +22853,611 @@ Ready for translation!`);
             };
 
             // ========================================
-            // NOKIA 7250 MAKER FUNCTIONS
+            // NOKIA 7250 MAKER FUNCTIONS (client-side)
             // ========================================
 
-            window.addBackhaul = function () {
-                const container = document.getElementById('nokia7250_backhauls');
-                const entry = document.createElement('div');
-                entry.className = 'backhaul-entry';
-                entry.style.cssText = 'margin-bottom: 15px; padding: 15px; background: var(--card-bg); border-radius: 4px;';
-                entry.innerHTML = `
-            <div class="form-group">
-                <label>Backhaul Name:</label>
-                <input type="text" class="backhaul-name" placeholder="TX-BRADSTEST-EA-1" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-color);">
-            </div>
-            <div class="form-group">
-                <label>Backhaul IP/Netmask:</label>
-                <input type="text" class="backhaul-ip" placeholder="10.10.10.49/29" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-color);">
-            </div>
-            <button type="button" onclick="removeBackhaul(this)" style="background: #dc3545; color: white; padding: 5px 10px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Remove</button>
-        `;
-                container.appendChild(entry);
+            // --- Table row helpers for main pane ---
+            window.nokia7250MainAddConnector = function () {
+                const tbody = document.querySelector('#nokia7250_conn_tbl tbody');
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><select style="min-width:100px"><option>1/1/c23</option><option>1/1/c24</option><option>1/1/c25</option><option>1/1/c26</option><option>1/1/c27</option><option>1/1/c28</option><option>1/1/c29</option><option>1/1/c30</option><option>1/1/c31</option><option>1/1/c32</option></select></td>
+                    <td><input placeholder="TX-LAGRANGE-FC-1"></td>
+                    <td><input placeholder="10.36.1.53/30"></td>
+                    <td><button type="button" class="nokia7250-del-btn" onclick="this.closest('tr').remove()">×</button></td>`;
+                tbody.appendChild(tr);
             };
 
-            window.removeBackhaul = function (btn) {
-                btn.closest('.backhaul-entry').remove();
+            window.nokia7250MainAddUplink = function () {
+                const tbody = document.querySelector('#nokia7250_uplink_tbl tbody');
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><select style="min-width:80px"><option>1/1/1</option><option>1/1/2</option><option>1/1/3</option><option>1/1/4</option><option>1/1/5</option><option>1/1/6</option><option>1/1/7</option><option>1/1/8</option><option>1/1/9</option><option>1/1/10</option><option>1/1/11</option><option>1/1/12</option><option>1/1/13</option><option>1/1/14</option><option>1/1/15</option><option>1/1/16</option><option>1/1/17</option><option>1/1/18</option><option>1/1/19</option><option>1/1/20</option><option>1/1/21</option><option>1/1/22</option><option>1/1/23</option><option>1/1/24</option></select></td>
+                    <td><input placeholder="UPLINK-TO-2004-1"></td>
+                    <td><input placeholder="10.45.248.105/30"></td>
+                    <td><select><option>1000</option><option selected>10000</option><option>25000</option></select></td>
+                    <td><button type="button" class="nokia7250-del-btn" onclick="this.closest('tr').remove()">×</button></td>`;
+                tbody.appendChild(tr);
             };
 
-            // Toggle fiber interface fields
+            window.nokia7250MainAddBgp = function () {
+                const tbody = document.querySelector('#nokia7250_bgp_tbl tbody');
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><input placeholder="DALLAS-RR" value="DALLAS-RR"></td>
+                    <td><input placeholder="10.2.0.107"></td>
+                    <td><button type="button" class="nokia7250-del-btn" onclick="this.closest('tr').remove()">×</button></td>`;
+                tbody.appendChild(tr);
+            };
+
+            // --- Collect table data from main pane ---
+            function nokia7250MainGetConnectors() {
+                return [...document.querySelectorAll('#nokia7250_conn_tbl tbody tr')].map(tr => ({
+                    port: tr.cells[0].querySelector('select').value,
+                    desc: tr.cells[1].querySelector('input').value.trim(),
+                    ip: tr.cells[2].querySelector('input').value.trim()
+                })).filter(c => c.desc);
+            }
+
+            function nokia7250MainGetUplinks() {
+                return [...document.querySelectorAll('#nokia7250_uplink_tbl tbody tr')].map(tr => ({
+                    port: tr.cells[0].querySelector('select').value,
+                    desc: tr.cells[1].querySelector('input').value.trim(),
+                    ip: tr.cells[2].querySelector('input').value.trim(),
+                    speed: tr.cells[3].querySelector('select').value
+                })).filter(u => u.desc);
+            }
+
+            function nokia7250MainGetBgpNeighbors() {
+                return [...document.querySelectorAll('#nokia7250_bgp_tbl tbody tr')].map(tr => ({
+                    group: tr.cells[0].querySelector('input').value.trim(),
+                    ip: tr.cells[1].querySelector('input').value.trim()
+                })).filter(b => b.ip);
+            }
+
+            // Timezone DST map
+            const nokia7250MainTzMap = {
+                CST: { zone: 'CST', dst: 'CDT', start: 'second sunday march 02:00', end: 'first sunday november 02:00' },
+                EST: { zone: 'EST', dst: 'EDT', start: 'second sunday march 02:00', end: 'first sunday november 02:00' },
+                MST: { zone: 'MST', dst: 'MDT', start: 'second sunday march 02:00', end: 'first sunday november 02:00' },
+                PST: { zone: 'PST', dst: 'PDT', start: 'second sunday march 02:00', end: 'first sunday november 02:00' },
+                UTC: null
+            };
+
+            // Management access filter entries (static)
+            const nokia7250MainMgmtAcl = [
+                { ip: '10.10.103.91/32' }, { ip: '192.168.128.0/21' }, { ip: '107.178.5.97/32' },
+                { ip: '198.100.53.0/25' }, { ip: '143.55.62.143/32' }, { ip: '142.147.127.2/32' },
+                { ip: '132.147.132.6/32' }, { ip: '67.219.122.201/32' }, { ip: '10.0.0.0/8' },
+                { ip: '208.93.124.0/22' }, { ip: '192.104.128.0/21' }, { ip: '199.180.120.0/21' }
+            ];
+
+            // Seed default rows on page load
             document.addEventListener('DOMContentLoaded', function () {
-                const fiberCheckbox = document.getElementById('nokia7250_enableFiber');
-                if (fiberCheckbox) {
-                    fiberCheckbox.addEventListener('change', function () {
-                        const fiberGroup = document.getElementById('nokia7250_fiberGroup');
-                        const fiberIPGroup = document.getElementById('nokia7250_fiberIPGroup');
-                        if (fiberGroup && fiberIPGroup) {
-                            fiberGroup.style.display = this.checked ? 'block' : 'none';
-                            fiberIPGroup.style.display = this.checked ? 'block' : 'none';
-                        }
-                    });
+                if (document.getElementById('nokia7250_bgp_tbl') && !document.querySelector('#nokia7250_bgp_tbl tbody tr')) {
+                    // Add two default BGP neighbors
+                    nokia7250MainAddBgp();
+                    const rows = document.querySelectorAll('#nokia7250_bgp_tbl tbody tr');
+                    if (rows[0]) rows[0].cells[1].querySelector('input').value = '10.2.0.107';
+                    nokia7250MainAddBgp();
+                    const rows2 = document.querySelectorAll('#nokia7250_bgp_tbl tbody tr');
+                    if (rows2[1]) rows2[1].cells[1].querySelector('input').value = '10.2.0.108';
                 }
             });
 
+            // ---- CLIENT-SIDE CONFIG GENERATOR ----
             window.generateNokia7250Config = async function () {
-                const systemName = document.getElementById('nokia7250_systemName').value.trim();
-                const systemIP = document.getElementById('nokia7250_systemIP').value.trim();
-                const location = document.getElementById('nokia7250_location').value.trim();
-                const port1Desc = document.getElementById('nokia7250_port1_desc').value.trim() || 'Switch';
-                const port2Desc = document.getElementById('nokia7250_port2_desc').value.trim() || 'Switch';
-                const port2Shutdown = document.getElementById('nokia7250_port2_shutdown').checked;
-                const enableOSPF = document.getElementById('nokia7250_enableOSPF').checked;
-                const enableBGP = document.getElementById('nokia7250_enableBGP').checked;
+                const $ = id => document.getElementById(id);
+                const v = id => ($( id )?.value || '').trim();
 
-                console.log('[NOKIA7250] Generate button clicked');
+                const hostname = v('nokia7250_systemName');
+                const loopback = v('nokia7250_systemIP');
 
-                // Validation
-                if (!systemName || !systemIP) {
-                    console.warn('[NOKIA7250] Validation failed: Missing system name or IP');
-                    alert(' Please fill in System Name and System IP');
-                    return;
-                }
+                if (!hostname) { alert('Please enter a System Name.'); return; }
+                if (!loopback) { alert('Please enter a System IP / Loopback.'); return; }
 
-                // Collect backhauls (required - at least one must be configured)
-                const backhaulEntries = document.querySelectorAll('.backhaul-entry');
-                const backhauls = [];
-                for (const entry of backhaulEntries) {
-                    const name = entry.querySelector('.backhaul-name').value.trim();
-                    const ip = entry.querySelector('.backhaul-ip').value.trim();
-                    if (name && ip) {
-                        backhauls.push({ name, ip });
-                    }
-                }
-
-                if (backhauls.length === 0) {
-                    console.warn('[NOKIA7250] Validation failed: No backhauls configured');
-                    alert(' At least one backhaul is required. Please configure at least one backhaul in Port Configuration.');
-                    return;
-                }
-
-                console.log('[NOKIA7250] Validation passed:', {
-                    systemName: systemName,
-                    systemIP: systemIP,
-                    backhaulCount: backhauls.length,
-                    enableOSPF: enableOSPF,
-                    enableBGP: enableBGP
-                });
-
-                // Auto-filled for IN-STATE configs (user doesn't need to fill these)
-                const bgpGroup = 'DALLAS-RR';  // Auto-configured for instate
-                const bgpNeighbors = ['10.2.0.107', '10.2.0.108'];  // Auto-configured for instate
-                const vplsServices = ['1245', '2245', '3245', '4245'];  // Auto-configured for instate
-                // SDP 101 and 102 are handled automatically in backend (no user input needed)
-                const enableFiber = document.getElementById('nokia7250_enableFiber') ? document.getElementById('nokia7250_enableFiber').checked : false;
-                const fiberInterfaceEl = document.getElementById('nokia7250_fiber_interface');
-                const fiberIPEl = document.getElementById('nokia7250_fiber_ip');
-                const fiberInterface = (fiberInterfaceEl && fiberInterfaceEl.value.trim()) || 'FIBERCOMM';
-                const fiberIP = (fiberIPEl && fiberIPEl.value.trim()) || '';
-
+                // Fetch credentials securely from backend
+                let snmpCommunity, nlrootPw, adminPw, bgpKey;
                 try {
-                    console.log('[NOKIA7250] Starting configuration generation...');
-                    if (window.showProgressTracker) window.showProgressTracker('Generating Nokia 7250 Configuration');
-                    if (window.updateProgressStep) window.updateProgressStep('Sending request to backend...');
-                    if (window.updateProgressPercent) window.updateProgressPercent(10);
-
-                    const requestData = {
-                        system_name: systemName,
-                        system_ip: systemIP,
-                        location: location,
-                        port1_desc: port1Desc,
-                        port2_desc: port2Desc,
-                        port2_shutdown: port2Shutdown,
-                        enable_ospf: enableOSPF,
-                        enable_bgp: enableBGP,
-                        bgp_group: bgpGroup,
-                        bgp_neighbors: bgpNeighbors,
-                        vpls_services: vplsServices,
-                        // SDP 101 and 102 are automatically configured in backend
-                        enable_fiber: enableFiber,
-                        fiber_interface: fiberInterface,
-                        fiber_ip: fiberIP,
-                        backhauls: backhauls
-                    };
-
-                    console.log('[NOKIA7250] Sending request to:', `${AI_API_BASE}/generate-nokia7250`);
-                    console.log('[NOKIA7250] Request data (sanitized):', {
-                        ...requestData,
-                        backhauls: requestData.backhauls.map(bh => ({ name: bh.name, ip: '[REDACTED]' }))
-                    });
-
-                    const response = await fetch(`${AI_API_BASE}/generate-nokia7250`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(requestData)
-                    });
-
-                    console.log('[NOKIA7250] Response status:', response.status, response.statusText);
-
-                    if (window.updateProgressPercent) window.updateProgressPercent(60);
-                    if (window.updateProgressStep) window.updateProgressStep('Processing configuration...');
-
-                    if (!response.ok) {
-                        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-                        console.error('[NOKIA7250] Backend error:', errorData);
-                        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+                    const credsResp = await fetch(`${AI_API_BASE}/nokia7250-defaults`);
+                    if (!credsResp.ok) throw new Error(`HTTP ${credsResp.status}`);
+                    const creds = await credsResp.json();
+                    snmpCommunity = creds.snmp_community;
+                    nlrootPw = creds.nlroot_pw;
+                    adminPw = creds.admin_pw;
+                    bgpKey = creds.bgp_auth_key;
+                    if (!snmpCommunity || !nlrootPw || !adminPw || !bgpKey) {
+                        alert('Nokia 7250 credentials are not fully configured on the server.\nPlease set NOKIA7250_SNMP_COMMUNITY, NOKIA7250_NLROOT_PW, NOKIA7250_ADMIN_PW, and NOKIA7250_BGP_AUTH_KEY in the backend .env.');
+                        return;
                     }
-
-                    const data = await response.json();
-                    console.log('[NOKIA7250] Response received, config length:', data.config ? data.config.length : 0);
-
-                    if (window.updateProgressPercent) window.updateProgressPercent(90);
-                    if (window.updateProgressStep) window.updateProgressStep('Finalizing...');
-
-                    if (data.config) {
-                        document.getElementById('nokia7250_config_output').value = data.config;
-                        document.getElementById('nokia7250_output').style.display = 'block';
-                        if (window.updateProgressPercent) window.updateProgressPercent(100);
-                        if (window.updateProgressStep) window.updateProgressStep('Configuration generated successfully!');
-                        if (window.completeProgressTracker) window.completeProgressTracker(true);
-                        console.log('[NOKIA7250]  Configuration generated successfully');
-                    } else {
-                        console.error('[NOKIA7250] No configuration in response:', data);
-                        throw new Error('No configuration returned from backend');
-                    }
-                } catch (error) {
-                    console.error('[NOKIA7250]  Error generating configuration:', {
-                        message: error.message,
-                        stack: error.stack,
-                        name: error.name
-                    });
-                    alert(' Error generating configuration: ' + error.message);
-                    if (window.completeProgressTracker) window.completeProgressTracker(false);
+                } catch (err) {
+                    console.error('[NOKIA7250] Failed to fetch credentials:', err);
+                    alert('Could not load credentials from backend. Check that the backend is running and the Nokia 7250 env vars are configured.');
+                    return;
                 }
+
+                const lat = v('nokia7250_lat') || '0.0';
+                const lon = v('nokia7250_lon') || '0.0';
+                const tz = v('nokia7250_timezone_main') || 'CST';
+                const sdpFarEnd = v('nokia7250_sdpFarEnd') || '10.249.0.200';
+                const vpls = [v('nokia7250_vplsId1') || '1245', v('nokia7250_vplsId2') || '2245', v('nokia7250_vplsId3') || '3245', v('nokia7250_vplsId4') || '4245'];
+                const vplsVlans = ['1000', '2000', '3000', '4000'];
+                const ntpServers = ($('nokia7250_ntpServers')?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+                const ldpDenyPrefixes = ($('nokia7250_ldpDeny')?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+
+                const systemIp = loopback.includes('/') ? loopback.split('/')[0] : loopback;
+
+                const connectors = nokia7250MainGetConnectors();
+                const uplinks = nokia7250MainGetUplinks();
+                const bgpNeighbors = nokia7250MainGetBgpNeighbors();
+                const allInterfaces = [];
+
+                connectors.forEach(c => allInterfaces.push({ port: c.port + '/1', desc: c.desc, ip: c.ip, speed: '100000', isConnector: true, connPort: c.port }));
+                uplinks.forEach(u => allInterfaces.push({ port: u.port, desc: u.desc, ip: u.ip, speed: u.speed, isConnector: false }));
+
+                const tzInfo = nokia7250MainTzMap[tz];
+                const L = [];
+                const echo = s => L.push(`#${'--'.repeat(25)}`, `echo "${s}"`, `#${'--'.repeat(25)}`);
+
+                // ---- PREAMBLE ----
+                L.push('configure global');
+                L.push('/configure system management-interface cli classic-cli');
+                L.push('/configure system management-interface configuration-mode classic');
+                L.push('commit');
+                L.push('logout');
+                L.push('');
+                L.push('');
+                L.push('# BOF');
+                L.push('/bof primary-config cf3:/startup-config');
+                L.push('/bof save');
+                L.push('/admin save');
+                L.push('');
+                L.push('exit all');
+                L.push('configure');
+
+                // ---- SYSTEM ----
+                echo('System Configuration');
+                L.push('    system');
+                L.push(`        name "${hostname}"`);
+                L.push(`        location "${lat},${lon}"`);
+                L.push('        rollback');
+                L.push('            rollback-location "cf3:/checkpoint_db"');
+                L.push('        exit');
+                L.push('        time');
+                L.push('            ntp');
+                L.push('                no shutdown');
+                L.push('            exit');
+                L.push('            sntp');
+                L.push('                shutdown');
+                L.push('            exit');
+                if (tzInfo) {
+                    L.push(`            dst-zone ${tzInfo.dst}`);
+                    L.push(`                start ${tzInfo.start}`);
+                    L.push(`                end ${tzInfo.end}`);
+                    L.push('            exit');
+                    L.push(`            zone ${tzInfo.zone}`);
+                } else {
+                    L.push('            zone UTC');
+                }
+                L.push('        exit');
+                L.push('    exit');
+
+                // ---- SECURITY ----
+                echo('System Security Configuration');
+                L.push('    system');
+                L.push('        security');
+                L.push('            management-access-filter');
+                L.push('                ip-filter');
+                L.push('                    shutdown');
+                L.push('                    default-action permit');
+                nokia7250MainMgmtAcl.forEach((e, i) => {
+                    L.push(`                    entry ${i + 1}`);
+                    L.push(`                        src-ip ${e.ip}`);
+                    L.push('                        dst-port 22 65535');
+                    L.push('                        action permit');
+                    L.push('                    exit');
+                });
+                L.push('                    no shutdown');
+                L.push('                exit');
+                L.push('            exit');
+
+                // ---- ADMIN PROFILE ----
+                L.push('            profile "administrative"');
+                L.push('                netconf');
+                L.push('                    base-op-authorization');
+                ['action','cancel-commit','close-session','commit','copy-config','create-subscription',
+                 'delete-config','discard-changes','edit-config','get','get-config','get-data',
+                 'get-schema','kill-session','lock','validate'].forEach(op => L.push(`                        ${op}`));
+                L.push('                    exit');
+                L.push('                exit');
+                [
+                    {n:10,m:'configure system security',a:'permit'},{n:20,m:'show system security',a:'permit'},
+                    {n:30,m:'tools perform security',a:'permit'},{n:40,m:'tools dump security',a:'permit'},
+                    {n:42,m:'tools dump system security',a:'permit'},{n:50,m:'admin system security',a:'permit'},
+                    {n:100,m:'configure li',a:'deny'},{n:110,m:'show li',a:'deny'},
+                    {n:111,m:'clear li',a:'deny'},{n:112,m:'tools dump li',a:'deny'}
+                ].forEach(e => {
+                    L.push(`                entry ${e.n}`);
+                    L.push(`                    match "${e.m}"`);
+                    L.push(`                    action ${e.a}`);
+                    L.push('                exit');
+                });
+                L.push('            exit');
+
+                // ---- USERS ----
+                L.push(`            user "nlroot"`);
+                L.push(`                password "${nlrootPw}"`);
+                L.push('                access console ftp snmp netconf grpc');
+                L.push('                no restricted-to-home');
+                L.push('                console');
+                L.push('                    member "default"');
+                L.push('                    member "administrative"');
+                L.push('                exit');
+                L.push('            exit');
+                L.push(`            user "admin"`);
+                L.push(`                password "${adminPw}"`);
+                L.push('                access console ftp snmp netconf grpc');
+                L.push('                no restricted-to-home');
+                L.push('                console');
+                L.push('                    member "default"');
+                L.push('                    member "administrative"');
+                L.push('                exit');
+                L.push('            exit');
+                L.push('            snmp');
+                L.push(`                community "${snmpCommunity}" r version both`);
+                L.push('            exit');
+                L.push('            telnet');
+                L.push('            exit');
+                L.push('        exit');
+                L.push('    exit');
+
+                // ---- LOGIN CONTROL ----
+                echo('System Login Control Configuration');
+                L.push('    system');
+                L.push('        login-control');
+                L.push('            idle-timeout 90');
+                L.push('        exit');
+                L.push('    exit');
+
+                // ---- LOG ----
+                echo('Log Configuration');
+                L.push('    log');
+                L.push('    exit');
+
+                // ---- OPER GROUPS ----
+                echo('Oper-Groups (Declarations) Configuration');
+                L.push('    service');
+                L.push('    exit');
+
+                // ---- CARD ----
+                echo('Card Configuration');
+                L.push('    card 1');
+                L.push('        card-type imm24-sfp++8-sfp28+2-qsfp28');
+                L.push('        mda 1');
+                L.push('            no shutdown');
+                L.push('        exit');
+                L.push('        no shutdown');
+                L.push('    exit');
+
+                // ---- CONNECTORS ----
+                if (connectors.length > 0) {
+                    echo('Connector Configuration');
+                    connectors.forEach(c => {
+                        L.push(`    port ${c.port}`);
+                        L.push(`        description "${c.desc}"`);
+                        L.push('        connector');
+                        L.push('            breakout c1-100g');
+                        L.push('        exit');
+                        L.push('        no shutdown');
+                        L.push('    exit');
+                    });
+                }
+
+                // ---- PORTS ----
+                echo('Port Configuration');
+                connectors.forEach(c => {
+                    L.push(`    port ${c.port}/1`);
+                    L.push(`        description "${c.desc}"`);
+                    L.push('        ethernet');
+                    L.push('            speed 100000');
+                    L.push('            no autonegotiate');
+                    L.push('            rs-fec-mode cl91-514-528');
+                    L.push('        exit');
+                    L.push('        no shutdown');
+                    L.push('    exit');
+                });
+                uplinks.forEach(u => {
+                    L.push(`    port ${u.port}`);
+                    L.push(`        description "${u.desc}"`);
+                    L.push('        ethernet');
+                    L.push(`            speed ${u.speed}`);
+                    L.push('            no autonegotiate');
+                    L.push('        exit');
+                    L.push('        no shutdown');
+                    L.push('    exit');
+                });
+                L.push('    port A/1');
+                L.push('    exit');
+
+                // ---- SYNC-IF-TIMING ----
+                echo('System Sync-If-Timing Configuration');
+                L.push('    system');
+                L.push('        sync-if-timing');
+                L.push('            begin');
+                L.push('            commit');
+                L.push('        exit');
+                L.push('    exit');
+
+                // ---- LAG ----
+                echo('LAG Configuration');
+                L.push('    lag 1');
+                L.push('        mode hybrid');
+                L.push('        encap-type dot1q');
+                L.push('        lacp active administrative-key 32768');
+                L.push('        no shutdown');
+                L.push('    exit');
+
+                // ---- MANAGEMENT ROUTER ----
+                echo('Management Router Configuration');
+                L.push('    router management');
+                L.push('    exit');
+                L.push('');
+
+                // ---- ROUTER BASE ----
+                echo('"Router (Network Side) Configuration"');
+                L.push('    router Base');
+                L.push('        interface "system"');
+                L.push(`            address ${loopback}`);
+                L.push('            no shutdown');
+                L.push('        exit');
+                allInterfaces.forEach(iface => {
+                    L.push(`        interface "${iface.desc}"`);
+                    L.push(`            address ${iface.ip}`);
+                    L.push(`            port ${iface.port}`);
+                    L.push('            ingress');
+                    L.push('            exit');
+                    L.push('            no shutdown');
+                    L.push('        exit');
+                });
+                L.push('        autonomous-system 26077');
+                L.push(`        router-id ${systemIp}`);
+
+                // ---- OSPF ----
+                echo('OSPFv2 Configuration');
+                L.push(`        ospf 0 ${systemIp}`);
+                L.push('            area 0.0.0.0');
+                L.push('                interface "system"');
+                L.push('                    no shutdown');
+                L.push('                exit');
+                L.push('            exit');
+                L.push('            no shutdown');
+                L.push('        exit');
+
+                // ---- MPLS ----
+                echo('MPLS Configuration');
+                L.push('        mpls');
+                L.push('            interface "system"');
+                L.push('                no shutdown');
+                L.push('            exit');
+                allInterfaces.forEach(iface => {
+                    L.push(`            interface "${iface.desc}"`);
+                    L.push('                no shutdown');
+                    L.push('            exit');
+                });
+                L.push('        exit');
+
+                // ---- RSVP ----
+                echo('RSVP Configuration');
+                L.push('        rsvp');
+                L.push('            interface "system"');
+                L.push('                no shutdown');
+                L.push('            exit');
+                allInterfaces.forEach(iface => {
+                    L.push(`            interface "${iface.desc}"`);
+                    L.push('                no shutdown');
+                    L.push('            exit');
+                });
+                L.push('            no shutdown');
+                L.push('        exit');
+
+                // ---- MPLS LSP ----
+                echo('MPLS LSP Configuration');
+                L.push('        mpls');
+                L.push('            no shutdown');
+                L.push('        exit');
+
+                // ---- LDP ----
+                echo('LDP Configuration');
+                L.push('        ldp');
+                L.push('            import "LDP-FILTER-PS"');
+                L.push('            import-pmsi-routes');
+                L.push('            exit');
+                L.push('            tcp-session-parameters');
+                L.push('            exit');
+                L.push('            interface-parameters');
+                allInterfaces.forEach(iface => {
+                    L.push(`                interface "${iface.desc}" dual-stack`);
+                    L.push('                    ipv4');
+                    L.push('                        no shutdown');
+                    L.push('                    exit');
+                    L.push('                    no shutdown');
+                    L.push('                exit');
+                });
+                L.push('            exit');
+                L.push('            targeted-session');
+                L.push('            exit');
+                L.push('            no shutdown');
+                L.push('        exit');
+                L.push('    exit');
+                L.push('');
+
+                // ---- SERVICE / SDP / VPLS ----
+                echo('Service Configuration');
+                L.push('    service');
+                L.push('        sdp 101 mpls create');
+                L.push(`            far-end ${sdpFarEnd}`);
+                L.push('            ldp');
+                L.push('            keep-alive');
+                L.push('                shutdown');
+                L.push('            exit');
+                L.push('            no shutdown');
+                L.push('        exit');
+                L.push('        customer 1 name "1" create');
+                L.push('            description "Default customer"');
+                L.push('        exit');
+                vpls.forEach(id => {
+                    L.push(`        customer ${id} name "${id}" create`);
+                    L.push('        exit');
+                });
+                vpls.forEach((id, i) => {
+                    L.push(`        vpls ${id} name "${id}" customer ${id} create`);
+                    L.push('            service-mtu 1594');
+                    L.push('            fdb-table-size 1000');
+                    L.push('            stp');
+                    L.push('                shutdown');
+                    L.push('            exit');
+                    L.push(`            sap lag-1:${vplsVlans[i]} create`);
+                    L.push('                no shutdown');
+                    L.push('            exit');
+                    L.push(`            mesh-sdp 101:${id} create`);
+                    L.push('                no shutdown');
+                    L.push('            exit');
+                    L.push('            no shutdown');
+                    L.push('        exit');
+                });
+                L.push('    exit');
+
+                // ---- ROUTER SERVICE SIDE ----
+                echo('Router (Service Side) Configuration');
+                L.push('    router Base');
+
+                // ---- OSPF (service side) ----
+                echo('OSPFv2 Configuration');
+                L.push(`        ospf 0 ${systemIp}`);
+                L.push('            no shutdown');
+                L.push('        exit');
+
+                // ---- POLICY ----
+                echo('Policy Configuration');
+                L.push('        policy-options');
+                L.push('            begin');
+                L.push('            prefix-list "LDP-DENY-PL"');
+                ldpDenyPrefixes.forEach(p => {
+                    L.push(`                prefix ${p} exact`);
+                });
+                L.push('            exit');
+                L.push('            prefix-list "LDP-ALLOW-PL"');
+                L.push('                prefix 10.0.0.0/8 prefix-length-range 32-32');
+                L.push('            exit');
+                L.push('            policy-statement "LDP-FILTER-PS"');
+                L.push('                entry 10');
+                L.push('                    from');
+                L.push('                        prefix-list "LDP-DENY-PL"');
+                L.push('                    exit');
+                L.push('                    action drop');
+                L.push('                    exit');
+                L.push('                exit');
+                L.push('                entry 20');
+                L.push('                    from');
+                L.push('                        prefix-list "LDP-ALLOW-PL"');
+                L.push('                    exit');
+                L.push('                    action accept');
+                L.push('                    exit');
+                L.push('                exit');
+                L.push('                entry 30');
+                L.push('                    description "drop-rest"');
+                L.push('                    action drop');
+                L.push('                    exit');
+                L.push('                exit');
+                L.push('            exit');
+                L.push('            commit');
+                L.push('        exit');
+
+                // ---- BGP ----
+                echo('BGP Configuration');
+                L.push('        bgp');
+                L.push('            ibgp-multipath');
+                L.push(`            router-id ${systemIp}`);
+                const bgpGroups = {};
+                bgpNeighbors.forEach(n => {
+                    if (!bgpGroups[n.group]) bgpGroups[n.group] = [];
+                    bgpGroups[n.group].push(n.ip);
+                });
+                Object.entries(bgpGroups).forEach(([group, ips]) => {
+                    L.push(`            group "${group}"`);
+                    L.push(`                description "${group}"`);
+                    L.push(`                authentication-key "${bgpKey}"`);
+                    L.push('                peer-as 26077');
+                    L.push(`                local-address ${systemIp}`);
+                    ips.forEach(ip => {
+                        L.push(`                neighbor ${ip}`);
+                        L.push('                exit');
+                    });
+                    L.push('            exit');
+                });
+                L.push('            no shutdown');
+                L.push('        exit');
+                L.push('    exit');
+                L.push('');
+
+                // ---- LOG ----
+                echo('Log all events for service vprn, log syslog tls-client-profile Configuration');
+                L.push('    log');
+                L.push('    exit');
+
+                // ---- NTP ----
+                echo('System Time NTP Configuration');
+                L.push('    system');
+                L.push('        time');
+                L.push('            ntp');
+                ntpServers.forEach(s => L.push(`                server ${s}`));
+                L.push('            exit');
+                L.push('        exit');
+                L.push('    exit');
+
+                // ---- FINAL ----
+                echo('System Configuration Mode Configuration');
+                L.push('    system');
+                L.push('        management-interface');
+                L.push('            configuration-mode classic');
+                L.push('        exit');
+                L.push('    exit');
+                L.push('exit all');
+
+                // Show output
+                const output = L.join('\n');
+                document.getElementById('nokia7250_config_output').value = output;
+                document.getElementById('nokia7250_output').style.display = 'block';
+                document.getElementById('nokia7250_copyBtn').style.display = 'inline-block';
+                document.getElementById('nokia7250_dlBtn').style.display = 'inline-block';
+
+                // Scroll to output
+                document.getElementById('nokia7250_output').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                console.log('[NOKIA7250] Configuration generated client-side, length:', output.length);
             };
 
             window.copyNokia7250Config = function () {
                 const textarea = document.getElementById('nokia7250_config_output');
                 const text = textarea.value;
-                if (!text) {
-                    alert('No configuration to copy!');
-                    return;
-                }
+                if (!text) { alert('No configuration to copy!'); return; }
                 if (navigator.clipboard && window.isSecureContext) {
                     navigator.clipboard.writeText(text).then(() => {
-                        alert(' Configuration copied to clipboard');
-                    }).catch(() => {
-                        textarea.select();
-                        document.execCommand('copy');
-                        alert('Copied to clipboard.');
-                    });
-                } else {
-                    textarea.select();
-                    document.execCommand('copy');
-                    alert('Copied to clipboard.');
-                }
+                        const btn = document.getElementById('nokia7250_copyBtn');
+                        if (btn) { const o = btn.textContent; btn.textContent = ' Copied!'; setTimeout(() => btn.textContent = o, 1200); }
+                    }).catch(() => { textarea.select(); document.execCommand('copy'); });
+                } else { textarea.select(); document.execCommand('copy'); }
             };
 
             window.downloadNokia7250Config = function () {
-                const textarea = document.getElementById('nokia7250_config_output');
-                const config = textarea.value;
-                if (!config) {
-                    alert('No configuration to download!');
-                    return;
-                }
+                const config = document.getElementById('nokia7250_config_output').value;
+                if (!config) { alert('No configuration to download!'); return; }
                 const systemName = document.getElementById('nokia7250_systemName').value.trim() || 'nokia7250';
                 const ts = new Date().toISOString().split('T')[0];
-                const blob = new Blob([config.replace(/\r?\n/g, '\n')], { type: 'text/plain;charset=utf-8' });
+                const blob = new Blob([config], { type: 'text/plain;charset=utf-8' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `${systemName}-${ts}.txt`;
+                a.download = `${systemName}-${ts}.rsc`;
                 a.click();
                 URL.revokeObjectURL(url);
             };
@@ -23339,7 +24152,701 @@ Ready for translation!`);
             if (typeof window.showCommandVaultSubTab === 'function') {
                 window.showCommandVaultSubTab('nokia');
             }
+            // Initialize Nokia sub-tab dropdown
+            initNokiaVaultDropdown();
         }
+
+        // ========================================
+        // NOKIA 7250 PORT SETUP GENERATOR
+        // ========================================
+
+        window.showNokiaVaultSubTab = function (tabKey) {
+            const subsections = document.querySelectorAll('#command-vault-nokia-section .nokia-vault-subsection');
+            const items = document.querySelectorAll('#command-vault-nokia-section .nokia-vault-dropdown-item');
+            const labelEl = document.getElementById('nokiaVaultDropdownLabel');
+
+            subsections.forEach(section => {
+                const sectionKey = section.id.replace('nokia-vault-', '').replace('-section', '');
+                const isActive = sectionKey === tabKey;
+                section.classList.toggle('active', isActive);
+                section.style.display = isActive ? 'block' : 'none';
+            });
+
+            items.forEach(item => {
+                const isActive = item.dataset.nokiaVaultTab === tabKey;
+                item.classList.toggle('active', isActive);
+                if (isActive && labelEl) {
+                    labelEl.textContent = item.textContent.trim();
+                }
+            });
+
+            // Close dropdown after selection
+            const dropdown = document.getElementById('nokiaVaultDropdown');
+            if (dropdown) {
+                dropdown.classList.remove('open');
+                const toggle = document.getElementById('nokiaVaultDropdownToggle');
+                if (toggle) toggle.setAttribute('aria-expanded', 'false');
+            }
+        };
+
+        function initNokiaVaultDropdown() {
+            const dropdown = document.getElementById('nokiaVaultDropdown');
+            const toggle = document.getElementById('nokiaVaultDropdownToggle');
+            const items = document.querySelectorAll('#command-vault-nokia-section .nokia-vault-dropdown-item');
+
+            // Guard against double-init (DOMContentLoaded + load both call this)
+            if (dropdown?.dataset.nokiaVaultInit) return;
+            if (dropdown) dropdown.dataset.nokiaVaultInit = '1';
+
+            if (toggle && dropdown) {
+                toggle.addEventListener('click', () => {
+                    const isOpen = dropdown.classList.toggle('open');
+                    toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+                });
+
+                // Close dropdown when clicking outside
+                document.addEventListener('click', (e) => {
+                    if (!dropdown.contains(e.target)) {
+                        dropdown.classList.remove('open');
+                        toggle.setAttribute('aria-expanded', 'false');
+                    }
+                });
+            }
+
+            items.forEach(item => {
+                item.addEventListener('click', () => {
+                    const tabKey = item.dataset.nokiaVaultTab;
+                    if (tabKey) window.showNokiaVaultSubTab(tabKey);
+                });
+            });
+
+            // Show 7750 BNG by default
+            window.showNokiaVaultSubTab('7750-bng');
+        }
+
+        // ========================================
+        // NOKIA 7250 IN-STATE FULL CONFIG GENERATOR
+        // ========================================
+
+        // Dynamic table row helpers
+        window.nokia7250AddConnectorRow = function () {
+            const tbody = document.querySelector('#nokia7250_connectors_table tbody');
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><select style="min-width:100px"><option>1/1/c23</option><option>1/1/c24</option><option>1/1/c25</option><option>1/1/c26</option><option>1/1/c27</option><option>1/1/c28</option><option>1/1/c29</option><option>1/1/c30</option><option>1/1/c31</option><option>1/1/c32</option></select></td>
+                <td><input placeholder="TX-LAGRANGE-FC-1"></td>
+                <td><input placeholder="10.36.1.53/30"></td>
+                <td><button type="button" class="nokia7250-del-btn" onclick="this.closest('tr').remove()">×</button></td>`;
+            tbody.appendChild(tr);
+        };
+
+        window.nokia7250AddUplinkRow = function () {
+            const tbody = document.querySelector('#nokia7250_uplinks_table tbody');
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><select style="min-width:80px"><option>1/1/1</option><option>1/1/2</option><option>1/1/3</option><option>1/1/4</option><option>1/1/5</option><option>1/1/6</option><option>1/1/7</option><option>1/1/8</option><option>1/1/9</option><option>1/1/10</option><option>1/1/11</option><option>1/1/12</option><option>1/1/13</option><option>1/1/14</option><option>1/1/15</option><option>1/1/16</option><option>1/1/17</option><option>1/1/18</option><option>1/1/19</option><option>1/1/20</option><option>1/1/21</option><option>1/1/22</option><option>1/1/23</option><option>1/1/24</option></select></td>
+                <td><input placeholder="UPLINK-TO-2004-1"></td>
+                <td><input placeholder="10.45.248.105/30"></td>
+                <td><select><option>1000</option><option selected>10000</option><option>25000</option></select></td>
+                <td><button type="button" class="nokia7250-del-btn" onclick="this.closest('tr').remove()">×</button></td>`;
+            tbody.appendChild(tr);
+        };
+
+        window.nokia7250AddBgpRow = function () {
+            const tbody = document.querySelector('#nokia7250_bgp_table tbody');
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input placeholder="DALLAS-RR" value="DALLAS-RR"></td>
+                <td><input placeholder="10.2.0.107"></td>
+                <td><button type="button" class="nokia7250-del-btn" onclick="this.closest('tr').remove()">×</button></td>`;
+            tbody.appendChild(tr);
+        };
+
+        // Collect table rows
+        function nokia7250GetConnectors() {
+            return [...document.querySelectorAll('#nokia7250_connectors_table tbody tr')].map(tr => ({
+                port: tr.cells[0].querySelector('select').value,
+                desc: tr.cells[1].querySelector('input').value.trim(),
+                ip: tr.cells[2].querySelector('input').value.trim()
+            })).filter(c => c.desc);
+        }
+
+        function nokia7250GetUplinks() {
+            return [...document.querySelectorAll('#nokia7250_uplinks_table tbody tr')].map(tr => ({
+                port: tr.cells[0].querySelector('select').value,
+                desc: tr.cells[1].querySelector('input').value.trim(),
+                ip: tr.cells[2].querySelector('input').value.trim(),
+                speed: tr.cells[3].querySelector('select').value
+            })).filter(u => u.desc);
+        }
+
+        function nokia7250GetBgpNeighbors() {
+            return [...document.querySelectorAll('#nokia7250_bgp_table tbody tr')].map(tr => ({
+                group: tr.cells[0].querySelector('input').value.trim(),
+                ip: tr.cells[1].querySelector('input').value.trim()
+            })).filter(b => b.ip);
+        }
+
+        // Timezone DST map
+        const nokia7250TzMap = {
+            CST: { zone: 'CST', dst: 'CDT', start: 'second sunday march 02:00', end: 'first sunday november 02:00' },
+            EST: { zone: 'EST', dst: 'EDT', start: 'second sunday march 02:00', end: 'first sunday november 02:00' },
+            MST: { zone: 'MST', dst: 'MDT', start: 'second sunday march 02:00', end: 'first sunday november 02:00' },
+            PST: { zone: 'PST', dst: 'PDT', start: 'second sunday march 02:00', end: 'first sunday november 02:00' },
+            UTC: null
+        };
+
+        // Management access filter entries (static)
+        const nokia7250MgmtAclEntries = [
+            { ip: '10.10.103.91/32' },
+            { ip: '192.168.128.0/21' },
+            { ip: '107.178.5.97/32' },
+            { ip: '198.100.53.0/25' },
+            { ip: '143.55.62.143/32' },
+            { ip: '142.147.127.2/32' },
+            { ip: '132.147.132.6/32' },
+            { ip: '67.219.122.201/32' },
+            { ip: '10.0.0.0/8' },
+            { ip: '208.93.124.0/22' },
+            { ip: '192.104.128.0/21' },
+            { ip: '199.180.120.0/21' }
+        ];
+
+        // The main generator
+        window.generate7250FullConfig = async function () {
+            const $ = id => document.getElementById(id);
+            const v = id => ($(id)?.value || '').trim();
+
+            const hostname = v('nokia7250_hostname');
+            const loopback = v('nokia7250_loopback');
+
+            if (!hostname) { alert('Please enter a Hostname.'); return; }
+            if (!loopback) { alert('Please enter a Loopback / System IP.'); return; }
+
+            // Fetch credentials securely from backend
+            let snmpCommunity, nlrootPw, adminPw, bgpKey;
+            try {
+                const credsResp = await fetch(`${AI_API_BASE}/nokia7250-defaults`);
+                if (!credsResp.ok) throw new Error(`HTTP ${credsResp.status}`);
+                const creds = await credsResp.json();
+                snmpCommunity = creds.snmp_community;
+                nlrootPw = creds.nlroot_pw;
+                adminPw = creds.admin_pw;
+                bgpKey = creds.bgp_auth_key;
+                if (!snmpCommunity || !nlrootPw || !adminPw || !bgpKey) {
+                    alert('Nokia 7250 credentials are not fully configured on the server.\nPlease set NOKIA7250_SNMP_COMMUNITY, NOKIA7250_NLROOT_PW, NOKIA7250_ADMIN_PW, and NOKIA7250_BGP_AUTH_KEY in the backend .env.');
+                    return;
+                }
+            } catch (err) {
+                console.error('[7250 CONFIG] Failed to fetch credentials:', err);
+                alert('Could not load credentials from backend. Check that the backend is running and the Nokia 7250 env vars are configured.');
+                return;
+            }
+
+            const lat = v('nokia7250_lat');
+            const lon = v('nokia7250_lon');
+            const tz = v('nokia7250_timezone') || 'CST';
+            const sdpFarEnd = v('nokia7250_sdp_far_end') || '10.249.0.200';
+            const vpls = [v('nokia7250_vpls1') || '1245', v('nokia7250_vpls2') || '2245', v('nokia7250_vpls3') || '3245', v('nokia7250_vpls4') || '4245'];
+            const vplsVlans = ['1000', '2000', '3000', '4000'];
+            const ntpServers = ($('nokia7250_ntp_servers')?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+            const ldpDenyPrefixes = ($('nokia7250_ldp_deny')?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+
+            // Extract system IP (without /32)
+            const systemIp = loopback.includes('/') ? loopback.split('/')[0] : loopback;
+
+            const connectors = nokia7250GetConnectors();
+            const uplinks = nokia7250GetUplinks();
+            const bgpNeighbors = nokia7250GetBgpNeighbors();
+            const allInterfaces = [];
+
+            // Build all interfaces (connectors + uplinks)
+            connectors.forEach(c => allInterfaces.push({ port: c.port + '/1', desc: c.desc, ip: c.ip, speed: '100000', isConnector: true, connPort: c.port }));
+            uplinks.forEach(u => allInterfaces.push({ port: u.port, desc: u.desc, ip: u.ip, speed: u.speed, isConnector: false }));
+
+            const tzInfo = nokia7250TzMap[tz];
+
+            const L = []; // output lines
+            const echo = s => L.push(`#${'--'.repeat(25)}`, `echo "${s}"`, `#${'--'.repeat(25)}`);
+
+            // ---- PREAMBLE ----
+            L.push('configure global');
+            L.push('/configure system management-interface cli classic-cli');
+            L.push('/configure system management-interface configuration-mode classic');
+            L.push('commit');
+            L.push('logout');
+            L.push('');
+            L.push('');
+            L.push('# BOF');
+            L.push('/bof primary-config cf3:/startup-config');
+            L.push('/bof save');
+            L.push('/admin save');
+            L.push('');
+            L.push('exit all');
+            L.push('configure');
+
+            // ---- SYSTEM ----
+            echo('System Configuration');
+            L.push('    system');
+            L.push(`        name "${hostname}"`);
+            L.push(`        location "${lat},${lon}"`);
+            L.push('        rollback');
+            L.push('            rollback-location "cf3:/checkpoint_db"');
+            L.push('        exit');
+            L.push('        time');
+            L.push('            ntp');
+            L.push('                no shutdown');
+            L.push('            exit');
+            L.push('            sntp');
+            L.push('                shutdown');
+            L.push('            exit');
+            if (tzInfo) {
+                L.push(`            dst-zone ${tzInfo.dst}`);
+                L.push(`                start ${tzInfo.start}`);
+                L.push(`                end ${tzInfo.end}`);
+                L.push('            exit');
+                L.push(`            zone ${tzInfo.zone}`);
+            } else {
+                L.push('            zone UTC');
+            }
+            L.push('        exit');
+            L.push('    exit');
+
+            // ---- SECURITY ----
+            echo('System Security Configuration');
+            L.push('    system');
+            L.push('        security');
+            L.push('            management-access-filter');
+            L.push('                ip-filter');
+            L.push('                    shutdown');
+            L.push('                    default-action permit');
+            nokia7250MgmtAclEntries.forEach((e, i) => {
+                L.push(`                    entry ${i + 1}`);
+                L.push(`                        src-ip ${e.ip}`);
+                L.push('                        dst-port 22 65535');
+                L.push('                        action permit');
+                L.push('                    exit');
+            });
+            L.push('                    no shutdown');
+            L.push('                exit');
+            L.push('            exit');
+
+            // ---- ADMIN PROFILE ----
+            L.push('            profile "administrative"');
+            L.push('                netconf');
+            L.push('                    base-op-authorization');
+            ['action','cancel-commit','close-session','commit','copy-config','create-subscription',
+             'delete-config','discard-changes','edit-config','get','get-config','get-data',
+             'get-schema','kill-session','lock','validate'].forEach(op => L.push(`                        ${op}`));
+            L.push('                    exit');
+            L.push('                exit');
+            [
+                {n:10,m:'configure system security',a:'permit'},{n:20,m:'show system security',a:'permit'},
+                {n:30,m:'tools perform security',a:'permit'},{n:40,m:'tools dump security',a:'permit'},
+                {n:42,m:'tools dump system security',a:'permit'},{n:50,m:'admin system security',a:'permit'},
+                {n:100,m:'configure li',a:'deny'},{n:110,m:'show li',a:'deny'},
+                {n:111,m:'clear li',a:'deny'},{n:112,m:'tools dump li',a:'deny'}
+            ].forEach(e => {
+                L.push(`                entry ${e.n}`);
+                L.push(`                    match "${e.m}"`);
+                L.push(`                    action ${e.a}`);
+                L.push('                exit');
+            });
+            L.push('            exit');
+
+            // ---- USERS ----
+            L.push(`            user "nlroot"`);
+            L.push(`                password "${nlrootPw}"`);
+            L.push('                access console ftp snmp netconf grpc');
+            L.push('                no restricted-to-home');
+            L.push('                console');
+            L.push('                    member "default"');
+            L.push('                    member "administrative"');
+            L.push('                exit');
+            L.push('            exit');
+            L.push(`            user "admin"`);
+            L.push(`                password "${adminPw}"`);
+            L.push('                access console ftp snmp netconf grpc');
+            L.push('                no restricted-to-home');
+            L.push('                console');
+            L.push('                    member "default"');
+            L.push('                    member "administrative"');
+            L.push('                exit');
+            L.push('            exit');
+            L.push('            snmp');
+            L.push(`                community "${snmpCommunity}" r version both`);
+            L.push('            exit');
+            L.push('            telnet');
+            L.push('            exit');
+            L.push('        exit');
+            L.push('    exit');
+
+            // ---- LOGIN CONTROL ----
+            echo('System Login Control Configuration');
+            L.push('    system');
+            L.push('        login-control');
+            L.push('            idle-timeout 90');
+            L.push('        exit');
+            L.push('    exit');
+
+            // ---- LOG ----
+            echo('Log Configuration');
+            L.push('    log');
+            L.push('    exit');
+
+            // ---- OPER GROUPS ----
+            echo('Oper-Groups (Declarations) Configuration');
+            L.push('    service');
+            L.push('    exit');
+
+            // ---- CARD ----
+            echo('Card Configuration');
+            L.push('    card 1');
+            L.push('        card-type imm24-sfp++8-sfp28+2-qsfp28');
+            L.push('        mda 1');
+            L.push('            no shutdown');
+            L.push('        exit');
+            L.push('        no shutdown');
+            L.push('    exit');
+
+            // ---- CONNECTORS ----
+            if (connectors.length > 0) {
+                echo('Connector Configuration');
+                connectors.forEach(c => {
+                    L.push(`    port ${c.port}`);
+                    L.push(`        description "${c.desc}"`);
+                    L.push('        connector');
+                    L.push('            breakout c1-100g');
+                    L.push('        exit');
+                    L.push('        no shutdown');
+                    L.push('    exit');
+                });
+            }
+
+            // ---- PORTS ----
+            echo('Port Configuration');
+            connectors.forEach(c => {
+                L.push(`    port ${c.port}/1`);
+                L.push(`        description "${c.desc}"`);
+                L.push('        ethernet');
+                L.push('            speed 100000');
+                L.push('            no autonegotiate');
+                L.push('            rs-fec-mode cl91-514-528');
+                L.push('        exit');
+                L.push('        no shutdown');
+                L.push('    exit');
+            });
+            uplinks.forEach(u => {
+                L.push(`    port ${u.port}`);
+                L.push(`        description "${u.desc}"`);
+                L.push('        ethernet');
+                L.push(`            speed ${u.speed}`);
+                L.push('            no autonegotiate');
+                L.push('        exit');
+                L.push('        no shutdown');
+                L.push('    exit');
+            });
+            L.push('    port A/1');
+            L.push('    exit');
+
+            // ---- SYNC-IF-TIMING ----
+            echo('System Sync-If-Timing Configuration');
+            L.push('    system');
+            L.push('        sync-if-timing');
+            L.push('            begin');
+            L.push('            commit');
+            L.push('        exit');
+            L.push('    exit');
+
+            // ---- LAG ----
+            echo('LAG Configuration');
+            L.push('    lag 1');
+            L.push('        mode hybrid');
+            L.push('        encap-type dot1q');
+            L.push('        lacp active administrative-key 32768');
+            L.push('        no shutdown');
+            L.push('    exit');
+
+            // ---- MANAGEMENT ROUTER ----
+            echo('Management Router Configuration');
+            L.push('    router management');
+            L.push('    exit');
+            L.push('');
+
+            // ---- ROUTER BASE ----
+            echo('"Router (Network Side) Configuration"');
+            L.push('    router Base');
+            L.push('        interface "system"');
+            L.push(`            address ${loopback}`);
+            L.push('            no shutdown');
+            L.push('        exit');
+            allInterfaces.forEach(iface => {
+                L.push(`        interface "${iface.desc}"`);
+                L.push(`            address ${iface.ip}`);
+                L.push(`            port ${iface.port}`);
+                L.push('            ingress');
+                L.push('            exit');
+                L.push('            no shutdown');
+                L.push('        exit');
+            });
+            L.push('        autonomous-system 26077');
+            L.push(`        router-id ${systemIp}`);
+
+            // ---- OSPF ----
+            echo('OSPFv2 Configuration');
+            L.push(`        ospf 0 ${systemIp}`);
+            L.push('            area 0.0.0.0');
+            L.push('                interface "system"');
+            L.push('                    no shutdown');
+            L.push('                exit');
+            L.push('            exit');
+            L.push('            no shutdown');
+            L.push('        exit');
+
+            // ---- MPLS ----
+            echo('MPLS Configuration');
+            L.push('        mpls');
+            L.push('            interface "system"');
+            L.push('                no shutdown');
+            L.push('            exit');
+            allInterfaces.forEach(iface => {
+                L.push(`            interface "${iface.desc}"`);
+                L.push('                no shutdown');
+                L.push('            exit');
+            });
+            L.push('        exit');
+
+            // ---- RSVP ----
+            echo('RSVP Configuration');
+            L.push('        rsvp');
+            L.push('            interface "system"');
+            L.push('                no shutdown');
+            L.push('            exit');
+            allInterfaces.forEach(iface => {
+                L.push(`            interface "${iface.desc}"`);
+                L.push('                no shutdown');
+                L.push('            exit');
+            });
+            L.push('            no shutdown');
+            L.push('        exit');
+
+            // ---- MPLS LSP ----
+            echo('MPLS LSP Configuration');
+            L.push('        mpls');
+            L.push('            no shutdown');
+            L.push('        exit');
+
+            // ---- LDP ----
+            echo('LDP Configuration');
+            L.push('        ldp');
+            L.push('            import "LDP-FILTER-PS"');
+            L.push('            import-pmsi-routes');
+            L.push('            exit');
+            L.push('            tcp-session-parameters');
+            L.push('            exit');
+            L.push('            interface-parameters');
+            allInterfaces.forEach(iface => {
+                L.push(`                interface "${iface.desc}" dual-stack`);
+                L.push('                    ipv4');
+                L.push('                        no shutdown');
+                L.push('                    exit');
+                L.push('                    no shutdown');
+                L.push('                exit');
+            });
+            L.push('            exit');
+            L.push('            targeted-session');
+            L.push('            exit');
+            L.push('            no shutdown');
+            L.push('        exit');
+            L.push('    exit');
+            L.push('');
+
+            // ---- SERVICE / SDP / VPLS ----
+            echo('Service Configuration');
+            L.push('    service');
+            L.push(`        sdp 101 mpls create`);
+            L.push(`            far-end ${sdpFarEnd}`);
+            L.push('            ldp');
+            L.push('            keep-alive');
+            L.push('                shutdown');
+            L.push('            exit');
+            L.push('            no shutdown');
+            L.push('        exit');
+            L.push('        customer 1 name "1" create');
+            L.push('            description "Default customer"');
+            L.push('        exit');
+            vpls.forEach(id => {
+                L.push(`        customer ${id} name "${id}" create`);
+                L.push('        exit');
+            });
+            vpls.forEach((id, i) => {
+                L.push(`        vpls ${id} name "${id}" customer ${id} create`);
+                L.push('            service-mtu 1594');
+                L.push('            fdb-table-size 1000');
+                L.push('            stp');
+                L.push('                shutdown');
+                L.push('            exit');
+                L.push(`            sap lag-1:${vplsVlans[i]} create`);
+                L.push('                no shutdown');
+                L.push('            exit');
+                L.push(`            mesh-sdp 101:${id} create`);
+                L.push('                no shutdown');
+                L.push('            exit');
+                L.push('            no shutdown');
+                L.push('        exit');
+            });
+            L.push('    exit');
+
+            // ---- ROUTER SERVICE SIDE ----
+            echo('Router (Service Side) Configuration');
+            L.push('    router Base');
+
+            // ---- OSPF (service side) ----
+            echo('OSPFv2 Configuration');
+            L.push(`        ospf 0 ${systemIp}`);
+            L.push('            no shutdown');
+            L.push('        exit');
+
+            // ---- POLICY ----
+            echo('Policy Configuration');
+            L.push('        policy-options');
+            L.push('            begin');
+            L.push('            prefix-list "LDP-DENY-PL"');
+            ldpDenyPrefixes.forEach(p => {
+                L.push(`                prefix ${p} exact`);
+            });
+            L.push('            exit');
+            L.push('            prefix-list "LDP-ALLOW-PL"');
+            L.push('                prefix 10.0.0.0/8 prefix-length-range 32-32');
+            L.push('            exit');
+            L.push('            policy-statement "LDP-FILTER-PS"');
+            L.push('                entry 10');
+            L.push('                    from');
+            L.push('                        prefix-list "LDP-DENY-PL"');
+            L.push('                    exit');
+            L.push('                    action drop');
+            L.push('                    exit');
+            L.push('                exit');
+            L.push('                entry 20');
+            L.push('                    from');
+            L.push('                        prefix-list "LDP-ALLOW-PL"');
+            L.push('                    exit');
+            L.push('                    action accept');
+            L.push('                    exit');
+            L.push('                exit');
+            L.push('                entry 30');
+            L.push('                    description "drop-rest"');
+            L.push('                    action drop');
+            L.push('                    exit');
+            L.push('                exit');
+            L.push('            exit');
+            L.push('            commit');
+            L.push('        exit');
+
+            // ---- BGP ----
+            echo('BGP Configuration');
+            L.push('        bgp');
+            L.push('            ibgp-multipath');
+            L.push(`            router-id ${systemIp}`);
+            // Group BGP neighbors by group name
+            const bgpGroups = {};
+            bgpNeighbors.forEach(n => {
+                if (!bgpGroups[n.group]) bgpGroups[n.group] = [];
+                bgpGroups[n.group].push(n.ip);
+            });
+            Object.entries(bgpGroups).forEach(([group, ips]) => {
+                L.push(`            group "${group}"`);
+                L.push(`                description "${group}"`);
+                L.push(`                authentication-key "${bgpKey}"`);
+                L.push('                peer-as 26077');
+                L.push(`                local-address ${systemIp}`);
+                ips.forEach(ip => {
+                    L.push(`                neighbor ${ip}`);
+                    L.push('                exit');
+                });
+                L.push('            exit');
+            });
+            L.push('            no shutdown');
+            L.push('        exit');
+            L.push('    exit');
+            L.push('');
+
+            // ---- LOG ----
+            echo('Log all events for service vprn, log syslog tls-client-profile Configuration');
+            L.push('    log');
+            L.push('    exit');
+
+            // ---- NTP ----
+            echo('System Time NTP Configuration');
+            L.push('    system');
+            L.push('        time');
+            L.push('            ntp');
+            ntpServers.forEach(s => L.push(`                server ${s}`));
+            L.push('            exit');
+            L.push('        exit');
+            L.push('    exit');
+
+            // ---- FINAL ----
+            echo('System Configuration Mode Configuration');
+            L.push('    system');
+            L.push('        management-interface');
+            L.push('            configuration-mode classic');
+            L.push('        exit');
+            L.push('    exit');
+            L.push('exit all');
+
+            // Store and show
+            const output = L.join('\n');
+            window._nokia7250LastConfig = output;
+            window._nokia7250Hostname = hostname;
+
+            const outputEl = document.getElementById('nokia7250_full_output');
+            const copyBtn = document.getElementById('copy7250FullBtn');
+            const dlBtn = document.getElementById('download7250Btn');
+            if (outputEl) {
+                outputEl.textContent = output;
+                outputEl.style.display = 'block';
+            }
+            if (copyBtn) copyBtn.style.display = 'inline-block';
+            if (dlBtn) dlBtn.style.display = 'inline-block';
+        };
+
+        window.copy7250FullOutput = async function () {
+            const text = window._nokia7250LastConfig || '';
+            if (!text) return;
+            try {
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(text);
+                } else {
+                    const area = document.createElement('textarea');
+                    area.value = text;
+                    document.body.appendChild(area);
+                    area.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(area);
+                }
+                const btn = document.getElementById('copy7250FullBtn');
+                if (btn) { const o = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = o, 1200); }
+            } catch (err) {
+                console.error('[7250 CONFIG] Copy failed:', err);
+                alert('Failed to copy output.');
+            }
+        };
+
+        window.download7250Config = function () {
+            const text = window._nokia7250LastConfig || '';
+            const hostname = window._nokia7250Hostname || 'RTR-7250';
+            if (!text) return;
+            const blob = new Blob([text], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${hostname}_config.rsc`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        };
 
         // ========================================
         // FTTH HOME (OLT CONFIG + BNG SUB TABS)

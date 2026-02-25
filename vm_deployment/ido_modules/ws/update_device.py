@@ -44,37 +44,38 @@ def update_device(path, on_log=None, logstream=None, **params):
                 from device_io.update_cn_ap import update_cn_ap
             except Exception as err:
                 raise ImportError(err) from err
-            finally:
-                if on_log:
-                    if not params.get("ip_address") or not re.findall(
-                        r"(\d{1,3}\.){3}\d{1,3}", params.get("ip_address")
-                    ):
-                        raise Exception("Invalid IP address.")
 
-                    result = update_cn_ap(
-                        params.get("ip_address"),
-                        params.get("device_type"),
-                        username=params.get("username"),
-                        password=params.get("password"),
-                        update_file=params.get("update_version"),
-                        on_log=on_log,
-                    )
-        if path == "aviat_bh":
-            try:
-                from device_io.wtm4000_config import WTM4000Config
-            except Exception as err:
-                raise ImportError(err) from err
-            try:
-                w = WTM4000Config(
-                    ip_address=params.get("ip_address"),
-                    device_type="AV" + params.get("device_type"),
-                    password=params.get("password"),
-                    logstream=logstream,
-                    readonly=True,
-                    link_type="dummy",
-                    xpic=True,
-                )
+            if not params.get("ip_address") or not re.findall(
+                r"(\d{1,3}\.){3}\d{1,3}", params.get("ip_address")
+            ):
+                raise Exception("Invalid IP address.")
 
+            result = update_cn_ap(
+                params.get("ip_address"),
+                params.get("device_type"),
+                username=params.get("username"),
+                password=params.get("password"),
+                update_file=params.get("update_version"),
+                on_log=on_log,
+            )
+
+            # Return result as json
+            if isinstance(result, list) and callable(on_log):
+                on_log(json.dumps({"results": result, "success": True}))
+
+        elif path == "aviat_bh":
+            from device_io.wtm4000_config import WTM4000Config
+
+            w = WTM4000Config(
+                ip_address=params.get("ip_address"),
+                device_type="AV" + params.get("device_type"),
+                password=params.get("password"),
+                logstream=logstream,
+                readonly=True,
+                link_type="dummy",
+                xpic=True,
+            )
+            try:
                 if params.get("activate_only") == "true":
                     w.activate_firmware()
                 else:
@@ -88,31 +89,11 @@ def update_device(path, on_log=None, logstream=None, **params):
                         ),
                         activate_now=params.get("activate_now") == "true",
                     )
-                w.close_session()
-            except Exception as err:
-                if callable(on_log):
-                    # result = json.dumps({"message": str(err), "success": False})
-                    # traceback.print_exc()
-                    # print(result)
-                    # on_log(result)
-                    w.close_session()
-                    raise err
             finally:
                 w.close_session()
-
-        # Return result as json
-        if isinstance(result, list):
-            if callable(on_log):
-                result = json.dumps({"results": result, "success": True})
-                on_log(result)
         else:
-            if callable(on_log):
-                on_log(json.dumps({"message": "", "success": True}))
+            raise Exception(f"Unknown device path: {path}")
 
     except Exception as err:
-        if callable(on_log):
-            # result = json.dumps({"message": str(err), "success": False})
-            # traceback.print_exc()
-            # print(result)
-            # on_log(result)
-            raise err
+        traceback.print_exc()
+        raise err

@@ -53,7 +53,7 @@ def fetch_and_save(url: str, out_dir: str) -> dict:
 
 
 def main():
-    training_dir = os.environ.get("ROS_TRAINING_DIR") or os.path.join(os.getcwd(), "ros-migration-trainer-v3")
+    training_dir = os.environ.get("ROS_TRAINING_DIR") or os.path.join(os.getcwd(), "vm_deployment", "ros-migration-trainer-v3")
     if not os.path.isdir(training_dir):
         os.makedirs(training_dir, exist_ok=True)
 

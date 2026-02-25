@@ -23,6 +23,8 @@ This folder contains all documentation for the NOC Config Maker tool.
 | [COMPLETE_DOCUMENTATION.md](COMPLETE_DOCUMENTATION.md) | Full system documentation |
 | [SECURITY_SETUP.md](SECURITY_SETUP.md) | Email, API keys, secrets configuration |
 | [DISTRIBUTION_GUIDE.md](DISTRIBUTION_GUIDE.md) | How to distribute to users |
+| [NOC_CONFIG_SUITE_SOP.md](NOC_CONFIG_SUITE_SOP.md) | Operational SOP for day-to-day tool usage |
+| [UAT_VM_DEPLOYMENT_RUNBOOK.md](UAT_VM_DEPLOYMENT_RUNBOOK.md) | Deploy UAT/dev URL on same VM |
 
 ---
 

@@ -90,6 +90,13 @@ ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 # Idempotency-Key cache retention (seconds)
 # NOC_API_V2_IDEMPOTENCY_TTL_SECONDS=86400
 
+# Nokia 7250 config-maker credentials
+# Served to the UI via /api/nokia7250-defaults at generate-time.
+# NOKIA7250_SNMP_COMMUNITY=FBZ1yYdphf
+# NOKIA7250_NLROOT_PW=CHANGE_ME
+# NOKIA7250_ADMIN_PW=CHANGE_ME
+# NOKIA7250_BGP_AUTH_KEY=m8M5JwvdYM
+
 # One-shot Aviat log cleanup on backend startup (optional)
 # Deletes rows from secure_data/activity_log.db that match:
 # activity_type='aviat-upgrade' AND success=0 AND routeros_version=<FW>
