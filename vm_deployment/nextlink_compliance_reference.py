@@ -85,6 +85,8 @@ COMPLIANCE_FIREWALL_ADDRESS_LISTS = {
         '142.147.112.4',
         '142.147.124.26',
         '107.178.5.97',
+        '52.128.51.70',
+        '52.128.51.80',
         '67.219.126.240/28',
         '198.100.53.120',
         '143.55.62.143',
@@ -100,6 +102,7 @@ COMPLIANCE_FIREWALL_ADDRESS_LISTS = {
         '132.147.132.24',
         '198.100.49.99',
         '132.147.132.26',
+        '132.147.132.40',
         '204.11.183.126',
         '173.215.67.124',
         '132.147.138.3',
@@ -213,7 +216,7 @@ set [find default=yes] read-access=no
 rem [find default=no]
 
 /snmp community
-add name=FBZ1yYdphf addresses=::/0
+add name=FBZ1yYdphf addresses=::/0,132.147.132.26/32,132.147.132.40/32
 """
 
 # ========================================
@@ -509,6 +512,7 @@ def get_all_compliance_blocks(loopback_ip=None):
 
     # 2. Fall back to hardcoded blocks
     return {
+        'variables': f':global LoopIP [/ip address get [find interface=loop0] address]\n:global curDate [/system clock get date]\n:global curTime [/system clock get time]\n:global CurDT ($curDate . " " . $curTime)',
         'ip_services': COMPLIANCE_IP_SERVICES.strip(),
         'dns': COMPLIANCE_DNS.strip(),
         'firewall_address_lists': get_compliance_address_lists_block().strip(),
@@ -526,7 +530,8 @@ def get_all_compliance_blocks(loopback_ip=None):
         'user_groups': COMPLIANCE_USER_GROUPS.strip(),
         'dhcp_options': COMPLIANCE_DHCP_OPTIONS.strip(),
         'radius': get_compliance_radius(loopback_ip).strip(),
-        'ldp_filters': get_compliance_ldp_filters().strip()
+        'ldp_filters': get_compliance_ldp_filters().strip(),
+        'sys_note': '/system note set note="COMPLIANCE SCRIPT LAST RUN ON $CurDT"'
     }
 
 # ========================================
