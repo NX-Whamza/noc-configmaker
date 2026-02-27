@@ -211,6 +211,48 @@ except ImportError:
     HAS_COMPLIANCE = False
     # Compliance reference not available - RFC-09-10-25 compliance will not be enforced
 
+
+def _get_dynamic_compliance_blocks(loopback_ip: str = "10.0.0.1/32", return_source: bool = False):
+    """Get compliance blocks with GitLab-first, hardcoded-fallback logic.
+
+    Every endpoint that needs compliance blocks should call this instead of
+    ``get_all_compliance_blocks()`` directly so that GitLab dynamic compliance
+    is always consulted first when configured.
+
+    Args:
+        loopback_ip: Loopback IP address to inject into compliance blocks.
+        return_source: If True, returns (blocks, source) tuple.
+
+    Returns:
+        dict of block_name -> RouterOS config text (default)
+        OR (dict, str) tuple if return_source=True
+    """
+    source = 'hardcoded'
+    blocks = {}
+
+    # 1. Try GitLab dynamic compliance
+    if _HAS_GITLAB_COMPLIANCE and _get_gitlab_compliance_loader is not None:
+        try:
+            loader = _get_gitlab_compliance_loader()
+            if loader.is_configured():
+                gl_blocks = loader.get_compliance_blocks_from_script(loopback_ip=loopback_ip)
+                if gl_blocks:
+                    print(f"[COMPLIANCE] Using GitLab dynamic compliance blocks ({len(gl_blocks)} blocks)")
+                    if return_source:
+                        return gl_blocks, 'gitlab'
+                    return gl_blocks
+        except Exception as _exc:
+            print(f"[COMPLIANCE] GitLab loader failed, falling back to hardcoded: {_exc}")
+
+    # 2. Hardcoded fallback
+    if HAS_COMPLIANCE:
+        print("[COMPLIANCE] Using hardcoded compliance blocks (GitLab unavailable)")
+        blocks = get_all_compliance_blocks(loopback_ip)
+
+    if return_source:
+        return blocks, source
+    return blocks
+
 # Aviat backhaul updater integration (merged into NOC backend)
 try:
     from aviat_config import (
@@ -6770,7 +6812,7 @@ Port Roles:
                         if source_loopback_match:
                             loopback_ip = source_loopback_match.group(1)
 
-                    compliance_blocks = get_all_compliance_blocks(loopback_ip or "10.0.0.1/32")
+                    compliance_blocks = _get_dynamic_compliance_blocks(loopback_ip or "10.0.0.1/32")
                     translated = inject_compliance_blocks(translated, compliance_blocks)
                     compliance_validation = validate_compliance(translated)
                 except Exception as e:
@@ -7366,8 +7408,8 @@ Output (copy every line, update device model to {target_device.upper()}, preserv
         if apply_compliance and HAS_COMPLIANCE:
             print("[COMPLIANCE] Applying RFC-09-10-25 compliance standards (optional)...")
             try:
-                # Get compliance blocks
-                compliance_blocks = get_all_compliance_blocks(loopback_ip or "10.0.0.1/32")
+                # Get compliance blocks (GitLab-first, hardcoded fallback)
+                compliance_blocks = _get_dynamic_compliance_blocks(loopback_ip or "10.0.0.1/32")
                 
                 # Inject compliance into translated config
                 translated = inject_compliance_blocks(translated, compliance_blocks)
@@ -7509,8 +7551,8 @@ def apply_compliance():
         
         print(f"[COMPLIANCE] Applying RFC-09-10-25 compliance to configuration (additive, non-destructive)...")
         
-        # Get compliance blocks
-        compliance_blocks = get_all_compliance_blocks(loopback_ip)
+        # Get compliance blocks (GitLab-first, hardcoded fallback)
+        compliance_blocks = _get_dynamic_compliance_blocks(loopback_ip)
         
         # Inject compliance into config (additive, preserves existing configs)
         compliant_config = inject_compliance_blocks(config, compliance_blocks)
@@ -7941,7 +7983,7 @@ def gen_enterprise_non_mpls():
         if HAS_COMPLIANCE:
             try:
                 print("[COMPLIANCE] Adding RFC-09-10-25 compliance to new configuration...")
-                compliance_blocks = get_all_compliance_blocks(loopback_ip)
+                compliance_blocks = _get_dynamic_compliance_blocks(loopback_ip)
                 cfg = inject_compliance_blocks(cfg, compliance_blocks)
                 
                 # Validate compliance
@@ -12899,22 +12941,7 @@ def get_compliance_blocks_api():
         return jsonify({'error': 'Compliance reference not available'}), 503
     try:
         loop_ip = request.args.get('loopback_ip', '10.0.0.1')
-        blocks = None
-        source = 'hardcoded'
-        try:
-            from gitlab_compliance import get_loader as _gl
-            loader = _gl()
-            if loader.is_configured():
-                gl_blocks = loader.get_compliance_blocks_from_script(loopback_ip=loop_ip)
-                if gl_blocks:
-                    blocks = gl_blocks
-                    source = 'gitlab'
-        except Exception:
-            blocks = None
-
-        if not blocks:
-            blocks = get_all_compliance_blocks(loop_ip)
-            source = 'hardcoded'
+        blocks, source = _get_dynamic_compliance_blocks(loop_ip, return_source=True)
         return jsonify({
             'success': True,
             'source': source,
