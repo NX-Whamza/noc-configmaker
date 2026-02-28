@@ -43,6 +43,7 @@ Thumbs.db
 chat_history.db
 completed_configs.db
 secure_data/
+secure_data_dev/
 *.log
 temp/
 cache/
@@ -50,6 +51,7 @@ AviatSubnetChecker/
 
 # Secrets
 .env
+.env.dev
 .secret
 api_keys.txt
 .webui_secret_key
