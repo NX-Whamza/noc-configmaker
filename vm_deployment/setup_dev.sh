@@ -59,7 +59,15 @@ if [ ! -f "$DEV_DIR/.env" ]; then
     cp "$DEV_DIR/ENV_DEV_TEMPLATE.txt" "$DEV_DIR/.env"
     chmod 600 "$DEV_DIR/.env"
     ok "Created .env from template (FRONTEND_PORT=8100, NOC_ENVIRONMENT=dev)"
-    info "  Edit secrets if needed: nano $DEV_DIR/.env"
+    echo ""
+    echo -e "${RED}  ╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${RED}  ║  ACTION REQUIRED: Fill in all CHANGE_ME values in .env  ║${NC}"
+    echo -e "${RED}  ║  Real credentials are NOT stored in the template.       ║${NC}"
+    echo -e "${RED}  ║  Copy values from the production .env or 1Password.     ║${NC}"
+    echo -e "${RED}  ╚══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    info "  Edit now: nano $DEV_DIR/.env"
+    info "  Then re-run this script or: cd $DEV_DIR && docker compose up -d --build"
   else
     err "ENV_DEV_TEMPLATE.txt not found in dev clone!"
     exit 1

@@ -37,18 +37,18 @@ ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 
 # SSH fetch defaults (optional; can also be entered in the UI)
 # NEXTLINK_SSH_USERNAME=
-# NEXTLINK_SSH_PASSWORD=g25TrDaS
+# NEXTLINK_SSH_PASSWORD=CHANGE_ME
 
 # Field Config Studio / IDO device login defaults (optional)
 # For most Cambium/Tachyon/backhaul tools username is fixed to admin in upstream modules.
 # Set these so Running Config / Standard Config actions can authenticate correctly.
-# AP_STANDARD_PW=g25TrDaS
-# SM_STANDARD_PW=7UpYXZAo
-# BH_STANDARD_PW=Fr3knL@zr!
-# SWT_STANDARD_PW=xGA9KDm9o9
-# RPC_STANDARD_PW=xGA9KDm9o9
-# CNMATRIX_STANDARD_PW=LV?lqk%D%XL5YhH
-# WAVE_AP_PASS=7&D!:bC|9nE^
+# AP_STANDARD_PW=CHANGE_ME
+# SM_STANDARD_PW=CHANGE_ME
+# BH_STANDARD_PW=CHANGE_ME
+# SWT_STANDARD_PW=CHANGE_ME
+# RPC_STANDARD_PW=CHANGE_ME
+# CNMATRIX_STANDARD_PW=CHANGE_ME
+# WAVE_AP_PASS=CHANGE_ME
 
 # Netlaunch-compatible MikroTik config templates
 # Must include Router/Tower and Router/BNG2 folders.
@@ -92,10 +92,10 @@ ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 
 # Nokia 7250 config-maker credentials
 # Served to the UI via /api/nokia7250-defaults at generate-time.
-# NOKIA7250_SNMP_COMMUNITY=FBZ1yYdphf
+# NOKIA7250_SNMP_COMMUNITY=CHANGE_ME
 # NOKIA7250_NLROOT_PW=CHANGE_ME
 # NOKIA7250_ADMIN_PW=CHANGE_ME
-# NOKIA7250_BGP_AUTH_KEY=m8M5JwvdYM
+# NOKIA7250_BGP_AUTH_KEY=CHANGE_ME
 
 # One-shot Aviat log cleanup on backend startup (optional)
 # Deletes rows from secure_data/activity_log.db that match:

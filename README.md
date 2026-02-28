@@ -169,7 +169,7 @@ RouterOS Ver Interface Mapping   Syntax Validation   Audit Trail    Verify
 
 3. **Access the web interface**:
    - Browser opens automatically to `http://localhost:8000`
-   - Login with your email (default password: `NOCConfig2025!`)
+   - Login with your email (default password is set via `DEFAULT_PASSWORD` in `.env`)
    - Change password on first login
 
 ### Option 2: For Developers
@@ -700,7 +700,7 @@ curl http://localhost:5000/api/health
 ### Common Issues
 
 **Issue**: Can't login  
-**Solution**: Default password is `NOCConfig2025!` (not `NOCConfig2024!`)
+**Solution**: Default password is set via `DEFAULT_PASSWORD` in your `.env` file
 
 **Issue**: Can’t access Admin panel  
 **Solution**: Ensure your email is in `ADMIN_EMAILS` and you are logged in
