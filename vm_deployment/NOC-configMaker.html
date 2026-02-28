@@ -8255,7 +8255,10 @@ show mac address-table | include &lt;mac&gt;</div>
                     if (data.success && data.blocks) {
                         window._complianceCache = data.blocks;
                         window._complianceCacheExpiry = now + COMPLIANCE_CACHE_TTL;
-                        console.log(`[COMPLIANCE] Fetched compliance blocks from ${data.source || 'backend'}`);
+                        // Also cache verbatim raw text from GitLab (preferred path)
+                        window._rawComplianceText = data.raw_compliance_text || null;
+                        console.log(`[COMPLIANCE] Fetched compliance from ${data.source || 'backend'}` +
+                            (data.raw_compliance_text ? ' (verbatim raw text available)' : ' (parsed blocks only)'));
                         return data.blocks;
                     }
                 }
@@ -8952,19 +8955,25 @@ show mac address-table | include &lt;mac&gt;</div>
                 window.updateProgressPercent(85);
                 await new Promise(resolve => setTimeout(resolve, 200));
 
-                const complianceBlocks = await fetchComplianceBlocks(mgmtIP);
-                if (complianceBlocks) {
-                    // Set $LoopIP variable for compliance blocks that reference it
-                    // (switches don't have loop0, so we set it to the management IP)
-                    config += '# Set LoopIP for compliance block references\n';
-                    config += ':global LoopIP "' + mgmtIP + '"\n';
-                    config += ':global curDate [/system clock get date]\n';
-                    config += ':global curTime [/system clock get time]\n';
-                    config += ':global CurDT ($curDate . " " . $curTime)\n\n';
-                    config = appendComplianceBlocks(config, complianceBlocks, SWITCH_COMPLIANCE_BLOCKS);
-                    window.addProgressLog('success', 'Dynamic compliance blocks applied from GitLab');
+                // Use backend /api/apply-compliance for verbatim GitLab compliance injection
+                const beforeCompliance = config;
+                config = await applyBackendCompliance(config, mgmtIP);
+                if (config !== beforeCompliance) {
+                    window.addProgressLog('success', 'Verbatim GitLab compliance applied via backend');
                 } else {
-                    window.addProgressLog('warning', 'Compliance blocks unavailable from backend - config generated without compliance overlay');
+                    // Fallback: try parsed compliance blocks
+                    const complianceBlocks = await fetchComplianceBlocks(mgmtIP);
+                    if (complianceBlocks) {
+                        config += '# Set LoopIP for compliance block references\n';
+                        config += ':global LoopIP "' + mgmtIP + '"\n';
+                        config += ':global curDate [/system clock get date]\n';
+                        config += ':global curTime [/system clock get time]\n';
+                        config += ':global CurDT ($curDate . " " . $curTime)\n\n';
+                        config = appendComplianceBlocks(config, complianceBlocks, SWITCH_COMPLIANCE_BLOCKS);
+                        window.addProgressLog('warning', 'Parsed compliance blocks applied (verbatim unavailable)');
+                    } else {
+                        window.addProgressLog('warning', 'Compliance blocks unavailable from backend - config generated without compliance overlay');
+                    }
                 }
 
                 // ========================================
@@ -9393,19 +9402,25 @@ show mac address-table | include &lt;mac&gt;</div>
                 window.updateProgressPercent(85);
                 window.addProgressLog('info', 'Applying dynamic compliance blocks from backend');
 
-                const ghzComplianceBlocks = await fetchComplianceBlocks(vlan3000RouterIP);
-                if (ghzComplianceBlocks) {
-                    // Set $LoopIP variable for compliance blocks that reference it
-                    // (6GHz devices use vlan3000 router IP as their management address)
-                    config += '# Set LoopIP for compliance block references\n';
-                    config += ':global LoopIP "' + vlan3000RouterIP + '"\n';
-                    config += ':global curDate [/system clock get date]\n';
-                    config += ':global curTime [/system clock get time]\n';
-                    config += ':global CurDT ($curDate . " " . $curTime)\n\n';
-                    config = appendComplianceBlocks(config, ghzComplianceBlocks, GHZ_COMPLIANCE_BLOCKS);
-                    window.addProgressLog('success', 'Dynamic compliance blocks applied from GitLab');
+                // Use backend /api/apply-compliance for verbatim GitLab compliance injection
+                const beforeGhzCompliance = config;
+                config = await applyBackendCompliance(config, vlan3000RouterIP);
+                if (config !== beforeGhzCompliance) {
+                    window.addProgressLog('success', 'Verbatim GitLab compliance applied via backend');
                 } else {
-                    window.addProgressLog('warning', 'Compliance blocks unavailable - config generated without compliance overlay');
+                    // Fallback: try parsed compliance blocks
+                    const ghzComplianceBlocks = await fetchComplianceBlocks(vlan3000RouterIP);
+                    if (ghzComplianceBlocks) {
+                        config += '# Set LoopIP for compliance block references\n';
+                        config += ':global LoopIP "' + vlan3000RouterIP + '"\n';
+                        config += ':global curDate [/system clock get date]\n';
+                        config += ':global curTime [/system clock get time]\n';
+                        config += ':global CurDT ($curDate . " " . $curTime)\n\n';
+                        config = appendComplianceBlocks(config, ghzComplianceBlocks, GHZ_COMPLIANCE_BLOCKS);
+                        window.addProgressLog('warning', 'Parsed compliance blocks applied (verbatim unavailable)');
+                    } else {
+                        window.addProgressLog('warning', 'Compliance blocks unavailable - config generated without compliance overlay');
+                    }
                 }
 
                 window.updateProgressStep('Finalizing configuration...');
@@ -15576,7 +15591,7 @@ show mac address-table | include &lt;mac&gt;</div>
                 return report;
             }
 
-            function verifyFirewallRules() {
+            async function verifyFirewallRules() {
                 // Expected firewall filter rules from user specification
                 const expectedFilterRules = {
                     input: [
@@ -15620,9 +15635,11 @@ show mac address-table | include &lt;mac&gt;</div>
                 let report = 'Firewall Rules Verification:\n\n';
                 let allMatch = true;
 
-                // Test generation (using placeholder - actual secret should come from environment/config)
+                // Test generation — uses verbatim GitLab compliance via cached raw text.
+                // Pre-fetch compliance blocks to populate window._rawComplianceText
+                await fetchComplianceBlocks('10.0.0.1');
                 let testConfig = '';
-                testConfig = addRFCComplianceBaseline(testConfig, '10.0.0.1', 'FBZ1yYdphf', 'PLACEHOLDER_SECRET', false, '10.100.0.0/22', '100.64.0.0/10', '10.200.0.0/22');
+                testConfig = addRFCComplianceBaseline(testConfig, '10.0.0.1');
 
                 // Check Input Chain
                 const inputSection = testConfig.split('# FIREWALL INPUT CHAIN')[1];
@@ -15695,223 +15712,30 @@ show mac address-table | include &lt;mac&gt;</div>
                 report += `\nOverall Status: ${allMatch ? ' ALL FIREWALL RULES CORRECT' : ' ISSUES FOUND'}`;
                 return report;
             }
-            function addRFCComplianceBaseline(config, routerId, snmpCommunity, dhcpSecret, enableMPLS, unauthRange, cgnatRange, vlan4000Range) {
-                // Variables section
-                config += `# RFC COMPLIANCE BASELINE CONFIGURATION\n`;
-                config += `# Variables\n`;
-                config += `:global LoopIP [/ip address get [find interface=loop0] address]\n`;
-                config += `:global curDate [/system clock get date]\n`;
-                config += `:global curTime [/system clock get time]\n`;
-                config += `:global CurDT ($curDate . " " . $curTime)\n\n`;
-
-                // IP Services Hardening
-                config += `# IP SERVICES - RFC Compliance Hardening\n`;
-                config += `/ip service\n`;
-                config += `set telnet disabled=yes port=5023\n`;
-                config += `set ftp disabled=yes port=5021\n`;
-                config += `set www disabled=yes port=1234\n`;
-                config += `set api disabled=yes\n`;
-                config += `set api-ssl disabled=yes\n`;
-                config += `set www-ssl disabled=no port=443\n`;
-                config += `set winbox port=8291 address="" disabled=no\n`;
-                config += `set ssh port=5022 address="" disabled=no\n\n`;
-
-                // DNS Configuration
-                config += `# DNS Configuration\n`;
-                config += `/ip dns\n`;
-                config += `set servers=${getDNSList()}\n\n`;
-
-                // System Clock and NTP
-                config += `# CLOCK AND NTP\n`;
-                // (Removed duplicated user account creation block for MPLS output)
-                config += `\n`;
-
-                // Firewall Input Chain (RFC Standard)
-                config += `# FIREWALL INPUT CHAIN - RFC Standard\n`;
-                config += `/ip firewall filter\n`;
-                config += `rem [find chain=input dynamic=no]\n`;
-                config += `add action=accept chain=input comment="ALLOW EST REL" connection-state=established,related,untracked\n`;
-                config += `add action=accept chain=input comment="ALLOW MT NEIGHBOR" dst-port=5678 protocol=udp\n`;
-                config += `add action=accept chain=input comment="ALLOW MAC TELNET" dst-port=20561 protocol=udp\n`;
-                config += `add action=accept chain=input comment="ALLOW IGMP" protocol=igmp\n`;
-                config += `add action=accept chain=input comment="ALLOW ICMP" protocol=icmp\n`;
-                config += `add action=accept chain=input comment="ALLOW DHCPv4" protocol=udp dst-port=67\n`;
-                config += `add action=accept chain=input comment="ALLOW DHCPv6" protocol=udp dst-port=547\n`;
-                config += `add action=accept chain=input comment="ALLOW OSPF" protocol=ospf\n`;
-                config += `add action=accept chain=input comment="ALLOW LDP" dst-port=646 protocol=tcp\n`;
-                config += `add action=accept chain=input comment="ALLOW LDP" dst-port=646 protocol=udp\n`;
-                config += `add action=accept chain=input comment="ALLOW MANAGER IP" src-address-list=managerIP\n`;
-                config += `add action=accept chain=input comment="ALLOW BGP" protocol=tcp dst-port=179 src-address-list=BGP-ALLOW\n`;
-                config += `add action=accept chain=input comment="ALLOW EOIP" protocol=gre src-address-list=EOIP-ALLOW\n`;
-                config += `add action=accept chain=input comment="ALLOW SNMP" dst-port=161 protocol=udp src-address-list=SNMP\n`;
-                config += `add action=drop chain=input comment="DROP INPUT" log=no\n\n`;
-
-                // Firewall Raw Chain
-                config += `# FIREWALL RAW CHAIN\n`;
-                config += `/ip firewall raw\n`;
-                config += `rem [find dynamic=no]\n`;
-                config += `add action=drop chain=prerouting comment="DROP BAD UDP" port=0 protocol=udp\n\n`;
-
-                // Firewall Forward Chain
-                config += `# FIREWALL FORWARD CHAIN\n`;
-                config += `/ip firewall filter\n`;
-                config += `rem [find where chain=forward dynamic=no]\n`;
-                config += `add action=accept chain=forward comment="BGP Accept" dst-address=10.0.0.0/8 dst-port=179 protocol=tcp src-address=10.0.0.0/8\n`;
-                config += `add action=accept chain=forward comment="GRE Accept" dst-address=10.0.0.0/8 protocol=gre src-address=10.0.0.0/8\n`;
-                config += `add action=drop chain=forward comment="unauth drop rule" dst-address-list=!WALLED-GARDEN src-address-list=unauth\n`;
-                config += `add action=fasttrack-connection chain=forward connection-state=established,related,untracked hw-offload=yes\n`;
-                config += `add action=accept chain=forward connection-state=established,related,untracked\n\n`;
-
-                // Firewall Mangle
-                config += `# FIREWALL MANGLE\n`;
-                config += `/ip firewall mangle\n`;
-                config += `rem [find where dynamic=no]\n`;
-                config += `add action=mark-packet chain=prerouting comment="Mark NTP packets" dst-address-list=NTP dst-port=123 new-packet-mark=NTP passthrough=no protocol=udp\n\n`;
-
-                // Firewall NAT
-                config += `# FIREWALL NAT\n`;
-                config += `/ip firewall nat\n`;
-                config += `rem [find]\n`;
-                config += `add action=dst-nat chain=dstnat comment="unauth proxy rule" dst-address-list=!WALLED-GARDEN dst-port=80 protocol=tcp src-address-list=unauth to-addresses=107.178.15.27 to-ports=3128\n`;
-                config += `add action=src-nat chain=srcnat packet-mark=NTP to-addresses=${routerId}\n\n`;
-
-                // System Hardening
-                config += `# SYSTEM HARDENING\n`;
-                config += `/system watchdog\n`;
-                config += `set watchdog-timer=yes\n`;
-                config += `/system routerboard settings\n`;
-                config += `set auto-upgrade=yes\n`;
-                config += `/ip firewall connection tracking\n`;
-                config += `set udp-timeout=30s\n`;
-                config += `/ip proxy\n`;
-                config += `set enabled=yes\n`;
-                config += `/ip firewall service-port\n`;
-                config += `set sip disabled=yes\n\n`;
-
-                // SNMP Configuration
-                config += `# SNMP CONFIGURATION\n`;
-                config += `/snmp\n`;
-                config += `set enabled=yes src-address=${routerId} trap-community=${snmpCommunity}\n`;
-                config += `/snmp community\n`;
-                config += `set [find default=yes] read-access=no\n`;
-                config += `rem [find default=no]\n`;
-                config += `add name=${snmpCommunity} addresses=::/0\n\n`;
-
-                // Logging Configuration
-                config += `# LOGGING CONFIGURATION\n`;
-                config += `/system logging action\n`;
-                config += `rem [find default=no]\n`;
-                config += `set [find name="memory"] memory-lines=1000\n`;
-                config += `set [find name="disk"] disk-lines-per-file=10000 disk-file-count=3\n`;
-                const syslogServer = getSyslogServer();
-                if (syslogServer) {
-                    config += `add name=syslog remote=${syslogServer} src-address=$LoopIP target=remote\n`;
+            /**
+             * addRFCComplianceBaseline — Appends verbatim GitLab TX-ARv2.rsc compliance
+             * to the config string.  Fetches from the backend /api/compliance/blocks
+             * endpoint which returns the raw script with only $LoopIP substituted.
+             *
+             * For SYNCHRONOUS callers (like the firewall verification test) that
+             * cannot await, also provides a cached fallback via window._rawComplianceText.
+             *
+             * If neither async fetch nor cached text is available, logs a warning
+             * and returns the config unchanged.
+             */
+            function addRFCComplianceBaseline(config, routerId) {
+                // Use cached raw compliance text (populated by fetchComplianceBlocks)
+                const rawText = window._rawComplianceText || null;
+                if (rawText) {
+                    config += '\n# ========================================\n';
+                    config += '# RFC-09-10-25 COMPLIANCE STANDARDS\n';
+                    config += '# Verbatim from GitLab TX-ARv2.rsc\n';
+                    config += '# ========================================\n\n';
+                    config += rawText + '\n';
+                    console.log('[COMPLIANCE] addRFCComplianceBaseline: injected verbatim GitLab compliance');
+                } else {
+                    console.warn('[COMPLIANCE] addRFCComplianceBaseline: raw compliance text not cached — call fetchComplianceBlocks() first');
                 }
-                config += `/system logging\n`;
-                config += `rem [find default=no]\n`;
-                config += `add action=syslog topics=critical\n`;
-                config += `add action=syslog topics=error\n`;
-                config += `add action=syslog topics=warning\n`;
-                config += `add action=disk topics=critical\n`;
-                config += `add action=disk topics=error\n`;
-                config += `add action=disk topics=warning\n`;
-                config += `add action=memory topics=critical\n`;
-                config += `add action=memory topics=error\n`;
-                config += `add action=memory topics=warning\n`;
-                config += `set 0 action=echo\n\n`;
-
-                // User Management
-                config += `# USER MANAGEMENT\n`;
-                config += `/user aaa\n`;
-                config += `set use-radius=yes\n`;
-                config += `/user group\n`;
-                config += `rem [find where name!="full" and name!="read" and name!="write"]\n`;
-                config += `set read policy="local,telnet,read,test,winbox,sniff,ssh,!ftp,!reboot,!write,!policy,!password,!web,!sensitive,!api,!romon,!rest-api"\n\n`;
-
-                // DHCP Options
-                config += `# DHCP OPTIONS\n`;
-                config += `/ip dhcp-server option\n`;
-                config += `rem [find]\n`;
-                config += `add code=66 name=option66-ata value="'http://ndp1-dal.nxlink.com/cfg/\$MA.cfg'"\n`;
-                config += `add code=43 name=opt43 value=0x011768747470733a2f2f7573732e6e786c696e6b2e636f6d2f\n`;
-                config += `/ip dhcp-server option sets\n`;
-                config += `rem [find]\n`;
-                config += `add name=optset options=opt43\n\n`;
-                // Note: DHCP server network entries should include dhcp-option-set=optset when added
-                // if they don't start with "10." - this is handled dynamically when entries are created
-
-                // RADIUS Configuration
-                config += `# RADIUS CONFIGURATION\n`;
-                config += `/radius\n`;
-                config += `rem [find]\n`;
-                const radiusDHCPServers2 = getRADIUSDHCPServers();
-                if (radiusDHCPServers2.length > 0) {
-                    radiusDHCPServers2.forEach(server => {
-                        if (server.address && server.secret) {
-                            config += `add address=${server.address} secret=${server.secret} service=dhcp src-address=$LoopIP timeout=5s\n`;
-                        }
-                    });
-                    config += `\n`;
-                }
-                const radiusLoginServers2 = getRADIUSLoginServers();
-                if (radiusLoginServers2.length > 0) {
-                    radiusLoginServers2.forEach(server => {
-                        if (server.address && server.secret) {
-                            const comment = server.comment ? ` comment="${server.comment}"` : '';
-                            config += `add address=${server.address} secret=${server.secret} service=login src-address=$LoopIP timeout=5s${comment}\n`;
-                        }
-                    });
-                    config += `\n`;
-                }
-
-                // MPLS LDP Filters (if MPLS enabled)
-                if (enableMPLS) {
-                    config += `# MPLS LDP FILTERS\n`;
-                    config += `/mpls ldp accept-filter\n`;
-                    config += `rem [find]\n`;
-                    RFC_COMPLIANCE_CONFIG.mplsLdpFilters.acceptDeny.forEach(prefix => {
-                        config += `add accept=no disabled=no prefix=${prefix}\n`;
-                    });
-                    RFC_COMPLIANCE_CONFIG.mplsLdpFilters.acceptAllow.forEach(prefix => {
-                        config += `add accept=yes disabled=no prefix=${prefix}\n`;
-                    });
-                    config += `add accept=no disabled=no prefix=0.0.0.0/0\n\n`;
-
-                    config += `/mpls ldp advertise-filter\n`;
-                    config += `rem [find]\n`;
-                    RFC_COMPLIANCE_CONFIG.mplsLdpFilters.acceptDeny.forEach(prefix => {
-                        config += `add advertise=no disabled=no prefix=${prefix}\n`;
-                    });
-                    RFC_COMPLIANCE_CONFIG.mplsLdpFilters.acceptAllow.forEach(prefix => {
-                        config += `add advertise=yes disabled=no prefix=${prefix}\n`;
-                    });
-                    config += `add advertise=no disabled=no prefix=0.0.0.0/0\n\n`;
-                }
-                // BGP Template Configuration
-                config += `# BGP TEMPLATE CONFIGURATION\n`;
-                config += `/routing bgp template\n`;
-                config += `set default as=26077 disabled=no multihop=yes output.network=bgp-networks router-id=${routerId} routing-table=main\n\n`;
-                // OSPF Instance and Area Configuration
-                config += `# OSPF INSTANCE AND AREA CONFIGURATION\n`;
-                config += `/routing ospf instance\n`;
-                config += `add disabled=no name=default-v2 router-id=${routerId}\n`;
-                config += `/routing ospf area\n`;
-                config += `add disabled=no instance=default-v2 name=backbone-v2\n\n`;
-
-                // SNMP Configuration
-                config += `# SNMP CONFIGURATION\n`;
-                config += `/snmp\n`;
-                const siteLatitude = document.getElementById('siteLatitude').value.trim();
-                const siteLongitude = document.getElementById('siteLongitude').value.trim();
-                const location = siteLatitude && siteLongitude ? `"${siteLatitude}, ${siteLongitude}"` : '"Unknown Location"';
-                const snmpContact = getInfrastructureValue('snmp.contact', 'netops@team.nxlink.com');
-                config += `set contact=${snmpContact} enabled=yes location=${location} src-address=${routerId} trap-community=${snmpCommunity}\n\n`;
-
-                // System Note
-                config += `# SYSTEM NOTE\n`;
-                config += `/system note\n`;
-                config += `set note="RFC COMPLIANCE SCRIPT APPLIED ON $CurDT"\n\n`;
-
                 return config;
             }
             function addOutOfStateConfiguration(config, routerId, snmpCommunity, lanBridgeIP, natPublicIP, siteLatitude, siteLongitude) {

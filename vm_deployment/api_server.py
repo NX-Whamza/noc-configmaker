@@ -253,6 +253,31 @@ def _get_dynamic_compliance_blocks(loopback_ip: str = "10.0.0.1/32", return_sour
         return blocks, source
     return blocks
 
+
+def _get_raw_gitlab_compliance_text(loopback_ip: str = "10.0.0.1") -> str | None:
+    """Fetch the VERBATIM compliance script text from GitLab.
+
+    Returns the full TX-ARv2.rsc content with only $LoopIP substituted on
+    operational lines (src-address, etc).  All comments, section headers,
+    inline comment=\"...\" attributes, command syntax — everything is
+    preserved word-for-word exactly as engineering wrote it.
+
+    Returns None when GitLab is unavailable so callers can fall back.
+    """
+    if not _HAS_GITLAB_COMPLIANCE or _get_gitlab_compliance_loader is None:
+        return None
+    try:
+        loader = _get_gitlab_compliance_loader()
+        if not loader.is_configured():
+            return None
+        raw = loader.get_raw_compliance_text(loopback_ip=loopback_ip)
+        if raw:
+            print(f"[COMPLIANCE] Loaded verbatim GitLab compliance text ({len(raw)} chars)")
+        return raw
+    except Exception as exc:
+        print(f"[COMPLIANCE] Raw GitLab text fetch failed: {exc}")
+        return None
+
 # Aviat backhaul updater integration (merged into NOC backend)
 try:
     from aviat_config import (
@@ -6812,8 +6837,9 @@ Port Roles:
                         if source_loopback_match:
                             loopback_ip = source_loopback_match.group(1)
 
+                    _lip = (loopback_ip or "10.0.0.1/32").split("/")[0]
                     compliance_blocks = _get_dynamic_compliance_blocks(loopback_ip or "10.0.0.1/32")
-                    translated = inject_compliance_blocks(translated, compliance_blocks)
+                    translated = inject_compliance_blocks(translated, compliance_blocks, loopback_ip=_lip)
                     compliance_validation = validate_compliance(translated)
                 except Exception as e:
                     print(f"[COMPLIANCE ERROR] Failed to apply compliance in strict mode: {e}")
@@ -7409,10 +7435,11 @@ Output (copy every line, update device model to {target_device.upper()}, preserv
             print("[COMPLIANCE] Applying RFC-09-10-25 compliance standards (optional)...")
             try:
                 # Get compliance blocks (GitLab-first, hardcoded fallback)
+                _lip = (loopback_ip or "10.0.0.1/32").split("/")[0]
                 compliance_blocks = _get_dynamic_compliance_blocks(loopback_ip or "10.0.0.1/32")
                 
                 # Inject compliance into translated config
-                translated = inject_compliance_blocks(translated, compliance_blocks)
+                translated = inject_compliance_blocks(translated, compliance_blocks, loopback_ip=_lip)
                 
                 # Validate compliance
                 compliance_validation = validate_compliance(translated)
@@ -7552,10 +7579,11 @@ def apply_compliance():
         print(f"[COMPLIANCE] Applying RFC-09-10-25 compliance to configuration (additive, non-destructive)...")
         
         # Get compliance blocks (GitLab-first, hardcoded fallback)
+        _lip = (loopback_ip or "10.0.0.1/32").split("/")[0]
         compliance_blocks = _get_dynamic_compliance_blocks(loopback_ip)
         
         # Inject compliance into config (additive, preserves existing configs)
-        compliant_config = inject_compliance_blocks(config, compliance_blocks)
+        compliant_config = inject_compliance_blocks(config, compliance_blocks, loopback_ip=_lip)
         
         # Validate compliance
         compliance_validation = validate_compliance(compliant_config)
@@ -7983,8 +8011,9 @@ def gen_enterprise_non_mpls():
         if HAS_COMPLIANCE:
             try:
                 print("[COMPLIANCE] Adding RFC-09-10-25 compliance to new configuration...")
+                _lip = (loopback_ip or "10.0.0.1").split("/")[0]
                 compliance_blocks = _get_dynamic_compliance_blocks(loopback_ip)
-                cfg = inject_compliance_blocks(cfg, compliance_blocks)
+                cfg = inject_compliance_blocks(cfg, compliance_blocks, loopback_ip=_lip)
                 
                 # Validate compliance
                 compliance_validation = validate_compliance(cfg)
@@ -8014,18 +8043,23 @@ def get_syntax_rules(target_version):
 - MOST SYNTAX STAYS THE SAME - only change if broken"""
     return "Keep syntax as-is"
 
-def inject_compliance_blocks(config: str, compliance_blocks: dict) -> str:
+def inject_compliance_blocks(config: str, compliance_blocks: dict, loopback_ip: str = "10.0.0.1") -> str:
     """
-    Intelligently inject compliance blocks into a RouterOS configuration.
-    Checks if compliance was already applied to avoid duplicates.
-    
-    IMPORTANT: Compliance blocks use RouterOS 'rem' commands to remove existing entries
-    and then re-add them with compliance standards. If compliance section already exists,
-    we skip to avoid duplication.
-    
+    Inject compliance into a RouterOS configuration.
+
+    Source priority:
+      1. **Verbatim GitLab text** — the full TX-ARv2.rsc content is appended
+         word-for-word (comments, inline comment="..." attributes, exact
+         command syntax, section order — all preserved exactly as engineering
+         wrote it).  Only $LoopIP is substituted with the concrete IP.
+      2. **Parsed blocks fallback** — if GitLab is unavailable, the legacy
+         compliance_blocks dict is reassembled and appended.
+
     Args:
         config: Existing RouterOS configuration
-        compliance_blocks: Dictionary of compliance blocks from get_all_compliance_blocks()
+        compliance_blocks: Dictionary of compliance blocks (used only as
+            fallback when GitLab raw text is unavailable)
+        loopback_ip: Loopback IP for $LoopIP substitutions
         
     Returns:
         Updated configuration with compliance blocks (only if not already present)
@@ -8039,50 +8073,38 @@ def inject_compliance_blocks(config: str, compliance_blocks: dict) -> str:
         return config
     
     # Check if compliance section already exists (to avoid double-injection)
-    # Look for the compliance header comment in the last 3000 characters (where it would be appended)
     if "# RFC-09-10-25 COMPLIANCE STANDARDS" in config or "RFC-09-10-25 COMPLIANCE STANDARDS" in config[-3000:]:
         print("[COMPLIANCE] Compliance section already exists, skipping duplicate injection")
         return config
+
+    # ── 1. Try verbatim GitLab text (preserves everything word-for-word) ──
+    raw_text = _get_raw_gitlab_compliance_text(loopback_ip)
+    if raw_text:
+        compliance_section = (
+            "\n\n# ========================================\n"
+            "# RFC-09-10-25 COMPLIANCE STANDARDS\n"
+            "# Source: GitLab netforge/compliance TX-ARv2.rsc (verbatim)\n"
+            "# ========================================\n\n"
+            + raw_text.rstrip()
+            + "\n"
+        )
+        print(f"[COMPLIANCE] Injected verbatim GitLab compliance ({len(raw_text)} chars)")
+        return config.rstrip() + "\n" + compliance_section
+
+    # ── 2. Fallback: reassemble from parsed blocks ──
+    print("[COMPLIANCE] GitLab raw text unavailable — using parsed blocks fallback")
+    compliance_section = "\n\n# ========================================\n# RFC-09-10-25 COMPLIANCE STANDARDS\n# ========================================\n# Source: hardcoded fallback (GitLab unavailable)\n# ========================================\n\n"
     
-    # Append compliance blocks at the end (they use 'rem' commands to handle existing entries)
-    compliance_section = "\n\n# ========================================\n# RFC-09-10-25 COMPLIANCE STANDARDS\n# ========================================\n# These blocks ensure NextLink policy compliance\n# They use 'rem' commands to remove existing entries and re-add with compliance standards\n# ========================================\n\n"
-    
-    # Add compliance blocks in order
-    # NOTE: Include keys from BOTH hardcoded fallback AND GitLab-parsed sources.
-    # The GitLab parser creates combined blocks (e.g. 'dns' includes all firewall,
-    # 'vpls_edge_ports' includes logging, 'user_profiles' instead of 'user_groups').
-    # Missing keys are silently skipped, so listing both sets is safe.
     compliance_order = [
-        # Keys from both sources (hardcoded first, then GitLab-only additions)
-        'variables',              # GitLab: sets $LoopIP, $CurDT etc.
-        'ip_services',            # Both
-        'dns',                    # Both (GitLab dns includes all firewall rules)
-        'firewall_address_lists', # Hardcoded only
-        'firewall_filter_input',  # Hardcoded only
-        'firewall_raw',           # Hardcoded only
-        'firewall_forward',       # Hardcoded only
-        'firewall_nat',           # Hardcoded only
-        'firewall_mangle',        # Hardcoded only
-        'clock_ntp',              # Both
-        'snmp',                   # Both
-        'system_settings',        # Hardcoded only
-        'auto_upgrade',           # GitLab only
-        'sip_alg_off',            # GitLab only
-        'watchdog_timer',         # GitLab only
-        'web_proxy_off',          # GitLab only
-        'vpls_edge',              # Hardcoded only
-        'vpls_edge_ports',        # GitLab only (includes logging)
-        'logging',                # Hardcoded only
-        'user_aaa',               # Both
-        'user_groups',            # Hardcoded only
-        'user_profiles',          # GitLab only (includes user groups)
-        'users',                  # GitLab only
-        'dhcp_options',           # Both
-        'radius',                 # Both (GitLab includes LDP filters)
-        'ldp_filters',            # Hardcoded only
-        'scripts',                # GitLab only
-        'scheduler',              # GitLab only
-        'sys_note',               # GitLab only
+        'variables', 'ip_services', 'dns',
+        'firewall_address_lists', 'firewall_filter_input', 'firewall_raw',
+        'firewall_forward', 'firewall_nat', 'firewall_mangle',
+        'clock_ntp', 'snmp', 'system_settings',
+        'auto_upgrade', 'sip_alg_off', 'watchdog_timer', 'web_proxy_off',
+        'vpls_edge', 'vpls_edge_ports', 'logging',
+        'user_aaa', 'user_groups', 'user_profiles', 'users',
+        'dhcp_options', 'radius', 'ldp_filters',
+        'scripts', 'scheduler', 'sys_note',
     ]
     
     for key in compliance_order:
@@ -12933,7 +12955,7 @@ def mt_generate_portmap(config_type):
 def get_compliance_blocks_api():
     """Return compliance blocks as JSON for client-side config generators.
 
-    Source priority: GitLab dynamic (TTL-cached) → hardcoded reference.
+    Source priority: GitLab verbatim (TTL-cached) → parsed blocks → hardcoded reference.
     Query params:
         loopback_ip  – optional, defaults to 10.0.0.1
     """
@@ -12941,12 +12963,20 @@ def get_compliance_blocks_api():
         return jsonify({'error': 'Compliance reference not available'}), 503
     try:
         loop_ip = request.args.get('loopback_ip', '10.0.0.1')
+        bare_ip = loop_ip.split("/")[0] if "/" in loop_ip else loop_ip
+
+        # Always include parsed blocks for backward compatibility
         blocks, source = _get_dynamic_compliance_blocks(loop_ip, return_source=True)
+
+        # Also include verbatim raw text from GitLab (preferred by frontend)
+        raw_text = _get_raw_gitlab_compliance_text(bare_ip)
+
         return jsonify({
             'success': True,
-            'source': source,
+            'source': 'gitlab' if raw_text else source,
             'loopback_ip': loop_ip,
             'blocks': blocks,
+            'raw_compliance_text': raw_text,  # None when GitLab unavailable
         })
     except Exception as exc:
         return jsonify({'success': False, 'error': str(exc)}), 500

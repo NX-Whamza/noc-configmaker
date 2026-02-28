@@ -378,6 +378,56 @@ class GitLabComplianceLoader:
             print(f"[GITLAB-COMPLIANCE] RSC template fetch failed for '{effective_path}': {exc}")
             return None
 
+    def get_raw_compliance_text(
+        self,
+        loopback_ip: Optional[str] = None,
+        path: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Fetch the compliance script and return it **verbatim** with only the
+        loopback IP substituted into ``$LoopIP`` references used in RADIUS
+        src-address and logging src-address lines.
+
+        The script text is returned exactly as stored in GitLab — all comments,
+        section headers, inline ``comment=".."`` attributes, and command syntax
+        are preserved word-for-word.
+
+        Variable declarations (`:global LoopIP ...`) are kept as-is so the
+        script remains self-contained when pasted into a router.
+
+        Returns None on any failure so callers can fall back to hardcoded.
+        """
+        effective_path = path or self._script_path()
+        lp = loopback_ip or "10.0.0.1"
+        # Strip /32 suffix if present for bare IP usage
+        bare_ip = lp.split("/")[0] if "/" in lp else lp
+        try:
+            raw = self.load_file_cached(effective_path)
+        except Exception as exc:
+            print(f"[GITLAB-COMPLIANCE] raw text fetch failed for '{effective_path}': {exc}")
+            return None
+
+        if not raw or not raw.strip():
+            return None
+
+        # Substitute only runtime-resolved $LoopIP in src-address= and
+        # similar lines where the backend knows the concrete IP at
+        # generation time.  Keep the :global LoopIP variable declaration
+        # intact so the script is also runnable standalone.
+        import re as _re
+
+        def _sub_loopip(line: str) -> str:
+            """Replace $LoopIP on operational lines (src-address=, to-addresses=)
+            but NOT inside :global declarations."""
+            stripped = line.strip()
+            if stripped.startswith(":global") or stripped.startswith(":local"):
+                return line
+            return line.replace("$LoopIP", bare_ip)
+
+        lines = raw.splitlines()
+        result_lines = [_sub_loopip(l) for l in lines]
+        return "\n".join(result_lines)
+
     def refresh(self) -> None:
         """Clear the TTL cache — next access will re-fetch from GitLab."""
         self._cache.clear()

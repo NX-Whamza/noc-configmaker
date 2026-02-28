@@ -399,16 +399,78 @@ def _strip_compliance_address_lists(config: str) -> str:
     return "\n".join(out)
 
 
+def _inject_ftth_forward_into_raw(raw_text: str) -> str:
+    """Inject FTTH-specific forward rules into verbatim raw compliance text.
+
+    Finds the forward chain section and inserts the FTTH rules before the
+    unauth-drop / fasttrack rules (same ordering as the parsed-blocks path).
+    If the forward section isn't found, the FTTH rules are appended at the end.
+    """
+    lines = raw_text.splitlines()
+    # Normalise for comparison
+    def _norm(s: str) -> str:
+        return s.replace("/ip firewall filter ", "", 1).strip()
+    existing_norm = {_norm(l) for l in lines if l.strip()}
+    missing = [r for r in _FTTH_EXTRA_FORWARD_RULES if _norm(r) not in existing_norm]
+    if not missing:
+        return raw_text
+
+    # Find insertion point — just before "unauth drop" / fasttrack in forward chain
+    insert_idx = None
+    for i, line in enumerate(lines):
+        low = line.strip().lower()
+        if 'unauth drop' in low or 'dst-address-list=!walled-garden' in low.replace(' ', ''):
+            insert_idx = i
+            break
+    if insert_idx is not None:
+        for j, rule in enumerate(missing):
+            lines.insert(insert_idx + j, rule)
+    else:
+        lines.extend(missing)
+
+    return "\n".join(lines)
+
+
 def _apply_ftth_compliance(config: str, loopback_ip: str) -> str:
     """Apply GitLab-sourced compliance overlay to the rendered FTTH config.
 
-    1. Fetches compliance blocks (GitLab-first, hardcoded-fallback).
-    2. Strips hardcoded compliance sections from the rendered config.
-    3. Strips compliance-owned address-list entries.
-    4. Appends the compliance overlay with FTTH-specific forward rules.
+    Verbatim-first approach:
+      1.  Try to fetch the raw TX-ARv2.rsc text from GitLab.
+      2.  Inject FTTH-specific forward rules into the raw text.
+      3.  Strip hardcoded compliance sections from the rendered config.
+      4.  Strip compliance-owned address-list entries.
+      5.  Append the raw text as a verbatim compliance overlay.
+
+    Parsed-blocks fallback (when GitLab raw text is unavailable):
+      Uses the existing parsed-blocks path with block selection.
 
     If no compliance data is available, returns the config unchanged.
     """
+    # ── Verbatim raw text (preferred) ───────────────────────────────
+    if _FTTH_HAS_GITLAB and _get_gitlab_loader is not None:
+        try:
+            loader = _get_gitlab_loader()
+            if loader.is_configured():
+                bare_ip = loopback_ip.split("/")[0] if "/" in loopback_ip else loopback_ip
+                raw = loader.get_raw_compliance_text(loopback_ip=bare_ip)
+                if raw:
+                    # Inject FTTH-specific forward rules
+                    raw = _inject_ftth_forward_into_raw(raw)
+                    # Strip hardcoded sections from rendered config
+                    result = _strip_named_sections(config, _FTTH_COMPLIANCE_STRIP_SECTIONS)
+                    result = _strip_compliance_address_lists(result)
+                    banner = (
+                        "\n\n# " + "=" * 50 + "\n"
+                        "# ENGINEERING COMPLIANCE (verbatim from GitLab TX-ARv2.rsc)\n"
+                        "# " + "=" * 50 + "\n"
+                        "# ENGINEERING-COMPLIANCE-APPLIED\n\n"
+                    )
+                    print(f"[FTTH-COMPLIANCE] Applied verbatim GitLab compliance ({len(raw)} chars)")
+                    return result.rstrip() + banner + raw + "\n"
+        except Exception as exc:
+            print(f"[FTTH-COMPLIANCE] Raw text error, falling back to parsed blocks: {exc}")
+
+    # ── Parsed blocks fallback ──────────────────────────────────────
     blocks = _fetch_compliance_blocks(loopback_ip)
     if not blocks:
         return config
