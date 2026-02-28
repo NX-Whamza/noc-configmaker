@@ -1,14 +1,17 @@
 # =============================================================================
 # NOC Config Maker – DEV environment variables
 # =============================================================================
-# Copy this file to .env.dev and fill in values.
-# Used by:  docker compose -f docker-compose.dev.yml --env-file .env.dev up -d
+# This file is auto-copied to .env inside the dev clone (~/noc-configmaker-dev/)
+# by setup_dev.sh.  The dev clone uses the standard docker-compose.yml but
+# with these overrides to run on different ports with isolated data.
 #
-# The dev stack shares the SAME code but uses:
-#   • Separate data dir   → ./secure_data_dev  (not ./secure_data)
-#   • Separate ports      → frontend :8100, backend :5100, ido :18181
-#   • NOC_ENVIRONMENT=dev → enables any dev-specific UI/log markers
+# The production clone (~/noc-configmaker/) keeps its own .env file untouched.
 # =============================================================================
+
+# ── Dev-specific overrides ──
+COMPOSE_PROJECT_NAME=noc-dev
+FRONTEND_PORT=8100
+NOC_ENVIRONMENT=dev
 
 # ── Core ──
 ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com

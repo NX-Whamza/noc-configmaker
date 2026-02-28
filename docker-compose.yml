@@ -100,6 +100,8 @@ services:
       NOKIA7250_NLROOT_PW: ${NOKIA7250_NLROOT_PW:-K&J2Gxjt3vlmUD#X}
       NOKIA7250_ADMIN_PW: ${NOKIA7250_ADMIN_PW:-xGA9KDm9o9}
       NOKIA7250_BGP_AUTH_KEY: ${NOKIA7250_BGP_AUTH_KEY:-m8M5JwvdYM}
+      # Environment label (dev/production) — used for UI banners and logging
+      NOC_ENVIRONMENT: ${NOC_ENVIRONMENT:-production}
     volumes:
       - ./secure_data:/app/secure_data
     depends_on:
@@ -115,7 +117,7 @@ services:
   frontend:
     image: nginx:alpine
     ports:
-      - "8000:80"
+      - "${FRONTEND_PORT:-8000}:80"
     volumes:
       - ./vm_deployment:/usr/share/nginx/html:ro
       - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro

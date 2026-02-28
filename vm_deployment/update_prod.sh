@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# =============================================================================
+# update_prod.sh — Pull latest main and rebuild PRODUCTION
+# =============================================================================
+# Run this ONLY after testing on dev (dev-noc-configmaker.nxlink.com).
+#
+# USAGE (on the VM):
+#   cd ~/noc-configmaker && bash vm_deployment/update_prod.sh
+# =============================================================================
+set -euo pipefail
+
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
+info() { echo -e "${YELLOW}[INFO] $*${NC}"; }
+ok()   { echo -e "${GREEN}[OK]   $*${NC}"; }
+err()  { echo -e "${RED}[ERR]  $*${NC}"; }
+
+PROD_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$PROD_DIR"
+
+echo "=========================================="
+echo "NOC Config Maker – PRODUCTION Update"
+echo "Dir: $PROD_DIR"
+echo "=========================================="
+echo ""
+
+# ── Safety: compare with dev to make sure you tested first ──
+DEV_DIR="$HOME/noc-configmaker-dev"
+if [ -d "$DEV_DIR/.git" ]; then
+  DEV_COMMIT=$(cd "$DEV_DIR" && git rev-parse HEAD)
+  REMOTE_COMMIT=$(git ls-remote origin main | cut -f1)
+  
+  if [ "$DEV_COMMIT" != "$REMOTE_COMMIT" ]; then
+    echo -e "${YELLOW}[WARN] Dev clone is at a different commit than origin/main.${NC}"
+    echo "  Dev:    $(cd "$DEV_DIR" && git rev-parse --short HEAD)"
+    echo "  Remote: $(echo "$REMOTE_COMMIT" | cut -c1-7)"
+    echo ""
+    read -p "Continue updating prod anyway? (y/N) " -r
+    if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
+      echo "Aborted. Update dev first: cd $DEV_DIR && bash vm_deployment/update_dev.sh"
+      exit 0
+    fi
+  else
+    ok "Dev clone matches origin/main — safe to proceed"
+  fi
+fi
+
+# ── 1. Pull latest main ──
+BEFORE=$(git rev-parse --short HEAD)
+info "Pulling latest from origin/main..."
+git pull origin main --ff-only
+AFTER=$(git rev-parse --short HEAD)
+
+if [ "$BEFORE" = "$AFTER" ]; then
+  ok "Already up to date ($AFTER)"
+else
+  ok "Updated: $BEFORE → $AFTER"
+fi
+
+# ── 2. Rebuild production containers ──
+info "Rebuilding production containers..."
+docker compose up -d --build
+ok "Production stack rebuilt"
+
+# ── 3. Health check ──
+echo ""
+info "Waiting 10s for containers to start..."
+sleep 10
+
+info "Health check:"
+if curl -fsS http://127.0.0.1:8000/api/health | head -c 200; then
+  echo ""
+  ok "PRODUCTION is healthy at https://noc-configmaker.nxlink.com"
+else
+  echo ""
+  err "Health check failed! Check logs:"
+  echo "  docker compose logs -f"
+fi
+
+echo ""
+echo "=========================================="
+ok "Production update complete ($(git rev-parse --short HEAD))"
+echo "=========================================="

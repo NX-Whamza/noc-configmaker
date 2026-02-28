@@ -245,4 +245,4 @@ curl -fsS "${UPSTREAM_URL}/api/health" | head -c 200 || warn "Upstream not reach
 
 echo ""
 info "To start the dev stack:"
-echo "  cd ~/noc-configmaker && docker compose -f docker-compose.dev.yml --env-file .env.dev up -d --build"
+echo "  cd ~/noc-configmaker-dev && docker compose up -d --build"
