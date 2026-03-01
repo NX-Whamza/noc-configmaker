@@ -5488,14 +5488,21 @@ Port Roles:
             
             # STEP 4: Build policy-compliant mapping based on interface purpose
             mapping = {}
-            purpose_counters = {
-                'switch': 0,
-                'olt': 0,
-                'backhaul': 0,
-                'lte': 0,
-                'tarana': 0,
-                'unknown': 0
-            }
+            used_targets = set()  # CRITICAL: Track globally assigned target ports to prevent collisions
+            
+            # QSFP ports available as last-resort overflow when SFP28 pool exhausted
+            qsfp_overflow = [p for p in target_ports if p.startswith('qsfp') and p != mgmt_port]
+            
+            def _assign_next_available(pool):
+                """Find next available port from pool that's not already assigned."""
+                for p in pool:
+                    if p not in used_targets:
+                        return p
+                # Fallback: try QSFP overflow ports
+                for p in qsfp_overflow:
+                    if p not in used_targets:
+                        return p
+                return None
             
             # Sort used interfaces to ensure consistent mapping (ether ports first, then SFP ports)
             def interface_sort_key(iface):
@@ -5569,8 +5576,9 @@ Port Roles:
                 if m_sfp28:
                     n = int(m_sfp28.group(1))
                     candidate = f"sfp-sfpplus{n}"
-                    if candidate in target_ports and candidate not in mapping.values():
+                    if candidate in target_ports and candidate not in mapping.values() and candidate not in used_targets:
                         mapping[src] = candidate
+                        used_targets.add(candidate)
                         print(f"[INTERFACE MAPPING] {src} → {candidate} (preserve index)")
                         continue
 
@@ -5578,76 +5586,51 @@ Port Roles:
                 if m_sfpplus:
                     n = int(m_sfpplus.group(1))
                     candidate = f"sfp28-{n}"
-                    if candidate in target_ports and candidate not in mapping.values():
+                    if candidate in target_ports and candidate not in mapping.values() and candidate not in used_targets:
                         mapping[src] = candidate
+                        used_targets.add(candidate)
                         print(f"[INTERFACE MAPPING] {src} → {candidate} (preserve index)")
                         continue
                 
                 # Map based on purpose according to policy
                 if purpose == 'backhaul':
-                    # Backhauls start at sfp28-4, then sfp28-5, then sfp28-9+
-                    if purpose_counters['backhaul'] < len(policy_ports['backhaul']):
-                        dst = policy_ports['backhaul'][purpose_counters['backhaul']]
+                    dst = _assign_next_available(policy_ports['backhaul'])
+                    if dst:
                         mapping[src] = dst
+                        used_targets.add(dst)
                         print(f"[INTERFACE MAPPING] {src} → {dst} (BACKHAUL: '{comment}' → policy port)")
-                        purpose_counters['backhaul'] += 1
-                    else:
-                        # Fallback to unknown ports if backhaul ports exhausted
-                        if purpose_counters['unknown'] < len(policy_ports['unknown']):
-                            dst = policy_ports['unknown'][purpose_counters['unknown']]
-                            mapping[src] = dst
-                            print(f"[INTERFACE MAPPING] {src} → {dst} (BACKHAUL fallback: '{comment}')")
-                            purpose_counters['unknown'] += 1
                     continue
                 
                 elif purpose == 'olt':
-                    # OLT: Use switch ports (sfp28-1-2) or sfp28-3
-                    if purpose_counters['olt'] < len(policy_ports['olt']):
-                        dst = policy_ports['olt'][purpose_counters['olt']]
+                    dst = _assign_next_available(policy_ports['olt'])
+                    if dst:
                         mapping[src] = dst
+                        used_targets.add(dst)
                         print(f"[INTERFACE MAPPING] {src} → {dst} (OLT: '{comment}' → policy port)")
-                        purpose_counters['olt'] += 1
-                    else:
-                        # Fallback to unknown ports
-                        if purpose_counters['unknown'] < len(policy_ports['unknown']):
-                            dst = policy_ports['unknown'][purpose_counters['unknown']]
-                            mapping[src] = dst
-                            print(f"[INTERFACE MAPPING] {src} → {dst} (OLT fallback: '{comment}')")
-                            purpose_counters['unknown'] += 1
                     continue
                 
                 elif purpose == 'switch':
-                    # Switches: sfp28-1, sfp28-2
-                    if purpose_counters['switch'] < len(policy_ports['switch']):
-                        dst = policy_ports['switch'][purpose_counters['switch']]
+                    dst = _assign_next_available(policy_ports['switch'])
+                    if dst:
                         mapping[src] = dst
+                        used_targets.add(dst)
                         print(f"[INTERFACE MAPPING] {src} → {dst} (SWITCH: '{comment}' → policy port)")
-                        purpose_counters['switch'] += 1
-                    else:
-                        # Fallback to unknown ports
-                        if purpose_counters['unknown'] < len(policy_ports['unknown']):
-                            dst = policy_ports['unknown'][purpose_counters['unknown']]
-                            mapping[src] = dst
-                            print(f"[INTERFACE MAPPING] {src} → {dst} (SWITCH fallback: '{comment}')")
-                            purpose_counters['unknown'] += 1
                     continue
                 
                 elif purpose == 'lte':
-                    # LTE: sfp28-6
-                    if purpose_counters['lte'] < len(policy_ports['lte']):
-                        dst = policy_ports['lte'][purpose_counters['lte']]
+                    dst = _assign_next_available(policy_ports['lte'])
+                    if dst:
                         mapping[src] = dst
+                        used_targets.add(dst)
                         print(f"[INTERFACE MAPPING] {src} → {dst} (LTE: '{comment}' → policy port)")
-                        purpose_counters['lte'] += 1
                     continue
                 
                 elif purpose == 'tarana':
-                    # Tarana: sfp28-6, sfp28-7, sfp28-8
-                    if purpose_counters['tarana'] < len(policy_ports['tarana']):
-                        dst = policy_ports['tarana'][purpose_counters['tarana']]
+                    dst = _assign_next_available(policy_ports['tarana'])
+                    if dst:
                         mapping[src] = dst
+                        used_targets.add(dst)
                         print(f"[INTERFACE MAPPING] {src} → {dst} (TARANA: '{comment}' → policy port)")
-                        purpose_counters['tarana'] += 1
                     continue
                 
                 # For unknown purpose or ether ports: map sequentially
@@ -5665,19 +5648,26 @@ Port Roles:
                             # Map ether2+ sequentially to available SFP ports
                             # ether2 → first SFP port, ether3 → second SFP port, etc.
                             ether_offset = ether_num - 2  # ether2 = offset 0, ether3 = offset 1, etc.
+                            dst = None
                             if ether_offset < len(policy_ports['unknown']):
-                                dst = policy_ports['unknown'][ether_offset]
+                                candidate = policy_ports['unknown'][ether_offset]
+                                if candidate not in used_targets:
+                                    dst = candidate
+                            # If preferred offset slot is taken, find next available
+                            if not dst:
+                                dst = _assign_next_available(policy_ports['unknown'])
+                            if dst:
                                 mapping[src] = dst
-                                print(f"[INTERFACE MAPPING] {src} → {dst} (ether{ether_num} → SFP port {ether_offset+1} for device migration)")
-                                purpose_counters['unknown'] = max(purpose_counters['unknown'], ether_offset + 1)
+                                used_targets.add(dst)
+                                print(f"[INTERFACE MAPPING] {src} → {dst} (ether{ether_num} → SFP port for device migration)")
                             continue
                 
-                # Legacy SFP ports or unknown: map to unknown ports
-                if purpose_counters['unknown'] < len(policy_ports['unknown']):
-                    dst = policy_ports['unknown'][purpose_counters['unknown']]
+                # Legacy SFP ports or unknown: map to next available target port
+                dst = _assign_next_available(policy_ports['unknown'])
+                if dst:
                     mapping[src] = dst
+                    used_targets.add(dst)
                     print(f"[INTERFACE MAPPING] {src} → {dst} (unknown/legacy: '{comment}')")
-                    purpose_counters['unknown'] += 1
             
             if not mapping:
                 print(f"[INTERFACE MAPPING] No mappings needed - all interfaces already match target device")
@@ -5722,8 +5712,15 @@ Port Roles:
                 # Convert old SFP ports (sfp1, sfp2, etc.) to target format
                 if target_port_prefix in ['sfp28', 'sfp-sfpplus']:
                     for i in range(1, 5):
-                        old_pattern = rf"(?<![A-Za-z0-9_-])sfp{i}(?![A-Za-z0-9_-])"
+                        # Skip if this source sfp port was already mapped (prevents collision
+                        # with ports assigned to other source interfaces like ether2→sfp28-1)
+                        if f"sfp{i}" in mapping:
+                            continue
                         new_port = f"sfp-sfpplus{i}" if target_port_prefix == 'sfp-sfpplus' else f"sfp28-{i}"
+                        # Only normalize if target port isn't already claimed
+                        if new_port in used_targets:
+                            continue
+                        old_pattern = rf"(?<![A-Za-z0-9_-])sfp{i}(?![A-Za-z0-9_-])"
                         text = re.sub(old_pattern, new_port, text)
 
             # If target doesn't have QSFP ports, strip qsfp* interface lines (common on CCR2216 exports).
@@ -6028,20 +6025,121 @@ Port Roles:
             source_ports = source_device_info.get('ports', [])
             mgmt_port = target_device_info.get('management', '')
             
+            # Determine if hardware changed (different port layout between source and target)
+            hardware_changed = set(source_ports or []) != set(target_ports or [])
+            
             if target_ports and source_ports:
-                if strict_preserve:
-                    print(f"[INTERFACE] strict_preserve: defer mapping ({len(source_ports)} source -> {len(target_ports)} target ports)")
+                # CRITICAL FIX: Interface mapping MUST run even in strict_preserve mode
+                # when hardware changes (e.g., CCR1072→CCR2216 has completely different port layout).
+                # Without this, ether2-12/sfp1-4 names stay in the config but don't exist on the target.
+                if strict_preserve and not hardware_changed:
+                    print(f"[INTERFACE] strict_preserve: same hardware - skipping mapping")
                 else:
-                    print(f"[INTERFACE] Dynamic mapping: {len(source_ports)} source -> {len(target_ports)} target ports")
+                    if strict_preserve:
+                        print(f"[INTERFACE] strict_preserve + HARDWARE CHANGE: mapping REQUIRED ({len(source_ports)} source -> {len(target_ports)} target ports)")
+                    else:
+                        print(f"[INTERFACE] Dynamic mapping: {len(source_ports)} source -> {len(target_ports)} target ports")
                     translated = map_interfaces_dynamically(translated, source_ports, target_ports, mgmt_port, target_device_info.get('type',''))
             
-            # 7. Postprocessing (non-strict mode only).
-            # Strict mode is intended for "Upgrade Existing": preserve structure and lines exactly.
-            if (not strict_preserve) and target_version.startswith('7.'):
-                translated = postprocess_to_v7(translated, target_version)
+            # --- Helper: firmware-version-aware speed format conversion ---
+            def _convert_speed_format_strict(text_in, tgt_version):
+                """Convert speed= format for target firmware version (essential even in strict mode)."""
+                vp = tgt_version.split('.')
+                maj = int(vp[0]) if len(vp) > 0 and vp[0].isdigit() else 7
+                mnr = int(vp[1]) if len(vp) > 1 and vp[1].isdigit() else 16
+                if maj == 7 and mnr < 16:
+                    text_in = re.sub(r'\bspeed=10G-baseSR-LR\b', 'speed=10Gbps', text_in)
+                    text_in = re.sub(r'\bspeed=10G-baseCR\b', 'speed=10Gbps', text_in)
+                    text_in = re.sub(r'\bspeed=1G-baseT-full\b', 'speed=1Gbps', text_in)
+                    text_in = re.sub(r'\bspeed=100M-baseT-full\b', 'speed=100Mbps', text_in)
+                    text_in = re.sub(r'\bspeed=25G-baseR\b', 'speed=25Gbps', text_in)
+                    print(f"[SPEED] Strict mode: converted to legacy speed format for ROS {tgt_version}")
+                elif maj == 7 and mnr >= 16:
+                    text_in = re.sub(r'\bspeed=10Gbps\b', 'speed=10G-baseSR-LR', text_in)
+                    text_in = re.sub(r'\bspeed=1Gbps\b', 'speed=1G-baseT-full', text_in)
+                    text_in = re.sub(r'\bspeed=100Mbps\b', 'speed=100M-baseT-full', text_in)
+                    text_in = re.sub(r'\bspeed=25Gbps\b', 'speed=25G-baseR', text_in)
+                    print(f"[SPEED] Strict mode: converted to new speed format for ROS {tgt_version}")
+                return text_in
+
+            # --- Helper: adjust speed for port hardware type (copper vs optical) ---
+            def _adjust_speed_for_port_type(text_in, tgt_ports):
+                """After interface mapping, copper speeds (baseT) are invalid on SFP28/optical ports.
+                Convert them to appropriate optical speeds or remove invalid entries."""
+                sfp28_set = set(p for p in tgt_ports if p.startswith('sfp28-'))
+                sfp_sfpplus_set = set(p for p in tgt_ports if p.startswith('sfp-sfpplus'))
+                optical_ports = sfp28_set | sfp_sfpplus_set
+                if not optical_ports:
+                    return text_in
+
+                lines = text_in.splitlines()
+                result = []
+                in_eth_section = False
+                fixed_count = 0
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped.startswith('/'):
+                        in_eth_section = (stripped == '/interface ethernet')
+                        result.append(line)
+                        continue
+                    if in_eth_section:
+                        dm = re.search(r'default-name=([^\s\]]+)', line)
+                        port_name = dm.group(1) if dm else None
+                        if port_name and port_name in optical_ports:
+                            # Replace copper-only speeds with optical speeds
+                            if 'baseT' in line or 'baseTX' in line:
+                                orig = line
+                                line = re.sub(r'\bspeed=1G-baseT-full\b', 'speed=10G-baseSR-LR', line)
+                                line = re.sub(r'\bspeed=100M-baseT-full\b', 'speed=10G-baseSR-LR', line)
+                                line = re.sub(r'\bspeed=1G-baseTX\b', 'speed=10G-baseSR-LR', line)
+                                if line != orig:
+                                    fixed_count += 1
+                            # Also fix legacy copper formats on optical ports
+                            if re.search(r'\bspeed=1Gbps\b', line):
+                                line = re.sub(r'\bspeed=1Gbps\b', 'speed=10Gbps', line)
+                                fixed_count += 1
+                            if re.search(r'\bspeed=100Mbps\b', line):
+                                line = re.sub(r'\bspeed=100Mbps\b', 'speed=10Gbps', line)
+                                fixed_count += 1
+                    result.append(line)
+                if fixed_count:
+                    print(f"[SPEED] Adjusted {fixed_count} copper speeds to optical for SFP28/SFP+ ports")
+                return '\n'.join(result)
+
+            # --- Helper: minimal dedup for strict mode ---
+            def _minimal_dedup(text_in):
+                """Remove consecutive duplicate non-empty lines (prevents config flooding)."""
+                lines = text_in.splitlines()
+                result = []
+                prev = None
+                removed = 0
+                for line in lines:
+                    s = line.strip()
+                    if s and s == prev:
+                        removed += 1
+                        continue
+                    result.append(line)
+                    prev = s
+                if removed:
+                    print(f"[DEDUP] Strict mode: removed {removed} consecutive duplicate lines")
+                return '\n'.join(result)
+
+            # 7. Postprocessing
+            if target_version.startswith('7.'):
+                if strict_preserve:
+                    # In strict mode: run essential speed format conversion for target firmware
+                    # and hardware-type-aware speed adjustment when port types changed.
+                    translated = _convert_speed_format_strict(translated, target_version)
+                    if hardware_changed:
+                        translated = _adjust_speed_for_port_type(translated, target_ports)
+                else:
+                    translated = postprocess_to_v7(translated, target_version)
             
-            # 8. FINAL CLEANUP (non-strict mode only) - strict mode skips any line-removal logic.
-            if not strict_preserve:
+            # 8. FINAL CLEANUP
+            if strict_preserve:
+                # Minimal dedup: remove consecutive duplicate lines to prevent config flooding
+                translated = _minimal_dedup(translated)
+            else:
                 translated = final_structure_cleanup(translated, ospf_instance_name, ospf_area_name)
             
             print(f"[TRANSLATION] Intelligent translation completed")
@@ -6584,7 +6682,7 @@ Port Roles:
                                 out_lines.append(line)
                                 continue
                             # extract comment to classify
-                            cm = re.search(r'comment=([^\\s\\n"]+|"[^"]+")', line)
+                            cm = re.search(r'comment=([^\s\n"]+|"[^"]+")', line)
                             comment = cm.group(1).strip().strip('"') if cm else ''
                             if not comment and iface in ip_comment_map:
                                 comment = ip_comment_map.get(iface, '')
