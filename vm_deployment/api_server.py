@@ -5354,7 +5354,7 @@ Port Roles:
                 # Backhaul detection signals (in priority order):
                 #   1. Comment keywords: BACKHAUL, BH, TX-, KS-, IL-, state-prefix patterns
                 #   2. OSPF interface-template membership (point-to-point links)
-                #   3. /30 or /31 IP addresses on the interface (classic P2P uplinks)
+                #   3. /29, /30, or /31 IP addresses on the interface (BH / P2P uplinks)
                 #   4. BGP connection local.address bound to this interface's IP
                 #   5. MPLS LDP interface references
                 # ─────────────────────────────────────────────────────────
@@ -5390,7 +5390,9 @@ Port Roles:
                         elif 'MANAGEMENT' in comment or 'MGMT' in comment or iface.upper() == 'ETHER1':
                             roles[iface] = 'management'
 
-                    # 2. Extract IP → interface mapping and detect /30, /31 subnets
+                    # 2. Extract IP → interface mapping and detect backhaul subnets
+                    # /29 is the standard Nextlink backhaul subnet; /30 and /31 are P2P links
+                    _BACKHAUL_PREFIXES = (29, 30, 31)
                     for m in re.finditer(
                         r'add\s+[^\n]*?address=(\d+\.\d+\.\d+\.\d+)/(\d+)[^\n]*?interface=(\S+)',
                         cfg, re.MULTILINE
@@ -5398,10 +5400,10 @@ Port Roles:
                         ip, prefix, iface = m.group(1), int(m.group(2)), m.group(3)
                         iface_ips.setdefault(iface, set()).add(ip)
                         ip_to_iface[ip] = iface
-                        # /30 and /31 are classic point-to-point backhaul subnets
-                        if prefix in (30, 31) and iface not in roles:
+                        # /29, /30, /31 are backhaul subnets (NX standard BH = /29)
+                        if prefix in _BACKHAUL_PREFIXES and iface not in roles:
                             roles[iface] = 'backhaul'
-                            print(f"[ROLE DETECT] {iface} → backhaul (/{prefix} P2P subnet)")
+                            print(f"[ROLE DETECT] {iface} → backhaul (/{prefix} BH subnet)")
                     # Also match reverse order: interface= before address=
                     for m in re.finditer(
                         r'add\s+[^\n]*?interface=(\S+)[^\n]*?address=(\d+\.\d+\.\d+\.\d+)/(\d+)',
@@ -5410,9 +5412,9 @@ Port Roles:
                         iface, ip, prefix = m.group(1), m.group(2), int(m.group(3))
                         iface_ips.setdefault(iface, set()).add(ip)
                         ip_to_iface[ip] = iface
-                        if prefix in (30, 31) and iface not in roles:
+                        if prefix in _BACKHAUL_PREFIXES and iface not in roles:
                             roles[iface] = 'backhaul'
-                            print(f"[ROLE DETECT] {iface} → backhaul (/{prefix} P2P subnet)")
+                            print(f"[ROLE DETECT] {iface} → backhaul (/{prefix} BH subnet)")
 
                     # 3. OSPF interface-template references (point-to-point = backhaul)
                     for m in re.finditer(
@@ -5447,44 +5449,61 @@ Port Roles:
                 detected_roles, iface_ips = _detect_interface_roles_from_config(text)
                 print(f"[ROLE DETECT] Detected roles: {detected_roles}")
 
-                # Build policy-compliant mapping for CCR2004/CCR2216
+                # Build policy-compliant mapping for ALL routerboards dynamically
                 target_type_lower = (target_type or '').lower()
-                is_policy_target = target_type_lower in ('ccr2004', 'ccr2216')
 
-                if is_policy_target and mapping_required:
-                    # Determine port naming
-                    if len(tgt_sfp28) >= 12:
-                        port_prefix = 'sfp28-'
-                    elif len(tgt_sfp_sfpplus) >= 12:
-                        port_prefix = 'sfp-sfpplus'
-                    else:
-                        port_prefix = 'sfp28-'  # fallback
+                if mapping_required:
+                    # ── Dynamic pool builder ──────────────────────────────
+                    # Works for ANY routerboard by detecting the available
+                    # port families and building NX-policy pools from them:
+                    #   ports 1-2  → switch / OLT
+                    #   port  3    → power / UPS / ICT
+                    #   ports 4+   → backhauls (ALL backhauls start here)
+                    #
+                    # Port families tried in order of preference:
+                    #   sfp28 > sfp-sfpplus > sfp > ether (minus mgmt)
+                    # ─────────────────────────────────────────────────────
 
-                    def _pname(n):
-                        return f"{port_prefix}{n}"
+                    # Build the ordered pool of non-management, non-QSFP ports
+                    _tgt_non_mgmt = [p for p in (target_ports or []) if p != mgmt_port and not p.startswith('qsfp')]
 
-                    # NX POLICY POOLS
-                    switch_pool = [_pname(1), _pname(2)]
-                    power_pool = [_pname(3)]
-                    backhaul_pool = [_pname(i) for i in range(4, 13)]  # ports 4-12
-                    all_sfp = [_pname(i) for i in range(1, 13)]
+                    # Sort them by extracted port number so policy slots are deterministic
+                    def _port_sort_key(p):
+                        m_num = re.search(r'(\d+)$', p)
+                        return int(m_num.group(1)) if m_num else 999
 
-                    # Name translation for source → target port families
-                    def _src_to_tgt_family(src_name):
-                        """Convert source port name to target port family for comparison."""
-                        m_sfp28 = re.fullmatch(r'sfp28-(\d+)', src_name)
-                        m_sfpplus = re.fullmatch(r'sfp-sfpplus(\d+)', src_name)
-                        m_sfp = re.fullmatch(r'sfp(\d+)', src_name)
-                        m_ether = re.fullmatch(r'ether(\d+)', src_name)
-                        if m_sfp28:
-                            return int(m_sfp28.group(1))
-                        if m_sfpplus:
-                            return int(m_sfpplus.group(1))
-                        if m_sfp:
-                            return int(m_sfp.group(1))
-                        if m_ether:
-                            return int(m_ether.group(1))
-                        return None
+                    # Prefer high-speed families first
+                    _pool_sfp28     = sorted([p for p in _tgt_non_mgmt if p.startswith('sfp28-')],       key=_port_sort_key)
+                    _pool_sfpplus   = sorted([p for p in _tgt_non_mgmt if p.startswith('sfp-sfpplus')],  key=_port_sort_key)
+                    _pool_sfp       = sorted([p for p in _tgt_non_mgmt if re.match(r'^sfp\d+$', p)],    key=_port_sort_key)
+                    _pool_ether     = sorted([p for p in _tgt_non_mgmt if p.startswith('ether')],        key=_port_sort_key)
+
+                    # Pick the primary port family (the one with the most ports)
+                    _families = [
+                        ('sfp28',      _pool_sfp28),
+                        ('sfp-sfpplus', _pool_sfpplus),
+                        ('sfp',        _pool_sfp),
+                        ('ether',      _pool_ether),
+                    ]
+                    _primary_family = max(_families, key=lambda f: len(f[1]))
+                    _primary_ports = _primary_family[1]
+                    # Secondary ports = all other families concatenated
+                    _secondary_ports = []
+                    for fname, fports in _families:
+                        if fname != _primary_family[0]:
+                            _secondary_ports.extend(fports)
+
+                    # All non-mgmt ports ordered: primary first, then secondary
+                    _ordered_pool = _primary_ports + _secondary_ports
+
+                    print(f"[NX POLICY] Primary port family: {_primary_family[0]} ({len(_primary_ports)} ports), "
+                          f"secondary: {len(_secondary_ports)} ports")
+
+                    # NX POLICY POOLS — slots 1-2=switch, 3=power, 4+=backhaul
+                    # (indices are 0-based into _ordered_pool)
+                    switch_pool  = _ordered_pool[0:2]   if len(_ordered_pool) >= 2 else _ordered_pool[:]
+                    power_pool   = _ordered_pool[2:3]   if len(_ordered_pool) >= 3 else []
+                    backhaul_pool = _ordered_pool[3:]    if len(_ordered_pool) >= 4 else []
 
                     # Collect all source SFP/ether ports (excluding management) with their roles
                     src_ifaces_ordered = []
@@ -5575,33 +5594,8 @@ Port Roles:
                     if policy_mapping:
                         print(f"[NX POLICY] Applying {len(policy_mapping)} policy-enforced mappings")
                         text = _apply_mapping_everywhere(text, policy_mapping)
-                    else:
-                        # Fallback: simple family translation if no role-based remapping needed
-                        stable_mapping = None
-                        if len(src_sfp_sfpplus) >= 12 and len(tgt_sfp28) >= 12:
-                            stable_mapping = {f"sfp-sfpplus{i}": f"sfp28-{i}" for i in range(1, 13)}
-                        elif len(src_sfp28) >= 12 and len(tgt_sfp_sfpplus) >= 12:
-                            stable_mapping = {f"sfp28-{i}": f"sfp-sfpplus{i}" for i in range(1, 13)}
-                        if stable_mapping:
-                            text = _apply_mapping_everywhere(text, stable_mapping)
 
                     # Strip qsfp* interface lines if target has no QSFP ports
-                    target_has_qsfp = any(p.startswith('qsfp') for p in (target_ports or []))
-                    if not target_has_qsfp:
-                        text = re.sub(r"(?m)^\s*set\s+\[\s*find\s+default-name=qsfp[^\]]+\][^\n]*\n?", "", text)
-                    return text
-
-                # Non-policy targets: use stable index mapping as before
-                stable_mapping = None
-                if len(src_sfp_sfpplus) >= 12 and len(tgt_sfp28) >= 12:
-                    stable_mapping = {f"sfp-sfpplus{i}": f"sfp28-{i}" for i in range(1, 13)}
-                    print("[INTERFACE MAPPING] Using stable CCR->CCR2216 index mapping (sfp-sfpplusN -> sfp28-N)")
-                elif len(src_sfp28) >= 12 and len(tgt_sfp_sfpplus) >= 12:
-                    stable_mapping = {f"sfp28-{i}": f"sfp-sfpplus{i}" for i in range(1, 13)}
-                    print("[INTERFACE MAPPING] Using stable CCR2216->CCR index mapping (sfp28-N -> sfp-sfpplusN)")
-
-                if stable_mapping:
-                    text = _apply_mapping_everywhere(text, stable_mapping)
                     target_has_qsfp = any(p.startswith('qsfp') for p in (target_ports or []))
                     if not target_has_qsfp:
                         text = re.sub(r"(?m)^\s*set\s+\[\s*find\s+default-name=qsfp[^\]]+\][^\n]*\n?", "", text)
@@ -6905,33 +6899,49 @@ Port Roles:
                     seen.add(name)
                     used.append(name)
 
-            # Build mapping (policy-aware for CCR2004/CCR2216).
+            # Build mapping (policy-aware for ALL routerboards dynamically).
             mapping = {}
 
-            def _assign_ports(source_ifaces, port_pool):
-                assigned = {}
-                idx = 0
-                for iface in source_ifaces:
-                    if iface == mgmt:
-                        continue
-                    if idx < len(port_pool):
-                        assigned[iface] = port_pool[idx]
-                        idx += 1
-                return assigned
-
             target_type = (target_device_info.get('type') or '').lower()
-            if target_type in ['ccr2004', 'ccr2216']:
-                # Policy pools
-                if target_type == 'ccr2004':
-                    switch_pool = ['sfp-sfpplus1', 'sfp-sfpplus2']
-                    backhaul_pool = ['sfp-sfpplus4', 'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8',
-                                     'sfp-sfpplus9', 'sfp-sfpplus10', 'sfp-sfpplus11', 'sfp-sfpplus12', 'sfp28-1', 'sfp28-2']
-                    power_pool = ['sfp-sfpplus3']
-                else:
-                    switch_pool = ['sfp28-1', 'sfp28-2']
-                    backhaul_pool = ['sfp28-4', 'sfp28-5', 'sfp28-6', 'sfp28-7', 'sfp28-8', 'sfp28-9', 'sfp28-10', 'sfp28-11', 'sfp28-12']
-                    power_pool = ['sfp28-3']
-                # Reserve backhaul ports first so non-backhaul devices can't steal sfp28-4+
+
+            # ── Dynamic NX-policy pool builder (same logic as map_interfaces_dynamically) ──
+            # Build ordered pool from target ports: primary family first, then secondary
+            _enf_non_mgmt = [p for p in target_ports if p != mgmt and not p.startswith('qsfp')]
+
+            def _enf_sort_key(p):
+                m_num = re.search(r'(\d+)$', p)
+                return int(m_num.group(1)) if m_num else 999
+
+            _enf_sfp28   = sorted([p for p in _enf_non_mgmt if p.startswith('sfp28-')],       key=_enf_sort_key)
+            _enf_sfpplus = sorted([p for p in _enf_non_mgmt if p.startswith('sfp-sfpplus')],  key=_enf_sort_key)
+            _enf_sfp     = sorted([p for p in _enf_non_mgmt if re.match(r'^sfp\d+$', p)],    key=_enf_sort_key)
+            _enf_ether   = sorted([p for p in _enf_non_mgmt if p.startswith('ether')],        key=_enf_sort_key)
+
+            _enf_families = [
+                ('sfp28',       _enf_sfp28),
+                ('sfp-sfpplus', _enf_sfpplus),
+                ('sfp',         _enf_sfp),
+                ('ether',       _enf_ether),
+            ]
+            _enf_primary = max(_enf_families, key=lambda f: len(f[1]))
+            _enf_primary_ports = _enf_primary[1]
+            _enf_secondary = []
+            for fn, fp in _enf_families:
+                if fn != _enf_primary[0]:
+                    _enf_secondary.extend(fp)
+            _enf_ordered = _enf_primary_ports + _enf_secondary
+
+            # NX POLICY: slots 1-2=switch/OLT, 3=power, 4+=backhaul
+            switch_pool   = _enf_ordered[0:2] if len(_enf_ordered) >= 2 else _enf_ordered[:]
+            power_pool    = _enf_ordered[2:3] if len(_enf_ordered) >= 3 else []
+            backhaul_pool = _enf_ordered[3:]  if len(_enf_ordered) >= 4 else []
+
+            _has_policy_pools = len(_enf_ordered) >= 4
+            if _has_policy_pools:
+                print(f"[ENFORCE] Dynamic NX pools: switch={switch_pool}, power={power_pool}, "
+                      f"backhaul={backhaul_pool[:3]}...({len(backhaul_pool)} total)")
+
+                # Reserve backhaul ports first so non-backhaul devices can't steal them
                 backhaul_needed = 0
                 lines = text.splitlines()
                 in_eth_scan = False
@@ -7100,8 +7110,8 @@ Port Roles:
                         cleaned.append('/interface ethernet')
                         cleaned.append(f'set [ find default-name={mgmt} ] comment="Management"')
                 text = "\n".join(cleaned)
-            else:
-                # Default: map only invalid interfaces in order
+            if not _has_policy_pools:
+                # Fallback for very small devices: map only invalid interfaces in order
                 pool_idx = 0
                 for name in used:
                     if name == mgmt:
