@@ -9588,7 +9588,7 @@ show mac address-table | include &lt;mac&gt;</div>
         }
 
         // 6GHz Switch Config OUT-OF-STATE Generator - Simple bridge/VLAN setup
-        function generate6GhzOutstateConfig() {
+        async function generate6GhzOutstateConfig() {
             try {
                 const switchType = document.getElementById('ghz_outstate_switch_type').value;
                 const routerOSVersion = document.getElementById('ghz_outstate_routeros_version').value;
@@ -9707,6 +9707,30 @@ show mac address-table | include &lt;mac&gt;</div>
                     config += `add bridge=bridge3000 ingress-filtering=no interface=vlan3000-bonding1 internal-path-cost=10 path-cost=10\n`;
                     config += `add bridge=bridge1000 ingress-filtering=no interface=vlan1000-bonding1 internal-path-cost=10 path-cost=10\n`;
                     config += `add bridge=bridge2000 ingress-filtering=no interface=vlan2000-bonding1 internal-path-cost=10 path-cost=10\n\n`;
+                }
+
+                // ========================================
+                // DYNAMIC COMPLIANCE FROM GITLAB
+                // ========================================
+                // Use backend /api/apply-compliance for verbatim GitLab compliance injection
+                const beforeOutstateCompliance = config;
+                config = await applyBackendCompliance(config, '10.0.0.1');
+                if (config !== beforeOutstateCompliance) {
+                    console.log('[6GHZ-OUTSTATE] Verbatim GitLab compliance applied via backend');
+                } else {
+                    // Fallback: try parsed compliance blocks
+                    const outstateBlocks = await fetchComplianceBlocks('10.0.0.1');
+                    if (outstateBlocks) {
+                        config += '# Set LoopIP for compliance block references\n';
+                        config += ':global LoopIP "10.0.0.1"\n';
+                        config += ':global curDate [/system clock get date]\n';
+                        config += ':global curTime [/system clock get time]\n';
+                        config += ':global CurDT ($curDate . " " . $curTime)\n\n';
+                        config = appendComplianceBlocks(config, outstateBlocks, SWITCH_COMPLIANCE_BLOCKS);
+                        console.log('[6GHZ-OUTSTATE] Parsed compliance blocks applied (verbatim unavailable)');
+                    } else {
+                        console.warn('[6GHZ-OUTSTATE] Compliance blocks unavailable - config generated without compliance overlay');
+                    }
                 }
 
                 // Display configuration
