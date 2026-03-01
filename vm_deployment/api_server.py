@@ -4415,6 +4415,7 @@ Port Roles:
                 text = re.sub(r'\bspeed=10G-baseCR\b', 'speed=10Gbps', text)
                 text = re.sub(r'\bspeed=1G-baseT-full\b', 'speed=1Gbps', text)
                 text = re.sub(r'\bspeed=100M-baseT-full\b', 'speed=100Mbps', text)
+                text = re.sub(r'\bspeed=25G-baseR\b', 'speed=25Gbps', text)
                 print(f"[FIRMWARE] RouterOS {target_version} uses legacy speed format (XGbps)")
             elif major == 7 and minor >= 16:
                 # For 7.16+: Convert old format to new format
@@ -4422,6 +4423,7 @@ Port Roles:
                 text = re.sub(r'\bspeed=10G-baseCR\b', 'speed=10G-baseSR-LR', text)
                 text = re.sub(r'\bspeed=1Gbps\b', 'speed=1G-baseT-full', text)
                 text = re.sub(r'\bspeed=100Mbps\b', 'speed=100M-baseT-full', text)
+                text = re.sub(r'\bspeed=25Gbps\b', 'speed=25G-baseR', text)
                 print(f"[FIRMWARE] RouterOS {target_version} uses new speed format (XG-baseX)")
 
 
@@ -5433,10 +5435,10 @@ Port Roles:
             
             print(f"[INTERFACE MAPPING] Found {len(used)} unique interfaces in config: {', '.join(used[:10])}{'...' if len(used) > 10 else ''}")
             
-            # Prepare target port sequence excluding management if present
+            # Prepare target port sequence excluding management and QSFP ports
+            # (QSFP ports are reserved for overflow via _assign_next_available fallback)
             target_seq = [p for p in target_ports if p != mgmt_port]
-            # Prefer SFP28 on CCR2216 (no qsfp28 usage)
-            target_seq = [p for p in target_seq if not p.startswith('qsfp28')]
+            target_seq = [p for p in target_seq if not p.startswith('qsfp')]
             
             # STEP 3: Build policy-compliant port assignments for CCR2216 (sfp28- ports)
             # Policy: sfp28-1-2=switches, sfp28-4+=backhauls, sfp28-6=LTE, sfp28-6-8=Tarana, sfp28-9+=additional backhauls
@@ -5552,6 +5554,7 @@ Port Roles:
                 # Skip if interface is already in target format (already correct)
                 if src in target_ports:
                     print(f"[INTERFACE MAPPING] Skipping {src} (already in target format)")
+                    used_targets.add(src)  # Reserve so nothing else maps onto this port
                     continue
                 
                 # Skip management port mapping unless target device has only 1 ethernet port (like CCR2004, CCR2216)
@@ -5668,7 +5671,23 @@ Port Roles:
                     mapping[src] = dst
                     used_targets.add(dst)
                     print(f"[INTERFACE MAPPING] {src} → {dst} (unknown/legacy: '{comment}')")
+                else:
+                    print(f"[INTERFACE MAPPING] WARNING: No target port available for {src} - port exhaustion!")
             
+            # Check for unmapped source interfaces (port exhaustion warning)
+            unmapped = [s for s in sorted_used if s not in mapping and s not in target_ports and s != mgmt_port and not s.startswith('qsfp')]
+            if unmapped:
+                print(f"[INTERFACE MAPPING] ⚠ PORT EXHAUSTION: {len(unmapped)} source interfaces have no target port: {unmapped}")
+                # Comment out lines referencing unmapped ports so config doesn't break
+                for orphan in unmapped:
+                    # Add warning comment before lines referencing this orphan interface
+                    text = re.sub(
+                        rf"(?m)^(.*(?<![A-Za-z0-9_-]){re.escape(orphan)}(?![A-Za-z0-9_-]).*)$",
+                        rf"# WARNING: {orphan} has no equivalent port on target device\n# \1",
+                        text
+                    )
+                    print(f"[INTERFACE MAPPING] Commented out references to unmapped port {orphan}")
+
             if not mapping:
                 print(f"[INTERFACE MAPPING] No mappings needed - all interfaces already match target device")
                 # Still do port name normalization
@@ -6128,12 +6147,14 @@ Port Roles:
             if target_version.startswith('7.'):
                 if strict_preserve:
                     # In strict mode: run essential speed format conversion for target firmware
-                    # and hardware-type-aware speed adjustment when port types changed.
                     translated = _convert_speed_format_strict(translated, target_version)
-                    if hardware_changed:
-                        translated = _adjust_speed_for_port_type(translated, target_ports)
                 else:
                     translated = postprocess_to_v7(translated, target_version)
+                # Fix copper speeds on optical ports for ALL modes when hardware changed.
+                # After interface mapping, ether (copper) ports may have been remapped to
+                # SFP28/SFP+ (optical) ports — speed=1G-baseT-full is invalid on optical.
+                if hardware_changed:
+                    translated = _adjust_speed_for_port_type(translated, target_ports)
             
             # 8. FINAL CLEANUP
             if strict_preserve:
@@ -6836,7 +6857,7 @@ Port Roles:
             def _remap_iface_params(line: str) -> str:
                 def _repl(m):
                     return m.group(1) + _map_iface_list(m.group(2))
-                line = re.sub(r'(\\binterfaces?=)([^\\s]+)', _repl, line)
+                line = re.sub(r'(\binterfaces?=)([^\s]+)', _repl, line)
                 return line
 
             remapped_lines = []
