@@ -8590,14 +8590,26 @@ def get_syntax_rules(target_version):
 
 
 # ========================================
-# COMPLIANCE SECTION STRIPPING
+# COMPLIANCE SECTION STRIPPING — DYNAMIC
 # ========================================
-# These RouterOS section headers are FULLY managed by the compliance script.
-# Their content in the source config will be replaced by the GitLab compliance
-# version, so we strip them before appending compliance to avoid duplication.
+# The compliance script (TX-ARv2.rsc from GitLab, or the hardcoded fallback)
+# manages specific RouterOS sections.  We need to strip those sections from
+# the source config BEFORE appending the compliance script, otherwise the
+# source's version duplicates the compliance version.
+#
+# **Dynamic extraction** — The primary approach is to PARSE whatever
+# compliance text we actually have (GitLab verbatim or fallback blocks)
+# and extract the RouterOS section headers it contains.  This way, when
+# engineering adds or removes sections from the GitLab compliance script
+# the stripping automatically adapts — no code changes needed.
+#
+# The hardcoded lists below serve ONLY as a last-resort fallback when
+# neither GitLab nor the fallback compliance blocks are available (rare).
 
-# Sections that get ENTIRELY stripped (header + all add/set/rem lines until next section)
-_COMPLIANCE_STRIP_SECTIONS = [
+# ---------------------------------------------------------------------------
+# Hardcoded fallback strip list (used ONLY when dynamic extraction fails)
+# ---------------------------------------------------------------------------
+_COMPLIANCE_STRIP_SECTIONS_FALLBACK = [
     '/ip firewall filter',
     '/ip firewall raw',
     '/ip firewall nat',
@@ -8630,14 +8642,91 @@ _COMPLIANCE_STRIP_SECTIONS = [
     '/ip socks',
 ]
 
-# Address-list names managed by compliance (only these get stripped from /ip firewall address-list)
-_COMPLIANCE_MANAGED_LISTS = {
+_COMPLIANCE_MANAGED_LISTS_FALLBACK = {
     'EOIP-ALLOW', 'managerIP', 'BGP-ALLOW', 'SNMP', 'WALLED-GARDEN',
     'WLED-GARDEN', 'allowed-ips', 'blacklist', 'whitelist',
 }
 
+# Sections where compliance does TARGETED modifications only (set [find ..])
+# and must NOT be fully stripped because they contain site-specific entries.
+_COMPLIANCE_TARGETED_ONLY_SECTIONS = {
+    '/interface bridge port',     # compliance: set [find interface~"vpls"] edge=yes
+    '/ip dhcp-server network',    # compliance: set [find where address !~ "^10\\"] ...
+}
 
-def _strip_compliance_managed_sections(config: str) -> str:
+
+def _extract_compliance_managed_sections(compliance_text: str):
+    """Parse compliance script text to dynamically discover which RouterOS
+    sections and address-list names it manages.
+
+    This is the heart of dynamic compliance stripping: instead of a hardcoded
+    list we parse the actual compliance script (from GitLab or the fallback
+    blocks) and extract every RouterOS section header (lines starting with
+    ``/``) plus every ``list=<name>`` token inside ``/ip firewall address-list``
+    blocks.
+
+    Sections in ``_COMPLIANCE_TARGETED_ONLY_SECTIONS`` are excluded because
+    compliance only makes conditional/filtered modifications there — stripping
+    the whole section would destroy site-specific entries.
+
+    Returns:
+        (strip_sections: set[str], managed_address_lists: set[str])
+    """
+    sections = set()
+    address_lists = set()
+    targeted_lower = {s.lower() for s in _COMPLIANCE_TARGETED_ONLY_SECTIONS}
+
+    in_addr_list_block = False
+
+    for line in compliance_text.splitlines():
+        stripped = line.strip()
+
+        # Skip comments, empty lines, variable declarations
+        if not stripped or stripped.startswith('#') or stripped.startswith(':'):
+            continue
+
+        # RouterOS section headers start with /
+        if stripped.startswith('/'):
+            # Extract just the section path (strip any inline add/set/rem/find on same line)
+            section = stripped
+            # If there's an inline command on the same line, extract just the path
+            for marker in [' add ', ' set ', ' rem ', ' :foreach', '\nadd', '\nset']:
+                idx = section.find(marker)
+                if idx > 0:
+                    section = section[:idx]
+                    break
+            section = section.strip()
+
+            # Track whether we're inside a /ip firewall address-list block
+            if section.lower() == '/ip firewall address-list':
+                in_addr_list_block = True
+                # Don't add to strip-sections (address-list has special handling)
+                continue
+            else:
+                in_addr_list_block = False
+
+            # Skip targeted-only sections
+            if section.lower() in targeted_lower:
+                continue
+
+            sections.add(section)
+            continue
+
+        # Extract address-list names from add/rem lines inside address-list blocks
+        # Also catch :foreach cleanup lines with list=<name>
+        list_matches = re.findall(r'\blist=([\w-]+)', stripped)
+        for name in list_matches:
+            if name:
+                address_lists.add(name)
+
+    return sections, address_lists
+
+
+def _strip_compliance_managed_sections(
+    config: str,
+    strip_sections: set = None,
+    managed_lists: set = None,
+) -> str:
     """Strip sections from config that the compliance script will replace.
 
     This prevents duplication when the compliance script is appended: the
@@ -8651,19 +8740,33 @@ def _strip_compliance_managed_sections(config: str) -> str:
     For /ip firewall address-list, only entries with compliance-managed list
     names are stripped; site-specific lists (bgp-networks, customer lists)
     are preserved.
+
+    Args:
+        config: Full RouterOS config text.
+        strip_sections: *Dynamic* set of RouterOS section paths to strip.
+            When ``None`` (rare fallback), the hardcoded
+            ``_COMPLIANCE_STRIP_SECTIONS_FALLBACK`` is used.
+        managed_lists: *Dynamic* set of address-list names to strip.
+            When ``None`` (rare fallback), the hardcoded
+            ``_COMPLIANCE_MANAGED_LISTS_FALLBACK`` is used.
     """
     lines = config.split('\n')
     result = []
     in_stripped_section = False
     in_address_list_section = False
-    stripped_sections = set()
+    stripped_sections_log = set()
     stripped_lines = 0
     stripped_addr_list_entries = 0
 
-    # Normalize strip headers for matching (lowercase, collapsed whitespace)
-    strip_set = set()
-    for s in _COMPLIANCE_STRIP_SECTIONS:
-        strip_set.add(s.lower().strip())
+    # Resolve effective strip sets (dynamic first, hardcoded fallback)
+    if strip_sections is not None:
+        strip_set = {s.lower().strip() for s in strip_sections}
+        source_label = 'dynamic'
+    else:
+        strip_set = {s.lower().strip() for s in _COMPLIANCE_STRIP_SECTIONS_FALLBACK}
+        source_label = 'hardcoded-fallback'
+
+    effective_lists = managed_lists if managed_lists is not None else _COMPLIANCE_MANAGED_LISTS_FALLBACK
 
     for line in lines:
         stripped = line.strip()
@@ -8690,7 +8793,7 @@ def _strip_compliance_managed_sections(config: str) -> str:
                 if ' add ' in lower or ' rem ' in lower:
                     # Check if it's a managed list
                     list_match = re.search(r'\blist=(\S+)', stripped)
-                    if list_match and list_match.group(1) in _COMPLIANCE_MANAGED_LISTS:
+                    if list_match and list_match.group(1) in effective_lists:
                         stripped_addr_list_entries += 1
                         continue  # Skip this managed entry
                 result.append(line)
@@ -8698,7 +8801,7 @@ def _strip_compliance_managed_sections(config: str) -> str:
             elif is_managed:
                 in_stripped_section = True
                 in_address_list_section = False
-                stripped_sections.add(matched_section)
+                stripped_sections_log.add(matched_section)
                 # Check for inline commands on same line as header
                 # e.g., "/ip service set telnet disabled=yes" — strip entire line
                 stripped_lines += 1
@@ -8719,7 +8822,7 @@ def _strip_compliance_managed_sections(config: str) -> str:
         if in_address_list_section:
             if stripped.startswith('add ') or stripped.startswith('rem '):
                 list_match = re.search(r'\blist=(\S+)', stripped)
-                if list_match and list_match.group(1) in _COMPLIANCE_MANAGED_LISTS:
+                if list_match and list_match.group(1) in effective_lists:
                     stripped_addr_list_entries += 1
                     continue  # Skip this managed entry
             result.append(line)
@@ -8728,11 +8831,11 @@ def _strip_compliance_managed_sections(config: str) -> str:
         # Normal line — keep it
         result.append(line)
 
-    if stripped_sections:
-        print(f"[COMPLIANCE-STRIP] Stripped {len(stripped_sections)} compliance-managed sections "
-              f"({stripped_lines} lines): {', '.join(sorted(stripped_sections))}")
+    if stripped_sections_log:
+        print(f"[COMPLIANCE-STRIP] [{source_label}] Stripped {len(stripped_sections_log)} compliance-managed sections "
+              f"({stripped_lines} lines): {', '.join(sorted(stripped_sections_log))}")
     if stripped_addr_list_entries:
-        print(f"[COMPLIANCE-STRIP] Stripped {stripped_addr_list_entries} managed address-list entries "
+        print(f"[COMPLIANCE-STRIP] [{source_label}] Stripped {stripped_addr_list_entries} managed address-list entries "
               f"(preserved site-specific lists)")
 
     return '\n'.join(result)
@@ -8771,13 +8874,43 @@ def inject_compliance_blocks(config: str, compliance_blocks: dict, loopback_ip: 
         print("[COMPLIANCE] Compliance section already exists, skipping duplicate injection")
         return config
 
-    # ── 0. Strip compliance-managed sections from source config ──
-    # This prevents duplication: source firewall/logging/SNMP/users/etc.
-    # are removed and replaced by the authoritative GitLab compliance version.
-    config = _strip_compliance_managed_sections(config)
-
-    # ── 1. Try verbatim GitLab text (preserves everything word-for-word) ──
+    # ── 0. Obtain the compliance text we will append ──
+    # Get it FIRST so we can parse it for dynamic section extraction.
     raw_text = _get_raw_gitlab_compliance_text(loopback_ip)
+
+    # ── 1. Dynamic section extraction ──
+    # Parse the compliance text to discover which RouterOS sections and
+    # address-list names it manages.  This replaces the old hardcoded
+    # _COMPLIANCE_STRIP_SECTIONS list and adapts automatically when the
+    # GitLab compliance script changes.
+    dyn_sections = None
+    dyn_lists = None
+    compliance_text_for_parsing = raw_text
+    if not compliance_text_for_parsing and compliance_blocks:
+        # Build parseable text from fallback blocks
+        compliance_text_for_parsing = '\n'.join(v for v in compliance_blocks.values() if v)
+    if compliance_text_for_parsing:
+        dyn_sections, dyn_lists = _extract_compliance_managed_sections(compliance_text_for_parsing)
+        if dyn_sections:
+            src = 'GitLab' if raw_text else 'fallback-blocks'
+            print(f"[COMPLIANCE] Dynamic extraction ({src}): "
+                  f"{len(dyn_sections)} sections, {len(dyn_lists)} address-lists")
+            print(f"[COMPLIANCE]   sections: {', '.join(sorted(dyn_sections))}")
+            if dyn_lists:
+                print(f"[COMPLIANCE]   address-lists: {', '.join(sorted(dyn_lists))}")
+
+    # ── 2. Strip compliance-managed sections from source config ──
+    # This prevents duplication: source firewall/logging/SNMP/users/etc.
+    # are removed and replaced by the authoritative compliance version.
+    # Uses the dynamically-extracted sections when available, otherwise
+    # falls back to the hardcoded list.
+    config = _strip_compliance_managed_sections(
+        config,
+        strip_sections=dyn_sections,
+        managed_lists=dyn_lists,
+    )
+
+    # ── 3. Append compliance ──
     if raw_text:
         compliance_section = (
             "\n\n# ========================================\n"
@@ -8790,7 +8923,7 @@ def inject_compliance_blocks(config: str, compliance_blocks: dict, loopback_ip: 
         print(f"[COMPLIANCE] Injected verbatim GitLab compliance ({len(raw_text)} chars)")
         return config.rstrip() + "\n" + compliance_section
 
-    # ── 2. Fallback: reassemble from parsed blocks ──
+    # ── 4. Fallback: reassemble from parsed blocks ──
     print("[COMPLIANCE] GitLab raw text unavailable — using parsed blocks fallback")
     compliance_section = "\n\n# ========================================\n# RFC-09-10-25 COMPLIANCE STANDARDS\n# ========================================\n# Source: hardcoded fallback (GitLab unavailable)\n# ========================================\n\n"
     
