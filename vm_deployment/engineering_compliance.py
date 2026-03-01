@@ -133,17 +133,33 @@ def load_compliance_text(loopback_ip: str) -> str:
     """
     Load the full engineering compliance script for the given loopback IP.
 
-    Template source priority:
-      1. GitLab compliance repo RSC template (dynamic, TTL-cached)
-      2. Local disk RSC template (ENGINEERING_COMPLIANCE_FILE or default path)
-      3. Inline minimal default template
+    Source priority:
+      1. GitLab verbatim compliance text (get_raw_compliance_text) —
+         returns TX-ARv2.rsc word-for-word with only $LoopIP substituted
+         on operational lines.  Preserves ALL comments, section headers,
+         and inline ``comment=".."`` attributes.
+      2. GitLab RSC template (get_compliance_rsc_template) — raw text,
+         processed through __LOOP_IP__ / {{NEXTLINK_RFC_BLOCKS}} rendering.
+      3. Local disk RSC template (ENGINEERING_COMPLIANCE_FILE or default path)
+      4. Inline minimal default template
 
     Block rendering inside the template uses _render_rfc_blocks() which
     applies the same GitLab-first / hardcoded-fallback logic.
     """
-    template: str | None = None
 
-    # 1. Try GitLab RSC template
+    # 1. Try GitLab verbatim compliance text (preserves all comments)
+    if _HAS_GITLAB and _get_gitlab_loader is not None:
+        try:
+            loader = _get_gitlab_loader()
+            verbatim = loader.get_raw_compliance_text(loopback_ip=loopback_ip)
+            if verbatim and verbatim.strip():
+                print("[COMPLIANCE] Using verbatim GitLab compliance text (all comments preserved)")
+                return verbatim.strip()
+        except Exception as _exc:
+            print(f"[COMPLIANCE] GitLab verbatim compliance fetch failed: {_exc}")
+
+    # 2. Try GitLab RSC template (raw text, may need token substitution)
+    template: str | None = None
     if _HAS_GITLAB and _get_gitlab_loader is not None:
         try:
             template = _get_gitlab_loader().get_compliance_rsc_template()
@@ -151,13 +167,13 @@ def load_compliance_text(loopback_ip: str) -> str:
             print(f"[COMPLIANCE] GitLab RSC template fetch failed: {_exc}")
             template = None
 
-    # 2. Fall back to local disk template
+    # 3. Fall back to local disk template
     if not template:
         template_path = _resolve_template_path()
         if template_path.exists():
             template = template_path.read_text(encoding="utf-8")
 
-    # 3. Inline minimal default
+    # 4. Inline minimal default
     if not template:
         template = (
             "# VARIABLES\n"

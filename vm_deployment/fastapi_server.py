@@ -569,6 +569,54 @@ def ido_compliance(loopback_ip: str = "10.0.0.1"):
     return JSONResponse(content={"compliance": ido_get_compliance(loopback_ip)})
 
 
+@app.get("/api/ido/compliance/status")
+def ido_compliance_status():
+    """Diagnostic: check GitLab compliance configuration and cache state."""
+    try:
+        from gitlab_compliance import get_loader as _gl
+    except ImportError:
+        try:
+            from vm_deployment.gitlab_compliance import get_loader as _gl
+        except ImportError:
+            return JSONResponse(content={"configured": False, "detail": "gitlab_compliance module not available"})
+    loader = _gl()
+    configured = loader.is_configured()
+    info = {
+        "configured": configured,
+        "host": loader._host(),
+        "project_id": loader._project_id() or "(not set)",
+        "token_set": bool(loader._token()),
+        "ref": loader._ref(),
+        "script_path": loader._script_path(),
+        "ttl_seconds": loader._ttl(),
+        "cache": loader.cache_info(),
+    }
+    if configured:
+        info["available"] = loader.is_available()
+    return JSONResponse(content=info)
+
+
+@app.post("/api/ido/compliance/refresh")
+def ido_compliance_refresh():
+    """Clear GitLab compliance cache — next request will re-fetch from GitLab."""
+    try:
+        from gitlab_compliance import get_loader as _gl
+    except ImportError:
+        try:
+            from vm_deployment.gitlab_compliance import get_loader as _gl
+        except ImportError:
+            return JSONResponse(content={"status": "error", "detail": "gitlab_compliance module not available"}, status_code=500)
+    loader = _gl()
+    if not loader.is_configured():
+        return JSONResponse(content={
+            "status": "warning",
+            "detail": "GitLab compliance not configured (GITLAB_COMPLIANCE_TOKEN / GITLAB_COMPLIANCE_PROJECT_ID not set)"
+        })
+    loader.refresh()
+    cache = loader.cache_info()
+    return JSONResponse(content={"status": "ok", "detail": "Compliance cache cleared", "cache": cache})
+
+
 @app.post("/api/ido/render")
 def ido_render(config_type: str, payload: Dict[str, Any] = Body(default_factory=dict)):
     _require_base_config_path()

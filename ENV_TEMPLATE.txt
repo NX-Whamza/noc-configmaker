@@ -111,14 +111,12 @@ ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 # When set, compliance rules are pulled live from the GitLab netforge/compliance repo
 # and cached for GITLAB_COMPLIANCE_TTL seconds (default 15 min).
 # Falls back to hardcoded Python constants when unavailable.
-# Required:
-# GITLAB_COMPLIANCE_TOKEN=<your-personal-access-token>
-# GITLAB_COMPLIANCE_PROJECT_ID=75
-# Optional:
-# GITLAB_COMPLIANCE_HOST=tested.nxlink.com
+GITLAB_COMPLIANCE_TOKEN=CHANGE_ME
+GITLAB_COMPLIANCE_PROJECT_ID=75
+GITLAB_COMPLIANCE_HOST=tested.nxlink.com
 # Optional when API project-file endpoint is restricted/broken:
-# GITLAB_COMPLIANCE_REPO_PATH=netforge/compliance
-# GITLAB_COMPLIANCE_REF=main
-# GITLAB_COMPLIANCE_TTL=900
-# GITLAB_COMPLIANCE_SCRIPT_PATH=TX-ARv2.rsc
+GITLAB_COMPLIANCE_REPO_PATH=netforge/compliance
+GITLAB_COMPLIANCE_REF=main
+GITLAB_COMPLIANCE_TTL=900
+GITLAB_COMPLIANCE_SCRIPT_PATH=TX-ARv2.rsc
 # Also accepts full GitLab blob URLs; backend normalizes them to repo path.

@@ -50,70 +50,71 @@ set servers={COMPLIANCE_DNS_SERVERS}
 # ========================================
 # COMPLIANCE: FIREWALL ADDRESS LISTS
 # ========================================
+# Each entry is (address, comment) to match GitLab TX-ARv2.rsc format.
 COMPLIANCE_FIREWALL_ADDRESS_LISTS = {
     'EOIP-ALLOW': [
-        '10.0.0.0/8'
+        ('10.0.0.0/8', 'Internal Network'),
     ],
     'managerIP': [
-        '192.168.128.0/21',
-        '107.178.5.97',
-        '198.100.53.0/25',
-        '143.55.62.143',
-        '143.55.37.42',
-        '143.55.37.43',
-        '142.147.127.2',
-        '132.147.147.67',
-        '132.147.147.68',
-        '132.147.132.6',
-        '132.147.132.96',
-        '132.147.132.97',
-        '132.147.132.205',
-        '67.219.122.201',
-        '132.147.138.52',
-        '132.147.138.53',
-        '132.147.138.54',
-        '10.249.1.26',
-        '10.0.0.0/8'
+        ('192.168.128.0/21', 'NOC Management'),
+        ('107.178.5.97', 'NOC Monitor'),
+        ('198.100.53.0/25', 'NOC VPN'),
+        ('143.55.62.143', 'NOC Monitor'),
+        ('143.55.37.42', 'NOC Monitor'),
+        ('143.55.37.43', 'NOC Monitor'),
+        ('142.147.127.2', 'NOC Monitor'),
+        ('132.147.147.67', 'NOC Monitor'),
+        ('132.147.147.68', 'NOC Monitor'),
+        ('132.147.132.6', 'NOC Monitor'),
+        ('132.147.132.96', 'NOC Monitor'),
+        ('132.147.132.97', 'NOC Monitor'),
+        ('132.147.132.205', 'NOC Monitor'),
+        ('67.219.122.201', 'NOC Monitor'),
+        ('132.147.138.52', 'NOC Monitor'),
+        ('132.147.138.53', 'NOC Monitor'),
+        ('132.147.138.54', 'NOC Monitor'),
+        ('10.249.1.26', 'NOC Monitor'),
+        ('10.0.0.0/8', 'Internal Network'),
     ],
     'BGP-ALLOW': [
-        '10.0.0.0/8'
+        ('10.0.0.0/8', 'Internal Network'),
     ],
     'SNMP': [
-        '143.55.35.47',
-        '107.178.15.15',
-        '107.178.15.162',
-        '142.147.112.4',
-        '142.147.124.26',
-        '107.178.5.97',
-        '52.128.51.70',
-        '52.128.51.80',
-        '67.219.126.240/28',
-        '198.100.53.120',
-        '143.55.62.143',
-        '132.147.138.2',
-        '132.147.138.0',
-        '132.147.138.6',
-        '132.147.138.23',
-        '132.147.138.29',
-        '132.147.138.30',
-        '132.147.138.31',
-        '143.55.37.40',
-        '143.55.37.41',
-        '132.147.132.24',
-        '198.100.49.99',
-        '132.147.132.26',
-        '132.147.132.40',
-        '204.11.183.126',
-        '173.215.67.124',
-        '132.147.138.3',
-        '132.147.138.7',
-        '132.147.138.21',
-        '132.147.138.26'
+        ('143.55.35.47', 'SNMP Monitor'),
+        ('107.178.15.15', 'SNMP Monitor'),
+        ('107.178.15.162', 'SNMP Monitor'),
+        ('142.147.112.4', 'SNMP Monitor'),
+        ('142.147.124.26', 'SNMP Monitor'),
+        ('107.178.5.97', 'SNMP Monitor'),
+        ('52.128.51.70', 'SNMP Monitor'),
+        ('52.128.51.80', 'SNMP Monitor'),
+        ('67.219.126.240/28', 'SNMP Monitor'),
+        ('198.100.53.120', 'SNMP Monitor'),
+        ('143.55.62.143', 'SNMP Monitor'),
+        ('132.147.138.2', 'SNMP Monitor'),
+        ('132.147.138.0', 'SNMP Monitor'),
+        ('132.147.138.6', 'SNMP Monitor'),
+        ('132.147.138.23', 'SNMP Monitor'),
+        ('132.147.138.29', 'SNMP Monitor'),
+        ('132.147.138.30', 'SNMP Monitor'),
+        ('132.147.138.31', 'SNMP Monitor'),
+        ('143.55.37.40', 'SNMP Monitor'),
+        ('143.55.37.41', 'SNMP Monitor'),
+        ('132.147.132.24', 'SNMP Monitor'),
+        ('198.100.49.99', 'SNMP Monitor'),
+        ('132.147.132.26', 'SNMP Monitor'),
+        ('132.147.132.40', 'SNMP Monitor'),
+        ('204.11.183.126', 'SNMP Monitor'),
+        ('173.215.67.124', 'SNMP Monitor'),
+        ('132.147.138.3', 'SNMP Monitor'),
+        ('132.147.138.7', 'SNMP Monitor'),
+        ('132.147.138.21', 'SNMP Monitor'),
+        ('132.147.138.26', 'SNMP Monitor'),
     ]
 }
 
 def get_compliance_address_lists_block():
-    """Generate compliance firewall address-list block"""
+    """Generate compliance firewall address-list block with comments on every entry."""
     lines = ["/ip firewall address-list"]
     # Remove existing lists first using foreach to remove ALL entries (not just one)
     # RouterOS: rem [find list=X] only removes one entry, so we use foreach to remove all
@@ -122,10 +123,15 @@ def get_compliance_address_lists_block():
     lines.append(":foreach i in=[/ip firewall address-list find list=BGP-ALLOW] do={/ip firewall address-list remove $i}")
     lines.append(":foreach i in=[/ip firewall address-list find list=SNMP] do={/ip firewall address-list remove $i}")
     lines.append("")
-    # Add compliance lists
-    for list_name, addresses in COMPLIANCE_FIREWALL_ADDRESS_LISTS.items():
-        for address in addresses:
-            lines.append(f"add list={list_name} address={address}")
+    # Add compliance lists with comments
+    for list_name, entries in COMPLIANCE_FIREWALL_ADDRESS_LISTS.items():
+        for entry in entries:
+            if isinstance(entry, tuple):
+                address, comment = entry
+                lines.append(f'add list={list_name} address={address} comment="{comment}"')
+            else:
+                # Legacy plain-string format (should not occur, but handle gracefully)
+                lines.append(f"add list={list_name} address={entry}")
     return "\n".join(lines)
 
 # ========================================
