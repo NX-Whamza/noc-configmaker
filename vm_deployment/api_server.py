@@ -1677,11 +1677,15 @@ def apply_ros6_to_ros7_syntax(config_text):
     
     # Speed syntax changes — use word-boundary regex to avoid double-conversion
     # e.g., '10G-baseSR' must NOT match inside '10G-baseSR-LR' (already converted)
+    # First normalize any existing double-suffix chains (10G-baseSR-LR-LR → 10G-baseSR-LR)
+    migrated = re.sub(r'\bspeed=10G-baseSR(-LR)+\b', 'speed=10G-baseSR-LR', migrated)
+    migrated = re.sub(r'\bspeed=1G-baseT(-full)+\b', 'speed=1G-baseT-full', migrated)
+    migrated = re.sub(r'\bspeed=100M-baseT(-full)+\b', 'speed=100M-baseT-full', migrated)
     speed_changes = [
-        (r'\bspeed=10G-baseSR\b', 'speed=10G-baseSR-LR'),
-        (r'\bspeed=10G-baseCR\b', 'speed=10G-baseSR-LR'),
-        (r'\bspeed=1G-baseT\b', 'speed=1G-baseT-full'),
-        (r'\bspeed=100M-baseT\b', 'speed=100M-baseT-full'),
+        (r'\bspeed=10G-baseSR\b(?!-)', 'speed=10G-baseSR-LR'),
+        (r'\bspeed=10G-baseCR\b(?!-)', 'speed=10G-baseSR-LR'),
+        (r'\bspeed=1G-baseT\b(?!-)', 'speed=1G-baseT-full'),
+        (r'\bspeed=100M-baseT\b(?!-)', 'speed=100M-baseT-full'),
     ]
     
     for old_pattern, new_speed in speed_changes:
@@ -4406,6 +4410,10 @@ Port Roles:
             # FIRMWARE-SPECIFIC: Handle speed format based on RouterOS version
             # RouterOS 7.11.2 and earlier use speed=10Gbps, speed=1Gbps etc
             # RouterOS 7.16+ use speed=10G-baseSR-LR, speed=1G-baseT-full etc
+            # First normalize any existing double-suffix chains
+            text = re.sub(r'\bspeed=10G-baseSR(-LR)+\b', 'speed=10G-baseSR-LR', text)
+            text = re.sub(r'\bspeed=1G-baseT(-full)+\b', 'speed=1G-baseT-full', text)
+            text = re.sub(r'\bspeed=100M-baseT(-full)+\b', 'speed=100M-baseT-full', text)
             version_parts = target_version.split('.')
             major = int(version_parts[0]) if len(version_parts) > 0 and version_parts[0].isdigit() else 7
             minor = int(version_parts[1]) if len(version_parts) > 1 and version_parts[1].isdigit() else 16
@@ -4419,9 +4427,9 @@ Port Roles:
                 text = re.sub(r'\bspeed=25G-baseR\b', 'speed=25Gbps', text)
                 print(f"[FIRMWARE] RouterOS {target_version} uses legacy speed format (XGbps)")
             elif major == 7 and minor >= 16:
-                # For 7.16+: Convert old format to new format
+                # For 7.16+: Convert old format to new format (negative lookahead to prevent double-suffix)
                 text = re.sub(r'\bspeed=10Gbps\b', 'speed=10G-baseSR-LR', text)
-                text = re.sub(r'\bspeed=10G-baseCR\b', 'speed=10G-baseSR-LR', text)
+                text = re.sub(r'\bspeed=10G-baseCR\b(?!-)', 'speed=10G-baseSR-LR', text)
                 text = re.sub(r'\bspeed=1Gbps\b', 'speed=1G-baseT-full', text)
                 text = re.sub(r'\bspeed=100Mbps\b', 'speed=100M-baseT-full', text)
                 text = re.sub(r'\bspeed=25Gbps\b', 'speed=25G-baseR', text)
@@ -6394,6 +6402,8 @@ Port Roles:
                     text_in = re.sub(r'\bspeed=25G-baseR\b', 'speed=25Gbps', text_in)
                     print(f"[SPEED] Strict mode: converted to legacy speed format for ROS {tgt_version}")
                 elif maj == 7 and mnr >= 16:
+                    # Normalize any double-suffix first, then convert remaining legacy tokens
+                    text_in = re.sub(r'\bspeed=10G-baseSR(-LR)+\b', 'speed=10G-baseSR-LR', text_in)
                     text_in = re.sub(r'\bspeed=10Gbps\b', 'speed=10G-baseSR-LR', text_in)
                     text_in = re.sub(r'\bspeed=1Gbps\b', 'speed=1G-baseT-full', text_in)
                     text_in = re.sub(r'\bspeed=100Mbps\b', 'speed=100M-baseT-full', text_in)
@@ -6808,14 +6818,18 @@ Port Roles:
                 t = re.sub(r'(?m)^#\s*model\s*=.*$', f"# model ={target_model_full}", t)
 
             # Normalize legacy speed tokens for RouterOS v7 targets.
-            # Use word-boundary regex to prevent double-conversion
+            # First collapse any existing double-suffix chains
+            t = re.sub(r'\bspeed=10G-baseSR(-LR)+\b', 'speed=10G-baseSR-LR', t)
+            t = re.sub(r'\bspeed=1G-baseT(-full)+\b', 'speed=1G-baseT-full', t)
+            t = re.sub(r'\bspeed=100M-baseT(-full)+\b', 'speed=100M-baseT-full', t)
+            # Use negative lookahead to prevent matching inside already-correct tokens
             # e.g., 'speed=10G-baseSR' must NOT match inside 'speed=10G-baseSR-LR'
             if target_version.startswith('7.'):
                 t = t.replace('speed=1G-baseX', 'speed=1G-baseT-full')
-                t = re.sub(r'\bspeed=10G-baseSR\b', 'speed=10G-baseSR-LR', t)
-                t = re.sub(r'\bspeed=10G-baseCR\b', 'speed=10G-baseSR-LR', t)
-                t = re.sub(r'\bspeed=1G-baseT\b', 'speed=1G-baseT-full', t)
-                t = re.sub(r'\bspeed=100M-baseT\b', 'speed=100M-baseT-full', t)
+                t = re.sub(r'\bspeed=10G-baseSR\b(?!-)', 'speed=10G-baseSR-LR', t)
+                t = re.sub(r'\bspeed=10G-baseCR\b(?!-)', 'speed=10G-baseSR-LR', t)
+                t = re.sub(r'\bspeed=1G-baseT\b(?!-)', 'speed=1G-baseT-full', t)
+                t = re.sub(r'\bspeed=100M-baseT\b(?!-)', 'speed=100M-baseT-full', t)
 
             # Rewrite identity to match target device family (e.g., MT1036 -> MT2004).
             def _format_identity_for_set(name: str) -> str:
@@ -8588,6 +8602,8 @@ _COMPLIANCE_STRIP_SECTIONS = [
     '/ip firewall raw',
     '/ip firewall nat',
     '/ip firewall mangle',
+    '/ip firewall service-port',
+    '/ip firewall connection tracking',
     '/snmp',
     '/snmp community',
     '/system logging',
@@ -8609,6 +8625,7 @@ _COMPLIANCE_STRIP_SECTIONS = [
     '/system scheduler',
     '/system script',
     '/system watchdog',
+    '/system routerboard settings',
     '/ip proxy',
     '/ip socks',
 ]
