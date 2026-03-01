@@ -8701,6 +8701,15 @@ def _extract_compliance_managed_sections(compliance_text: str):
             if section.lower() == '/ip firewall address-list':
                 in_addr_list_block = True
                 # Don't add to strip-sections (address-list has special handling)
+                # BUT DO extract list= names from this same line — in the GitLab
+                # script every address-list command has the full path prefix, e.g.:
+                #   /ip firewall address-list add list=SNMP address=...
+                #   /ip firewall address-list rem [find list=EOIP-ALLOW]
+                # Without this, address_lists stays empty and nothing gets stripped.
+                inline_lists = re.findall(r'\blist=([\w-]+)', stripped)
+                for name in inline_lists:
+                    if name:
+                        address_lists.add(name)
                 continue
             else:
                 in_addr_list_block = False
@@ -8759,14 +8768,15 @@ def _strip_compliance_managed_sections(
     stripped_addr_list_entries = 0
 
     # Resolve effective strip sets (dynamic first, hardcoded fallback)
-    if strip_sections is not None:
+    if strip_sections is not None and strip_sections:
         strip_set = {s.lower().strip() for s in strip_sections}
         source_label = 'dynamic'
     else:
         strip_set = {s.lower().strip() for s in _COMPLIANCE_STRIP_SECTIONS_FALLBACK}
         source_label = 'hardcoded-fallback'
 
-    effective_lists = managed_lists if managed_lists is not None else _COMPLIANCE_MANAGED_LISTS_FALLBACK
+    # Use dynamic lists if provided AND non-empty, otherwise fall back to hardcoded
+    effective_lists = managed_lists if managed_lists else _COMPLIANCE_MANAGED_LISTS_FALLBACK
 
     for line in lines:
         stripped = line.strip()
