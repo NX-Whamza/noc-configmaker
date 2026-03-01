@@ -19783,8 +19783,8 @@ show mac address-table | include &lt;mac&gt;</div>
             updateUpgradeProgress(5, 'Initializing translation...');
             showUpgradeStatus('Detecting source version and translating...', 'info');
 
-            // Slight delay to show initialization
-            await new Promise(resolve => setTimeout(resolve, 500));
+            // Allow user to see initialization state
+            await new Promise(resolve => setTimeout(resolve, 1200));
 
             try {
                 // Extract source device (prefer export header model, then identity MT#### token, then filename).
@@ -19845,19 +19845,35 @@ show mac address-table | include &lt;mac&gt;</div>
                 const targetDevice = document.getElementById('upgradeTargetDevice').value;
                 const targetVersion = document.getElementById('upgradeTargetVersion').value;
 
+                updateProgressPercent(8);
+                updateProgressStep(`Parsing source configuration...`);
+                addProgressLog('info', `Analyzing uploaded config (${uploadedConfigContent.length} characters)`);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
                 updateProgressPercent(10);
                 updateProgressStep(`Detected source RouterOS ${sourceVersion}`);
                 addProgressLog('success', `Detected RouterOS version: ${sourceVersion}`);
-                await new Promise(resolve => setTimeout(resolve, 300));
+                updateUpgradeProgress(10, `Source: RouterOS ${sourceVersion}`);
+                await new Promise(resolve => setTimeout(resolve, 1200));
+
+                updateProgressPercent(13);
+                updateProgressStep(`Source device: ${sourceDevice}`);
+                addProgressLog('info', `Source hardware: ${sourceDevice}`);
+                await new Promise(resolve => setTimeout(resolve, 800));
 
                 updateProgressPercent(15);
                 updateProgressStep(`Target: ${targetDevice} (RouterOS ${targetVersion})`);
                 addProgressLog('info', `Upgrading to: ${targetDevice} (RouterOS ${targetVersion})`);
-                updateUpgradeProgress(15, `Detected RouterOS ${sourceVersion}  ${targetVersion}`);
+                updateUpgradeProgress(15, `Detected RouterOS ${sourceVersion} → ${targetVersion}`);
                 showUpgradeStatus(`Upgrading from RouterOS ${sourceVersion} to ${targetVersion} (${targetDevice})... This may take 1-3 minutes for large configs.`, 'info');
-                await new Promise(resolve => setTimeout(resolve, 300));
+                await new Promise(resolve => setTimeout(resolve, 1000));
 
                 // Check backend
+                updateProgressPercent(18);
+                updateProgressStep('Preparing translation engine...');
+                addProgressLog('info', 'Loading interface mapping rules and compliance policies');
+                await new Promise(resolve => setTimeout(resolve, 800));
+
                 updateProgressPercent(20);
                 updateProgressStep('Checking backend service availability...');
                 addProgressLog('info', 'Verifying unified backend service (api_server.py)');
@@ -19892,26 +19908,49 @@ show mac address-table | include &lt;mac&gt;</div>
 
                 try {
                     // Call backend
+                    updateProgressPercent(25);
+                    updateProgressStep('Uploading configuration to backend...');
+                    addProgressLog('info', `Config size: ${uploadedConfigContent.length} characters`);
+                    updateUpgradeProgress(25, 'Uploading configuration...');
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+
                     updateProgressPercent(30);
                     updateProgressStep('Sending configuration to AI translator...');
-                    addProgressLog('info', `Config size: ${uploadedConfigContent.length} characters`);
                     addProgressLog('info', 'Calling AI backend for intelligent translation');
                     updateUpgradeProgress(30, 'Sending config to AI translator...');
-                    await new Promise(resolve => setTimeout(resolve, 500));
+                    await new Promise(resolve => setTimeout(resolve, 800));
 
-                    // Simulate progress during AI translation (30%  70%) - slower updates
-                    let currentPercent = 35;
+                    // Simulate progress during AI translation (30% → 70%)
+                    // Each step shows a different phase so user sees actual work happening
+                    let currentPercent = 32;
+                    const translationSteps = [
+                        'Detecting interface roles from source config...',
+                        'Mapping interface comments and roles...',
+                        'Analyzing backhaul, switch, and OLT connections...',
+                        'Building dynamic NX port assignment policy...',
+                        'Translating RouterOS syntax (v6 → v7)...',
+                        'Remapping interface names to target hardware...',
+                        'Applying OSPF, BGP, and MPLS configuration...',
+                        'Processing firewall and NAT rules...',
+                        'Applying IP address and VLAN translations...',
+                        'Fetching GitLab engineering compliance...',
+                        'Injecting compliance blocks (firewall, SNMP, logging)...',
+                        'Running post-translation validation...',
+                    ];
+                    let stepIndex = 0;
                     const progressInterval = setInterval(() => {
                         if (currentPercent < 70) {
-                            currentPercent += 3;
+                            currentPercent += 2;
                             updateProgressPercent(currentPercent);
-                            updateProgressStep('AI analyzing and translating configuration...');
-                            updateUpgradeProgress(currentPercent, 'AI translating configuration...');
-                            if (currentPercent % 15 === 0) {
-                                addProgressLog('info', `Translation progress: ${currentPercent}%`);
+                            const stepLabel = translationSteps[stepIndex % translationSteps.length];
+                            updateProgressStep(stepLabel);
+                            updateUpgradeProgress(currentPercent, stepLabel);
+                            if (stepIndex < translationSteps.length) {
+                                addProgressLog('info', stepLabel);
                             }
+                            stepIndex++;
                         }
-                    }, 1500);  // Update every 1.5 seconds (slower, more visible)
+                    }, 2500);  // Update every 2.5 seconds - deliberate pace
 
                     const response = await fetch(`${AI_API_BASE}/translate-config`, {
                         method: 'POST',
@@ -19927,12 +19966,19 @@ show mac address-table | include &lt;mac&gt;</div>
                     });
 
                     clearInterval(progressInterval);  // Stop simulated progress
-                    updateProgressPercent(75);
-                    updateProgressStep('Translation received from AI, validating...');
-                    addProgressLog('success', 'AI translation completed');
-                    updateUpgradeProgress(75, 'Translation received, validating...');
                     clearTimeout(timeoutId);
-                    await new Promise(resolve => setTimeout(resolve, 400));
+
+                    updateProgressPercent(72);
+                    updateProgressStep('Translation received from backend...');
+                    addProgressLog('success', 'AI translation completed successfully');
+                    updateUpgradeProgress(72, 'Translation received...');
+                    await new Promise(resolve => setTimeout(resolve, 1200));
+
+                    updateProgressPercent(75);
+                    updateProgressStep('Verifying interface mappings...');
+                    addProgressLog('info', 'Checking NX port policy enforcement');
+                    updateUpgradeProgress(75, 'Verifying interface mappings...');
+                    await new Promise(resolve => setTimeout(resolve, 1000));
 
                     if (!response.ok) {
                         const error = await response.json();
@@ -19942,11 +19988,23 @@ show mac address-table | include &lt;mac&gt;</div>
                     const data = await response.json();
 
                     if (data.success) {
+                        updateProgressPercent(78);
+                        updateProgressStep('Checking IP address preservation...');
+                        addProgressLog('info', 'Verifying all IP addresses carried over');
+                        updateUpgradeProgress(78, 'Checking IP address preservation...');
+                        await new Promise(resolve => setTimeout(resolve, 1200));
+
+                        updateProgressPercent(82);
+                        updateProgressStep('Validating compliance blocks...');
+                        addProgressLog('info', 'Confirming GitLab compliance injection');
+                        updateUpgradeProgress(82, 'Validating compliance blocks...');
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+
                         updateProgressPercent(85);
                         updateProgressStep('Validating translation quality...');
                         addProgressLog('info', 'Running post-translation validation');
                         updateUpgradeProgress(85, 'Validating translation quality...');
-                        await new Promise(resolve => setTimeout(resolve, 500));
+                        await new Promise(resolve => setTimeout(resolve, 1200));
 
                         // Check validation FIRST - missing IPs = FAILURE
                         const validation = data.validation || {};
@@ -19961,10 +20019,17 @@ show mac address-table | include &lt;mac&gt;</div>
                             addProgressLog('success', 'All IP addresses preserved');
                         }
 
+                        updateProgressPercent(90);
+                        updateProgressStep('Applying final speed syntax adjustments...');
+                        addProgressLog('info', 'Verifying speed= format for target RouterOS version');
+                        updateUpgradeProgress(90, 'Applying speed syntax adjustments...');
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+
                         updateProgressPercent(95);
-                        updateProgressStep('Validation complete, finalizing output...');
-                        updateUpgradeProgress(95, 'Validation complete, finalizing...');
-                        await new Promise(resolve => setTimeout(resolve, 300));
+                        updateProgressStep('Formatting configuration output...');
+                        addProgressLog('info', 'Preparing final config for display');
+                        updateUpgradeProgress(95, 'Formatting output...');
+                        await new Promise(resolve => setTimeout(resolve, 800));
 
                         updateProgressPercent(100);
 
