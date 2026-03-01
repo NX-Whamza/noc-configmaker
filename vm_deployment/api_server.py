@@ -1675,16 +1675,17 @@ def apply_ros6_to_ros7_syntax(config_text):
     for old_syntax, new_syntax in syntax_changes:
         migrated = migrated.replace(old_syntax, new_syntax)
     
-    # Speed syntax changes
+    # Speed syntax changes — use word-boundary regex to avoid double-conversion
+    # e.g., '10G-baseSR' must NOT match inside '10G-baseSR-LR' (already converted)
     speed_changes = [
-        ('10G-baseSR', '10G-baseSR-LR'),
-        ('10G-baseCR', '10G-baseSR-LR'),
-        ('1G-baseT', '1G-baseT-full'),
-        ('100M-baseT', '100M-baseT-full'),
+        (r'\bspeed=10G-baseSR\b', 'speed=10G-baseSR-LR'),
+        (r'\bspeed=10G-baseCR\b', 'speed=10G-baseSR-LR'),
+        (r'\bspeed=1G-baseT\b', 'speed=1G-baseT-full'),
+        (r'\bspeed=100M-baseT\b', 'speed=100M-baseT-full'),
     ]
     
-    for old_speed, new_speed in speed_changes:
-        migrated = migrated.replace(old_speed, new_speed)
+    for old_pattern, new_speed in speed_changes:
+        migrated = re.sub(old_pattern, new_speed, migrated)
 
     # Routing syntax changes (ROS6 → ROS7)
     # - BGP: instance/peer → template/connection + dot params
@@ -5341,17 +5342,266 @@ Port Roles:
                         t = re.sub(rf"(?m)\b(vlan\d+[-_]?)" + re.escape(src) + r"(?!\d)\b", rf"\1{dst}", t)
                     return t
 
+                # ── NEXTLINK PORT ASSIGNMENT POLICY ──────────────────────
+                # Instead of blind index mapping, detect interface roles from
+                # the source config and assign target ports per NX standard:
+                #   ether1      = Management only
+                #   port 1-2    = Switches / OLT (if no OLT: switches)
+                #   port 3      = UPS / Power / ICT
+                #   port 4+     = Backhauls (ALL backhauls start here)
+                #   QSFP        = 100G uplinks (if present)
+                #
+                # Backhaul detection signals (in priority order):
+                #   1. Comment keywords: BACKHAUL, BH, TX-, KS-, IL-, state-prefix patterns
+                #   2. OSPF interface-template membership (point-to-point links)
+                #   3. /30 or /31 IP addresses on the interface (classic P2P uplinks)
+                #   4. BGP connection local.address bound to this interface's IP
+                #   5. MPLS LDP interface references
+                # ─────────────────────────────────────────────────────────
+
+                # Build role detection database from source config
+                def _detect_interface_roles_from_config(cfg: str) -> dict:
+                    """Detect interface roles using comments, OSPF, BGP, IP masks, MPLS LDP."""
+                    roles = {}  # iface -> role string
+                    iface_ips = {}  # iface -> set of IPs
+                    ip_to_iface = {}  # IP -> iface
+
+                    # 1. Extract interface comments from /interface ethernet set lines
+                    for m in re.finditer(
+                        r'set\s+\[\s*find\s+default-name=(\S+)\s*\][^\n]*?comment=([^\s\n"]+|"[^"]+")',
+                        cfg, re.MULTILINE
+                    ):
+                        iface = m.group(1).strip()
+                        comment = m.group(2).strip().strip('"').upper()
+                        if any(k in comment for k in ['BACKHAUL', 'BH']):
+                            roles[iface] = 'backhaul'
+                        elif re.search(r'[A-Z]{2}-[A-Z]+', comment) and any(k in comment for k in ['TX-', 'KS-', 'IL-', 'TOWER']):
+                            roles[iface] = 'backhaul'
+                        elif 'OLT' in comment or 'NOKIA' in comment:
+                            roles[iface] = 'olt'
+                        elif any(k in comment for k in ['SWITCH', 'SW', 'NETONIX']):
+                            roles[iface] = 'switch'
+                        elif any(k in comment for k in ['UPS', 'ICT', 'POWER', 'WPS']):
+                            roles[iface] = 'power'
+                        elif 'LTE' in comment:
+                            roles[iface] = 'lte'
+                        elif 'TARANA' in comment:
+                            roles[iface] = 'tarana'
+                        elif 'MANAGEMENT' in comment or 'MGMT' in comment or iface.upper() == 'ETHER1':
+                            roles[iface] = 'management'
+
+                    # 2. Extract IP → interface mapping and detect /30, /31 subnets
+                    for m in re.finditer(
+                        r'add\s+[^\n]*?address=(\d+\.\d+\.\d+\.\d+)/(\d+)[^\n]*?interface=(\S+)',
+                        cfg, re.MULTILINE
+                    ):
+                        ip, prefix, iface = m.group(1), int(m.group(2)), m.group(3)
+                        iface_ips.setdefault(iface, set()).add(ip)
+                        ip_to_iface[ip] = iface
+                        # /30 and /31 are classic point-to-point backhaul subnets
+                        if prefix in (30, 31) and iface not in roles:
+                            roles[iface] = 'backhaul'
+                            print(f"[ROLE DETECT] {iface} → backhaul (/{prefix} P2P subnet)")
+                    # Also match reverse order: interface= before address=
+                    for m in re.finditer(
+                        r'add\s+[^\n]*?interface=(\S+)[^\n]*?address=(\d+\.\d+\.\d+\.\d+)/(\d+)',
+                        cfg, re.MULTILINE
+                    ):
+                        iface, ip, prefix = m.group(1), m.group(2), int(m.group(3))
+                        iface_ips.setdefault(iface, set()).add(ip)
+                        ip_to_iface[ip] = iface
+                        if prefix in (30, 31) and iface not in roles:
+                            roles[iface] = 'backhaul'
+                            print(f"[ROLE DETECT] {iface} → backhaul (/{prefix} P2P subnet)")
+
+                    # 3. OSPF interface-template references (point-to-point = backhaul)
+                    for m in re.finditer(
+                        r'interface-template\s+add[^\n]*?interfaces?=(\S+)',
+                        cfg, re.MULTILINE
+                    ):
+                        iface = m.group(1)
+                        if iface not in roles:
+                            # Check if this OSPF entry is type=ptp or has backhaul characteristics
+                            line_start = cfg.rfind('\n', 0, m.start()) + 1
+                            line_end = cfg.find('\n', m.end())
+                            full_line = cfg[line_start:line_end] if line_end > 0 else cfg[line_start:]
+                            if 'type=ptp' in full_line or 'network-type=point-to-point' in full_line:
+                                if iface != 'loop0':
+                                    roles[iface] = 'backhaul'
+                                    print(f"[ROLE DETECT] {iface} → backhaul (OSPF PTP interface)")
+
+                    # 4. MPLS LDP interface references → backhaul
+                    for m in re.finditer(r'/mpls ldp\s+(?:interface\s+)?add[^\n]*?interface=(\S+)', cfg, re.MULTILINE):
+                        iface = m.group(1)
+                        if iface not in roles and iface != 'loop0':
+                            roles[iface] = 'backhaul'
+                            print(f"[ROLE DETECT] {iface} → backhaul (MPLS LDP interface)")
+
+                    # 5. BGP connection with local.address → find which interface owns that IP
+                    for m in re.finditer(r'bgp\s+connection\s+add[^\n]*?remote\.address=(\d+\.\d+\.\d+\.\d+)', cfg, re.MULTILINE):
+                        # BGP remote address subnet → find matching interface
+                        pass  # BGP usually uses loopback, not direct port detection
+
+                    return roles, iface_ips
+
+                detected_roles, iface_ips = _detect_interface_roles_from_config(text)
+                print(f"[ROLE DETECT] Detected roles: {detected_roles}")
+
+                # Build policy-compliant mapping for CCR2004/CCR2216
+                target_type_lower = (target_type or '').lower()
+                is_policy_target = target_type_lower in ('ccr2004', 'ccr2216')
+
+                if is_policy_target and mapping_required:
+                    # Determine port naming
+                    if len(tgt_sfp28) >= 12:
+                        port_prefix = 'sfp28-'
+                    elif len(tgt_sfp_sfpplus) >= 12:
+                        port_prefix = 'sfp-sfpplus'
+                    else:
+                        port_prefix = 'sfp28-'  # fallback
+
+                    def _pname(n):
+                        return f"{port_prefix}{n}"
+
+                    # NX POLICY POOLS
+                    switch_pool = [_pname(1), _pname(2)]
+                    power_pool = [_pname(3)]
+                    backhaul_pool = [_pname(i) for i in range(4, 13)]  # ports 4-12
+                    all_sfp = [_pname(i) for i in range(1, 13)]
+
+                    # Name translation for source → target port families
+                    def _src_to_tgt_family(src_name):
+                        """Convert source port name to target port family for comparison."""
+                        m_sfp28 = re.fullmatch(r'sfp28-(\d+)', src_name)
+                        m_sfpplus = re.fullmatch(r'sfp-sfpplus(\d+)', src_name)
+                        m_sfp = re.fullmatch(r'sfp(\d+)', src_name)
+                        m_ether = re.fullmatch(r'ether(\d+)', src_name)
+                        if m_sfp28:
+                            return int(m_sfp28.group(1))
+                        if m_sfpplus:
+                            return int(m_sfpplus.group(1))
+                        if m_sfp:
+                            return int(m_sfp.group(1))
+                        if m_ether:
+                            return int(m_ether.group(1))
+                        return None
+
+                    # Collect all source SFP/ether ports (excluding management) with their roles
+                    src_ifaces_ordered = []
+                    for m_tok in re.finditer(
+                        r'\b(ether\d+|sfp\d+(?:-\d+)?|sfp-sfpplus\d+|sfp28-\d+)\b', text
+                    ):
+                        name = m_tok.group(1)
+                        if name not in [x[0] for x in src_ifaces_ordered] and name != mgmt_port:
+                            role = detected_roles.get(name, 'unknown')
+                            src_ifaces_ordered.append((name, role))
+
+                    # Group by role
+                    by_role = {'switch': [], 'olt': [], 'power': [], 'backhaul': [],
+                               'lte': [], 'tarana': [], 'management': [], 'unknown': []}
+                    for iface, role in src_ifaces_ordered:
+                        by_role.setdefault(role, []).append(iface)
+
+                    policy_mapping = {}
+                    used_tgt = set()
+
+                    def _next_from_pool(pool):
+                        for p in pool:
+                            if p not in used_tgt:
+                                used_tgt.add(p)
+                                return p
+                        return None
+
+                    # Assign OLT → ports 1-2 (same as switches, OLT gets priority)
+                    for iface in by_role.get('olt', []):
+                        dst = _next_from_pool(switch_pool) or _next_from_pool(backhaul_pool)
+                        if dst:
+                            policy_mapping[iface] = dst
+                            print(f"[NX POLICY] {iface} → {dst} (OLT)")
+
+                    # Assign switches → ports 1-2
+                    for iface in by_role.get('switch', []):
+                        dst = _next_from_pool(switch_pool) or _next_from_pool(backhaul_pool)
+                        if dst:
+                            policy_mapping[iface] = dst
+                            print(f"[NX POLICY] {iface} → {dst} (SWITCH)")
+
+                    # Assign power/UPS → port 3
+                    for iface in by_role.get('power', []):
+                        dst = _next_from_pool(power_pool) or _next_from_pool(backhaul_pool)
+                        if dst:
+                            policy_mapping[iface] = dst
+                            print(f"[NX POLICY] {iface} → {dst} (POWER/UPS)")
+
+                    # Assign backhauls → ports 4+ (THIS IS THE KEY POLICY)
+                    for iface in by_role.get('backhaul', []):
+                        dst = _next_from_pool(backhaul_pool)
+                        if dst:
+                            policy_mapping[iface] = dst
+                            print(f"[NX POLICY] {iface} → {dst} (BACKHAUL)")
+                        else:
+                            # Overflow to QSFP
+                            for qp in [p for p in target_ports if p.startswith('qsfp')]:
+                                if qp not in used_tgt:
+                                    used_tgt.add(qp)
+                                    policy_mapping[iface] = qp
+                                    print(f"[NX POLICY] {iface} → {qp} (BACKHAUL overflow to QSFP)")
+                                    break
+
+                    # Assign LTE → next available after backhauls
+                    for iface in by_role.get('lte', []):
+                        dst = _next_from_pool(backhaul_pool) or _next_from_pool(switch_pool)
+                        if dst:
+                            policy_mapping[iface] = dst
+                            print(f"[NX POLICY] {iface} → {dst} (LTE)")
+
+                    # Assign tarana → next available
+                    for iface in by_role.get('tarana', []):
+                        dst = _next_from_pool(backhaul_pool) or _next_from_pool(switch_pool)
+                        if dst:
+                            policy_mapping[iface] = dst
+                            print(f"[NX POLICY] {iface} → {dst} (TARANA)")
+
+                    # Assign unknown → fill remaining slots (prefer backhaul pool to keep 1-3 reserved)
+                    for iface in by_role.get('unknown', []):
+                        dst = _next_from_pool(backhaul_pool) or _next_from_pool(switch_pool) or _next_from_pool(power_pool)
+                        if dst:
+                            policy_mapping[iface] = dst
+                            print(f"[NX POLICY] {iface} → {dst} (unknown role)")
+
+                    # Remove identity mappings (port already at correct target name)
+                    policy_mapping = {k: v for k, v in policy_mapping.items() if k != v}
+
+                    if policy_mapping:
+                        print(f"[NX POLICY] Applying {len(policy_mapping)} policy-enforced mappings")
+                        text = _apply_mapping_everywhere(text, policy_mapping)
+                    else:
+                        # Fallback: simple family translation if no role-based remapping needed
+                        stable_mapping = None
+                        if len(src_sfp_sfpplus) >= 12 and len(tgt_sfp28) >= 12:
+                            stable_mapping = {f"sfp-sfpplus{i}": f"sfp28-{i}" for i in range(1, 13)}
+                        elif len(src_sfp28) >= 12 and len(tgt_sfp_sfpplus) >= 12:
+                            stable_mapping = {f"sfp28-{i}": f"sfp-sfpplus{i}" for i in range(1, 13)}
+                        if stable_mapping:
+                            text = _apply_mapping_everywhere(text, stable_mapping)
+
+                    # Strip qsfp* interface lines if target has no QSFP ports
+                    target_has_qsfp = any(p.startswith('qsfp') for p in (target_ports or []))
+                    if not target_has_qsfp:
+                        text = re.sub(r"(?m)^\s*set\s+\[\s*find\s+default-name=qsfp[^\]]+\][^\n]*\n?", "", text)
+                    return text
+
+                # Non-policy targets: use stable index mapping as before
                 stable_mapping = None
                 if len(src_sfp_sfpplus) >= 12 and len(tgt_sfp28) >= 12:
                     stable_mapping = {f"sfp-sfpplus{i}": f"sfp28-{i}" for i in range(1, 13)}
-                    print("[INTERFACE MAPPING] Using stable CCR2004->CCR2216 index mapping (sfp-sfpplusN -> sfp28-N)")
+                    print("[INTERFACE MAPPING] Using stable CCR->CCR2216 index mapping (sfp-sfpplusN -> sfp28-N)")
                 elif len(src_sfp28) >= 12 and len(tgt_sfp_sfpplus) >= 12:
                     stable_mapping = {f"sfp28-{i}": f"sfp-sfpplus{i}" for i in range(1, 13)}
-                    print("[INTERFACE MAPPING] Using stable CCR2216->CCR2004 index mapping (sfp28-N -> sfp-sfpplusN)")
+                    print("[INTERFACE MAPPING] Using stable CCR2216->CCR index mapping (sfp28-N -> sfp-sfpplusN)")
 
                 if stable_mapping:
                     text = _apply_mapping_everywhere(text, stable_mapping)
-                    # Strip qsfp* interface lines if target has no QSFP ports (prevents invalid ports after migration).
                     target_has_qsfp = any(p.startswith('qsfp') for p in (target_ports or []))
                     if not target_has_qsfp:
                         text = re.sub(r"(?m)^\s*set\s+\[\s*find\s+default-name=qsfp[^\]]+\][^\n]*\n?", "", text)
@@ -6127,20 +6377,51 @@ Port Roles:
 
             # --- Helper: minimal dedup for strict mode ---
             def _minimal_dedup(text_in):
-                """Remove consecutive duplicate non-empty lines (prevents config flooding)."""
+                """Remove duplicate lines: consecutive duplicates AND non-consecutive
+                interface ethernet duplicates (same default-name= appearing more than once).
+                Keeps the LAST occurrence of each interface to preserve the most-processed version."""
                 lines = text_in.splitlines()
                 result = []
                 prev = None
                 removed = 0
+
+                # Pass 1: remove consecutive exact duplicates
+                deduped_consecutive = []
                 for line in lines:
                     s = line.strip()
                     if s and s == prev:
                         removed += 1
                         continue
-                    result.append(line)
+                    deduped_consecutive.append(line)
                     prev = s
+
+                # Pass 2: for /interface ethernet set lines, keep only last occurrence
+                # of each default-name= to avoid conflicting duplicate entries
+                iface_last_idx = {}  # default-name -> last index in deduped_consecutive
+                for i, line in enumerate(deduped_consecutive):
+                    s = line.strip()
+                    m = re.search(r'set\s+\[\s*find\s+default-name=(\S+)\s*\]', s)
+                    if m:
+                        iface_last_idx[m.group(1)] = i
+
+                iface_seen = {}  # default-name -> count of occurrences seen so far
+                iface_removed = 0
+                for i, line in enumerate(deduped_consecutive):
+                    s = line.strip()
+                    m = re.search(r'set\s+\[\s*find\s+default-name=(\S+)\s*\]', s)
+                    if m:
+                        name = m.group(1)
+                        iface_seen[name] = iface_seen.get(name, 0) + 1
+                        # If this isn't the last occurrence, skip it
+                        if i != iface_last_idx.get(name):
+                            iface_removed += 1
+                            continue
+                    result.append(line)
+
                 if removed:
                     print(f"[DEDUP] Strict mode: removed {removed} consecutive duplicate lines")
+                if iface_removed:
+                    print(f"[DEDUP] Strict mode: removed {iface_removed} non-consecutive duplicate interface entries")
                 return '\n'.join(result)
 
             # 7. Postprocessing
@@ -6457,10 +6738,14 @@ Port Roles:
                 t = re.sub(r'(?m)^#\s*model\s*=.*$', f"# model ={target_model_full}", t)
 
             # Normalize legacy speed tokens for RouterOS v7 targets.
+            # Use word-boundary regex to prevent double-conversion
+            # e.g., 'speed=10G-baseSR' must NOT match inside 'speed=10G-baseSR-LR'
             if target_version.startswith('7.'):
                 t = t.replace('speed=1G-baseX', 'speed=1G-baseT-full')
-                t = t.replace('speed=10G-baseSR', 'speed=10G-baseSR-LR')
-                t = t.replace('speed=10G-baseCR', 'speed=10G-baseSR-LR')
+                t = re.sub(r'\bspeed=10G-baseSR\b', 'speed=10G-baseSR-LR', t)
+                t = re.sub(r'\bspeed=10G-baseCR\b', 'speed=10G-baseSR-LR', t)
+                t = re.sub(r'\bspeed=1G-baseT\b', 'speed=1G-baseT-full', t)
+                t = re.sub(r'\bspeed=100M-baseT\b', 'speed=100M-baseT-full', t)
 
             # Rewrite identity to match target device family (e.g., MT1036 -> MT2004).
             def _format_identity_for_set(name: str) -> str:
@@ -6700,6 +6985,13 @@ Port Roles:
                         if m:
                             iface = m.group(2)
                             if iface == mgmt:
+                                out_lines.append(line)
+                                continue
+                            # If this interface is ALREADY a valid target port, keep it in place.
+                            # This preserves policy-based mapping done by map_interfaces_dynamically().
+                            if iface in target_set:
+                                used_dest.add(iface)  # reserve so others don't collide
+                                mapping[iface] = iface  # identity mapping
                                 out_lines.append(line)
                                 continue
                             # extract comment to classify
@@ -8162,6 +8454,152 @@ def get_syntax_rules(target_version):
 - MOST SYNTAX STAYS THE SAME - only change if broken"""
     return "Keep syntax as-is"
 
+
+# ========================================
+# COMPLIANCE SECTION STRIPPING
+# ========================================
+# These RouterOS section headers are FULLY managed by the compliance script.
+# Their content in the source config will be replaced by the GitLab compliance
+# version, so we strip them before appending compliance to avoid duplication.
+
+# Sections that get ENTIRELY stripped (header + all add/set/rem lines until next section)
+_COMPLIANCE_STRIP_SECTIONS = [
+    '/ip firewall filter',
+    '/ip firewall raw',
+    '/ip firewall nat',
+    '/ip firewall mangle',
+    '/snmp',
+    '/snmp community',
+    '/system logging',
+    '/system logging action',
+    '/ip service',
+    '/ip dns',
+    '/radius',
+    '/user aaa',
+    '/user group',
+    '/user',
+    '/ip dhcp-server option sets',
+    '/ip dhcp-server option',
+    '/mpls ldp accept-filter',
+    '/mpls ldp advertise-filter',
+    '/system clock',
+    '/system ntp client',
+    '/system ntp',
+    '/system note',
+    '/system scheduler',
+    '/system script',
+    '/system watchdog',
+    '/ip proxy',
+    '/ip socks',
+]
+
+# Address-list names managed by compliance (only these get stripped from /ip firewall address-list)
+_COMPLIANCE_MANAGED_LISTS = {
+    'EOIP-ALLOW', 'managerIP', 'BGP-ALLOW', 'SNMP', 'WALLED-GARDEN',
+    'WLED-GARDEN', 'allowed-ips', 'blacklist', 'whitelist',
+}
+
+
+def _strip_compliance_managed_sections(config: str) -> str:
+    """Strip sections from config that the compliance script will replace.
+
+    This prevents duplication when the compliance script is appended: the
+    source config's firewall rules, logging, SNMP, users, etc. are removed
+    and replaced by the authoritative GitLab compliance version.
+
+    Site-specific sections (IP addresses, interfaces, routing, bridges,
+    VLANs, bonding, VPLS, BGP, OSPF, queues, pools, DHCP servers/networks)
+    are preserved untouched.
+
+    For /ip firewall address-list, only entries with compliance-managed list
+    names are stripped; site-specific lists (bgp-networks, customer lists)
+    are preserved.
+    """
+    lines = config.split('\n')
+    result = []
+    in_stripped_section = False
+    in_address_list_section = False
+    stripped_sections = set()
+    stripped_lines = 0
+    stripped_addr_list_entries = 0
+
+    # Normalize strip headers for matching (lowercase, collapsed whitespace)
+    strip_set = set()
+    for s in _COMPLIANCE_STRIP_SECTIONS:
+        strip_set.add(s.lower().strip())
+
+    for line in lines:
+        stripped = line.strip()
+        lower = stripped.lower()
+
+        # Detect section headers (lines starting with '/')
+        if stripped.startswith('/'):
+            # Check if this is a compliance-managed section
+            # Match the section header exactly or as prefix of the line
+            is_managed = False
+            matched_section = None
+            for sect in strip_set:
+                # Line must start with the section header (possibly followed by space + subcommand)
+                if lower == sect or lower.startswith(sect + ' ') or lower.startswith(sect + '\t'):
+                    is_managed = True
+                    matched_section = sect
+                    break
+
+            # Special handling for /ip firewall address-list
+            if lower.startswith('/ip firewall address-list'):
+                in_address_list_section = True
+                in_stripped_section = False
+                # Check if this is an inline add (header + add on same line)
+                if ' add ' in lower or ' rem ' in lower:
+                    # Check if it's a managed list
+                    list_match = re.search(r'\blist=(\S+)', stripped)
+                    if list_match and list_match.group(1) in _COMPLIANCE_MANAGED_LISTS:
+                        stripped_addr_list_entries += 1
+                        continue  # Skip this managed entry
+                result.append(line)
+                continue
+            elif is_managed:
+                in_stripped_section = True
+                in_address_list_section = False
+                stripped_sections.add(matched_section)
+                # Check for inline commands on same line as header
+                # e.g., "/ip service set telnet disabled=yes" — strip entire line
+                stripped_lines += 1
+                continue
+            else:
+                # Not a managed section — new section starts, stop stripping
+                in_stripped_section = False
+                in_address_list_section = False
+                result.append(line)
+                continue
+
+        # Inside a stripped section — skip all content lines
+        if in_stripped_section:
+            stripped_lines += 1
+            continue
+
+        # Inside address-list section — selectively strip managed lists
+        if in_address_list_section:
+            if stripped.startswith('add ') or stripped.startswith('rem '):
+                list_match = re.search(r'\blist=(\S+)', stripped)
+                if list_match and list_match.group(1) in _COMPLIANCE_MANAGED_LISTS:
+                    stripped_addr_list_entries += 1
+                    continue  # Skip this managed entry
+            result.append(line)
+            continue
+
+        # Normal line — keep it
+        result.append(line)
+
+    if stripped_sections:
+        print(f"[COMPLIANCE-STRIP] Stripped {len(stripped_sections)} compliance-managed sections "
+              f"({stripped_lines} lines): {', '.join(sorted(stripped_sections))}")
+    if stripped_addr_list_entries:
+        print(f"[COMPLIANCE-STRIP] Stripped {stripped_addr_list_entries} managed address-list entries "
+              f"(preserved site-specific lists)")
+
+    return '\n'.join(result)
+
 def inject_compliance_blocks(config: str, compliance_blocks: dict, loopback_ip: str = "10.0.0.1") -> str:
     """
     Inject compliance into a RouterOS configuration.
@@ -8195,6 +8633,11 @@ def inject_compliance_blocks(config: str, compliance_blocks: dict, loopback_ip: 
     if "# RFC-09-10-25 COMPLIANCE STANDARDS" in config or "RFC-09-10-25 COMPLIANCE STANDARDS" in config[-3000:]:
         print("[COMPLIANCE] Compliance section already exists, skipping duplicate injection")
         return config
+
+    # ── 0. Strip compliance-managed sections from source config ──
+    # This prevents duplication: source firewall/logging/SNMP/users/etc.
+    # are removed and replaced by the authoritative GitLab compliance version.
+    config = _strip_compliance_managed_sections(config)
 
     # ── 1. Try verbatim GitLab text (preserves everything word-for-word) ──
     raw_text = _get_raw_gitlab_compliance_text(loopback_ip)
