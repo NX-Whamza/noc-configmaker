@@ -8871,9 +8871,20 @@ def inject_compliance_blocks(config: str, compliance_blocks: dict, loopback_ip: 
     Returns:
         Updated configuration with compliance blocks (only if not already present)
     """
-    # Check if config is from a Tarana tab (different vendor, MikroTik compliance doesn't apply)
+    # Check if config is from a Tarana tab (different vendor, MikroTik compliance doesn't apply).
+    # Must detect *actual* Tarana vendor configs, NOT MikroTik configs that simply
+    # mention "Tarana" in an interface comment (e.g. comment="Tarana-Alpha-1").
+    # Tarana configs have vendor-specific patterns like "tarana_config" sections,
+    # no RouterOS header ("by RouterOS"), and no /ip or /interface sections.
     config_lower = config.lower()
-    is_tarana_config = ('tarana' in config_lower and ('sector' in config_lower or 'alpha' in config_lower))
+    _has_routeros_header = 'by routeros' in config_lower or '# model =' in config_lower
+    _has_routeros_sections = '/ip ' in config_lower or '/interface ' in config_lower or '/routing ' in config_lower
+    is_tarana_config = (
+        'tarana' in config_lower
+        and ('sector' in config_lower or 'alpha' in config_lower)
+        and not _has_routeros_header
+        and not _has_routeros_sections
+    )
     
     if is_tarana_config:
         print("[COMPLIANCE] Skipping compliance injection for Tarana tab (different vendor)")
