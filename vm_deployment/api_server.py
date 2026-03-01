@@ -7012,6 +7012,9 @@ Port Roles:
                             purpose = _classify_interface_purpose(comment, iface)
                             if purpose == 'management':
                                 dest = mgmt
+                            elif purpose == 'olt':
+                                # OLT gets priority on switch_pool (ports 1-2), same as map_interfaces_dynamically()
+                                dest = _next_from(switch_pool) or _next_from(other_pool) or _next_from(qsfp_pool)
                             elif purpose == 'switch':
                                 dest = _next_from(switch_pool) or _next_from(other_pool) or _next_from(qsfp_pool)
                             elif purpose == 'backhaul':
