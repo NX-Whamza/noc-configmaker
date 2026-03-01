@@ -5343,10 +5343,17 @@ Port Roles:
                     return t
 
                 # ── NEXTLINK PORT ASSIGNMENT POLICY ──────────────────────
-                # Instead of blind index mapping, detect interface roles from
-                # the source config and assign target ports per NX standard:
+                # Detects site type from config and assigns ports accordingly:
+                #
+                # FTTH / OLT SITE (Nokia OLT detected):
                 #   ether1      = Management only
-                #   port 1-2    = Switches / OLT (if no OLT: switches)
+                #   port 1      = Backhaul / uplink
+                #   port 2-3    = Reserved / open
+                #   port 4+     = OLT LAG ports
+                #
+                # STANDARD TOWER (no OLT):
+                #   ether1      = Management only
+                #   port 1-2    = Switches
                 #   port 3      = UPS / Power / ICT
                 #   port 4+     = Backhauls (ALL backhauls start here)
                 #   QSFP        = 100G uplinks (if present)
@@ -5357,6 +5364,7 @@ Port Roles:
                 #   3. /29, /30, or /31 IP addresses on the interface (BH / P2P uplinks)
                 #   4. BGP connection local.address bound to this interface's IP
                 #   5. MPLS LDP interface references
+                # OLT detection: comment contains OLT or NOKIA
                 # ─────────────────────────────────────────────────────────
 
                 # Build role detection database from source config
@@ -5499,12 +5507,6 @@ Port Roles:
                     print(f"[NX POLICY] Primary port family: {_primary_family[0]} ({len(_primary_ports)} ports), "
                           f"secondary: {len(_secondary_ports)} ports")
 
-                    # NX POLICY POOLS — slots 1-2=switch, 3=power, 4+=backhaul
-                    # (indices are 0-based into _ordered_pool)
-                    switch_pool  = _ordered_pool[0:2]   if len(_ordered_pool) >= 2 else _ordered_pool[:]
-                    power_pool   = _ordered_pool[2:3]   if len(_ordered_pool) >= 3 else []
-                    backhaul_pool = _ordered_pool[3:]    if len(_ordered_pool) >= 4 else []
-
                     # Collect all source SFP/ether ports (excluding management) with their roles
                     src_ifaces_ordered = []
                     for m_tok in re.finditer(
@@ -5521,6 +5523,36 @@ Port Roles:
                     for iface, role in src_ifaces_ordered:
                         by_role.setdefault(role, []).append(iface)
 
+                    # Detect site type: FTTH (OLT present) vs standard tower
+                    _has_olt = bool(by_role.get('olt', []))
+
+                    if _has_olt:
+                        # ── FTTH / OLT SITE POLICY ──────────────────────────
+                        #   port 1     = Backhaul / uplink
+                        #   port 2-3   = Reserved / open
+                        #   port 4+    = OLT LAG ports
+                        # ────────────────────────────────────────────────────
+                        backhaul_pool  = _ordered_pool[0:1]  if len(_ordered_pool) >= 1 else []
+                        reserved_pool  = _ordered_pool[1:3]  if len(_ordered_pool) >= 3 else _ordered_pool[1:]
+                        olt_pool       = _ordered_pool[3:]   if len(_ordered_pool) >= 4 else []
+                        switch_pool    = []
+                        power_pool     = []
+                        print(f"[NX POLICY] FTTH/OLT site detected → backhaul={backhaul_pool}, "
+                              f"reserved={reserved_pool}, olt_lag={olt_pool[:4]}...({len(olt_pool)} total)")
+                    else:
+                        # ── STANDARD TOWER POLICY ───────────────────────────
+                        #   port 1-2   = Switches
+                        #   port 3     = Power / UPS / ICT
+                        #   port 4+    = Backhauls
+                        # ────────────────────────────────────────────────────
+                        switch_pool    = _ordered_pool[0:2]  if len(_ordered_pool) >= 2 else _ordered_pool[:]
+                        power_pool     = _ordered_pool[2:3]  if len(_ordered_pool) >= 3 else []
+                        backhaul_pool  = _ordered_pool[3:]   if len(_ordered_pool) >= 4 else []
+                        olt_pool       = []
+                        reserved_pool  = []
+                        print(f"[NX POLICY] Standard tower → switch={switch_pool}, power={power_pool}, "
+                              f"backhaul={backhaul_pool[:3]}...({len(backhaul_pool)} total)")
+
                     policy_mapping = {}
                     used_tgt = set()
 
@@ -5531,62 +5563,106 @@ Port Roles:
                                 return p
                         return None
 
-                    # Assign OLT → ports 1-2 (same as switches, OLT gets priority)
-                    for iface in by_role.get('olt', []):
-                        dst = _next_from_pool(switch_pool) or _next_from_pool(backhaul_pool)
-                        if dst:
-                            policy_mapping[iface] = dst
-                            print(f"[NX POLICY] {iface} → {dst} (OLT)")
+                    if _has_olt:
+                        # ── FTTH assignment order: backhaul first, then OLT LAG ──
+                        for iface in by_role.get('backhaul', []):
+                            dst = _next_from_pool(backhaul_pool) or _next_from_pool(reserved_pool)
+                            if dst:
+                                policy_mapping[iface] = dst
+                                print(f"[NX POLICY] {iface} → {dst} (BACKHAUL/uplink)")
+                            else:
+                                for qp in [p for p in target_ports if p.startswith('qsfp')]:
+                                    if qp not in used_tgt:
+                                        used_tgt.add(qp)
+                                        policy_mapping[iface] = qp
+                                        print(f"[NX POLICY] {iface} → {qp} (BACKHAUL overflow to QSFP)")
+                                        break
 
-                    # Assign switches → ports 1-2
-                    for iface in by_role.get('switch', []):
-                        dst = _next_from_pool(switch_pool) or _next_from_pool(backhaul_pool)
-                        if dst:
-                            policy_mapping[iface] = dst
-                            print(f"[NX POLICY] {iface} → {dst} (SWITCH)")
+                        # OLT LAG → ports 4+
+                        for iface in by_role.get('olt', []):
+                            dst = _next_from_pool(olt_pool) or _next_from_pool(reserved_pool)
+                            if dst:
+                                policy_mapping[iface] = dst
+                                print(f"[NX POLICY] {iface} → {dst} (OLT LAG)")
+                            else:
+                                for qp in [p for p in target_ports if p.startswith('qsfp')]:
+                                    if qp not in used_tgt:
+                                        used_tgt.add(qp)
+                                        policy_mapping[iface] = qp
+                                        print(f"[NX POLICY] {iface} → {qp} (OLT overflow to QSFP)")
+                                        break
 
-                    # Assign power/UPS → port 3
-                    for iface in by_role.get('power', []):
-                        dst = _next_from_pool(power_pool) or _next_from_pool(backhaul_pool)
-                        if dst:
-                            policy_mapping[iface] = dst
-                            print(f"[NX POLICY] {iface} → {dst} (POWER/UPS)")
+                        # Power/switch rarely at FTTH but handle gracefully → reserved
+                        for iface in by_role.get('power', []):
+                            dst = _next_from_pool(reserved_pool) or _next_from_pool(olt_pool)
+                            if dst:
+                                policy_mapping[iface] = dst
+                                print(f"[NX POLICY] {iface} → {dst} (POWER/UPS)")
 
-                    # Assign backhauls → ports 4+ (THIS IS THE KEY POLICY)
-                    for iface in by_role.get('backhaul', []):
-                        dst = _next_from_pool(backhaul_pool)
-                        if dst:
-                            policy_mapping[iface] = dst
-                            print(f"[NX POLICY] {iface} → {dst} (BACKHAUL)")
-                        else:
-                            # Overflow to QSFP
-                            for qp in [p for p in target_ports if p.startswith('qsfp')]:
-                                if qp not in used_tgt:
-                                    used_tgt.add(qp)
-                                    policy_mapping[iface] = qp
-                                    print(f"[NX POLICY] {iface} → {qp} (BACKHAUL overflow to QSFP)")
-                                    break
+                        for iface in by_role.get('switch', []):
+                            dst = _next_from_pool(reserved_pool) or _next_from_pool(olt_pool)
+                            if dst:
+                                policy_mapping[iface] = dst
+                                print(f"[NX POLICY] {iface} → {dst} (SWITCH)")
 
-                    # Assign LTE → next available after backhauls
-                    for iface in by_role.get('lte', []):
-                        dst = _next_from_pool(backhaul_pool) or _next_from_pool(switch_pool)
-                        if dst:
-                            policy_mapping[iface] = dst
-                            print(f"[NX POLICY] {iface} → {dst} (LTE)")
+                        # LTE / Tarana / unknown → reserved then olt_pool
+                        for role_key in ('lte', 'tarana', 'unknown'):
+                            for iface in by_role.get(role_key, []):
+                                dst = _next_from_pool(reserved_pool) or _next_from_pool(olt_pool)
+                                if dst:
+                                    policy_mapping[iface] = dst
+                                    print(f"[NX POLICY] {iface} → {dst} ({role_key.upper()})")
 
-                    # Assign tarana → next available
-                    for iface in by_role.get('tarana', []):
-                        dst = _next_from_pool(backhaul_pool) or _next_from_pool(switch_pool)
-                        if dst:
-                            policy_mapping[iface] = dst
-                            print(f"[NX POLICY] {iface} → {dst} (TARANA)")
+                    else:
+                        # ── STANDARD TOWER assignment order ──
+                        # Assign switches → ports 1-2
+                        for iface in by_role.get('switch', []):
+                            dst = _next_from_pool(switch_pool) or _next_from_pool(backhaul_pool)
+                            if dst:
+                                policy_mapping[iface] = dst
+                                print(f"[NX POLICY] {iface} → {dst} (SWITCH)")
 
-                    # Assign unknown → fill remaining slots (prefer backhaul pool to keep 1-3 reserved)
-                    for iface in by_role.get('unknown', []):
-                        dst = _next_from_pool(backhaul_pool) or _next_from_pool(switch_pool) or _next_from_pool(power_pool)
-                        if dst:
-                            policy_mapping[iface] = dst
-                            print(f"[NX POLICY] {iface} → {dst} (unknown role)")
+                        # Assign power/UPS → port 3
+                        for iface in by_role.get('power', []):
+                            dst = _next_from_pool(power_pool) or _next_from_pool(backhaul_pool)
+                            if dst:
+                                policy_mapping[iface] = dst
+                                print(f"[NX POLICY] {iface} → {dst} (POWER/UPS)")
+
+                        # Assign backhauls → ports 4+
+                        for iface in by_role.get('backhaul', []):
+                            dst = _next_from_pool(backhaul_pool)
+                            if dst:
+                                policy_mapping[iface] = dst
+                                print(f"[NX POLICY] {iface} → {dst} (BACKHAUL)")
+                            else:
+                                for qp in [p for p in target_ports if p.startswith('qsfp')]:
+                                    if qp not in used_tgt:
+                                        used_tgt.add(qp)
+                                        policy_mapping[iface] = qp
+                                        print(f"[NX POLICY] {iface} → {qp} (BACKHAUL overflow to QSFP)")
+                                        break
+
+                        # Assign LTE → next available after backhauls
+                        for iface in by_role.get('lte', []):
+                            dst = _next_from_pool(backhaul_pool) or _next_from_pool(switch_pool)
+                            if dst:
+                                policy_mapping[iface] = dst
+                                print(f"[NX POLICY] {iface} → {dst} (LTE)")
+
+                        # Assign tarana → next available
+                        for iface in by_role.get('tarana', []):
+                            dst = _next_from_pool(backhaul_pool) or _next_from_pool(switch_pool)
+                            if dst:
+                                policy_mapping[iface] = dst
+                                print(f"[NX POLICY] {iface} → {dst} (TARANA)")
+
+                        # Assign unknown → fill remaining slots
+                        for iface in by_role.get('unknown', []):
+                            dst = _next_from_pool(backhaul_pool) or _next_from_pool(switch_pool) or _next_from_pool(power_pool)
+                            if dst:
+                                policy_mapping[iface] = dst
+                                print(f"[NX POLICY] {iface} → {dst} (unknown role)")
 
                     # Remove identity mappings (port already at correct target name)
                     policy_mapping = {k: v for k, v in policy_mapping.items() if k != v}
@@ -6931,21 +7007,14 @@ Port Roles:
                     _enf_secondary.extend(fp)
             _enf_ordered = _enf_primary_ports + _enf_secondary
 
-            # NX POLICY: slots 1-2=switch/OLT, 3=power, 4+=backhaul
-            switch_pool   = _enf_ordered[0:2] if len(_enf_ordered) >= 2 else _enf_ordered[:]
-            power_pool    = _enf_ordered[2:3] if len(_enf_ordered) >= 3 else []
-            backhaul_pool = _enf_ordered[3:]  if len(_enf_ordered) >= 4 else []
-
             _has_policy_pools = len(_enf_ordered) >= 4
             if _has_policy_pools:
-                print(f"[ENFORCE] Dynamic NX pools: switch={switch_pool}, power={power_pool}, "
-                      f"backhaul={backhaul_pool[:3]}...({len(backhaul_pool)} total)")
-
-                # Reserve backhaul ports first so non-backhaul devices can't steal them
-                backhaul_needed = 0
+                # Pre-scan: detect if OLT is present (FTTH site)
+                _enf_has_olt = False
                 lines = text.splitlines()
                 in_eth_scan = False
                 eth_set_pattern = re.compile(r'^(\s*set\s+\[\s*find\s+default-name=)([^\s\]]+)(\s*\].*)$', re.IGNORECASE)
+                backhaul_needed = 0
                 for line in lines:
                     stripped = line.strip()
                     if stripped.startswith('/'):
@@ -6961,13 +7030,44 @@ Port Roles:
                         continue
                     cm_scan = re.search(r'comment=([^\s\n"]+|"[^"]+")', line)
                     comment_scan = cm_scan.group(1).strip().strip('"') if cm_scan else ''
-                    if _classify_interface_purpose(comment_scan, iface_scan) == 'backhaul':
+                    purpose_scan = _classify_interface_purpose(comment_scan, iface_scan)
+                    if purpose_scan == 'backhaul':
                         backhaul_needed += 1
+                    if purpose_scan == 'olt':
+                        _enf_has_olt = True
+
+                if _enf_has_olt:
+                    # ── FTTH / OLT SITE POLICY ──────────────────────────
+                    #   port 1     = Backhaul / uplink
+                    #   port 2-3   = Reserved / open
+                    #   port 4+    = OLT LAG ports
+                    # ────────────────────────────────────────────────────
+                    backhaul_pool = _enf_ordered[0:1]
+                    reserved_pool = _enf_ordered[1:3] if len(_enf_ordered) >= 3 else _enf_ordered[1:]
+                    olt_pool      = _enf_ordered[3:]  if len(_enf_ordered) >= 4 else []
+                    switch_pool   = []
+                    power_pool    = []
+                    print(f"[ENFORCE] FTTH/OLT site → backhaul={backhaul_pool}, "
+                          f"reserved={reserved_pool}, olt_lag={olt_pool[:4]}...({len(olt_pool)} total)")
+                else:
+                    # ── STANDARD TOWER POLICY ───────────────────────────
+                    #   port 1-2   = Switches
+                    #   port 3     = Power / UPS / ICT
+                    #   port 4+    = Backhauls
+                    # ────────────────────────────────────────────────────
+                    switch_pool   = _enf_ordered[0:2]
+                    power_pool    = _enf_ordered[2:3]
+                    backhaul_pool = _enf_ordered[3:]
+                    olt_pool      = []
+                    reserved_pool = []
+                    print(f"[ENFORCE] Standard tower → switch={switch_pool}, power={power_pool}, "
+                          f"backhaul={backhaul_pool[:3]}...({len(backhaul_pool)} total)")
 
                 reserved_backhaul = backhaul_pool[:backhaul_needed]
                 remaining_backhaul = [p for p in backhaul_pool if p not in reserved_backhaul]
                 non_qsfp = [p for p in dest_pool if not p.startswith('qsfp')]
-                extra_pool = [p for p in non_qsfp if p not in switch_pool + backhaul_pool + power_pool]
+                all_assigned = switch_pool + backhaul_pool + power_pool + olt_pool + reserved_pool
+                extra_pool = [p for p in non_qsfp if p not in all_assigned]
                 other_pool = remaining_backhaul + extra_pool
                 qsfp_pool = [p for p in dest_pool if p.startswith('qsfp')]
 
@@ -7012,17 +7112,24 @@ Port Roles:
                             purpose = _classify_interface_purpose(comment, iface)
                             if purpose == 'management':
                                 dest = mgmt
-                            elif purpose == 'olt':
-                                # OLT gets priority on switch_pool (ports 1-2), same as map_interfaces_dynamically()
-                                dest = _next_from(switch_pool) or _next_from(other_pool) or _next_from(qsfp_pool)
-                            elif purpose == 'switch':
-                                dest = _next_from(switch_pool) or _next_from(other_pool) or _next_from(qsfp_pool)
-                            elif purpose == 'backhaul':
-                                dest = _next_from(backhaul_pool) or _next_from(other_pool) or _next_from(qsfp_pool)
-                            elif purpose == 'power':
-                                dest = _next_from(power_pool) or _next_from(other_pool) or _next_from(qsfp_pool)
+                            elif _enf_has_olt:
+                                # FTTH site: BH→port1, OLT→port4+, rest→reserved
+                                if purpose == 'backhaul':
+                                    dest = _next_from(backhaul_pool) or _next_from(reserved_pool) or _next_from(qsfp_pool)
+                                elif purpose == 'olt':
+                                    dest = _next_from(olt_pool) or _next_from(reserved_pool) or _next_from(qsfp_pool)
+                                else:
+                                    dest = _next_from(reserved_pool) or _next_from(olt_pool) or _next_from(qsfp_pool)
                             else:
-                                dest = _next_from(other_pool) or _next_from(power_pool) or _next_from(qsfp_pool)
+                                # Standard tower
+                                if purpose == 'switch':
+                                    dest = _next_from(switch_pool) or _next_from(other_pool) or _next_from(qsfp_pool)
+                                elif purpose == 'backhaul':
+                                    dest = _next_from(backhaul_pool) or _next_from(other_pool) or _next_from(qsfp_pool)
+                                elif purpose == 'power':
+                                    dest = _next_from(power_pool) or _next_from(other_pool) or _next_from(qsfp_pool)
+                                else:
+                                    dest = _next_from(other_pool) or _next_from(power_pool) or _next_from(qsfp_pool)
                             if dest:
                                 mapping[iface] = dest
                                 # Also map original source interfaces that used the same comment.
