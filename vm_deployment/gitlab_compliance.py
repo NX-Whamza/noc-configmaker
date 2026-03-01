@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import datetime
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -57,7 +58,8 @@ class _TTLCache:
     def __init__(self, ttl_seconds: int = 900) -> None:
         self._ttl        = ttl_seconds
         self._store:      Dict[str, Any]   = {}
-        self._timestamps: Dict[str, float] = {}
+        self._timestamps: Dict[str, float] = {}  # monotonic
+        self._wallclock:  Dict[str, str]   = {}  # ISO-8601 wall-clock
 
     def get(self, key: str) -> Optional[Any]:
         ts = self._timestamps.get(key)
@@ -66,16 +68,21 @@ class _TTLCache:
         if (time.monotonic() - ts) > self._ttl:
             self._store.pop(key, None)
             self._timestamps.pop(key, None)
+            self._wallclock.pop(key, None)
             return None
         return self._store.get(key)
 
     def set(self, key: str, value: Any) -> None:
         self._store[key]      = value
         self._timestamps[key] = time.monotonic()
+        self._wallclock[key]  = datetime.datetime.now(
+            datetime.timezone.utc
+        ).isoformat()
 
     def clear(self) -> None:
         self._store.clear()
         self._timestamps.clear()
+        self._wallclock.clear()
 
     def age_seconds(self, key: str) -> Optional[float]:
         ts = self._timestamps.get(key)
@@ -89,6 +96,7 @@ class _TTLCache:
         return {
             "cached_keys":  keys,
             "ages_seconds": {k: self.age_seconds(k) for k in keys},
+            "fetched_at":   {k: self._wallclock.get(k) for k in keys},
             "ttl_seconds":  self._ttl,
         }
 
@@ -109,6 +117,18 @@ class GitLabComplianceLoader:
 
     def __init__(self) -> None:
         self._cache = _TTLCache(ttl_seconds=self._ttl())
+        # Fetch log: tracks every network request AND cache hit for debugging
+        self._fetch_log: List[dict] = []   # most recent 50 entries
+        self._stats = {
+            "gitlab_hits": 0,
+            "cache_hits": 0,
+            "fallback_hits": 0,
+            "errors": 0,
+            "last_gitlab_fetch": None,   # ISO-8601
+            "last_cache_hit": None,
+            "last_error": None,
+            "last_error_detail": None,
+        }
 
     # ------------------------------------------------------------------ config helpers
 
@@ -245,13 +265,36 @@ class GitLabComplianceLoader:
 
     # ------------------------------------------------------------------ cached fetch helpers
 
+    def _log_event(self, event_type: str, path: str, detail: str = "") -> None:
+        """Record a fetch event for diagnostics."""
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        entry = {"time": now, "type": event_type, "path": path}
+        if detail:
+            entry["detail"] = detail
+        self._fetch_log.append(entry)
+        if len(self._fetch_log) > 50:
+            self._fetch_log = self._fetch_log[-50:]
+        print(f"[GITLAB-COMPLIANCE] {event_type}: {path} {detail}")
+
     def load_file_cached(self, path: str) -> str:
         """Fetch with cache.  Raises on failure (caller decides fallback)."""
         cached = self._cache.get(path)
         if cached is not None:
+            self._stats["cache_hits"] += 1
+            self._stats["last_cache_hit"] = datetime.datetime.now(
+                datetime.timezone.utc
+            ).isoformat()
+            self._log_event("CACHE_HIT", path,
+                            f"(age={self._cache.age_seconds(path)}s)")
             return cached
         text = self.fetch_file(path)
         self._cache.set(path, text)
+        self._stats["gitlab_hits"] += 1
+        self._stats["last_gitlab_fetch"] = datetime.datetime.now(
+            datetime.timezone.utc
+        ).isoformat()
+        self._log_event("GITLAB_FETCH", path,
+                        f"({len(text)} bytes)")
         return text
 
     def load_json_cached(self, path: str) -> dict:
@@ -321,6 +364,12 @@ class GitLabComplianceLoader:
         try:
             return self.load_file_cached(effective_path)
         except Exception as exc:
+            self._stats["errors"] += 1
+            self._stats["last_error"] = datetime.datetime.now(
+                datetime.timezone.utc
+            ).isoformat()
+            self._stats["last_error_detail"] = str(exc)
+            self._log_event("ERROR", effective_path, str(exc))
             print(f"[GITLAB-COMPLIANCE] get_raw_compliance_script('{effective_path}') failed: {exc}")
             return None
 
@@ -350,6 +399,12 @@ class GitLabComplianceLoader:
         try:
             raw = self.load_file_cached(effective_path)
         except Exception as exc:
+            self._stats["errors"] += 1
+            self._stats["last_error"] = datetime.datetime.now(
+                datetime.timezone.utc
+            ).isoformat()
+            self._stats["last_error_detail"] = str(exc)
+            self._log_event("ERROR", effective_path, str(exc))
             print(f"[GITLAB-COMPLIANCE] fetch failed for '{effective_path}': {exc}")
             return None
 
@@ -375,6 +430,12 @@ class GitLabComplianceLoader:
         try:
             return self.load_file_cached(effective_path)
         except Exception as exc:
+            self._stats["errors"] += 1
+            self._stats["last_error"] = datetime.datetime.now(
+                datetime.timezone.utc
+            ).isoformat()
+            self._stats["last_error_detail"] = str(exc)
+            self._log_event("ERROR", effective_path, str(exc))
             print(f"[GITLAB-COMPLIANCE] RSC template fetch failed for '{effective_path}': {exc}")
             return None
 
@@ -404,6 +465,12 @@ class GitLabComplianceLoader:
         try:
             raw = self.load_file_cached(effective_path)
         except Exception as exc:
+            self._stats["errors"] += 1
+            self._stats["last_error"] = datetime.datetime.now(
+                datetime.timezone.utc
+            ).isoformat()
+            self._stats["last_error_detail"] = str(exc)
+            self._log_event("ERROR", effective_path, str(exc))
             print(f"[GITLAB-COMPLIANCE] raw text fetch failed for '{effective_path}': {exc}")
             return None
 
@@ -436,6 +503,24 @@ class GitLabComplianceLoader:
     def cache_info(self) -> dict:
         """Diagnostic information about the current cache state."""
         return self._cache.info()
+
+    def diagnostics(self) -> dict:
+        """Full diagnostic info: config, stats, cache, and recent fetch log."""
+        return {
+            "config": {
+                "host": self._host(),
+                "project_id": self._project_id() or "(not set)",
+                "token_set": bool(self._token()),
+                "token_prefix": (self._token() or "")[:4] + "..." if self._token() else None,
+                "ref": self._ref(),
+                "script_path": self._script_path(),
+                "repo_path": self._repo_path(),
+                "ttl_seconds": self._ttl(),
+            },
+            "stats": dict(self._stats),
+            "cache": self._cache.info(),
+            "recent_log": list(self._fetch_log[-20:]),
+        }
 
 
 # ---------------------------------------------------------------------------

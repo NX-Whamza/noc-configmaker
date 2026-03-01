@@ -581,16 +581,8 @@ def ido_compliance_status():
             return JSONResponse(content={"configured": False, "detail": "gitlab_compliance module not available"})
     loader = _gl()
     configured = loader.is_configured()
-    info = {
-        "configured": configured,
-        "host": loader._host(),
-        "project_id": loader._project_id() or "(not set)",
-        "token_set": bool(loader._token()),
-        "ref": loader._ref(),
-        "script_path": loader._script_path(),
-        "ttl_seconds": loader._ttl(),
-        "cache": loader.cache_info(),
-    }
+    info = loader.diagnostics()
+    info["configured"] = configured
     if configured:
         info["available"] = loader.is_available()
     return JSONResponse(content=info)

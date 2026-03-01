@@ -9584,6 +9584,8 @@ def compliance_status():
         'gitlab_available': False,
         'active_source': 'hardcoded',
         'cache_info': None,
+        'stats': None,
+        'recent_log': None,
     }
 
     if _HAS_GITLAB_COMPLIANCE and _get_gitlab_compliance_loader is not None:
@@ -9591,7 +9593,11 @@ def compliance_status():
             loader = _get_gitlab_compliance_loader()
             status['gitlab_configured'] = loader.is_configured()
             status['gitlab_available'] = loader.is_available()
-            status['cache_info'] = loader.cache_info()
+            diag = loader.diagnostics()
+            status['cache_info'] = diag.get('cache')
+            status['stats'] = diag.get('stats')
+            status['recent_log'] = diag.get('recent_log')
+            status['config'] = diag.get('config')
             if status['gitlab_available']:
                 status['active_source'] = 'gitlab'
         except Exception as exc:
