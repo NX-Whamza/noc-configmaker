@@ -22,15 +22,15 @@ except ImportError:
         _get_gitlab_loader = None  # type: ignore[assignment]
 
 try:
-    from nextlink_compliance_reference import get_all_compliance_blocks as _get_hardcoded_blocks
+    from nextlink_compliance_reference import get_all_compliance_blocks as _get_compliance_blocks
     _FTTH_HAS_COMPLIANCE_REF = True
 except ImportError:
     try:
-        from vm_deployment.nextlink_compliance_reference import get_all_compliance_blocks as _get_hardcoded_blocks
+        from vm_deployment.nextlink_compliance_reference import get_all_compliance_blocks as _get_compliance_blocks
         _FTTH_HAS_COMPLIANCE_REF = True
     except ImportError:
         _FTTH_HAS_COMPLIANCE_REF = False
-        _get_hardcoded_blocks = None  # type: ignore[assignment]
+        _get_compliance_blocks = None  # type: ignore[assignment]
 
 # All template placeholder keys used in render_ftth_config().
 # Compiled once at module load for single-pass re.sub() substitution.
@@ -201,12 +201,11 @@ MPLS_ACCEPT_FILTERS = [
 ]
 
 # ---------------------------------------------------------------------------
-# FTTH Compliance Integration — GitLab-first, hardcoded-fallback
+# FTTH Compliance Integration — GitLab single source of truth
 # ---------------------------------------------------------------------------
 
 # Compliance block keys to include in the FTTH overlay.
-# Keys from both GitLab parser and hardcoded fallback are listed;
-# missing keys are silently skipped so listing both is safe.
+# Keys from GitLab parser are listed; missing keys are silently skipped.
 # Excluded:  user_aaa / user_profiles — FTTH uses use-radius=yes (compliance sets use-radius=no)
 #            user_groups     — FTTH has specific groups (ENG, NOC, LTE, …)
 #            firewall_mangle — compliance only removes; FTTH has its own QoS/TOS marking
@@ -215,15 +214,15 @@ MPLS_ACCEPT_FILTERS = [
 #            vpls_edge       — FTTH manages its own bridge/VPLS ports
 _FTTH_COMPLIANCE_BLOCKS = [
     "variables",
-    "ip_services",              # GitLab: ip service disable
-    "dns",                      # GitLab: combined dns + all firewall blocks
-    "firewall_address_lists",   # hardcoded fallback
-    "firewall_filter_input",    # hardcoded fallback
-    "firewall_raw",             # hardcoded fallback
-    "firewall_forward",         # hardcoded fallback
+    "ip_services",
+    "dns",
+    "firewall_address_lists",
+    "firewall_filter_input",
+    "firewall_raw",
+    "firewall_forward",
     "firewall_mangle",
-    "firewall_nat",             # hardcoded fallback
-    "sip_alg_off",              # GitLab: service-port sip disable
+    "firewall_nat",
+    "sip_alg_off",
     "clock_ntp",
     "snmp",
     "user_aaa",
@@ -231,13 +230,13 @@ _FTTH_COMPLIANCE_BLOCKS = [
     "users",
     "dhcp_options",
     "radius",
-    "auto_upgrade",             # GitLab: routerboard auto-upgrade
-    "system_settings",          # hardcoded fallback
-    "web_proxy_off",            # GitLab: ip proxy disable
-    "vpls_edge_ports",          # GitLab: combined vpls_edge + logging/syslog
-    "logging",                  # hardcoded fallback
-    "ldp_filters",              # hardcoded fallback
-    "watchdog_timer",           # GitLab: watchdog timer
+    "auto_upgrade",
+    "system_settings",
+    "web_proxy_off",
+    "vpls_edge_ports",
+    "logging",
+    "ldp_filters",
+    "watchdog_timer",
     "sys_note",
 ]
 
@@ -285,11 +284,12 @@ _FTTH_EXTRA_FORWARD_RULES = [
 
 
 def _fetch_compliance_blocks(loopback_ip: str) -> dict | None:
-    """Fetch compliance blocks from GitLab, falling back to hardcoded reference.
+    """Fetch compliance blocks from GitLab (single source of truth).
 
     Returns a dict keyed by COMPLIANCE_ORDER names, or None if unavailable.
+    No hardcoded fallback — GitLab is the only source.
     """
-    # 1. GitLab dynamic compliance (preferred)
+    # 1. GitLab dynamic compliance (preferred — direct loader)
     if _FTTH_HAS_GITLAB and _get_gitlab_loader is not None:
         try:
             loader = _get_gitlab_loader()
@@ -301,17 +301,17 @@ def _fetch_compliance_blocks(loopback_ip: str) -> dict | None:
         except Exception as exc:
             print(f"[FTTH-COMPLIANCE] GitLab loader error: {exc}")
 
-    # 2. Hardcoded reference fallback
-    if _FTTH_HAS_COMPLIANCE_REF and _get_hardcoded_blocks is not None:
+    # 2. Via get_all_compliance_blocks (also GitLab-only, no hardcoded fallback)
+    if _FTTH_HAS_COMPLIANCE_REF and _get_compliance_blocks is not None:
         try:
-            blocks = _get_hardcoded_blocks(loopback_ip)
+            blocks = _get_compliance_blocks(loopback_ip)
             if blocks:
-                print(f"[FTTH-COMPLIANCE] Loaded {len(blocks)} blocks from hardcoded reference (GitLab unavailable)")
+                print(f"[FTTH-COMPLIANCE] Loaded {len(blocks)} blocks via compliance reference (GitLab)")
                 return blocks
         except Exception as exc:
-            print(f"[FTTH-COMPLIANCE] Hardcoded reference error: {exc}")
+            print(f"[FTTH-COMPLIANCE] Compliance reference error: {exc}")
 
-    print("[FTTH-COMPLIANCE] No compliance source available — using template defaults")
+    print("[FTTH-COMPLIANCE] WARNING: No compliance source available — GitLab is the only source")
     return None
 
 

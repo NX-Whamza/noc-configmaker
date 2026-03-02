@@ -8225,9 +8225,9 @@ show mac address-table | include &lt;mac&gt;</div>
         // ========================================
         // DYNAMIC COMPLIANCE - GitLab Integration
         // ========================================
-        // Fetches compliance blocks from the backend (GitLab-first, hardcoded fallback)
-        // Used by Switch-Maker, 6GHz, and other frontend generators to replace
-        // hardcoded compliance with dynamically sourced data.
+        // Fetches compliance blocks from the backend (GitLab single source of truth)
+        // Used by Switch-Maker, 6GHz, and other frontend generators to use
+        // dynamically sourced compliance data from GitLab.
 
         window._complianceCache = null;
         window._complianceCacheExpiry = 0;
@@ -8322,7 +8322,7 @@ show mac address-table | include &lt;mac&gt;</div>
         }
 
         // Compliance block keys for switch-type configs.
-        // Includes keys from BOTH hardcoded fallback AND GitLab-parsed sources.
+        // Includes keys from GitLab-parsed compliance sources.
         // GitLab combines blocks differently (e.g. 'dns' includes all firewall,
         // 'vpls_edge_ports' includes logging, 'user_profiles' = user groups).
         // Missing keys are silently skipped by appendComplianceBlocks().

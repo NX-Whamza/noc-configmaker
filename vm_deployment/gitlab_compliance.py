@@ -109,8 +109,9 @@ class GitLabComplianceLoader:
     """
     Fetches compliance artifacts from a GitLab repository on demand.
 
-    All public methods return None on failure so callers can fall back
-    to the hardcoded Python compliance reference modules.
+    GitLab is the single source of truth for compliance data.
+    All public methods return None on failure so callers can log
+    clear warnings when compliance is unavailable.
     """
 
     # ------------------------------------------------------------------ init

@@ -9,7 +9,7 @@ try:
 except Exception:  # pragma: no cover - import path fallback
     from vm_deployment.nextlink_compliance_reference import get_all_compliance_blocks
 
-# GitLab dynamic compliance loader (optional — falls back gracefully when unavailable)
+# GitLab dynamic compliance loader — single source of truth
 try:
     from gitlab_compliance import get_loader as _get_gitlab_loader
     _HAS_GITLAB = True
@@ -25,38 +25,38 @@ COMPLIANCE_MARKER = "# ENGINEERING-COMPLIANCE-APPLIED"
 TEMPLATE_TOKEN = "{{NEXTLINK_RFC_BLOCKS}}"
 
 COMPLIANCE_ORDER = [
-    # Keys from both GitLab parser and hardcoded fallback.
+    # Keys from GitLab parsed compliance blocks.
     # GitLab parser may combine blocks under different key names;
     # missing keys are silently skipped so listing both is safe.
-    "variables",            # GitLab: LoopIP / curDate / curTime variables
-    "ip_services",          # GitLab: ip service disable
-    "dns",                  # GitLab: combined dns + all firewall blocks
-    "firewall_address_lists",  # hardcoded fallback
-    "firewall_filter_input",   # hardcoded fallback
-    "firewall_raw",            # hardcoded fallback
-    "firewall_forward",        # hardcoded fallback
-    "firewall_nat",            # hardcoded fallback
-    "firewall_mangle",         # hardcoded fallback
-    "sip_alg_off",          # GitLab: service-port sip disable
+    "variables",            # LoopIP / curDate / curTime variables
+    "ip_services",          # ip service disable
+    "dns",                  # combined dns + all firewall blocks
+    "firewall_address_lists",
+    "firewall_filter_input",
+    "firewall_raw",
+    "firewall_forward",
+    "firewall_nat",
+    "firewall_mangle",
+    "sip_alg_off",          # service-port sip disable
     "clock_ntp",
     "snmp",
-    "auto_upgrade",         # GitLab: routerboard auto-upgrade
-    "system_settings",      # hardcoded fallback
-    "web_proxy_off",        # GitLab: ip proxy disable
-    "vpls_edge",            # hardcoded fallback
-    "vpls_edge_ports",      # GitLab: combined vpls_edge + logging/syslog
-    "logging",              # hardcoded fallback
+    "auto_upgrade",         # routerboard auto-upgrade
+    "system_settings",
+    "web_proxy_off",        # ip proxy disable
+    "vpls_edge",
+    "vpls_edge_ports",      # combined vpls_edge + logging/syslog
+    "logging",
     "user_aaa",
-    "user_groups",          # hardcoded fallback
-    "user_profiles",        # GitLab: combined user groups
-    "users",                # GitLab: explicit /user block
+    "user_groups",
+    "user_profiles",        # combined user groups
+    "users",                # explicit /user block
     "dhcp_options",
-    "radius",               # GitLab: combined radius + LDP filters
-    "ldp_filters",          # hardcoded fallback
-    "scripts",              # GitLab: compliance script section
-    "scheduler",            # GitLab: compliance scheduler section
-    "watchdog_timer",       # GitLab: watchdog timer
-    "sys_note",             # GitLab: system note
+    "radius",               # combined radius + LDP filters
+    "ldp_filters",
+    "scripts",              # compliance script section
+    "scheduler",            # compliance scheduler section
+    "watchdog_timer",       # watchdog timer
+    "sys_note",             # system note
 ]
 
 SAFE_DEDUPE_PREFIXES = (
@@ -100,9 +100,8 @@ def _render_rfc_blocks(loopback_ip: str) -> str:
     """
     Render RFC-09-10-25 compliance blocks in COMPLIANCE_ORDER sequence.
 
-    Source priority:
-      1. GitLab compliance repo (dynamic, TTL-cached) — if configured + reachable
-      2. Hardcoded nextlink_compliance_reference module (always available)
+    Source: GitLab compliance repo (dynamic, TTL-cached) — single source of truth.
+    No hardcoded fallback — returns empty string when GitLab is unavailable.
     """
     blocks: dict | None = None
 
@@ -115,7 +114,8 @@ def _render_rfc_blocks(loopback_ip: str) -> str:
             blocks = None
 
     if not blocks:
-        # Fall back to hardcoded Python reference module
+        # GitLab is the single source of truth — try get_all_compliance_blocks
+        # which also queries GitLab (no hardcoded fallback)
         blocks = get_all_compliance_blocks(loopback_ip)
 
     lines: list[str] = []
@@ -144,7 +144,7 @@ def load_compliance_text(loopback_ip: str) -> str:
       4. Inline minimal default template
 
     Block rendering inside the template uses _render_rfc_blocks() which
-    applies the same GitLab-first / hardcoded-fallback logic.
+    queries GitLab (single source of truth, no hardcoded fallback).
     """
 
     # 1. Try GitLab verbatim compliance text (preserves all comments)

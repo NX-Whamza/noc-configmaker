@@ -204,6 +204,7 @@ except ImportError:
     HAS_REFERENCE = False
 
 # Import NextLink compliance reference (RFC-09-10-25)
+# GitLab is the single source of truth — no hardcoded fallbacks
 try:
     from nextlink_compliance_reference import get_all_compliance_blocks, validate_compliance
     HAS_COMPLIANCE = True
@@ -213,11 +214,12 @@ except ImportError:
 
 
 def _get_dynamic_compliance_blocks(loopback_ip: str = "10.0.0.1/32", return_source: bool = False):
-    """Get compliance blocks with GitLab-first, hardcoded-fallback logic.
+    """Get compliance blocks from GitLab (single source of truth).
 
     Every endpoint that needs compliance blocks should call this instead of
-    ``get_all_compliance_blocks()`` directly so that GitLab dynamic compliance
-    is always consulted first when configured.
+    ``get_all_compliance_blocks()`` directly.  GitLab is the ONLY source —
+    there is no hardcoded fallback.  When GitLab is unavailable the caller
+    receives an empty dict and a clear warning is logged.
 
     Args:
         loopback_ip: Loopback IP address to inject into compliance blocks.
@@ -227,10 +229,9 @@ def _get_dynamic_compliance_blocks(loopback_ip: str = "10.0.0.1/32", return_sour
         dict of block_name -> RouterOS config text (default)
         OR (dict, str) tuple if return_source=True
     """
-    source = 'hardcoded'
     blocks = {}
 
-    # 1. Try GitLab dynamic compliance
+    # GitLab dynamic compliance — single source of truth
     if _HAS_GITLAB_COMPLIANCE and _get_gitlab_compliance_loader is not None:
         try:
             loader = _get_gitlab_compliance_loader()
@@ -241,16 +242,20 @@ def _get_dynamic_compliance_blocks(loopback_ip: str = "10.0.0.1/32", return_sour
                     if return_source:
                         return gl_blocks, 'gitlab'
                     return gl_blocks
+                else:
+                    print("[COMPLIANCE] WARNING: GitLab returned empty compliance blocks")
+            else:
+                print("[COMPLIANCE] WARNING: GitLab compliance loader is not configured")
         except Exception as _exc:
-            print(f"[COMPLIANCE] GitLab loader failed, falling back to hardcoded: {_exc}")
+            print(f"[COMPLIANCE] ERROR: GitLab compliance loader failed: {_exc}")
+    else:
+        print("[COMPLIANCE] WARNING: GitLab compliance module not available")
 
-    # 2. Hardcoded fallback
-    if HAS_COMPLIANCE:
-        print("[COMPLIANCE] Using hardcoded compliance blocks (GitLab unavailable)")
-        blocks = get_all_compliance_blocks(loopback_ip)
-
+    # No hardcoded fallback — GitLab is the single source of truth.
+    # Return empty dict so the caller knows compliance is unavailable.
+    print("[COMPLIANCE] WARNING: No compliance blocks available — GitLab is the only source")
     if return_source:
-        return blocks, source
+        return blocks, 'unavailable'
     return blocks
 
 
@@ -8598,16 +8603,19 @@ def get_syntax_rules(target_version):
 # source's version duplicates the compliance version.
 #
 # **Dynamic extraction** — The primary approach is to PARSE whatever
-# compliance text we actually have (GitLab verbatim or fallback blocks)
+# compliance text we actually have (GitLab verbatim or GitLab parsed blocks)
 # and extract the RouterOS section headers it contains.  This way, when
 # engineering adds or removes sections from the GitLab compliance script
 # the stripping automatically adapts — no code changes needed.
 #
-# The hardcoded lists below serve ONLY as a last-resort fallback when
-# neither GitLab nor the fallback compliance blocks are available (rare).
+# GitLab is the SINGLE SOURCE OF TRUTH for compliance.  The hardcoded
+# lists below serve ONLY as a safety-net for the stripping logic when
+# dynamic extraction cannot run (e.g. temporary GitLab connectivity issue).
+# They do NOT provide compliance content — just prevent source sections
+# from surviving when compliance is injected.
 
 # ---------------------------------------------------------------------------
-# Hardcoded fallback strip list (used ONLY when dynamic extraction fails)
+# Safety-net strip list (used ONLY when dynamic extraction fails)
 # ---------------------------------------------------------------------------
 _COMPLIANCE_STRIP_SECTIONS_FALLBACK = [
     '/ip firewall filter',
@@ -8768,10 +8776,10 @@ def _strip_compliance_managed_sections(
     Args:
         config: Full RouterOS config text.
         strip_sections: *Dynamic* set of RouterOS section paths to strip.
-            When ``None`` (rare fallback), the hardcoded
+            When ``None`` (rare — GitLab unavailable), the safety-net
             ``_COMPLIANCE_STRIP_SECTIONS_FALLBACK`` is used.
         managed_lists: *Dynamic* set of address-list names to strip.
-            When ``None`` (rare fallback), the hardcoded
+            When ``None`` (rare — GitLab unavailable), the safety-net
             ``_COMPLIANCE_MANAGED_LISTS_FALLBACK`` is used.
     """
     lines = config.split('\n')
@@ -8788,7 +8796,7 @@ def _strip_compliance_managed_sections(
         source_label = 'dynamic'
     else:
         strip_set = {s.lower().strip() for s in _COMPLIANCE_STRIP_SECTIONS_FALLBACK}
-        source_label = 'hardcoded-fallback'
+        source_label = 'safety-net-fallback'
 
     # Use dynamic lists if provided AND non-empty, otherwise fall back to hardcoded
     effective_lists = managed_lists if managed_lists else _COMPLIANCE_MANAGED_LISTS_FALLBACK
@@ -8869,18 +8877,20 @@ def inject_compliance_blocks(config: str, compliance_blocks: dict, loopback_ip: 
     """
     Inject compliance into a RouterOS configuration.
 
-    Source priority:
+    Source: **GitLab only** (single source of truth).
       1. **Verbatim GitLab text** — the full TX-ARv2.rsc content is appended
          word-for-word (comments, inline comment="..." attributes, exact
          command syntax, section order — all preserved exactly as engineering
          wrote it).  Only $LoopIP is substituted with the concrete IP.
-      2. **Parsed blocks fallback** — if GitLab is unavailable, the legacy
-         compliance_blocks dict is reassembled and appended.
+      2. **GitLab parsed blocks** — if the verbatim text is unavailable but
+         parsed blocks were obtained from GitLab, they are reassembled.
+      3. **No fallback** — if GitLab is fully unavailable, compliance is
+         NOT injected and a clear warning is logged.
 
     Args:
         config: Existing RouterOS configuration
-        compliance_blocks: Dictionary of compliance blocks (used only as
-            fallback when GitLab raw text is unavailable)
+        compliance_blocks: Dictionary of compliance blocks (GitLab-sourced;
+            used only when verbatim GitLab text is unavailable)
         loopback_ip: Loopback IP for $LoopIP substitutions
         
     Returns:
@@ -8914,6 +8924,14 @@ def inject_compliance_blocks(config: str, compliance_blocks: dict, loopback_ip: 
     # Get it FIRST so we can parse it for dynamic section extraction.
     raw_text = _get_raw_gitlab_compliance_text(loopback_ip)
 
+    # Guard: if GitLab is fully unavailable (no raw text AND no blocks),
+    # return config untouched.  GitLab is the single source of truth —
+    # we never silently fall back to stale hardcoded data.
+    if not raw_text and not compliance_blocks:
+        print("[COMPLIANCE] WARNING: GitLab compliance fully unavailable — "
+              "config returned WITHOUT compliance injection")
+        return config
+
     # ── 1. Dynamic section extraction ──
     # Parse the compliance text to discover which RouterOS sections and
     # address-list names it manages.  This replaces the old hardcoded
@@ -8923,12 +8941,12 @@ def inject_compliance_blocks(config: str, compliance_blocks: dict, loopback_ip: 
     dyn_lists = None
     compliance_text_for_parsing = raw_text
     if not compliance_text_for_parsing and compliance_blocks:
-        # Build parseable text from fallback blocks
+        # Build parseable text from GitLab parsed blocks
         compliance_text_for_parsing = '\n'.join(v for v in compliance_blocks.values() if v)
     if compliance_text_for_parsing:
         dyn_sections, dyn_lists = _extract_compliance_managed_sections(compliance_text_for_parsing)
         if dyn_sections:
-            src = 'GitLab' if raw_text else 'fallback-blocks'
+            src = 'GitLab-verbatim' if raw_text else 'GitLab-parsed-blocks'
             print(f"[COMPLIANCE] Dynamic extraction ({src}): "
                   f"{len(dyn_sections)} sections, {len(dyn_lists)} address-lists")
             print(f"[COMPLIANCE]   sections: {', '.join(sorted(dyn_sections))}")
@@ -8945,8 +8963,10 @@ def inject_compliance_blocks(config: str, compliance_blocks: dict, loopback_ip: 
         if added:
             print(f"[COMPLIANCE] Merged {added} always-strip section(s) into dynamic set")
     elif dyn_sections is None:
-        # No dynamic extraction at all — ensure always-strip is included in fallback
-        pass  # _COMPLIANCE_STRIP_SECTIONS_FALLBACK already has these
+        # No dynamic extraction at all — the hardcoded fallback strip list
+        # will be used by _strip_compliance_managed_sections() as a safety net.
+        print("[COMPLIANCE] WARNING: No dynamic section extraction possible — "
+              "using hardcoded strip list as safety net")
 
     # ── 2. Strip compliance-managed sections from source config ──
     # This prevents duplication: source firewall/logging/SNMP/users/etc.
@@ -8972,9 +8992,14 @@ def inject_compliance_blocks(config: str, compliance_blocks: dict, loopback_ip: 
         print(f"[COMPLIANCE] Injected verbatim GitLab compliance ({len(raw_text)} chars)")
         return config.rstrip() + "\n" + compliance_section
 
-    # ── 4. Fallback: reassemble from parsed blocks ──
-    print("[COMPLIANCE] GitLab raw text unavailable — using parsed blocks fallback")
-    compliance_section = "\n\n# ========================================\n# RFC-09-10-25 COMPLIANCE STANDARDS\n# ========================================\n# Source: hardcoded fallback (GitLab unavailable)\n# ========================================\n\n"
+    # ── 4. GitLab parsed blocks (verbatim text unavailable) ──
+    if not compliance_blocks:
+        print("[COMPLIANCE] WARNING: Neither GitLab verbatim text nor parsed blocks available — "
+              "config returned WITHOUT compliance injection")
+        return config
+
+    print("[COMPLIANCE] GitLab raw text unavailable — using GitLab parsed blocks")
+    compliance_section = "\n\n# ========================================\n# RFC-09-10-25 COMPLIANCE STANDARDS\n# ========================================\n# Source: GitLab netforge/compliance TX-ARv2.rsc (parsed blocks)\n# ========================================\n\n"
     
     compliance_order = [
         'variables', 'ip_services', 'dns',
@@ -8994,6 +9019,7 @@ def inject_compliance_blocks(config: str, compliance_blocks: dict, loopback_ip: 
             compliance_section += compliance_blocks[key]
             compliance_section += "\n\n"
     
+    print(f"[COMPLIANCE] Injected GitLab parsed blocks compliance")
     return config.rstrip() + "\n" + compliance_section
 
 def validate_translation(source, translated):
