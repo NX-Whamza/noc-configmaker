@@ -10530,6 +10530,143 @@ def health():
         'message': 'Unified backend (api_server.py) is online and ready'
     })
 
+
+# ── /api/docs — Self-documenting API registry ────────────────────────
+# Every endpoint category is listed here with method, path, summary,
+# and payload shape.  Keep this in sync with docs/API_REFERENCE.md.
+# ──────────────────────────────────────────────────────────────────────
+
+_API_REGISTRY = [
+    # ── Health & System ──
+    {"method": "GET",  "path": "/api/health",               "category": "Health & System",   "summary": "Server alive + AI provider status"},
+    {"method": "GET",  "path": "/api/app-config",            "category": "Health & System",   "summary": "Runtime config (BNG peers, defaults)"},
+    {"method": "GET",  "path": "/api/infrastructure",        "category": "Health & System",   "summary": "Infrastructure defaults (DNS, RADIUS, SNMP)", "auth": True},
+    {"method": "POST", "path": "/api/reload-training",       "category": "Health & System",   "summary": "Hot-reload AI training rules"},
+    {"method": "GET",  "path": "/api/docs",                  "category": "Health & System",   "summary": "This self-documenting endpoint"},
+    # ── Authentication ──
+    {"method": "POST", "path": "/api/auth/login",            "category": "Authentication",    "summary": "Email/password login",                      "payload": {"email": "str", "password": "str"}},
+    {"method": "POST", "path": "/api/auth/microsoft",        "category": "Authentication",    "summary": "Microsoft SSO redirect URL"},
+    {"method": "POST", "path": "/api/auth/change-password",  "category": "Authentication",    "summary": "Change password",                           "auth": True, "payload": {"currentPassword": "str", "newPassword": "str"}},
+    {"method": "POST", "path": "/api/auth/forgot-password",  "category": "Authentication",    "summary": "Request password reset",                    "payload": {"email": "str"}},
+    {"method": "POST", "path": "/api/auth/reset-password",   "category": "Authentication",    "summary": "Reset password with token",                 "payload": {"email": "str", "resetToken": "str", "newPassword": "str"}},
+    {"method": "POST", "path": "/api/auth/verify",           "category": "Authentication",    "summary": "Verify JWT validity",                       "payload": {"token": "str"}},
+    # ── AI Chat ──
+    {"method": "POST", "path": "/api/chat",                  "category": "AI Chat",           "summary": "AI chat (RouterOS Q&A)",                    "payload": {"message": "str", "session_id?": "str"}},
+    {"method": "GET",  "path": "/api/chat/history/<id>",     "category": "AI Chat",           "summary": "Chat history for session"},
+    {"method": "GET",  "path": "/api/chat/context/<id>",     "category": "AI Chat",           "summary": "Get session context"},
+    {"method": "POST", "path": "/api/chat/context/<id>",     "category": "AI Chat",           "summary": "Update session context",                    "payload": {"preferred_model?": "str", "context_memory?": "obj"}},
+    {"method": "GET",  "path": "/api/chat/export/<id>",      "category": "AI Chat",           "summary": "Export chat session as JSON"},
+    # ── OpenAI-Compatible ──
+    {"method": "GET",  "path": "/v1/models",                 "category": "OpenAI-Compatible", "summary": "List models (for Open WebUI)"},
+    {"method": "POST", "path": "/v1/chat/completions",       "category": "OpenAI-Compatible", "summary": "Chat completions (OpenAI format)",          "payload": {"model": "str", "messages": "array", "temperature?": "float"}},
+    # ── Config Translation & Validation ──
+    {"method": "POST", "path": "/api/translate-config",      "category": "Config Tools",      "summary": "Translate config between ROS versions/devices", "payload": {"source_config": "str", "target_device": "str", "target_version": "str", "strict_preserve?": "bool", "apply_compliance?": "bool"}},
+    {"method": "POST", "path": "/api/validate-config",       "category": "Config Tools",      "summary": "Validate config for errors & compliance",   "payload": {"config": "str", "type?": "tower|enterprise|mpls|enterprise-feeding"}},
+    {"method": "POST", "path": "/api/apply-compliance",      "category": "Config Tools",      "summary": "Apply RFC compliance (GitLab source)",      "payload": {"config": "str", "loopback_ip?": "str"}},
+    {"method": "POST", "path": "/api/suggest-config",        "category": "Config Tools",      "summary": "AI auto-fill config fields",                "payload": {"device": "str", "target_version": "str", "loopback_ip": "str"}},
+    {"method": "POST", "path": "/api/explain-config",        "category": "Config Tools",      "summary": "AI explain config section",                 "payload": {"config": "str"}},
+    {"method": "POST", "path": "/api/autofill-from-export",  "category": "Config Tools",      "summary": "Parse export → auto-fill form fields",      "payload": {"exported_config": "str", "target_form?": "str"}},
+    # ── MikroTik Config Gen ──
+    {"method": "POST", "path": "/api/gen-enterprise-non-mpls","category": "MikroTik Gen",     "summary": "Generate Non-MPLS Enterprise config",       "payload": {"device": "str", "target_version": "str", "public_cidr": "str", "bh_cidr": "str", "loopback_ip": "str"}},
+    {"method": "POST", "path": "/api/gen-tarana-config",     "category": "MikroTik Gen",      "summary": "Generate/validate Tarana sector config",    "payload": {"config": "str", "device": "str", "routeros_version": "str"}},
+    {"method": "POST", "path": "/api/mt/<type>/config",      "category": "MikroTik Gen",      "summary": "Generate MikroTik config (Netlaunch)"},
+    {"method": "POST", "path": "/api/mt/<type>/portmap",     "category": "MikroTik Gen",      "summary": "Generate MikroTik port map (Netlaunch)"},
+    # ── FTTH BNG ──
+    {"method": "POST", "path": "/api/generate-ftth-bng",     "category": "FTTH BNG",          "summary": "Generate FTTH BNG config (strict template)", "payload": {"deployment_type": "str", "loopback_ip": "str", "cpe_network": "str", "cgnat_private": "str"}},
+    {"method": "POST", "path": "/api/gen-ftth-bng",          "category": "FTTH BNG",          "summary": "Legacy FTTH BNG gen",                       "payload": {"loopback_ip": "str", "cpe_cidr": "str", "cgnat_cidr": "str"}},
+    {"method": "POST", "path": "/api/preview-ftth-bng",      "category": "FTTH BNG",          "summary": "Preview FTTH CIDR details (no config gen)", "payload": {"loopback_ip": "str", "cpe_cidr": "str", "cgnat_cidr": "str"}},
+    {"method": "POST", "path": "/api/ftth-home/mf2-package", "category": "FTTH BNG",          "summary": "Generate MF2 ZIP package",                  "payload": {"gateway_ip": "str", "primary_ip": "str"}},
+    # ── Nokia 7250 ──
+    {"method": "GET",  "path": "/api/nokia7250-defaults",    "category": "Nokia 7250",        "summary": "Nokia credentials/secrets from env"},
+    {"method": "POST", "path": "/api/generate-nokia7250",    "category": "Nokia 7250",        "summary": "Generate Nokia 7250 SR OS config",          "payload": {"system_name": "str", "system_ip": "str", "location": "str", "backhauls": "array"}},
+    # ── Device Migration ──
+    {"method": "POST", "path": "/api/migrate-config",        "category": "Device Migration",  "summary": "Intelligent device migration (ROS6→7, interface map)", "payload": {"config": "str", "target_device": "str", "target_version": "str", "apply_compliance?": "bool"}},
+    {"method": "POST", "path": "/api/migrate-mikrotik-to-nokia","category":"Device Migration", "summary": "MikroTik → Nokia SR OS conversion",        "payload": {"source_config": "str", "preserve_ips?": "bool"}},
+    {"method": "GET",  "path": "/api/get-routerboards",      "category": "Device Migration",  "summary": "List all supported RouterBoard models"},
+    # ── SSH / Remote ──
+    {"method": "POST", "path": "/api/fetch-config-ssh",      "category": "SSH / Remote",      "summary": "SSH into device and fetch config",          "payload": {"host": "str", "ros_version?": "6|7", "command?": "str"}},
+    # ── Compliance & Policy ──
+    {"method": "GET",  "path": "/api/compliance-status",     "category": "Compliance",        "summary": "GitLab health, active source, cache state"},
+    {"method": "POST", "path": "/api/reload-compliance",     "category": "Compliance",        "summary": "Clear compliance TTL cache"},
+    {"method": "GET",  "path": "/api/compliance/blocks",     "category": "Compliance",        "summary": "Compliance blocks as JSON",                 "payload": {"loopback_ip?": "query"}},
+    {"method": "GET",  "path": "/api/compliance/engineering", "category": "Compliance",        "summary": "Engineering compliance text",               "payload": {"loopback_ip?": "query"}},
+    {"method": "GET",  "path": "/api/get-config-policies",   "category": "Compliance",        "summary": "List config policies",                      "payload": {"category?": "query", "reload?": "query"}},
+    {"method": "GET",  "path": "/api/get-config-policy/<name>","category": "Compliance",       "summary": "Get specific policy by name"},
+    {"method": "GET",  "path": "/api/get-config-policy-bundle","category": "Compliance",       "summary": "Merged policy text for multiple keys",      "payload": {"keys?": "query", "include?": "query"}},
+    {"method": "POST", "path": "/api/reload-config-policies","category": "Compliance",        "summary": "Reload policies from disk"},
+    # ── Completed Configs ──
+    {"method": "POST", "path": "/api/save-completed-config", "category": "Completed Configs", "summary": "Save config to DB with port-map extraction","payload": {"config_type": "str", "device_name": "str", "config_content": "str", "created_by": "str"}},
+    {"method": "GET",  "path": "/api/get-completed-configs", "category": "Completed Configs", "summary": "List saved configs (filterable)",            "payload": {"search?": "query", "year?": "query", "type?": "query"}},
+    {"method": "GET",  "path": "/api/get-completed-config/<id>","category":"Completed Configs","summary": "Get specific saved config + port map"},
+    {"method": "GET",  "path": "/api/download-port-map/<id>","category": "Completed Configs", "summary": "Download port map as .txt"},
+    {"method": "POST", "path": "/api/extract-port-map",      "category": "Completed Configs", "summary": "Extract port map from raw config",          "payload": {"config_content": "str"}},
+    # ── Activity ──
+    {"method": "POST", "path": "/api/log-activity",          "category": "Activity",          "summary": "Log user activity",                         "payload": {"type": "str", "device?": "str", "siteName?": "str", "success": "bool"}},
+    {"method": "GET",  "path": "/api/get-activity",          "category": "Activity",          "summary": "Get recent activities from DB"},
+    {"method": "GET",  "path": "/api/activity",              "category": "Activity",          "summary": "In-memory live activity feed (last 50)"},
+    {"method": "POST", "path": "/api/activity",              "category": "Activity",          "summary": "Post activity to in-memory feed"},
+    # ── Feedback ──
+    {"method": "POST", "path": "/api/feedback",              "category": "Feedback",          "summary": "Submit feedback / bug / feature request",   "payload": {"type": "str", "subject": "str", "details": "str"}},
+    # ── Admin ──
+    {"method": "GET",  "path": "/api/admin/feedback",        "category": "Admin",             "summary": "List all feedback (admin)",                  "auth": True},
+    {"method": "PUT",  "path": "/api/admin/feedback/<id>/status","category": "Admin",          "summary": "Update feedback status",                    "auth": True, "payload": {"status": "str", "admin_notes?": "str"}},
+    {"method": "GET",  "path": "/api/admin/feedback/export", "category": "Admin",             "summary": "Export feedback to Excel",                   "auth": True},
+    {"method": "POST", "path": "/api/admin/users/reset-password","category": "Admin",          "summary": "Reset user password (admin)",               "auth": True, "payload": {"email": "str", "newPassword?": "str"}},
+    # ── Aviat Radio ──
+    {"method": "POST", "path": "/api/aviat/run",             "category": "Aviat Radio",       "summary": "Run maintenance tasks on radios",           "payload": {"ips": "array", "tasks": "array"}},
+    {"method": "POST", "path": "/api/aviat/activate-scheduled","category": "Aviat Radio",      "summary": "Activate scheduled firmware",               "payload": {"ips": "array", "force?": "bool"}},
+    {"method": "GET",  "path": "/api/aviat/scheduled",       "category": "Aviat Radio",       "summary": "List scheduled radios"},
+    {"method": "GET",  "path": "/api/aviat/loading",         "category": "Aviat Radio",       "summary": "List radios currently loading firmware"},
+    {"method": "GET",  "path": "/api/aviat/reboot-required", "category": "Aviat Radio",       "summary": "List radios needing reboot"},
+    {"method": "POST", "path": "/api/aviat/reboot-required/run","category": "Aviat Radio",     "summary": "Reboot radios that require it",             "payload": {"ips": "array"}},
+    {"method": "POST", "path": "/api/aviat/scheduled/sync",  "category": "Aviat Radio",       "summary": "Sync scheduled device queue",               "payload": {"ips": "array"}},
+    {"method": "GET",  "path": "/api/aviat/queue",           "category": "Aviat Radio",       "summary": "Get shared radio queue"},
+    {"method": "POST", "path": "/api/aviat/queue",           "category": "Aviat Radio",       "summary": "Modify radio queue",                        "payload": {"mode": "replace|add|remove", "radios": "array"}},
+    {"method": "POST", "path": "/api/aviat/check-status",    "category": "Aviat Radio",       "summary": "Check firmware/SNMP/STP/license status",    "payload": {"ips": "array"}},
+    {"method": "POST", "path": "/api/aviat/precheck/recheck","category": "Aviat Radio",       "summary": "Re-run precheck on single radio",           "payload": {"ip": "str"}},
+    {"method": "POST", "path": "/api/aviat/fix-stp",         "category": "Aviat Radio",       "summary": "SSH disable STP on radio",                  "payload": {"ip": "str"}},
+    {"method": "POST", "path": "/api/aviat/abort/<task_id>", "category": "Aviat Radio",       "summary": "Abort a running background task"},
+    {"method": "GET",  "path": "/api/aviat/stream/<task_id>","category": "Aviat Radio",       "summary": "SSE stream for task logs"},
+    {"method": "GET",  "path": "/api/aviat/stream/global",   "category": "Aviat Radio",       "summary": "Global SSE stream for all Aviat activity"},
+    {"method": "GET",  "path": "/api/aviat/status/<task_id>","category": "Aviat Radio",       "summary": "Get task status/results"},
+    # ── IDO Proxy ──
+    {"method": "GET",  "path": "/api/ido/capabilities",      "category": "IDO Proxy",         "summary": "IDO backend config and health"},
+    {"method": "ANY",  "path": "/api/ido/proxy/<path>",      "category": "IDO Proxy",         "summary": "Proxy to external IDO backend"},
+]
+
+
+@app.route('/api/docs', methods=['GET'])
+def api_docs():
+    """Self-documenting API reference — returns full endpoint registry as JSON.
+    
+    Query params:
+        ?category=<name>   Filter by category
+        ?search=<text>     Search paths and summaries
+    """
+    category_filter = request.args.get('category', '').strip().lower()
+    search_filter = request.args.get('search', '').strip().lower()
+
+    endpoints = _API_REGISTRY
+    if category_filter:
+        endpoints = [e for e in endpoints if e['category'].lower() == category_filter]
+    if search_filter:
+        endpoints = [e for e in endpoints
+                     if search_filter in e['path'].lower()
+                     or search_filter in e.get('summary', '').lower()
+                     or search_filter in e.get('category', '').lower()]
+
+    categories = sorted(set(e['category'] for e in _API_REGISTRY))
+
+    return jsonify({
+        'success': True,
+        'version': '1.0.0',
+        'total_endpoints': len(_API_REGISTRY),
+        'filtered': len(endpoints),
+        'categories': categories,
+        'endpoints': endpoints,
+        'docs_url': 'See docs/API_REFERENCE.md for full payload examples'
+    })
+
 @app.route('/api/app-config', methods=['GET'])
 def app_config():
     """
