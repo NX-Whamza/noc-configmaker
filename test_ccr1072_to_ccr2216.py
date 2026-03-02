@@ -406,9 +406,12 @@ def run_test():
               ip_service_source == 0 or ip_service_compliance == 0,
               f"Source has {ip_service_source}, compliance has {ip_service_compliance}")
         
-        # E2: /snmp community should NOT appear in both
-        # Note: /snmp (daemon settings) and /snmp community are DIFFERENT sections.
-        # Only check /snmp community duplication (not bare /snmp set).
+        # E2: /snmp (daemon) and /snmp community should NOT appear in source section
+        # Both are compliance-owned — /snmp is in the always-strip set.
+        snmp_bare_source = len(re.findall(r'^/snmp\s*$', source_section, re.MULTILINE))
+        check("/snmp (daemon) stripped from source",
+              snmp_bare_source == 0,
+              f"Found {snmp_bare_source} /snmp section(s) still in source")
         snmp_comm_source = len(re.findall(r'/snmp community', source_section))
         snmp_comm_compliance = len(re.findall(r'/snmp community', compliance_section))
         check("/snmp community NOT duplicated",

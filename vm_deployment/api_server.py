@@ -8654,6 +8654,21 @@ _COMPLIANCE_TARGETED_ONLY_SECTIONS = {
     '/ip dhcp-server network',    # compliance: set [find where address !~ "^10\\"] ...
 }
 
+# Sections that must ALWAYS be stripped from source config even if the GitLab
+# compliance script doesn't have an explicit section header for them.  These
+# are in the compliance domain — we never want the source version to survive
+# because compliance owns the policy for them.  The dynamic extractor may miss
+# these when the compliance script only manages a *sub*-section (e.g. GitLab
+# has /snmp community but not bare /snmp, yet we want /snmp stripped too).
+_COMPLIANCE_ALWAYS_STRIP_SECTIONS = {
+    '/snmp',                      # daemon settings (contact, location, enabled)
+    '/tool bandwidth-server',     # security: must be disabled
+    '/ip socks',                  # security: must be disabled
+    '/ip proxy',                  # security: must be disabled
+    '/ip ssh',                    # hardening (strong-crypto, host-key-size)
+    '/ip smb',                    # security: must be disabled
+}
+
 
 def _extract_compliance_managed_sections(compliance_text: str):
     """Parse compliance script text to dynamically discover which RouterOS
@@ -8919,6 +8934,19 @@ def inject_compliance_blocks(config: str, compliance_blocks: dict, loopback_ip: 
             print(f"[COMPLIANCE]   sections: {', '.join(sorted(dyn_sections))}")
             if dyn_lists:
                 print(f"[COMPLIANCE]   address-lists: {', '.join(sorted(dyn_lists))}")
+
+    # Merge always-strip sections into the dynamic set so source versions
+    # are removed even when the compliance script only manages a sub-section
+    # (e.g. GitLab has /snmp community but not bare /snmp).
+    if dyn_sections is not None:
+        before_count = len(dyn_sections)
+        dyn_sections = dyn_sections | _COMPLIANCE_ALWAYS_STRIP_SECTIONS
+        added = len(dyn_sections) - before_count
+        if added:
+            print(f"[COMPLIANCE] Merged {added} always-strip section(s) into dynamic set")
+    elif dyn_sections is None:
+        # No dynamic extraction at all — ensure always-strip is included in fallback
+        pass  # _COMPLIANCE_STRIP_SECTIONS_FALLBACK already has these
 
     # ── 2. Strip compliance-managed sections from source config ──
     # This prevents duplication: source firewall/logging/SNMP/users/etc.
