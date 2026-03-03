@@ -4214,16 +4214,48 @@ def translate_config():
         
         if is_source_v7 and is_target_v7 and same_exact_device:
             print(f"[FAST MODE] Same exact device ({source_device_info['model']}), same major version - minimal processing")
-            # Just return source with device name update if needed
-            translated = source_config
+            # Same device, same major version — config is already compatible.
+            # Still apply formatting and compliance if requested.
+            translated = format_config_spacing(source_config)
+
+            # Apply compliance if requested
+            if apply_compliance and HAS_COMPLIANCE:
+                try:
+                    # Extract loopback IP for compliance injection
+                    _loop_m = re.search(r'/ip address\s+add\s+address=([0-9.]+)(?:/\d+)?\s+[^\n]*interface=loop0', source_config, re.IGNORECASE)
+                    if not _loop_m:
+                        _loop_m = re.search(r'router-id=([0-9.]+)', source_config)
+                    _lip = _loop_m.group(1) if _loop_m else '10.0.0.1'
+                    compliance_blocks = _get_dynamic_compliance_blocks(_lip)
+                    translated = inject_compliance_blocks(translated, compliance_blocks, loopback_ip=_lip)
+                except Exception as comp_err:
+                    print(f"[FAST MODE] Compliance append failed (non-fatal): {comp_err}")
+
             validation = validate_translation(source_config, translated)
+
+            fast_source_info = {
+                'model': source_device_info.get('model', 'unknown'),
+                'type': source_device_info.get('type', 'unknown'),
+                'identity': '',
+            }
+            # Extract identity safely
+            id_m = re.search(r'/system identity\s*[\r\n]+set name=([^\s\r\n]+)', source_config)
+            if id_m:
+                fast_source_info['identity'] = id_m.group(1).strip().strip('"').strip("'")
+
+            fast_target_info = {
+                'model': target_device_info.get('model', 'unknown'),
+                'type': target_device_info.get('type', target_device),
+                'routeros': target_version,
+            }
+
             return jsonify({
                 'success': True,
                 'translated_config': translated,
                 'validation': validation,
                 'fast_mode': True,
-                'source_info': source_info,
-                'target_info': target_info,
+                'source_info': fast_source_info,
+                'target_info': fast_target_info,
                 'message': 'Config already compatible - no changes needed'
             })
         elif is_source_v7 and is_target_v7 and not same_exact_device:
