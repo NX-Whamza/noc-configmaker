@@ -10959,18 +10959,71 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
     port_mapping = {}
     mgmt_port = source_device.get('management', 'ether1')
 
-    # Collect only PHYSICAL interfaces (not bridges, not loop0)
+    # ═══ Interface role classification ═══
+    # Nokia 7250 is a transport router — only transport/uplink interfaces become
+    # Nokia router ports.  Access/downstream interfaces (Netonix switches, OLTs,
+    # power controllers, etc.) do NOT belong on the Nokia.
+    #
+    # Transport indicators: OSPF participation, BGP neighbor, MPLS/LDP interface,
+    #                       comment containing UPLINK/BACKHAUL/TRANSPORT/FIBER
+    # Access indicators:    comment containing NETONIX/SWITCH/OLT/POWER/UPS/LEGACY/
+    #                       CAMERA/AP/CPE/CUSTOMER/DOWNSTREAM
+    _ACCESS_KEYWORDS = re.compile(
+        r'(?i)\b(NETONIX|LEGACY\s*NETONIX|SWITCH|NETONIX[-_ ]?SWITCH|'
+        r'OLT|POWER|UPS|CAMERA|AP\b|CPE|CUSTOMER|DOWNSTREAM|WISP[-_ ]?SW|'
+        r'ACCESS[-_ ]?SW|DSLAM|GPON|LEGACY[-_ ]?SW|LEGACY\b)', re.IGNORECASE
+    )
+    _TRANSPORT_KEYWORDS = re.compile(
+        r'(?i)\b(UPLINK|BACKHAUL|TRANSPORT|FIBER|TRUNK|CORE|CR\d|BNG|PE[-_ ]|'
+        r'P[-_ ]LINK|RING|MPLS|AGGREGATE)', re.IGNORECASE
+    )
+
+    # Build set of transport interfaces from OSPF / BGP / MPLS participation
+    ospf_ifaces = {o['interface'] for o in ospf.get('interfaces', []) if o.get('interface')}
+    bgp_peer_addrs = {p['address'] for p in bgp.get('peers', [])}
+
+    # Classify each interface
+    interface_roles = {}  # iface_name → 'transport' | 'access' | 'unknown'
+    for iface_name in set(list(iface_comments.keys()) + [e['interface'] for e in ip_addresses]):
+        if iface_name == 'loop0' or iface_name in bridge_names:
+            continue
+        comment = iface_comments.get(iface_name, '').upper()
+        role = 'unknown'
+
+        # Rule 1: If interface participates in OSPF → transport (strongest signal)
+        if iface_name in ospf_ifaces:
+            role = 'transport'
+        # Rule 2: Comment-based classification
+        elif _ACCESS_KEYWORDS.search(comment):
+            role = 'access'
+        elif _TRANSPORT_KEYWORDS.search(comment):
+            role = 'transport'
+        # Rule 3: If interface has a /30 or /31 address → likely point-to-point link (transport)
+        else:
+            for ip_entry in ip_addresses:
+                if ip_entry['interface'] == iface_name:
+                    addr = ip_entry.get('address', '')
+                    if addr.endswith('/30') or addr.endswith('/31'):
+                        role = 'transport'
+                        break
+
+        interface_roles[iface_name] = role
+
+    # Interfaces confirmed as access/downstream
+    access_ifaces = {k for k, v in interface_roles.items() if v == 'access'}
+
+    # Collect only PHYSICAL TRANSPORT interfaces (not bridges, not loop0, not access/downstream)
     all_physical_ifaces = set()
     for ip_entry in ip_addresses:
         iface = ip_entry['interface']
-        if iface not in bridge_names and iface != 'loop0':
+        if iface not in bridge_names and iface != 'loop0' and iface not in access_ifaces:
             all_physical_ifaces.add(iface)
     for iface_name in iface_comments:
-        if iface_name not in bridge_names and iface_name != 'loop0':
+        if iface_name not in bridge_names and iface_name != 'loop0' and iface_name not in access_ifaces:
             all_physical_ifaces.add(iface_name)
     for o in ospf.get('interfaces', []):
         iface = o['interface']
-        if iface not in bridge_names and iface != 'loop0':
+        if iface not in bridge_names and iface != 'loop0' and iface not in access_ifaces:
             all_physical_ifaces.add(iface)
     # NOTE: Bridge member ports are NOT added to all_physical_ifaces.
     # Nokia 7250 is a transport router — bridge member ports stay on the
@@ -11041,6 +11094,17 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
                 'type': 'bridge-member',
                 'parent_bridge': parent_bridge,
             }
+    # Add access/downstream ports for UI display (type='access') — NOT on Nokia
+    # These are interfaces going to Netonix switches, OLTs, power controllers, etc.
+    for ap in sorted(access_ifaces):
+        if ap not in port_mapping:
+            comment = iface_comments.get(ap, ap)
+            port_mapping[ap] = {
+                'nokia_port': '— (not on Nokia)',
+                'type': 'access',
+                'role': 'downstream',
+                'comment': comment,
+            }
 
     if not identity:
         warnings.append('No /system identity found — using placeholder')
@@ -11056,6 +11120,9 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
         warnings.append(f'Bridge interfaces detected: {", ".join(sorted(bridge_names))} — IPs on bridges are service-side (VPLS), not router interfaces')
     if bridge_member_ports:
         warnings.append(f'Bridge member ports excluded from Nokia: {", ".join(sorted(bridge_member_ports))} — these stay on the co-located MikroTik for DHCP/LAN')
+    if access_ifaces:
+        access_labels = [f'{ap} ({iface_comments.get(ap, "downstream")})' for ap in sorted(access_ifaces)]
+        warnings.append(f'Access/downstream ports excluded from Nokia: {", ".join(access_labels)} — switches, OLTs, and access devices do not migrate to the 7250')
 
     # All interfaces for stats (physical + loopback)
     all_ifaces_used = all_physical_ifaces | {'loop0'} | bridge_names
@@ -11063,6 +11130,7 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
     # Stats
     stats = {
         'interfaces_found': len(all_physical_ifaces),
+        'access_excluded': len(access_ifaces),
         'ip_addresses': len(ip_addresses),
         'ospf_interfaces': len(ospf.get('interfaces', [])),
         'bgp_peers': len(bgp.get('peers', [])),
@@ -11179,7 +11247,7 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
     static_routes = parsed.get('static_routes', [])
     mpls_data = parsed.get('mpls', {})
 
-    # Build list of router interfaces (exclude loopback and bridges)
+    # Build list of router interfaces (exclude loopback, bridges, and access/downstream)
     # Deduplicate by Nokia port — multiple IPs on same physical interface
     # use first as primary, extras as secondary addresses
     router_ifaces = []
@@ -11195,7 +11263,12 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
             continue
         pm = port_map.get(iface, {})
         nokia_port = pm.get('nokia_port')
+        # Skip interfaces without Nokia ports, VPLS/SAP, access/downstream, bridge-member
         if not nokia_port or nokia_port == 'VPLS/SAP':
+            continue
+        if not nokia_port.startswith(('1/1/', 'A/')):
+            continue  # Skip non-Nokia ports (e.g. '— (not on Nokia)', '— (on MikroTik)')
+        if pm.get('type') in ('access', 'bridge-member'):
             continue
         desc = entry.get('comment') or parsed.get('interfaces', {}).get(iface, '') or iface
         speed = pm.get('speed', '10000')

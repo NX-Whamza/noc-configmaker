@@ -23617,9 +23617,9 @@ Ready for translation!`);
                 const ifaceComments = parsed.interfaces || {};
                 const bridgeNames = new Set(parsed.bridge_names || []);
 
-                // Sort: loopback first, then physical, then management, then bridges, then bridge-members
+                // Sort: loopback first, then physical, then management, then bridges, then bridge-members, then access
                 const sortedEntries = Object.entries(portMap).sort((a, b) => {
-                    const order = (t) => t === 'loopback' ? 0 : t === 'sfp' || t === 'ethernet' ? 1 : t === 'connector-100g' ? 2 : t === 'management' ? 3 : t === 'bridge' ? 4 : t === 'bridge-member' ? 5 : 6;
+                    const order = (t) => t === 'loopback' ? 0 : t === 'sfp' || t === 'ethernet' ? 1 : t === 'connector-100g' ? 2 : t === 'management' ? 3 : t === 'bridge' ? 4 : t === 'bridge-member' ? 5 : t === 'access' ? 6 : 7;
                     return order(a[1].type) - order(b[1].type);
                 });
 
@@ -23628,11 +23628,15 @@ Ready for translation!`);
                 for (const [mtIface, pm] of sortedEntries) {
                     const isBridge = pm.type === 'bridge';
                     const isBridgeMember = pm.type === 'bridge-member';
+                    const isAccess = pm.type === 'access';
                     const isServiceSide = isBridge || isBridgeMember;
+                    const isExcluded = isServiceSide || isAccess;
                     // Section separators
-                    if (isServiceSide && lastType !== 'bridge' && lastType !== 'bridge-member') {
+                    if (isAccess && lastType !== 'access') {
+                        rows += `<tr><td colspan="5" style="padding:8px 12px;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#f44336;background:rgba(244,67,54,0.08);border-top:2px solid #f44336;">Access / Downstream (NOT on Nokia — switches, OLTs, etc.)</td></tr>`;
+                    } else if (isServiceSide && lastType !== 'bridge' && lastType !== 'bridge-member') {
                         rows += `<tr><td colspan="5" style="padding:8px 12px;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#ff9800;background:rgba(255,152,0,0.08);border-top:2px solid #ff9800;">Bridge / Service-Side (NOT on Nokia — stays on MikroTik)</td></tr>`;
-                    } else if (!isServiceSide && lastType === '') {
+                    } else if (!isExcluded && lastType === '') {
                         rows += `<tr><td colspan="5" style="padding:8px 12px;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#42a5f5;background:rgba(66,165,245,0.08);border-top:2px solid #42a5f5;">Router Interfaces (Network-Side — on Nokia 7250)</td></tr>`;
                     }
                     lastType = pm.type;
@@ -23641,7 +23645,8 @@ Ready for translation!`);
                                       pm.type === 'management' ? '#ef5350' :
                                       pm.type === 'connector-100g' ? '#ff9800' :
                                       pm.type === 'bridge' ? '#e65100' :
-                                      pm.type === 'bridge-member' ? '#bf360c' : '#42a5f5';
+                                      pm.type === 'bridge-member' ? '#bf360c' :
+                                      pm.type === 'access' ? '#f44336' : '#42a5f5';
                     const ipsForIface = ipLookup[mtIface] || [];
                     const ipDisplay = ipsForIface.join(', ');
                     const speedDisplay = pm.speed ? `${pm.speed === '1000' ? '1G' : pm.speed === '10000' ? '10G' : pm.speed === '25000' ? '25G' : pm.speed === '100000' ? '100G' : pm.speed}` : '';
@@ -23654,17 +23659,20 @@ Ready for translation!`);
                         if (bIps) descCell += `<div style="font-size:11px;">IPs: <b>${bIps}</b> (service-side)</div>`;
                     } else if (isBridgeMember) {
                         descCell = `<div style="font-size:11px;">Bridge: <b>${pm.parent_bridge || '?'}</b> — stays on MikroTik for DHCP/LAN</div>`;
+                    } else if (isAccess) {
+                        const accessComment = pm.comment || ifaceComments[mtIface] || 'downstream device';
+                        descCell = `<div style="font-size:11px;color:#f44336;"><b>${accessComment}</b> — not migrated to Nokia 7250</div>`;
                     }
 
                     const typeLabel = pm.type || '?';
                     const speedBadge = speedDisplay ? ` <span style="background:#37474f;color:#cfd8dc;padding:1px 5px;border-radius:6px;font-size:10px;margin-left:4px;">${speedDisplay}</span>` : '';
 
-                    rows += `<tr style="border-bottom:1px solid var(--border-color);${isServiceSide ? 'opacity:0.6;' : ''}">
+                    rows += `<tr style="border-bottom:1px solid var(--border-color);${isExcluded ? 'opacity:0.6;' : ''}">
                         <td style="padding:6px 12px;font-family:'JetBrains Mono',monospace;font-size:12px;">${mtIface}</td>
-                        <td style="padding:6px 12px;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;${isServiceSide ? 'color:#999;' : ''}">${pm.nokia_port || '—'}</td>
+                        <td style="padding:6px 12px;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;${isExcluded ? 'color:#999;' : ''}">${pm.nokia_port || '—'}</td>
                         <td style="padding:6px 12px;"><span style="background:${typeColor};color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;">${typeLabel}</span>${speedBadge}</td>
                         <td style="padding:6px 12px;font-size:12px;color:var(--text-color-secondary);">${descCell}</td>
-                        <td style="padding:6px 12px;font-family:'JetBrains Mono',monospace;font-size:12px;">${isServiceSide ? '' : ipDisplay}</td>
+                        <td style="padding:6px 12px;font-family:'JetBrains Mono',monospace;font-size:12px;">${isExcluded ? '' : ipDisplay}</td>
                     </tr>`;
                 }
                 tbody.innerHTML = rows || '<tr><td colspan="5" style="padding:12px;text-align:center;color:var(--text-color-secondary);">No interfaces found</td></tr>';
