@@ -10960,45 +10960,86 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
     mgmt_port = source_device.get('management', 'ether1')
 
     # ═══ Interface role classification ═══
-    # Nokia 7250 is a transport router — only transport/uplink interfaces become
-    # Nokia router ports.  Access/downstream interfaces (Netonix switches, OLTs,
-    # power controllers, etc.) do NOT belong on the Nokia.
+    # Nokia 7250 is a TRANSPORT-ONLY router.  The fundamental rule:
+    #   ► An interface gets a Nokia port ONLY if it has POSITIVE transport evidence.
+    #   ► Everything else is excluded (deny-by-default).
     #
-    # Transport indicators: OSPF participation, BGP neighbor, MPLS/LDP interface,
-    #                       comment containing UPLINK/BACKHAUL/TRANSPORT/FIBER
-    # Access indicators:    comment containing NETONIX/SWITCH/OLT/POWER/UPS/LEGACY/
-    #                       CAMERA/AP/CPE/CUSTOMER/DOWNSTREAM
+    # POSITIVE transport signals (any one is sufficient):
+    #   1.  OSPF participation  (strongest — definitive transport)
+    #   2.  Transport keyword in comment  (UPLINK, BACKHAUL, FIBER, TRUNK, …)
+    #   3.  /30 or /31 address  (point-to-point link — very likely transport)
+    #
+    # NEGATIVE signals (force access even if Rule 3 would match):
+    #   A.  Access keyword in comment  (NETONIX, SWITCH, OLT, Tarana names, …)
+    #   B.  Interface is parent of VLANs going to bridges (customer aggregation)
+    #   C.  Management port
+    #
+    # Tarana wireless radios use NATO/Greek alphabet naming:
+    #   Alpha ###, Beta ###, Gamma ###, Delta ###, Echo ###, Foxtrot ###, etc.
+
     _ACCESS_KEYWORDS = re.compile(
         r'(?i)\b(NETONIX|LEGACY\s*NETONIX|SWITCH|NETONIX[-_ ]?SWITCH|'
         r'OLT|POWER|UPS|CAMERA|AP\b|CPE|CUSTOMER|DOWNSTREAM|WISP[-_ ]?SW|'
-        r'ACCESS[-_ ]?SW|DSLAM|GPON|LEGACY[-_ ]?SW|LEGACY\b)', re.IGNORECASE
+        r'ACCESS[-_ ]?SW|DSLAM|GPON|LEGACY[-_ ]?SW|LEGACY\b|'
+        r'ALPHA\s*\d{2,3}|BETA\s*\d{2,3}|GAMMA\s*\d{2,3}|DELTA\s*\d{2,3}|'
+        r'ECHO\s*\d{2,3}|FOXTROT\s*\d{2,3}|GOLF\s*\d{2,3}|HOTEL\s*\d{2,3}|'
+        r'INDIA\s*\d{2,3}|JULIET\s*\d{2,3}|KILO\s*\d{2,3}|LIMA\s*\d{2,3}|'
+        r'MIKE\s*\d{2,3}|NOVEMBER\s*\d{2,3}|OSCAR\s*\d{2,3}|PAPA\s*\d{2,3}|'
+        r'QUEBEC\s*\d{2,3}|ROMEO\s*\d{2,3}|SIERRA\s*\d{2,3}|TANGO\s*\d{2,3}|'
+        r'UNIFORM\s*\d{2,3}|VICTOR\s*\d{2,3}|WHISKEY\s*\d{2,3}|XRAY\s*\d{2,3}|'
+        r'YANKEE\s*\d{2,3}|ZULU\s*\d{2,3}|TARANA\b|'
+        r'UNICORN\s*MGMT|MGMT\b)', re.IGNORECASE
     )
     _TRANSPORT_KEYWORDS = re.compile(
         r'(?i)\b(UPLINK|BACKHAUL|TRANSPORT|FIBER|TRUNK|CORE|CR\d|BNG|PE[-_ ]|'
         r'P[-_ ]LINK|RING|MPLS|AGGREGATE)', re.IGNORECASE
     )
 
+    # ── Detect VLAN parent interfaces ──
+    # If a physical interface is the parent of VLANs (e.g., /interface vlan add
+    # interface=sfp-sfpplus8 vlan-id=1000), it carries customer/service VLANs
+    # and should NOT become a Nokia transport port.
+    vlan_parent_ifaces = set()
+    in_vlan_section = False
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line.startswith('/'):
+            in_vlan_section = line.startswith('/interface vlan')
+            continue
+        if not in_vlan_section or not line.startswith('add '):
+            continue
+        pim = re.search(r'\binterface=(\S+)', line)
+        if pim:
+            parent = _clean(pim.group(1))
+            if parent and parent not in bridge_names and parent != 'loop0':
+                vlan_parent_ifaces.add(parent)
+
     # Build set of transport interfaces from OSPF / BGP / MPLS participation
     ospf_ifaces = {o['interface'] for o in ospf.get('interfaces', []) if o.get('interface')}
     bgp_peer_addrs = {p['address'] for p in bgp.get('peers', [])}
 
-    # Classify each interface
+    # Classify each interface — DENY BY DEFAULT (unknown → excluded)
     interface_roles = {}  # iface_name → 'transport' | 'access' | 'unknown'
     for iface_name in set(list(iface_comments.keys()) + [e['interface'] for e in ip_addresses]):
         if iface_name == 'loop0' or iface_name in bridge_names:
             continue
+        if iface_name == mgmt_port:
+            continue  # management port handled separately
         comment = iface_comments.get(iface_name, '').upper()
-        role = 'unknown'
+        role = 'unknown'  # default → will be EXCLUDED from Nokia
 
         # Rule 1: If interface participates in OSPF → transport (strongest signal)
         if iface_name in ospf_ifaces:
             role = 'transport'
-        # Rule 2: Comment-based classification
+        # Rule 2: VLAN parent → access (carries customer VLANs to bridges)
+        elif iface_name in vlan_parent_ifaces:
+            role = 'access'
+        # Rule 3: Comment-based classification
         elif _ACCESS_KEYWORDS.search(comment):
             role = 'access'
         elif _TRANSPORT_KEYWORDS.search(comment):
             role = 'transport'
-        # Rule 3: If interface has a /30 or /31 address → likely point-to-point link (transport)
+        # Rule 4: If interface has a /30 or /31 address → likely point-to-point transport
         else:
             for ip_entry in ip_addresses:
                 if ip_entry['interface'] == iface_name:
@@ -11009,22 +11050,24 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
 
         interface_roles[iface_name] = role
 
-    # Interfaces confirmed as access/downstream
-    access_ifaces = {k for k, v in interface_roles.items() if v == 'access'}
+    # ► TRANSPORT-ONLY: only interfaces with positive transport evidence get Nokia ports
+    transport_ifaces = {k for k, v in interface_roles.items() if v == 'transport'}
+    # All non-transport (access + unknown) are excluded
+    excluded_ifaces = {k for k, v in interface_roles.items() if v != 'transport'}
 
-    # Collect only PHYSICAL TRANSPORT interfaces (not bridges, not loop0, not access/downstream)
+    # Collect only PHYSICAL TRANSPORT interfaces (not bridges, not loop0, not excluded)
     all_physical_ifaces = set()
     for ip_entry in ip_addresses:
         iface = ip_entry['interface']
-        if iface not in bridge_names and iface != 'loop0' and iface not in access_ifaces:
+        if iface not in bridge_names and iface != 'loop0' and iface in transport_ifaces:
             all_physical_ifaces.add(iface)
     for iface_name in iface_comments:
-        if iface_name not in bridge_names and iface_name != 'loop0' and iface_name not in access_ifaces:
+        if iface_name not in bridge_names and iface_name != 'loop0' and iface_name in transport_ifaces:
             all_physical_ifaces.add(iface_name)
     for o in ospf.get('interfaces', []):
         iface = o['interface']
-        if iface not in bridge_names and iface != 'loop0' and iface not in access_ifaces:
-            all_physical_ifaces.add(iface)
+        if iface not in bridge_names and iface != 'loop0':
+            all_physical_ifaces.add(iface)  # OSPF → always transport
     # NOTE: Bridge member ports are NOT added to all_physical_ifaces.
     # Nokia 7250 is a transport router — bridge member ports stay on the
     # co-located MikroTik that handles DHCP/LAN.  We track them in
@@ -11094,15 +11137,20 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
                 'type': 'bridge-member',
                 'parent_bridge': parent_bridge,
             }
-    # Add access/downstream ports for UI display (type='access') — NOT on Nokia
-    # These are interfaces going to Netonix switches, OLTs, power controllers, etc.
-    for ap in sorted(access_ifaces):
-        if ap not in port_mapping:
+    # Add access/downstream & unclassified ports for UI display — NOT on Nokia
+    # These are interfaces going to Netonix switches, OLTs, Tarana radios,
+    # VLAN parents (customer aggregation), or any interface without transport evidence.
+    for ap in sorted(excluded_ifaces):
+        if ap not in port_mapping and ap != mgmt_port:
             comment = iface_comments.get(ap, ap)
+            role_tag = interface_roles.get(ap, 'unknown')
+            reason = 'downstream' if role_tag == 'access' else 'no transport evidence'
+            if ap in vlan_parent_ifaces:
+                reason = 'VLAN parent (customer aggregation)'
             port_mapping[ap] = {
                 'nokia_port': '— (not on Nokia)',
                 'type': 'access',
-                'role': 'downstream',
+                'role': reason,
                 'comment': comment,
             }
 
@@ -11120,9 +11168,9 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
         warnings.append(f'Bridge interfaces detected: {", ".join(sorted(bridge_names))} — IPs on bridges are service-side (VPLS), not router interfaces')
     if bridge_member_ports:
         warnings.append(f'Bridge member ports excluded from Nokia: {", ".join(sorted(bridge_member_ports))} — these stay on the co-located MikroTik for DHCP/LAN')
-    if access_ifaces:
-        access_labels = [f'{ap} ({iface_comments.get(ap, "downstream")})' for ap in sorted(access_ifaces)]
-        warnings.append(f'Access/downstream ports excluded from Nokia: {", ".join(access_labels)} — switches, OLTs, and access devices do not migrate to the 7250')
+    if excluded_ifaces:
+        access_labels = [f'{ap} ({iface_comments.get(ap, "unclassified")})' for ap in sorted(excluded_ifaces)]
+        warnings.append(f'Non-transport ports excluded from Nokia: {", ".join(access_labels)} — only OSPF/backhaul/fiber interfaces migrate to the 7250')
 
     # All interfaces for stats (physical + loopback)
     all_ifaces_used = all_physical_ifaces | {'loop0'} | bridge_names
@@ -11130,7 +11178,7 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
     # Stats
     stats = {
         'interfaces_found': len(all_physical_ifaces),
-        'access_excluded': len(access_ifaces),
+        'access_excluded': len(excluded_ifaces),
         'ip_addresses': len(ip_addresses),
         'ospf_interfaces': len(ospf.get('interfaces', [])),
         'bgp_peers': len(bgp.get('peers', [])),

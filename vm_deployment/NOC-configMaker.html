@@ -23633,7 +23633,7 @@ Ready for translation!`);
                     const isExcluded = isServiceSide || isAccess;
                     // Section separators
                     if (isAccess && lastType !== 'access') {
-                        rows += `<tr><td colspan="5" style="padding:8px 12px;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#f44336;background:rgba(244,67,54,0.08);border-top:2px solid #f44336;">Access / Downstream (NOT on Nokia — switches, OLTs, etc.)</td></tr>`;
+                        rows += `<tr><td colspan="5" style="padding:8px 12px;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#f44336;background:rgba(244,67,54,0.08);border-top:2px solid #f44336;">Non-Transport (NOT on Nokia — switches, radios, customer devices, etc.)</td></tr>`;
                     } else if (isServiceSide && lastType !== 'bridge' && lastType !== 'bridge-member') {
                         rows += `<tr><td colspan="5" style="padding:8px 12px;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#ff9800;background:rgba(255,152,0,0.08);border-top:2px solid #ff9800;">Bridge / Service-Side (NOT on Nokia — stays on MikroTik)</td></tr>`;
                     } else if (!isExcluded && lastType === '') {
@@ -23661,7 +23661,8 @@ Ready for translation!`);
                         descCell = `<div style="font-size:11px;">Bridge: <b>${pm.parent_bridge || '?'}</b> — stays on MikroTik for DHCP/LAN</div>`;
                     } else if (isAccess) {
                         const accessComment = pm.comment || ifaceComments[mtIface] || 'downstream device';
-                        descCell = `<div style="font-size:11px;color:#f44336;"><b>${accessComment}</b> — not migrated to Nokia 7250</div>`;
+                        const roleReason = pm.role || 'excluded';
+                        descCell = `<div style="font-size:11px;color:#f44336;"><b>${accessComment}</b> — ${roleReason}</div>`;
                     }
 
                     const typeLabel = pm.type || '?';

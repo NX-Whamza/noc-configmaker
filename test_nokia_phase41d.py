@@ -197,7 +197,7 @@ if not ok11:
 print(f"[T11] access_excluded stat: {'PASS' if ok11 else 'FAIL'} ({parsed.get('stats', {}).get('access_excluded', 0)})")
 
 # [T12] Warning message includes access exclusion
-has_access_warning = any('Access/downstream ports excluded' in w for w in parsed.get('warnings', []))
+has_access_warning = any('Non-transport ports excluded' in w for w in parsed.get('warnings', []))
 if not has_access_warning:
     errors.append("FAIL T12: Missing warning about access port exclusion")
 print(f"[T12] Access exclusion warning present: {'PASS' if has_access_warning else 'FAIL'}")
@@ -442,7 +442,7 @@ if not ok22:
 print(f"[T22] No-access config — 0 excluded: {'PASS' if ok22 else 'FAIL'}")
 
 # [T23] No access warning
-ok23 = not any('Access/downstream' in w for w in p4.get('warnings', []))
+ok23 = not any('Non-transport' in w for w in p4.get('warnings', []))
 if not ok23:
     errors.append("FAIL T23: Unexpected access warning in no-access config")
 print(f"[T23] No-access config — no access warning: {'PASS' if ok23 else 'FAIL'}")
