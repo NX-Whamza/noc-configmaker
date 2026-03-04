@@ -10347,7 +10347,8 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
       identity, loopback_ip, router_id, interfaces, ip_addresses,
       ospf, bgp, bridges, vlans, static_routes, ntp_servers,
       snmp_communities, firewall_address_lists, users, mpls,
-      source_device, port_mapping, warnings, stats
+      ldp_deny_prefixes, interface_speeds, source_device,
+      port_mapping, warnings, stats
     """
     text = config_text or ''
     warnings = []
@@ -10423,34 +10424,87 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
     if m:
         router_id = m.group(1)
 
-    # ── Interface comments (descriptions) ──
+    # ── Interface comments (descriptions) and speeds ──
     iface_comments = {}
-    for m in re.finditer(r'(?m)^\s*set\s+\[?\s*find\s+default-name=(\S+)\s*\]?\s+(.*)', text):
+    iface_speeds = {}   # sfp-sfpplus2 → '1000' etc.
+    for m in re.finditer(r'(?m)^\s*set\s+\[?\s*find\s+default-name=([^\s\]]+)\s*\]?\s+(.*)', text):
         iface_name = _clean(m.group(1))
         rest = m.group(2)
         cm = re.search(r'comment=("([^"]+)"|(\S+))', rest)
         if cm:
             iface_comments[iface_name] = _clean(cm.group(2) or cm.group(3))
+        # Extract speed setting: speed=1G-baseT-full, speed=10Gbps, speed=100M-baseT-full etc.
+        sm = re.search(r'\bspeed=(\S+)', rest)
+        if sm:
+            speed_raw = sm.group(1).upper()
+            if '100G' in speed_raw:
+                iface_speeds[iface_name] = '100000'
+            elif '25G' in speed_raw:
+                iface_speeds[iface_name] = '25000'
+            elif '10G' in speed_raw:
+                iface_speeds[iface_name] = '10000'
+            elif '1G' in speed_raw:
+                iface_speeds[iface_name] = '1000'
+            elif '100M' in speed_raw:
+                iface_speeds[iface_name] = '100'
 
-    # ── IP Addresses ──
+    # ── Bridges — detect bridge names early (needed to exclude from IP / port mapping) ──
+    bridges = []
+    bridge_names = set()
+    for m in re.finditer(r'(?m)^\s*add\s+[^\n]*?\bname=(\S+)', text):
+        ctx_lines = text[:m.start()].rsplit('\n', 15)
+        if any('/interface bridge' == l.strip() for l in ctx_lines[-15:]):
+            bname = _clean(m.group(1))
+            if bname != 'loop0':  # loop0 is sometimes created as a bridge but is our loopback
+                bridges.append({'name': bname, 'ports': [], 'vlans': [], 'ips': []})
+                bridge_names.add(bname)
+    # Bridge ports
+    for m in re.finditer(r'(?m)^\s*add\s+[^\n]*?\bbridge=(\S+)[^\n]*?\binterface=(\S+)', text):
+        bname = _clean(m.group(1))
+        iface = _clean(m.group(2))
+        for b in bridges:
+            if b['name'] == bname:
+                b['ports'].append(iface)
+    # Also try reversed order: interface=X bridge=Y
+    for m in re.finditer(r'(?m)^\s*add\s+[^\n]*?\binterface=(\S+)[^\n]*?\bbridge=(\S+)', text):
+        iface = _clean(m.group(1))
+        bname = _clean(m.group(2))
+        for b in bridges:
+            if b['name'] == bname and iface not in b['ports']:
+                b['ports'].append(iface)
+    # Bridge VLANs
+    for m in re.finditer(r'(?m)^\s*add\s+[^\n]*?\bbridge=(\S+)[^\n]*?\bvlan-ids?=(\S+)', text):
+        bname = _clean(m.group(1))
+        vids = m.group(2).split(',')
+        for b in bridges:
+            if b['name'] == bname:
+                b['vlans'].extend([v.strip() for v in vids if v.strip()])
+
+    # ── IP Addresses (STRICT: only /ip address section) ──
     ip_addresses = []
-    current_section = ''
+    in_ip_address_section = False
     for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line or line.startswith('#'):
             continue
         if line.startswith('/'):
-            current_section = line.split('\n')[0].strip()
-            # Handle inline: /ip address add address=...
-            if 'address=' in line and 'interface=' in line:
-                pass  # fall through to extraction below
+            # Track section transitions
+            in_ip_address_section = line.startswith('/ip address') and 'firewall' not in line and 'dhcp' not in line.lower()
+            # Handle inline: /ip address add address=X interface=Y
+            if in_ip_address_section and 'add ' in line and 'address=' in line and 'interface=' in line:
+                pass  # fall through
             else:
                 continue
+        if not in_ip_address_section:
+            continue
+        # Must be "add" line with address= and interface=
+        if not line.startswith('add ') and 'add ' not in line:
+            continue
         if 'address=' not in line or 'interface=' not in line:
             continue
-        if not (current_section.startswith('/ip address') or line.startswith('add ')):
-            if 'address=' not in line:
-                continue
+        # Reject lines that have firewall-style params (dst-address, src-address, in-interface, chain=)
+        if re.search(r'\b(dst-address|src-address|dst-port|src-port|in-interface|out-interface|chain|action|protocol)=', line):
+            continue
 
         addr_m = re.search(r'\baddress=(\S+)', line)
         iface_m = re.search(r'\binterface=(\S+)', line)
@@ -10458,6 +10512,9 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
             continue
         addr = _clean(addr_m.group(1))
         iface = _clean(iface_m.group(1))
+        # Validate address looks like an IP
+        if not re.match(r'\d+\.\d+\.\d+\.\d+', addr):
+            continue
         comment_m = re.search(r'\bcomment=("([^"]+)"|(\S+))', line)
         comment = _clean(comment_m.group(2) or comment_m.group(3)) if comment_m else ''
         disabled = 'disabled=yes' in line.lower()
@@ -10471,17 +10528,43 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
             'comment': comment or iface_comments.get(iface, ''),
         })
 
+    # Attach IPs to bridge records for reference
+    for ip_entry in ip_addresses:
+        for b in bridges:
+            if ip_entry['interface'] == b['name']:
+                b['ips'].append(ip_entry['address'])
+
     # ── OSPF ──
-    ospf = {'areas': [], 'interfaces': [], 'router_id': router_id, 'found': False}
-    # v7 interface-template
-    for m in re.finditer(r'(?m)^\s*add\s+.*?\barea=(\S+)\s+.*?\binterfaces?=(\S+)', text):
-        area = _clean(m.group(1))
-        iface = _clean(m.group(2))
-        ntype_m = re.search(r'\btype=(ptp|ptmp|broadcast|point-to-point)', m.group(0))
-        ntype = 'point-to-point' if ntype_m and 'ptp' in ntype_m.group(1).lower() else ''
-        if '/routing ospf' in text[:m.start()].rsplit('\n', 30)[-1:][0] if text[:m.start()].rsplit('\n', 30) else '':
-            pass
-        ospf['interfaces'].append({'interface': iface, 'area': area, 'type': ntype})
+    ospf = {'areas': [], 'interfaces': [], 'router_id': router_id, 'found': False,
+            'auth_key': None}
+    # v7 interface-template — robust line-by-line with section tracking
+    in_ospf_template = False
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line.startswith('/'):
+            in_ospf_template = line.startswith('/routing ospf interface-template')
+            continue
+        if not in_ospf_template or not line.startswith('add '):
+            continue
+        area_m = re.search(r'\barea=(\S+)', line)
+        iface_m = re.search(r'\binterfaces?=(\S+)', line)
+        if not area_m or not iface_m:
+            continue
+        area = _clean(area_m.group(1))
+        iface = _clean(iface_m.group(1))
+        ntype_m = re.search(r'\btype=(ptp|ptmp|broadcast|point-to-point)', line)
+        ntype = 'point-to-point' if (ntype_m and 'ptp' in ntype_m.group(1).lower()) else ''
+        cost_m = re.search(r'\bcost=(\d+)', line)
+        cost = int(cost_m.group(1)) if cost_m else None
+        auth_m = re.search(r'\bauth-key=(\S+)', line)
+        if auth_m and not ospf['auth_key']:
+            ospf['auth_key'] = _clean(auth_m.group(1))
+        already = any(o['interface'] == iface for o in ospf['interfaces'])
+        if not already:
+            entry = {'interface': iface, 'area': area, 'type': ntype}
+            if cost:
+                entry['cost'] = cost
+            ospf['interfaces'].append(entry)
         if area not in ospf['areas']:
             ospf['areas'].append(area)
         ospf['found'] = True
@@ -10494,7 +10577,7 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
     # v6 ospf interface
     for m in re.finditer(r'(?m)^\s*add\s+interface=(\S+)(?:\s+network-type=(\S+))?', text):
         section_ctx = text[:m.start()].rsplit('\n', 20)
-        if any('/routing ospf interface' in l for l in section_ctx[-20:]):
+        if any('/routing ospf interface' in l and 'template' not in l for l in section_ctx[-20:]):
             iface = _clean(m.group(1))
             ntype = m.group(2) or ''
             if ntype == 'point-to-point':
@@ -10508,68 +10591,101 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
 
     # ── BGP ──
     bgp = {'as_number': None, 'router_id': router_id, 'peers': [], 'found': False}
-    # AS number
-    as_m = re.search(r'(?m)\bas=(\d+)', text)
+    # AS number from template or instance
+    as_m = re.search(r'(?m)(?:^/routing bgp (?:template|instance)[^\n]*\n\s*set[^\n]*|\badd[^\n]*)\bas=(\d+)', text)
+    if not as_m:
+        as_m = re.search(r'(?m)\bas=(\d+)', text)
     if as_m:
         bgp['as_number'] = int(as_m.group(1))
-    # v7 connections
-    for m in re.finditer(r'(?m)^\s*add\s+.*?\bname=(\S+).*?\bremote\.address=(\S+).*?\bremote\.as=(\d+)', text):
-        bgp['peers'].append({
-            'name': _clean(m.group(1)),
-            'address': _clean(m.group(2)),
-            'remote_as': int(m.group(3)),
-        })
-        bgp['found'] = True
-    # v6 peers
-    if not bgp['peers']:
-        for m in re.finditer(r'(?m)^\s*add\s+.*?\bname=(\S+).*?\bremote-address=(\S+).*?\bremote-as=(\d+)', text):
+    # v7 connections — handle dotted params: remote.address=X .as=Y  (space before .as)
+    in_bgp_conn = False
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line.startswith('/'):
+            in_bgp_conn = line.startswith('/routing bgp connection')
+            continue
+        if not in_bgp_conn or not line.startswith('add '):
+            continue
+        name_m = re.search(r'\bname=(\S+)', line)
+        # Handle both "remote.address=X" and "remote-address=X"
+        addr_m = re.search(r'\bremote[.\-]address=(\S+)', line)
+        # Handle both "remote.as=N" and ".as=N" (continuation of remote prefix)
+        ras_m = re.search(r'(?:\bremote\.as=|\.as=)(\d+)', line)
+        if not name_m or not addr_m:
+            continue
+        peer_name = _clean(name_m.group(1))
+        peer_addr = _clean(addr_m.group(1))
+        remote_as = int(ras_m.group(1)) if ras_m else bgp.get('as_number')
+        # Check disabled
+        if re.search(r'\bdisabled=yes\b', line, re.IGNORECASE):
+            continue
+        if peer_addr and remote_as:
             bgp['peers'].append({
-                'name': _clean(m.group(1)),
-                'address': _clean(m.group(2)),
-                'remote_as': int(m.group(3)),
+                'name': peer_name,
+                'address': peer_addr,
+                'remote_as': remote_as,
             })
             bgp['found'] = True
+    # v6 peers (fallback if no v7 connections found)
+    if not bgp['peers']:
+        in_bgp_peer = False
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if line.startswith('/'):
+                in_bgp_peer = line.startswith('/routing bgp peer')
+                continue
+            if not in_bgp_peer or not line.startswith('add '):
+                continue
+            name_m = re.search(r'\bname=(\S+)', line)
+            addr_m = re.search(r'\bremote-address=(\S+)', line)
+            ras_m = re.search(r'\bremote-as=(\d+)', line)
+            if not name_m or not addr_m:
+                continue
+            peer_name = _clean(name_m.group(1))
+            peer_addr = _clean(addr_m.group(1))
+            remote_as = int(ras_m.group(1)) if ras_m else bgp.get('as_number')
+            if peer_addr and remote_as:
+                bgp['peers'].append({
+                    'name': peer_name,
+                    'address': peer_addr,
+                    'remote_as': remote_as,
+                })
+                bgp['found'] = True
     if not bgp['as_number'] and bgp['peers']:
         bgp['as_number'] = bgp['peers'][0]['remote_as']
 
-    # ── Bridges and VLANs ──
-    bridges = []
-    for m in re.finditer(r'(?m)^\s*add\s+.*?\bname=(\S+)', text):
-        ctx = text[:m.start()].rsplit('\n', 15)
-        if any('/interface bridge' == l.strip() for l in ctx[-15:]):
-            bridges.append({'name': _clean(m.group(1)), 'ports': [], 'vlans': []})
-    bridge_names = {b['name'] for b in bridges}
-    # Bridge ports
-    for m in re.finditer(r'(?m)^\s*add\s+bridge=(\S+)\s+interface=(\S+)', text):
-        bname = _clean(m.group(1))
-        iface = _clean(m.group(2))
-        for b in bridges:
-            if b['name'] == bname:
-                b['ports'].append(iface)
-    # Bridge VLANs
-    for m in re.finditer(r'(?m)^\s*add\s+bridge=(\S+).*?\bvlan-ids?=(\S+)', text):
-        bname = _clean(m.group(1))
-        vids = m.group(2).split(',')
-        for b in bridges:
-            if b['name'] == bname:
-                b['vlans'].extend([v.strip() for v in vids if v.strip()])
-
     # ── Static Routes ──
     static_routes = []
-    for m in re.finditer(r'(?m)^\s*add\s+.*?\bdst-address=(\S+).*?\bgateway=(\S+)', text):
-        ctx = text[:m.start()].rsplit('\n', 15)
-        if any('/ip route' in l for l in ctx[-15:]):
-            dst = _clean(m.group(1))
-            gw = _clean(m.group(2))
-            if dst and gw and not gw.startswith('%'):
-                static_routes.append({'dst': dst, 'gateway': gw})
+    in_ip_route = False
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line.startswith('/'):
+            in_ip_route = line.startswith('/ip route') and 'firewall' not in line
+            continue
+        if not in_ip_route or not line.startswith('add '):
+            continue
+        dst_m = re.search(r'\bdst-address=(\S+)', line)
+        gw_m = re.search(r'\bgateway=(\S+)', line)
+        if not dst_m or not gw_m:
+            continue
+        dst = _clean(dst_m.group(1))
+        gw = _clean(gw_m.group(1))
+        if dst and gw and not gw.startswith('%'):
+            static_routes.append({'dst': dst, 'gateway': gw})
 
     # ── NTP Servers ──
     ntp_servers = []
-    for m in re.finditer(r'(?m)^\s*add\s+address=(\S+)', text):
-        ctx = text[:m.start()].rsplit('\n', 15)
-        if any('/system ntp' in l for l in ctx[-15:]):
-            ntp_servers.append(_clean(m.group(1)))
+    in_ntp = False
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line.startswith('/'):
+            in_ntp = '/system ntp' in line
+            continue
+        if not in_ntp:
+            continue
+        addr_m = re.search(r'\baddress=(\S+)', line)
+        if addr_m and line.startswith('add '):
+            ntp_servers.append(_clean(addr_m.group(1)))
     if not ntp_servers:
         m = re.search(r'server-dns-names?=(\S+)', text)
         if m:
@@ -10577,21 +10693,38 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
 
     # ── SNMP communities ──
     snmp_communities = []
-    for m in re.finditer(r'(?m)\bname=(\S+)', text):
-        ctx = text[:m.start()].rsplit('\n', 10)
-        if any('/snmp community' in l for l in ctx[-10:]):
-            val = _clean(m.group(1))
+    in_snmp_comm = False
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line.startswith('/'):
+            in_snmp_comm = '/snmp community' in line
+            continue
+        if not in_snmp_comm:
+            continue
+        name_m = re.search(r'\bname=(\S+)', line)
+        if name_m and line.startswith('add '):
+            val = _clean(name_m.group(1))
             if val and val not in ('public', 'private'):
                 snmp_communities.append(val)
 
     # ── Firewall address-lists ──
     address_lists = {}
-    for m in re.finditer(r'(?m)^\s*add\s+.*?\blist=(\S+).*?\baddress=(\S+)', text):
-        list_name = _clean(m.group(1))
-        addr = _clean(m.group(2))
-        if list_name not in address_lists:
-            address_lists[list_name] = []
-        address_lists[list_name].append(addr)
+    in_addr_list = False
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line.startswith('/'):
+            in_addr_list = '/ip firewall address-list' in line
+            continue
+        if not in_addr_list or not line.startswith('add '):
+            continue
+        list_m = re.search(r'\blist=(\S+)', line)
+        addr_m = re.search(r'\baddress=(\S+)', line)
+        if list_m and addr_m:
+            list_name = _clean(list_m.group(1))
+            addr = _clean(addr_m.group(1))
+            if list_name not in address_lists:
+                address_lists[list_name] = []
+            address_lists[list_name].append(addr)
 
     # ── Users ──
     users = []
@@ -10618,39 +10751,71 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
     if mpls['ldp_enabled']:
         mpls['found'] = True
 
+    # ── LDP accept-filter deny prefixes (from /mpls ldp accept-filter) ──
+    ldp_deny_prefixes = []
+    in_ldp_accept = False
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line.startswith('/'):
+            in_ldp_accept = '/mpls ldp accept-filter' in line
+            continue
+        if not in_ldp_accept or not line.startswith('add '):
+            continue
+        if 'accept=no' in line:
+            pfx_m = re.search(r'\bprefix=(\S+)', line)
+            if pfx_m:
+                ldp_deny_prefixes.append(_clean(pfx_m.group(1)))
+
     # ── Port mapping (MikroTik → Nokia) ──
     # Nokia 7250 IXR: card imm24-sfp++8-sfp28+2-qsfp28
     # Ports: 1/1/1..1/1/24 (SFP+/SFP28), connectors 1/1/c23..1/1/c32 (QSFP28 w/ breakout)
     port_mapping = {}
-    nokia_port_counter = 1
     mgmt_port = source_device.get('management', 'ether1')
-    all_ifaces_used = set()
-    for ip_entry in ip_addresses:
-        all_ifaces_used.add(ip_entry['interface'])
-    for iface_name in iface_comments:
-        all_ifaces_used.add(iface_name)
-    for o in ospf.get('interfaces', []):
-        all_ifaces_used.add(o['interface'])
 
-    # Sort interfaces by type then number for deterministic ordering
-    sorted_ifaces = sorted(all_ifaces_used, key=lambda x: (
-        0 if x == 'loop0' else
-        1 if x.startswith('sfp28-') else
-        2 if x.startswith('sfp-sfpplus') else
-        3 if x.startswith('sfp') and not x.startswith('sfp28') and not x.startswith('sfp-sfpplus') else
-        4 if x.startswith('qsfp') else
-        5 if x.startswith('ether') else
-        6,
+    # Collect only PHYSICAL interfaces (not bridges, not loop0)
+    all_physical_ifaces = set()
+    for ip_entry in ip_addresses:
+        iface = ip_entry['interface']
+        if iface not in bridge_names and iface != 'loop0':
+            all_physical_ifaces.add(iface)
+    for iface_name in iface_comments:
+        if iface_name not in bridge_names and iface_name != 'loop0':
+            all_physical_ifaces.add(iface_name)
+    for o in ospf.get('interfaces', []):
+        iface = o['interface']
+        if iface not in bridge_names and iface != 'loop0':
+            all_physical_ifaces.add(iface)
+    # NOTE: Bridge member ports are NOT added to all_physical_ifaces.
+    # Nokia 7250 is a transport router — bridge member ports stay on the
+    # co-located MikroTik that handles DHCP/LAN.  We track them in
+    # port_mapping as 'bridge-member' for UI display only.
+    bridge_member_ports = set()
+    for b in bridges:
+        for port in b['ports']:
+            bridge_member_ports.add(port)
+
+    # Sort physical interfaces by type then number for deterministic Nokia port numbering
+    sorted_phys = sorted(all_physical_ifaces, key=lambda x: (
+        0 if x.startswith('sfp28-') else
+        1 if x.startswith('sfp-sfpplus') else
+        2 if x.startswith('sfp') and not x.startswith('sfp28') and not x.startswith('sfp-sfpplus') else
+        3 if x.startswith('qsfp') else
+        4 if x.startswith('ether') else
+        5,
         int(re.search(r'(\d+)', x).group(1)) if re.search(r'(\d+)', x) else 999
     ))
 
-    for iface in sorted_ifaces:
-        if iface == 'loop0':
-            port_mapping[iface] = {'nokia_port': 'system', 'type': 'loopback'}
-            continue
+    # Assign Nokia ports
+    nokia_port_counter = 1
+    # loopback always
+    port_mapping['loop0'] = {'nokia_port': 'system', 'type': 'loopback'}
+    # management
+    if mgmt_port:
+        port_mapping[mgmt_port] = {'nokia_port': 'A/1', 'type': 'management'}
+
+    for iface in sorted_phys:
         if iface == mgmt_port:
-            port_mapping[iface] = {'nokia_port': 'A/1', 'type': 'management'}
-            continue
+            continue  # already mapped
         if iface.startswith('qsfp'):
             num = int(re.search(r'(\d+)', iface).group(1)) if re.search(r'(\d+)', iface) else 1
             connector_id = 22 + num  # c23, c24, ...
@@ -10658,16 +10823,37 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
                 'nokia_port': f'1/1/c{connector_id}/1',
                 'nokia_connector': f'1/1/c{connector_id}',
                 'type': 'connector-100g',
-                'speed': '100000',
+                'speed': iface_speeds.get(iface, '100000'),
             }
             continue
-        # SFP28, SFP+, ether → sequential Nokia ports
+        # Default speed from interface type, overridden by config-extracted speed
+        default_speed = '25000' if 'sfp28' in iface else '10000' if 'sfp' in iface else '1000'
         port_mapping[iface] = {
             'nokia_port': f'1/1/{nokia_port_counter}',
             'type': 'sfp' if 'sfp' in iface else 'ethernet',
-            'speed': '25000' if 'sfp28' in iface else '10000' if 'sfp' in iface else '1000',
+            'speed': iface_speeds.get(iface, default_speed),
         }
         nokia_port_counter += 1
+
+    # Add bridge entries to port_mapping for UI display (type='bridge')
+    for b in bridges:
+        if b['name'] not in port_mapping:
+            port_mapping[b['name']] = {
+                'nokia_port': 'VPLS/SAP',
+                'type': 'bridge',
+                'bridge_ports': b['ports'],
+                'bridge_ips': b['ips'],
+            }
+    # Add bridge member ports for UI display (type='bridge-member') — NOT on Nokia
+    for bp in sorted(bridge_member_ports):
+        if bp not in port_mapping:
+            # Find which bridge this port belongs to
+            parent_bridge = next((b['name'] for b in bridges if bp in b['ports']), 'unknown')
+            port_mapping[bp] = {
+                'nokia_port': '— (on MikroTik)',
+                'type': 'bridge-member',
+                'parent_bridge': parent_bridge,
+            }
 
     if not identity:
         warnings.append('No /system identity found — using placeholder')
@@ -10679,10 +10865,17 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
         warnings.append('No BGP configuration detected')
     if not mpls['found']:
         warnings.append('No MPLS/LDP configuration detected — VPLS services may require manual setup')
+    if bridge_names:
+        warnings.append(f'Bridge interfaces detected: {", ".join(sorted(bridge_names))} — IPs on bridges are service-side (VPLS), not router interfaces')
+    if bridge_member_ports:
+        warnings.append(f'Bridge member ports excluded from Nokia: {", ".join(sorted(bridge_member_ports))} — these stay on the co-located MikroTik for DHCP/LAN')
+
+    # All interfaces for stats (physical + loopback)
+    all_ifaces_used = all_physical_ifaces | {'loop0'} | bridge_names
 
     # Stats
     stats = {
-        'interfaces_found': len(all_ifaces_used),
+        'interfaces_found': len(all_physical_ifaces),
         'ip_addresses': len(ip_addresses),
         'ospf_interfaces': len(ospf.get('interfaces', [])),
         'bgp_peers': len(bgp.get('peers', [])),
@@ -10691,6 +10884,7 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
         'ntp_servers': len(ntp_servers),
         'users': len(users),
         'mpls_interfaces': len(mpls.get('ldp_interfaces', [])),
+        'ldp_deny_prefixes': len(ldp_deny_prefixes),
         'source_model': source_device.get('model', 'unknown'),
         'ros_version': syntax_info.get('version', 'unknown'),
     }
@@ -10704,12 +10898,15 @@ def _parse_mikrotik_for_nokia(config_text: str) -> dict:
         'ospf': ospf,
         'bgp': bgp,
         'bridges': bridges,
+        'bridge_names': sorted(bridge_names),
         'static_routes': static_routes,
         'ntp_servers': ntp_servers,
         'snmp_communities': snmp_communities,
         'firewall_address_lists': address_lists,
         'users': users,
         'mpls': mpls,
+        'ldp_deny_prefixes': ldp_deny_prefixes,
+        'interface_speeds': iface_speeds,
         'source_device': {
             'model': source_device.get('model', 'unknown'),
             'type': source_device.get('type', 'unknown'),
@@ -10752,8 +10949,10 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
     bgp_key = creds.get('bgp_auth_key') or os.getenv('NOKIA7250_BGP_AUTH_KEY', 'changeme')
 
     ntp_servers = p.get('ntp_servers') or parsed.get('ntp_servers') or _NOKIA_DEFAULT_NTP
-    ldp_deny = p.get('ldp_deny_prefixes') or _NOKIA_DEFAULT_LDP_DENY
+    # Prefer config-extracted LDP deny prefixes, then user overrides, then defaults
+    ldp_deny = parsed.get('ldp_deny_prefixes') or p.get('ldp_deny_prefixes') or _NOKIA_DEFAULT_LDP_DENY
     mgmt_acl = p.get('mgmt_acl') or _NOKIA_DEFAULT_MGMT_ACL
+    ospf_auth = parsed.get('ospf', {}).get('auth_key')
 
     # Merge source managerIP entries into management ACL
     source_mgmt = parsed.get('firewall_address_lists', {}).get('managerIP', [])
@@ -10767,20 +10966,39 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
     ospf = parsed.get('ospf', {})
     bgp_data = parsed.get('bgp', {})
     bridges = parsed.get('bridges', [])
+    bridge_names = set(parsed.get('bridge_names', []))
     static_routes = parsed.get('static_routes', [])
     mpls_data = parsed.get('mpls', {})
 
-    # Build list of router interfaces (exclude loopback—handled as "system")
+    # Build list of router interfaces (exclude loopback and bridges)
+    # Deduplicate by Nokia port — multiple IPs on same physical interface
+    # use first as primary, extras as secondary addresses
     router_ifaces = []
+    seen_ports = {}  # nokia_port → index in router_ifaces
+    bridge_ip_entries = []  # IPs on bridges — service-side, not router interfaces
     for entry in ip_addresses:
         iface = entry['interface']
         if iface == 'loop0':
             continue
+        # Skip bridge interfaces — these are service-side (VPLS/SAP)
+        if iface in bridge_names:
+            bridge_ip_entries.append(entry)
+            continue
         pm = port_map.get(iface, {})
         nokia_port = pm.get('nokia_port')
+        if not nokia_port or nokia_port == 'VPLS/SAP':
+            continue
         desc = entry.get('comment') or parsed.get('interfaces', {}).get(iface, '') or iface
         speed = pm.get('speed', '10000')
-        router_ifaces.append({
+        # Deduplicate by Nokia port
+        if nokia_port in seen_ports:
+            # Add as secondary address
+            idx = seen_ports[nokia_port]
+            if 'secondary_addresses' not in router_ifaces[idx]:
+                router_ifaces[idx]['secondary_addresses'] = []
+            router_ifaces[idx]['secondary_addresses'].append(entry['address'])
+            continue
+        ri_entry = {
             'name': desc if desc else iface,
             'address': entry['address'],
             'port': nokia_port,
@@ -10789,13 +11007,33 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
             'is_connector': pm.get('type') == 'connector-100g',
             'connector': pm.get('nokia_connector'),
             'mtu': '9212',
-        })
+        }
+        seen_ports[nokia_port] = len(router_ifaces)
+        router_ifaces.append(ri_entry)
 
     # Deduplicate connectors
     connectors = {}
     for ri in router_ifaces:
         if ri.get('is_connector') and ri.get('connector'):
             connectors[ri['connector']] = ri
+
+    # Normalize OSPF area IDs: names containing "backbone" → 0.0.0.0
+    def _normalize_area(area):
+        if not area:
+            return '0.0.0.0'
+        if area in ('0', '0.0.0.0'):
+            return '0.0.0.0'
+        if 'backbone' in area.lower():
+            return '0.0.0.0'
+        # Try dotted-quad — leave as-is if it looks like one
+        if re.match(r'\d+\.\d+\.\d+\.\d+', area):
+            return area
+        # Try numeric area → convert to dotted quad
+        try:
+            num = int(area)
+            return f'0.0.0.{num}' if num < 256 else area
+        except ValueError:
+            return area
 
     L = []
     echo = lambda s: L.extend([f"#{'--' * 25}", f'echo "{s}"', f"#{'--' * 25}"])
@@ -10929,6 +11167,11 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
     L.append('    log')
     L.append('    exit')
 
+    # ── OPER-GROUPS ──
+    echo('Oper-Groups (Declarations) Configuration')
+    L.append('    service')
+    L.append('    exit')
+
     # ── CARD ──
     echo('Card Configuration')
     L.append('    card 1')
@@ -10953,13 +11196,16 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
 
     # ── PORTS ──
     echo('Port Configuration')
+    seen_port_ids = set()
     for ri in router_ifaces:
         if not ri.get('port') or ri['port'] == 'A/1':
             continue
+        if ri['port'] in seen_port_ids:
+            continue
+        seen_port_ids.add(ri['port'])
         L.append(f'    port {ri["port"]}')
         L.append(f'        description "{ri["name"]}"')
         L.append('        ethernet')
-        L.append(f'            mtu {ri.get("mtu", "9212")}')
         L.append(f'            speed {ri["speed"]}')
         L.append('            no autonegotiate')
         if ri.get('is_connector'):
@@ -10967,6 +11213,8 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
         L.append('        exit')
         L.append('        no shutdown')
         L.append('    exit')
+    # NOTE: Bridge member ports are NOT configured on the Nokia 7250.
+    # They stay on the co-located MikroTik router for DHCP/LAN.
     L.append('    port A/1')
     L.append('    exit')
 
@@ -10980,6 +11228,7 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
     L.append('    exit')
 
     # ── LAG ──
+    # Nokia transport LAG — no port assignments (bridge member ports stay on MikroTik)
     has_bridge = bool(bridges)
     if has_bridge:
         echo('LAG Configuration')
@@ -11003,11 +11252,19 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
     L.append(f'            address {loopback}')
     L.append('            no shutdown')
     L.append('        exit')
+    seen_ri_names = set()
     for ri in router_ifaces:
         if not ri.get('port') or ri['port'] == 'A/1':
             continue
+        ri_key = ri['port']
+        if ri_key in seen_ri_names:
+            continue
+        seen_ri_names.add(ri_key)
         L.append(f'        interface "{ri["name"]}"')
         L.append(f'            address {ri["address"]}')
+        # Secondary addresses
+        for sec_addr in ri.get('secondary_addresses', []):
+            L.append(f'            address {sec_addr} secondary')
         L.append(f'            port {ri["port"]}')
         L.append('            ingress')
         L.append('            exit')
@@ -11020,14 +11277,15 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
     if ospf.get('found') or ospf.get('interfaces'):
         echo('OSPFv2 Configuration')
         L.append(f'        ospf 0 {router_id}')
+        if ospf_auth:
+            L.append(f'            authentication-key "{ospf_auth}"')
         areas_used = set()
         for oi in ospf.get('interfaces', []):
             area = oi.get('area', 'backbone')
-            areas_used.add(area)
+            areas_used.add(_normalize_area(area))
         if not areas_used:
             areas_used.add('0.0.0.0')
-        for area in sorted(areas_used):
-            area_id = '0.0.0.0' if area in ('backbone', '0', '0.0.0.0') else area
+        for area_id in sorted(areas_used):
             L.append(f'            area {area_id}')
             L.append('                interface "system"')
             L.append('                    no shutdown')
@@ -11035,19 +11293,21 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
             for ri in router_ifaces:
                 if not ri.get('port') or ri['port'] == 'A/1':
                     continue
-                # Check if this interface is in OSPF
+                # Only include interfaces explicitly in OSPF
                 mt_iface = ri.get('mt_iface', '')
-                in_ospf = not ospf.get('interfaces') or any(
-                    o['interface'] == mt_iface for o in ospf.get('interfaces', [])
-                )
-                if in_ospf:
-                    itype = ''
-                    for o in ospf.get('interfaces', []):
-                        if o['interface'] == mt_iface and o.get('type'):
-                            itype = o['type']
+                matching_ospf = [
+                    o for o in ospf.get('interfaces', [])
+                    if o['interface'] == mt_iface and _normalize_area(o.get('area', 'backbone')) == area_id
+                ]
+                if matching_ospf:
+                    oi = matching_ospf[0]
+                    itype = oi.get('type', '')
                     L.append(f'                interface "{ri["name"]}"')
                     if 'point-to-point' in itype:
                         L.append('                    interface-type point-to-point')
+                    cost = oi.get('cost')
+                    if cost:
+                        L.append(f'                    metric {cost}')
                     L.append('                    no shutdown')
                     L.append('                exit')
             L.append('            exit')
@@ -11060,9 +11320,13 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
     L.append('            interface "system"')
     L.append('                no shutdown')
     L.append('            exit')
+    seen_mpls = set()
     for ri in router_ifaces:
         if not ri.get('port') or ri['port'] == 'A/1':
             continue
+        if ri['port'] in seen_mpls:
+            continue
+        seen_mpls.add(ri['port'])
         L.append(f'            interface "{ri["name"]}"')
         L.append('                no shutdown')
         L.append('            exit')
@@ -11074,9 +11338,13 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
     L.append('            interface "system"')
     L.append('                no shutdown')
     L.append('            exit')
+    seen_rsvp = set()
     for ri in router_ifaces:
         if not ri.get('port') or ri['port'] == 'A/1':
             continue
+        if ri['port'] in seen_rsvp:
+            continue
+        seen_rsvp.add(ri['port'])
         L.append(f'            interface "{ri["name"]}"')
         L.append('                no shutdown')
         L.append('            exit')
@@ -11098,9 +11366,13 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
     L.append('            tcp-session-parameters')
     L.append('            exit')
     L.append('            interface-parameters')
+    seen_ldp = set()
     for ri in router_ifaces:
         if not ri.get('port') or ri['port'] == 'A/1':
             continue
+        if ri['port'] in seen_ldp:
+            continue
+        seen_ldp.add(ri['port'])
         L.append(f'                interface "{ri["name"]}" dual-stack')
         L.append('                    ipv4')
         L.append('                        no shutdown')
@@ -11135,13 +11407,15 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
             L.append('        exit')
         for i, vid in enumerate(vpls_ids):
             vlan = vpls_vlans[i] if i < len(vpls_vlans) else str(1000 + i * 1000)
+            # Use per-bridge LAG if we have multiple bridges
+            lag_id = min(i + 1, len(bridges)) if bridges else 1
             L.append(f'        vpls {vid} name "{vid}" customer {vid} create')
             L.append('            service-mtu 1594')
             L.append('            fdb-table-size 1000')
             L.append('            stp')
             L.append('                shutdown')
             L.append('            exit')
-            L.append(f'            sap lag-1:{vlan} create')
+            L.append(f'            sap lag-{lag_id}:{vlan} create')
             L.append('                no shutdown')
             L.append('            exit')
             L.append(f'            mesh-sdp 101:{vid} create')
@@ -11216,7 +11490,7 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
         # Group peers by name prefix or remote AS
         groups = {}
         for peer in bgp_data.get('peers', []):
-            # Derive group name from peer name (e.g., "DALLAS-RR-1" → "DALLAS-RR")
+            # Derive group name from peer name (e.g., "CR7" → "CR", "DALLAS-RR-1" → "DALLAS-RR")
             pname = peer.get('name', '')
             group = re.sub(r'[-_]?\d+$', '', pname) if pname else 'IBGP'
             if not group:

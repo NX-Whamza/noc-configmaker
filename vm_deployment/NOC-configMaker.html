@@ -23511,10 +23511,12 @@ Ready for translation!`);
                 if (parsed.identity) badges.push(_nokiaBadge('Identity', parsed.identity, '#26a69a'));
                 if (parsed.loopback_ip) badges.push(_nokiaBadge('Loopback', parsed.loopback_ip, '#42a5f5'));
                 badges.push(_nokiaBadge('Interfaces', stats.interfaces_found || 0, stats.interfaces_found > 0 ? '#66bb6a' : '#ef5350'));
+                badges.push(_nokiaBadge('Bridges', stats.bridges || 0, stats.bridges > 0 ? '#ff9800' : '#bdbdbd'));
                 badges.push(_nokiaBadge('OSPF', stats.ospf_interfaces || 0, stats.ospf_interfaces > 0 ? '#66bb6a' : '#bdbdbd'));
                 badges.push(_nokiaBadge('BGP Peers', stats.bgp_peers || 0, stats.bgp_peers > 0 ? '#66bb6a' : '#bdbdbd'));
                 badges.push(_nokiaBadge('Routes', stats.static_routes || 0, stats.static_routes > 0 ? '#ffa726' : '#bdbdbd'));
                 badges.push(_nokiaBadge('MPLS', stats.mpls_interfaces > 0 ? 'Yes' : 'No', stats.mpls_interfaces > 0 ? '#66bb6a' : '#bdbdbd'));
+                if (stats.ldp_deny_prefixes > 0) badges.push(_nokiaBadge('LDP Deny', stats.ldp_deny_prefixes, '#e91e63'));
                 summaryDiv.innerHTML = badges.join('');
 
                 // Warnings
@@ -23527,22 +23529,64 @@ Ready for translation!`);
                     warningsDiv.style.display = 'none';
                 }
 
-                // Port mapping table
+                // Port mapping table — separate physical and bridge
                 const portMap = parsed.port_mapping || {};
                 const ipLookup = {};
-                (parsed.ip_addresses || []).forEach(e => { ipLookup[e.interface] = e.address; });
+                (parsed.ip_addresses || []).forEach(e => {
+                    if (!ipLookup[e.interface]) ipLookup[e.interface] = [];
+                    ipLookup[e.interface].push(e.address);
+                });
                 const ifaceComments = parsed.interfaces || {};
+                const bridgeNames = new Set(parsed.bridge_names || []);
+
+                // Sort: loopback first, then physical, then management, then bridges, then bridge-members
+                const sortedEntries = Object.entries(portMap).sort((a, b) => {
+                    const order = (t) => t === 'loopback' ? 0 : t === 'sfp' || t === 'ethernet' ? 1 : t === 'connector-100g' ? 2 : t === 'management' ? 3 : t === 'bridge' ? 4 : t === 'bridge-member' ? 5 : 6;
+                    return order(a[1].type) - order(b[1].type);
+                });
+
                 let rows = '';
-                for (const [mtIface, pm] of Object.entries(portMap)) {
+                let lastType = '';
+                for (const [mtIface, pm] of sortedEntries) {
+                    const isBridge = pm.type === 'bridge';
+                    const isBridgeMember = pm.type === 'bridge-member';
+                    const isServiceSide = isBridge || isBridgeMember;
+                    // Section separators
+                    if (isServiceSide && lastType !== 'bridge' && lastType !== 'bridge-member') {
+                        rows += `<tr><td colspan="5" style="padding:8px 12px;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#ff9800;background:rgba(255,152,0,0.08);border-top:2px solid #ff9800;">Bridge / Service-Side (NOT on Nokia — stays on MikroTik)</td></tr>`;
+                    } else if (!isServiceSide && lastType === '') {
+                        rows += `<tr><td colspan="5" style="padding:8px 12px;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#42a5f5;background:rgba(66,165,245,0.08);border-top:2px solid #42a5f5;">Router Interfaces (Network-Side — on Nokia 7250)</td></tr>`;
+                    }
+                    lastType = pm.type;
+
                     const typeColor = pm.type === 'loopback' ? '#7e57c2' :
                                       pm.type === 'management' ? '#ef5350' :
-                                      pm.type === 'connector-100g' ? '#ff9800' : '#42a5f5';
-                    rows += `<tr style="border-bottom:1px solid var(--border-color);">
+                                      pm.type === 'connector-100g' ? '#ff9800' :
+                                      pm.type === 'bridge' ? '#e65100' :
+                                      pm.type === 'bridge-member' ? '#bf360c' : '#42a5f5';
+                    const ipsForIface = ipLookup[mtIface] || [];
+                    const ipDisplay = ipsForIface.join(', ');
+                    const speedDisplay = pm.speed ? `${pm.speed === '1000' ? '1G' : pm.speed === '10000' ? '10G' : pm.speed === '25000' ? '25G' : pm.speed === '100000' ? '100G' : pm.speed}` : '';
+
+                    let descCell = ifaceComments[mtIface] || '';
+                    if (isBridge) {
+                        const bPorts = (pm.bridge_ports || []).join(', ');
+                        const bIps = (pm.bridge_ips || []).join(', ');
+                        descCell = `<div style="font-size:11px;">Member ports: <b>${bPorts || 'none'}</b></div>`;
+                        if (bIps) descCell += `<div style="font-size:11px;">IPs: <b>${bIps}</b> (service-side)</div>`;
+                    } else if (isBridgeMember) {
+                        descCell = `<div style="font-size:11px;">Bridge: <b>${pm.parent_bridge || '?'}</b> — stays on MikroTik for DHCP/LAN</div>`;
+                    }
+
+                    const typeLabel = pm.type || '?';
+                    const speedBadge = speedDisplay ? ` <span style="background:#37474f;color:#cfd8dc;padding:1px 5px;border-radius:6px;font-size:10px;margin-left:4px;">${speedDisplay}</span>` : '';
+
+                    rows += `<tr style="border-bottom:1px solid var(--border-color);${isServiceSide ? 'opacity:0.6;' : ''}">
                         <td style="padding:6px 12px;font-family:'JetBrains Mono',monospace;font-size:12px;">${mtIface}</td>
-                        <td style="padding:6px 12px;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;">${pm.nokia_port || '—'}</td>
-                        <td style="padding:6px 12px;"><span style="background:${typeColor};color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;">${pm.type || '?'}</span></td>
-                        <td style="padding:6px 12px;font-size:12px;color:var(--text-color-secondary);">${ifaceComments[mtIface] || ''}</td>
-                        <td style="padding:6px 12px;font-family:'JetBrains Mono',monospace;font-size:12px;">${ipLookup[mtIface] || ''}</td>
+                        <td style="padding:6px 12px;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;${isServiceSide ? 'color:#999;' : ''}">${pm.nokia_port || '—'}</td>
+                        <td style="padding:6px 12px;"><span style="background:${typeColor};color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;">${typeLabel}</span>${speedBadge}</td>
+                        <td style="padding:6px 12px;font-size:12px;color:var(--text-color-secondary);">${descCell}</td>
+                        <td style="padding:6px 12px;font-family:'JetBrains Mono',monospace;font-size:12px;">${isServiceSide ? '' : ipDisplay}</td>
                     </tr>`;
                 }
                 tbody.innerHTML = rows || '<tr><td colspan="5" style="padding:12px;text-align:center;color:var(--text-color-secondary);">No interfaces found</td></tr>';
@@ -23555,8 +23599,12 @@ Ready for translation!`);
                 if (parsed.ospf && parsed.ospf.found) {
                     ospfLines.push(`Router-ID: ${parsed.ospf.router_id || '—'}`);
                     ospfLines.push(`Areas: ${(parsed.ospf.areas || []).join(', ') || 'backbone'}`);
+                    if (parsed.ospf.auth_key) ospfLines.push(`Auth Key: ${parsed.ospf.auth_key}`);
                     (parsed.ospf.interfaces || []).forEach(o => {
-                        ospfLines.push(`  ${o.interface} → area ${o.area}${o.type ? ' (' + o.type + ')' : ''}`);
+                        let suffix = o.type ? ' (' + o.type + ')' : '';
+                        if (o.cost) suffix += ` cost=${o.cost}`;
+                        const isBr = bridgeNames.has(o.interface);
+                        ospfLines.push(`  ${o.interface} → area ${o.area}${suffix}${isBr ? ' [bridge — service-side]' : ''}`);
                     });
                 }
                 cards.push(_nokiaDetailCard('OSPF', ospfLines));
@@ -23568,6 +23616,8 @@ Ready for translation!`);
                     (parsed.bgp.peers || []).forEach(p => {
                         bgpLines.push(`  ${p.name}: ${p.address} (AS ${p.remote_as})`);
                     });
+                } else {
+                    bgpLines.push('No BGP peers detected');
                 }
                 cards.push(_nokiaDetailCard('BGP', bgpLines));
 
@@ -23579,8 +23629,18 @@ Ready for translation!`);
                 const brLines = [];
                 (parsed.bridges || []).forEach(b => {
                     brLines.push(`${b.name}: ports=[${b.ports.join(',')}] vlans=[${b.vlans.join(',')}]`);
+                    if (b.ips && b.ips.length) brLines.push(`  IPs: ${b.ips.join(', ')} (service-side, not router interfaces)`);
                 });
                 cards.push(_nokiaDetailCard('Bridges (VPLS candidates)', brLines));
+
+                // LDP deny prefixes (if extracted from config)
+                const ldpDenyLines = [];
+                (parsed.ldp_deny_prefixes || []).forEach(pfx => {
+                    ldpDenyLines.push(pfx);
+                });
+                if (ldpDenyLines.length) {
+                    cards.push(_nokiaDetailCard(`LDP Deny Prefixes (${ldpDenyLines.length} from config)`, ldpDenyLines));
+                }
 
                 detailDiv.innerHTML = cards.join('');
 
