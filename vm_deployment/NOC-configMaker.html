@@ -12952,7 +12952,7 @@ show mac address-table | include &lt;mac&gt;</div>
                             // Calculate ACTUAL success rate from ALL activities
                             const successCount = allActivities.filter(e => e.success === true || e.success === 1).length;
                             const failCount = allActivities.filter(e => e.success === false || e.success === 0).length;
-                            const nonAviatActivities = allActivities.filter(entry => entry.type !== 'aviat-upgrade');
+                            const nonAviatActivities = allActivities.filter(entry => entry.type !== 'aviat-upgrade' && !(entry.type || '').startsWith('maintenance'));
                             const totalCount = nonAviatActivities.length;
                             const successCountFiltered = nonAviatActivities.filter(e => e.success === true).length;
                             const successRate = totalCount > 0 ?
@@ -13001,7 +13001,7 @@ show mac address-table | include &lt;mac&gt;</div>
                 const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
                 // Calculate TODAY's configs (since midnight) - resets every 24 hours
-                const nonAviatHistory = history.filter(entry => entry.type !== 'aviat-upgrade');
+                const nonAviatHistory = history.filter(entry => entry.type !== 'aviat-upgrade' && !(entry.type || '').startsWith('maintenance'));
                 const todayCount = nonAviatHistory.filter(entry => {
                     const entryDate = new Date(entry.timestamp);
                     return entryDate >= todayStart;
