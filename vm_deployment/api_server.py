@@ -39,7 +39,7 @@ import json
 import socket
 import requests
 import zipfile
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlencode, quote_plus
 from datetime import datetime, timedelta, timezone
 import time
 try:
@@ -2523,6 +2523,12 @@ def ensure_chat_db():
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
 CORS(app)  # Enable CORS for local HTML file access
+
+# Trust X-Forwarded-* headers from the reverse proxy so request.host_url
+# returns the real public URL (e.g. https://noc-configmaker.nxlink.com/)
+# instead of http://127.0.0.1:5000/.  Required for OAuth redirect_uri.
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 
 # Serve the main UI directly from the deployment directory
@@ -13227,9 +13233,9 @@ JWT_SECRET = os.getenv('JWT_SECRET', secrets.token_urlsafe(32))
 DEFAULT_PASSWORD = os.getenv('DEFAULT_PASSWORD', 'NOCConfig2025!')  # Change this in production
 
 # Azure AD Configuration (for Microsoft SSO)
-AZURE_CLIENT_ID = os.getenv('AZURE_CLIENT_ID', '')
-AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET', '')
-AZURE_TENANT_ID = os.getenv('AZURE_TENANT_ID', 'common')
+AZURE_CLIENT_ID = os.getenv('AZURE_CLIENT_ID', '0563f465-0f3b-466b-a193-90c9e6dd79d6')
+AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET', '')  # Set via env var or .env — never hardcode secrets
+AZURE_TENANT_ID = os.getenv('AZURE_TENANT_ID', '143673a5-ff46-4d23-8255-b4ef07861814')
 
 def init_users_db():
     """Initialize users database for authentication"""
@@ -13453,40 +13459,180 @@ def auth_login():
 
 @app.route('/api/auth/microsoft', methods=['POST'])
 def auth_microsoft():
-    """Microsoft SSO authentication endpoint"""
+    """Microsoft SSO authentication endpoint - returns OAuth2 authorization URL"""
     try:
-        # For production, implement full Microsoft OAuth2 flow
-        # This is a placeholder that returns the OAuth URL
         if not AZURE_CLIENT_ID:
             return jsonify({
                 'success': False,
                 'error': 'Microsoft SSO not configured. Please set AZURE_CLIENT_ID environment variable.'
             }), 503
-        
-        # Note: Domain validation will be done in the OAuth callback
-        # For now, we'll validate in the callback endpoint when implemented
-        
+
+        # Build redirect_uri from the request host
+        redirect_uri = f"{request.host_url}auth/callback"
+
         # Microsoft OAuth2 authorization URL
-        auth_url = f"https://login.microsoftonline.com/{AZURE_TENANT_ID}/oauth2/v2.0/authorize"
+        auth_base = f"https://login.microsoftonline.com/{AZURE_TENANT_ID}/oauth2/v2.0/authorize"
         params = {
             'client_id': AZURE_CLIENT_ID,
             'response_type': 'code',
-            'redirect_uri': f"{request.host_url}auth/callback",
+            'redirect_uri': redirect_uri,
             'response_mode': 'query',
             'scope': 'openid email profile',
             'state': secrets.token_urlsafe(32)
         }
-        
-        auth_url_full = f"{auth_url}?{'&'.join([f'{k}={v}' for k, v in params.items()])}"
-        
+        auth_url_full = f"{auth_base}?{urlencode(params)}"
+
+        print(f"[AUTH] Microsoft SSO redirect → {redirect_uri}")
         return jsonify({
             'success': True,
             'authUrl': auth_url_full
         })
-        
+
     except Exception as e:
         print(f"[AUTH ERROR] Microsoft SSO failed: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/auth/callback')
+def auth_callback():
+    """OAuth2 callback – exchanges the authorization code for tokens,
+       creates/finds the user in the local DB and redirects the browser
+       back to login.html with an app JWT so it can finish the login."""
+    import base64 as _b64
+
+    error = request.args.get('error')
+    if error:
+        desc = request.args.get('error_description', error)
+        print(f"[AUTH] Microsoft returned error: {desc}")
+        return _sso_redirect_with_error(f"Microsoft login failed: {desc}")
+
+    code = request.args.get('code')
+    if not code:
+        return _sso_redirect_with_error("No authorization code received from Microsoft.")
+
+    # ── exchange auth code for tokens ──────────────────────────────
+    redirect_uri = f"{request.host_url}auth/callback"
+    token_url = f"https://login.microsoftonline.com/{AZURE_TENANT_ID}/oauth2/v2.0/token"
+    token_data = {
+        'client_id': AZURE_CLIENT_ID,
+        'client_secret': AZURE_CLIENT_SECRET,
+        'code': code,
+        'redirect_uri': redirect_uri,
+        'grant_type': 'authorization_code',
+        'scope': 'openid email profile',
+    }
+
+    try:
+        resp = requests.post(token_url, data=token_data, timeout=15)
+        token_json = resp.json()
+    except Exception as exc:
+        print(f"[AUTH ERROR] Token exchange request failed: {exc}")
+        return _sso_redirect_with_error("Failed to contact Microsoft token service.")
+
+    if 'error' in token_json:
+        desc = token_json.get('error_description', token_json['error'])
+        print(f"[AUTH ERROR] Token exchange error: {desc}")
+        return _sso_redirect_with_error(f"Token exchange failed: {desc}")
+
+    id_token_raw = token_json.get('id_token', '')
+    if not id_token_raw:
+        return _sso_redirect_with_error("No id_token received from Microsoft.")
+
+    # ── decode the id_token (JWT) to extract claims ────────────────
+    try:
+        # We only need the payload segment – no signature verification
+        # required because we received this directly from Microsoft over TLS.
+        parts = id_token_raw.split('.')
+        if len(parts) < 2:
+            raise ValueError("Malformed id_token")
+        payload_b64 = parts[1]
+        # Fix base64 padding
+        payload_b64 += '=' * (4 - len(payload_b64) % 4)
+        payload_bytes = _b64.urlsafe_b64decode(payload_b64)
+        claims = json.loads(payload_bytes)
+    except Exception as exc:
+        print(f"[AUTH ERROR] id_token decode failed: {exc}")
+        return _sso_redirect_with_error("Failed to decode Microsoft identity token.")
+
+    email = (claims.get('preferred_username') or claims.get('email') or claims.get('upn', '')).strip().lower()
+    display_name = claims.get('name', '') or email.split('@')[0]
+
+    if not email:
+        return _sso_redirect_with_error("Microsoft account has no email. Please use a work account.")
+
+    # ── domain validation ──────────────────────────────────────────
+    if not validate_email_domain(email):
+        print(f"[AUTH] SSO domain rejected: {email}")
+        return _sso_redirect_with_error(
+            "Only @team.nxlink.com accounts are allowed. "
+            f"You signed in as {email}."
+        )
+
+    # ── create / find user in local DB ─────────────────────────────
+    try:
+        init_users_db()
+        db_path = os.path.join('secure_data', 'users.db')
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        c.execute('SELECT * FROM users WHERE email = ?', (email,))
+        user = c.fetchone()
+
+        if user:
+            user_id = user['id']
+            # Update display name if we got a better one from Microsoft
+            if display_name and display_name != email.split('@')[0]:
+                c.execute('UPDATE users SET display_name = ? WHERE id = ?', (display_name, user_id))
+            c.execute('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?', (user_id,))
+        else:
+            # Auto-create – SSO users don't need a local password
+            password_hash = hash_password(secrets.token_urlsafe(32))
+            c.execute(
+                '''INSERT INTO users (email, password_hash, display_name, first_login)
+                   VALUES (?, ?, ?, 0)''',
+                (email, password_hash, display_name)
+            )
+            user_id = c.lastrowid
+            c.execute('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?', (user_id,))
+            print(f"[AUTH] SSO auto-created user: {email}")
+
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        print(f"[AUTH ERROR] DB error during SSO callback: {exc}")
+        return _sso_redirect_with_error("Internal server error during sign-in.")
+
+    # ── issue app JWT and redirect to frontend ─────────────────────
+    app_token = generate_token(user_id, email)
+    user_info = json.dumps({
+        'id': user_id,
+        'email': email,
+        'displayName': display_name,
+        'firstLogin': False,
+        'sso': True
+    })
+
+    print(f"[AUTH] SSO login success: {email}")
+    # Redirect to login.html with token in query string – the page
+    # will pick these up, store them in localStorage, and redirect
+    # to the main app.
+    return Response(
+        status=302,
+        headers={
+            'Location': f"/login.html?sso_token={quote_plus(app_token)}&sso_user={quote_plus(user_info)}"
+        }
+    )
+
+
+def _sso_redirect_with_error(message):
+    """Redirect back to login.html with an SSO error message."""
+    return Response(
+        status=302,
+        headers={
+            'Location': f"/login.html?sso_error={quote_plus(message)}"
+        }
+    )
 
 @app.route('/api/auth/change-password', methods=['POST'])
 @require_auth

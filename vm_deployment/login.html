@@ -344,8 +344,8 @@
         // Microsoft SSO Configuration
         const MSAL_CONFIG = {
             auth: {
-                clientId: 'YOUR_AZURE_AD_CLIENT_ID', // Replace with your Azure AD App Client ID
-                authority: 'https://login.microsoftonline.com/common', // or your tenant ID
+                clientId: '0563f465-0f3b-466b-a193-90c9e6dd79d6',
+                authority: 'https://login.microsoftonline.com/143673a5-ff46-4d23-8255-b4ef07861814',
                 redirectUri: window.location.origin + '/auth/callback'
             },
             cache: {
@@ -353,6 +353,38 @@
                 storeAuthStateInCookie: false
             }
         };
+
+        // ── Handle SSO callback parameters ────────────────────────────
+        (function handleSSOCallback() {
+            const params = new URLSearchParams(window.location.search);
+
+            // SSO error – show it and clean the URL
+            const ssoError = params.get('sso_error');
+            if (ssoError) {
+                window.history.replaceState({}, '', window.location.pathname);
+                // Defer so the DOM is ready
+                window.addEventListener('DOMContentLoaded', function () {
+                    showError(ssoError);
+                });
+                return;
+            }
+
+            // SSO success – store token + user info, then redirect
+            const ssoToken = params.get('sso_token');
+            const ssoUser  = params.get('sso_user');
+            if (ssoToken && ssoUser) {
+                try {
+                    const userObj = JSON.parse(ssoUser);
+                    localStorage.setItem('auth_token', ssoToken);
+                    localStorage.setItem('user_info', JSON.stringify(userObj));
+                    // Clean the URL and go to the main app
+                    window.location.replace('NOC-configMaker.html');
+                    return; // prevent further page logic
+                } catch (e) {
+                    console.error('Failed to parse SSO user info', e);
+                }
+            }
+        })();
 
         // Check if user is already logged in
         window.addEventListener('DOMContentLoaded', function () {

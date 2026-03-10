@@ -10,9 +10,12 @@ ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 # AI Provider (optional)
 # OPENAI_API_KEY=your-key-here
 # OPENAI_COMPAT_MODEL=gpt-4o-mini
-# AZURE_TENANT_ID=your-tenant-id
-# AZURE_CLIENT_ID=your-client-id
-# AZURE_CLIENT_SECRET=your-client-secret
+# Microsoft SSO (Azure AD) – REQUIRED for SSO login
+# Tenant and Client IDs are baked into the code defaults; override here if needed.
+# The client SECRET must be set via env var (never hardcoded in source).
+# AZURE_TENANT_ID=143673a5-ff46-4d23-8255-b4ef07861814
+# AZURE_CLIENT_ID=0563f465-0f3b-466b-a193-90c9e6dd79d6
+AZURE_CLIENT_SECRET=PASTE_YOUR_CLIENT_SECRET_HERE
 
 # RouterOS config defaults (optional)
 # NEXTLINK_DNS_PRIMARY=1.1.1.1

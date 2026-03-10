@@ -107,6 +107,10 @@ services:
       NOKIA7250_NLROOT_PW: ${NOKIA7250_NLROOT_PW:-CHANGE_ME}
       NOKIA7250_ADMIN_PW: ${NOKIA7250_ADMIN_PW:-CHANGE_ME}
       NOKIA7250_BGP_AUTH_KEY: ${NOKIA7250_BGP_AUTH_KEY:-CHANGE_ME}
+      # Microsoft SSO (Azure AD)
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-0563f465-0f3b-466b-a193-90c9e6dd79d6}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-143673a5-ff46-4d23-8255-b4ef07861814}
       # Environment label (dev/production) — used for UI banners and logging
       NOC_ENVIRONMENT: ${NOC_ENVIRONMENT:-production}
     volumes:
