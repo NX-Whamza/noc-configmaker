@@ -3048,6 +3048,128 @@
             .section { padding: 10px; }
             button { padding: 8px 14px; font-size: 13px; }
         }
+
+        /* ═══════════════════════════════════════════════════
+           TOAST NOTIFICATION SYSTEM
+           ═══════════════════════════════════════════════════ */
+        .noc-toast-container{position:fixed;top:20px;right:20px;z-index:11000;display:flex;flex-direction:column;gap:10px;pointer-events:none}
+        .noc-toast{pointer-events:auto;display:flex;align-items:center;gap:12px;padding:14px 20px;border-radius:10px;color:#fff;font-size:13px;font-weight:600;box-shadow:0 8px 32px rgba(0,0,0,.35);animation:toastIn .35s cubic-bezier(.21,1.02,.73,1) forwards;max-width:420px;backdrop-filter:blur(12px)}
+        .noc-toast.out{animation:toastOut .3s ease forwards}
+        .noc-toast.success{background:linear-gradient(135deg,#27ae60,#219150)}
+        .noc-toast.error{background:linear-gradient(135deg,#e74c3c,#c0392b)}
+        .noc-toast.info{background:linear-gradient(135deg,#3498db,#2980b9)}
+        .noc-toast.warning{background:linear-gradient(135deg,#f39c12,#e67e22)}
+        .noc-toast .toast-icon{font-size:18px;flex-shrink:0}
+        .noc-toast .toast-msg{flex:1}
+        .noc-toast .toast-close{background:none;border:none;color:rgba(255,255,255,.7);font-size:18px;cursor:pointer;padding:0 0 0 8px;flex-shrink:0}
+        .noc-toast .toast-close:hover{color:#fff}
+        @keyframes toastIn{from{opacity:0;transform:translateX(60px) scale(.95)}to{opacity:1;transform:translateX(0) scale(1)}}
+        @keyframes toastOut{to{opacity:0;transform:translateX(60px) scale(.95)}}
+
+        /* ═══════════════════════════════════════════════════
+           COMMAND PALETTE  (Ctrl+K)
+           ═══════════════════════════════════════════════════ */
+        .cmd-palette-overlay{display:none;position:fixed;inset:0;z-index:12000;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);animation:fadeIn .15s ease}
+        .cmd-palette-overlay.show{display:flex;justify-content:center;padding-top:min(18vh,160px)}
+        .cmd-palette{width:min(680px,92vw);max-height:520px;background:var(--container-bg);border:1px solid var(--border-color);border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,.45);display:flex;flex-direction:column;animation:slideUp .2s cubic-bezier(.21,1.02,.73,1)}
+        .cmd-palette-input-wrap{display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border-color);gap:12px}
+        .cmd-palette-input-wrap .search-icon{font-size:20px;color:var(--accent-color);flex-shrink:0}
+        .cmd-palette-input{flex:1;background:transparent;border:none;outline:none;font-size:16px;color:var(--text-color);font-family:inherit}
+        .cmd-palette-input::placeholder{color:var(--text-color-secondary)}
+        .cmd-palette-hint{font-size:11px;color:var(--text-color-secondary);padding:0 4px;background:var(--input-bg);border-radius:4px;border:1px solid var(--border-color);flex-shrink:0}
+        .cmd-palette-results{flex:1;overflow-y:auto;padding:8px}
+        .cmd-palette-results::-webkit-scrollbar{width:6px}
+        .cmd-palette-results::-webkit-scrollbar-thumb{background:var(--border-color);border-radius:3px}
+        .cmd-group-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--accent-color);padding:10px 14px 4px;user-select:none}
+        .cmd-item{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:8px;cursor:pointer;transition:background .12s}
+        .cmd-item:hover,.cmd-item.selected{background:var(--accent-color);color:#fff}
+        .cmd-item:hover .cmd-item-desc,.cmd-item.selected .cmd-item-desc{color:rgba(255,255,255,.75)}
+        .cmd-item-icon{font-size:18px;width:28px;text-align:center;flex-shrink:0}
+        .cmd-item-body{flex:1;min-width:0}
+        .cmd-item-label{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .cmd-item-desc{font-size:11px;color:var(--text-color-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+        .cmd-item-shortcut{font-size:11px;color:var(--text-color-secondary);background:var(--input-bg);padding:2px 7px;border-radius:4px;border:1px solid var(--border-color);flex-shrink:0;font-family:'JetBrains Mono',monospace}
+        .cmd-palette-empty{text-align:center;padding:40px 20px;color:var(--text-color-secondary)}
+        .cmd-palette-empty .empty-icon{font-size:40px;margin-bottom:12px;opacity:.5}
+
+        /* ═══════════════════════════════════════════════════
+           CONFIG DIFF VIEWER
+           ═══════════════════════════════════════════════════ */
+        .diff-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:16px;background:var(--card-bg);border-radius:var(--radius-md);border:1px solid var(--border-color);margin-bottom:16px}
+        .diff-toolbar label{font-size:12px;font-weight:600;color:var(--text-color-secondary);text-transform:uppercase;letter-spacing:.5px}
+        .diff-toolbar select,.diff-toolbar textarea{background:var(--input-bg);color:var(--text-color);border:1px solid var(--border-color);border-radius:var(--radius-sm);padding:8px 12px;font-size:13px;font-family:inherit}
+        .diff-toolbar select{min-width:180px}
+        .diff-panel-wrap{display:grid;grid-template-columns:1fr 1fr;gap:2px;background:var(--border-color);border-radius:var(--radius-md);overflow:hidden;border:1px solid var(--border-color)}
+        .diff-panel-wrap.unified{grid-template-columns:1fr}
+        .diff-panel{background:var(--card-bg);overflow:auto;max-height:65vh;position:relative}
+        .diff-panel-header{position:sticky;top:0;z-index:2;padding:10px 16px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-color-secondary);background:var(--card-bg);border-bottom:1px solid var(--border-color);display:flex;justify-content:space-between;align-items:center}
+        .diff-line{display:flex;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.8;white-space:pre}
+        .diff-line-num{width:50px;text-align:right;padding:0 10px;color:var(--text-color-secondary);opacity:.6;user-select:none;flex-shrink:0}
+        .diff-line-content{flex:1;padding:0 12px;overflow-x:auto}
+        .diff-line.added{background:rgba(39,174,96,.12)}
+        .diff-line.added .diff-line-content{color:#27ae60}
+        .diff-line.removed{background:rgba(231,76,60,.12)}
+        .diff-line.removed .diff-line-content{color:#e74c3c}
+        .diff-line.changed{background:rgba(243,156,18,.1)}
+        .diff-stats{display:flex;gap:16px;padding:12px 16px;background:var(--card-bg);border-radius:var(--radius-md);border:1px solid var(--border-color);margin-top:12px;font-size:13px;font-weight:600}
+        .diff-stats .stat-add{color:#27ae60}
+        .diff-stats .stat-remove{color:#e74c3c}
+        .diff-stats .stat-unchanged{color:var(--text-color-secondary)}
+        .diff-source-area{width:100%;min-height:120px;font-family:'JetBrains Mono',monospace;font-size:12px;resize:vertical;background:var(--input-bg);color:var(--text-color);border:1px solid var(--border-color);border-radius:var(--radius-sm);padding:10px}
+
+        /* ═══════════════════════════════════════════════════
+           BULK CONFIG GENERATOR
+           ═══════════════════════════════════════════════════ */
+        .bulk-dropzone{border:2px dashed var(--border-color);border-radius:var(--radius-lg);padding:50px 30px;text-align:center;transition:all .25s;cursor:pointer;background:var(--card-bg)}
+        .bulk-dropzone:hover,.bulk-dropzone.dragover{border-color:var(--accent-color);background:rgba(230,126,34,.06)}
+        .bulk-dropzone .drop-icon{font-size:48px;margin-bottom:12px;opacity:.6}
+        .bulk-dropzone .drop-title{font-size:18px;font-weight:700;margin-bottom:6px;color:var(--text-color)}
+        .bulk-dropzone .drop-sub{font-size:13px;color:var(--text-color-secondary)}
+        .bulk-progress{display:none;margin-top:16px}
+        .bulk-progress.active{display:block}
+        .bulk-progress-bar{height:8px;background:var(--input-bg);border-radius:4px;overflow:hidden}
+        .bulk-progress-fill{height:100%;background:linear-gradient(90deg,var(--accent-color),#27ae60);border-radius:4px;transition:width .3s ease;width:0%}
+        .bulk-progress-text{font-size:12px;color:var(--text-color-secondary);margin-top:6px;text-align:center}
+        .bulk-table-wrap{overflow-x:auto;margin-top:16px;border-radius:var(--radius-md);border:1px solid var(--border-color)}
+        .bulk-table{width:100%;border-collapse:collapse;font-size:13px}
+        .bulk-table th{background:var(--card-bg);padding:10px 14px;text-align:left;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-color-secondary);border-bottom:2px solid var(--border-color);position:sticky;top:0;z-index:1}
+        .bulk-table td{padding:8px 14px;border-bottom:1px solid var(--border-color);color:var(--text-color)}
+        .bulk-table tr:hover td{background:rgba(230,126,34,.04)}
+        .bulk-table .status-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700}
+        .bulk-table .status-badge.pending{background:rgba(243,156,18,.15);color:#f39c12}
+        .bulk-table .status-badge.success{background:rgba(39,174,96,.15);color:#27ae60}
+        .bulk-table .status-badge.error{background:rgba(231,76,60,.15);color:#e74c3c}
+        .bulk-table .status-badge.running{background:rgba(52,152,219,.15);color:#3498db}
+
+        /* ═══════════════════════════════════════════════════
+           SCHEDULED MAINTENANCE
+           ═══════════════════════════════════════════════════ */
+        .maint-timeline{position:relative;padding-left:32px}
+        .maint-timeline::before{content:'';position:absolute;left:14px;top:0;bottom:0;width:2px;background:var(--border-color)}
+        .maint-card{position:relative;background:var(--card-bg);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:20px;margin-bottom:16px;transition:all .2s}
+        .maint-card:hover{border-color:var(--accent-color);box-shadow:0 4px 20px rgba(0,0,0,.15)}
+        .maint-card::before{content:'';position:absolute;left:-25px;top:24px;width:12px;height:12px;border-radius:50%;border:2px solid var(--accent-color);background:var(--container-bg)}
+        .maint-card.active::before{background:var(--accent-color);box-shadow:0 0 0 4px rgba(230,126,34,.2)}
+        .maint-card.completed::before{background:#27ae60;border-color:#27ae60}
+        .maint-card.failed::before{background:#e74c3c;border-color:#e74c3c}
+        .maint-card-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
+        .maint-card-title{font-size:16px;font-weight:700;color:var(--text-color)}
+        .maint-card-time{font-size:12px;color:var(--text-color-secondary);background:var(--input-bg);padding:4px 10px;border-radius:20px}
+        .maint-card-devices{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+        .maint-device-chip{font-size:11px;padding:3px 10px;border-radius:20px;background:var(--input-bg);color:var(--text-color-secondary);border:1px solid var(--border-color)}
+        .maint-card-tasks{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+        .maint-task-badge{font-size:11px;padding:4px 12px;border-radius:20px;font-weight:600}
+        .maint-task-badge.firmware{background:rgba(52,152,219,.15);color:#3498db}
+        .maint-task-badge.config{background:rgba(230,126,34,.15);color:#e67e22}
+        .maint-task-badge.credentials{background:rgba(155,89,182,.15);color:#9b59b6}
+        .maint-task-badge.snmp{background:rgba(39,174,96,.15);color:#27ae60}
+        .maint-status-bar{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+        .maint-status-card{flex:1;min-width:140px;background:var(--card-bg);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:16px;text-align:center}
+        .maint-status-card .count{font-size:28px;font-weight:800;color:var(--accent-color)}
+        .maint-status-card .label{font-size:11px;color:var(--text-color-secondary);text-transform:uppercase;letter-spacing:.5px;margin-top:4px}
+        .maint-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+        @media(max-width:768px){.maint-form-grid{grid-template-columns:1fr}.diff-panel-wrap{grid-template-columns:1fr}}
+
     </style>
 </head>
 
@@ -3154,6 +3276,23 @@
                     </div>
                 </div>
                 <button class="nav-item" data-tab="cisco-config">CISCO CONFIG</button>
+                <div class="nav-item dropdown" data-default-tab="config-diff">
+                    <button>POWER TOOLS </button>
+                    <div class="dropdown-menu">
+                        <a data-tab="config-diff">
+                             Config Diff Viewer
+                            <span class="desc">Side-by-side config comparison &amp; diff</span>
+                        </a>
+                        <a data-tab="bulk-config">
+                             Bulk Config Generator
+                            <span class="desc">CSV upload → generate configs for many sites at once</span>
+                        </a>
+                        <a data-tab="maintenance">
+                             Scheduled Maintenance
+                            <span class="desc">Plan and track maintenance windows &amp; tasks</span>
+                        </a>
+                    </div>
+                </div>
                 <button class="nav-item" data-tab="completed-configs"> CONFIGS</button>
                 <button class="nav-item" data-tab="log-history"> LOG HISTORY</button>
                 <button class="nav-item"
@@ -3168,6 +3307,9 @@
                 <div class="nav-overflow-menu" id="navOverflowMenu"></div>
             </div>
             <div class="user-section">
+                <button class="toggle-dark" onclick="window.openCommandPalette && window.openCommandPalette()"
+                    title="Search everything (Ctrl+K)"
+                    style="font-size: 9px; padding: 4px 8px; margin-right: 2px;"> SEARCH</button>
                 <span id="userEmailDisplay"
                     style="color: #bbb; font-size: 9px; margin-right: 10px; text-transform: uppercase;"></span>
                 <div class="header-status" id="globalUpdatedPill" title="Last UI refresh time (live)">
@@ -7829,10 +7971,253 @@ show mac address-table | include &lt;mac&gt;</div>
             </div>
         </div>
     </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         CONFIG DIFF VIEWER TAB
+         ═══════════════════════════════════════════════════════ -->
+    <div class="content-pane" id="config-diff-pane">
+        <div class="container">
+            <h1 style="margin-bottom:4px; color:var(--text-color);">Config Diff Viewer</h1>
+            <p style="color:var(--text-color-secondary); margin-bottom:20px; font-size:14px;">Compare two configurations side-by-side. Paste configs, fetch from device, or load from saved configs.</p>
+
+            <div class="diff-toolbar">
+                <div style="flex:1;min-width:200px">
+                    <label> Source A</label>
+                    <select id="diffSourceA" onchange="diffSourceChanged('A')" style="width:100%;margin-top:4px">
+                        <option value="paste">Paste config</option>
+                        <option value="saved">Load from Saved Configs</option>
+                        <option value="ssh">Fetch from device (SSH)</option>
+                    </select>
+                </div>
+                <div style="flex:1;min-width:200px">
+                    <label> Source B</label>
+                    <select id="diffSourceB" onchange="diffSourceChanged('B')" style="width:100%;margin-top:4px">
+                        <option value="paste">Paste config</option>
+                        <option value="saved">Load from Saved Configs</option>
+                        <option value="ssh">Fetch from device (SSH)</option>
+                    </select>
+                </div>
+                <div style="display:flex;gap:8px;align-items:flex-end">
+                    <button class="btn" onclick="runDiff()" style="background:var(--accent-color);color:#fff;padding:10px 24px;border:none;border-radius:var(--radius-sm);font-weight:700;cursor:pointer"> Compare</button>
+                    <button class="btn" onclick="swapDiffSources()" style="background:var(--input-bg);color:var(--text-color);padding:10px 16px;border:1px solid var(--border-color);border-radius:var(--radius-sm);cursor:pointer" title="Swap A ↔ B"> Swap</button>
+                </div>
+            </div>
+
+            <!-- Paste / SSH areas for A -->
+            <div id="diffInputA-paste" style="margin-bottom:12px">
+                <label style="font-size:12px;font-weight:600;color:var(--text-color-secondary)">CONFIG A</label>
+                <textarea id="diffTextA" class="diff-source-area" rows="6" placeholder="Paste your first configuration here..."></textarea>
+            </div>
+            <div id="diffInputA-ssh" style="display:none;margin-bottom:12px">
+                <div style="display:flex;gap:8px;align-items:flex-end">
+                    <div style="flex:1"><label style="font-size:12px;font-weight:600;color:var(--text-color-secondary)">Device IP (A)</label>
+                        <input type="text" id="diffSshIpA" class="form-input" placeholder="10.0.0.1" style="margin-top:4px;width:100%"></div>
+                    <button onclick="diffFetchSSH('A')" style="background:var(--accent-color);color:#fff;padding:10px 18px;border:none;border-radius:var(--radius-sm);cursor:pointer;font-weight:600;white-space:nowrap"> Fetch A</button>
+                </div>
+            </div>
+            <div id="diffInputA-saved" style="display:none;margin-bottom:12px">
+                <select id="diffSavedA" style="width:100%;padding:8px;background:var(--input-bg);color:var(--text-color);border:1px solid var(--border-color);border-radius:var(--radius-sm)">
+                    <option value="">-- Select a saved config for A --</option>
+                </select>
+            </div>
+
+            <!-- Paste / SSH areas for B -->
+            <div id="diffInputB-paste" style="margin-bottom:16px">
+                <label style="font-size:12px;font-weight:600;color:var(--text-color-secondary)">CONFIG B</label>
+                <textarea id="diffTextB" class="diff-source-area" rows="6" placeholder="Paste your second configuration here..."></textarea>
+            </div>
+            <div id="diffInputB-ssh" style="display:none;margin-bottom:16px">
+                <div style="display:flex;gap:8px;align-items:flex-end">
+                    <div style="flex:1"><label style="font-size:12px;font-weight:600;color:var(--text-color-secondary)">Device IP (B)</label>
+                        <input type="text" id="diffSshIpB" class="form-input" placeholder="10.0.0.2" style="margin-top:4px;width:100%"></div>
+                    <button onclick="diffFetchSSH('B')" style="background:var(--accent-color);color:#fff;padding:10px 18px;border:none;border-radius:var(--radius-sm);cursor:pointer;font-weight:600;white-space:nowrap"> Fetch B</button>
+                </div>
+            </div>
+            <div id="diffInputB-saved" style="display:none;margin-bottom:16px">
+                <select id="diffSavedB" style="width:100%;padding:8px;background:var(--input-bg);color:var(--text-color);border:1px solid var(--border-color);border-radius:var(--radius-sm)">
+                    <option value="">-- Select a saved config for B --</option>
+                </select>
+            </div>
+
+            <!-- Diff output -->
+            <div id="diffOutput" style="display:none">
+                <div class="diff-stats" id="diffStats"></div>
+                <div class="diff-panel-wrap" id="diffPanels" style="margin-top:12px">
+                    <div class="diff-panel" id="diffPanelA"><div class="diff-panel-header"><span>Config A</span><span id="diffCountA"></span></div><div id="diffLinesA"></div></div>
+                    <div class="diff-panel" id="diffPanelB"><div class="diff-panel-header"><span>Config B</span><span id="diffCountB"></span></div><div id="diffLinesB"></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         BULK CONFIG GENERATOR TAB
+         ═══════════════════════════════════════════════════════ -->
+    <div class="content-pane" id="bulk-config-pane">
+        <div class="container">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+                <div>
+                    <h1 style="margin:0;color:var(--text-color);">Bulk Config Generator</h1>
+                    <p style="color:var(--text-color-secondary);font-size:14px;margin-top:4px;">Upload a CSV to generate MikroTik tower configs for multiple sites at once.</p>
+                </div>
+                <div style="display:flex;gap:8px">
+                    <button onclick="bulkDownloadTemplate()" style="background:var(--input-bg);color:var(--text-color);padding:10px 18px;border:1px solid var(--border-color);border-radius:var(--radius-sm);cursor:pointer;font-weight:600"> Download CSV Template</button>
+                    <button onclick="bulkGenerateAll()" id="bulkGenerateBtn" disabled style="background:var(--accent-color);color:#fff;padding:10px 24px;border:none;border-radius:var(--radius-sm);font-weight:700;cursor:pointer;opacity:.5"> Generate All</button>
+                </div>
+            </div>
+
+            <div class="bulk-dropzone" id="bulkDropzone" onclick="document.getElementById('bulkFileInput').click()">
+                <div class="drop-icon"></div>
+                <div class="drop-title">Drop your CSV file here</div>
+                <div class="drop-sub">or click to browse &bull; Accepts .csv files &bull; <a href="#" onclick="event.stopPropagation();bulkDownloadTemplate()" style="color:var(--accent-color)">Download template</a></div>
+                <input type="file" id="bulkFileInput" accept=".csv" style="display:none" onchange="bulkHandleFile(this.files[0])">
+            </div>
+
+            <div class="bulk-progress" id="bulkProgress">
+                <div class="bulk-progress-bar"><div class="bulk-progress-fill" id="bulkProgressFill"></div></div>
+                <div class="bulk-progress-text" id="bulkProgressText">0 / 0 sites generated</div>
+            </div>
+
+            <div id="bulkTableWrap" style="display:none">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin:16px 0 8px">
+                    <span style="font-size:14px;font-weight:700;color:var(--text-color)">Parsed Sites</span>
+                    <div style="display:flex;gap:8px">
+                        <button onclick="bulkClearAll()" style="background:var(--input-bg);color:var(--text-color);padding:6px 14px;border:1px solid var(--border-color);border-radius:var(--radius-sm);cursor:pointer;font-size:12px">Clear All</button>
+                        <button onclick="bulkDownloadAllZip()" id="bulkDownloadBtn" disabled style="background:#27ae60;color:#fff;padding:6px 14px;border:none;border-radius:var(--radius-sm);cursor:pointer;font-size:12px;font-weight:600;opacity:.5"> Download All (.zip)</button>
+                    </div>
+                </div>
+                <div class="bulk-table-wrap" style="max-height:50vh;overflow-y:auto">
+                    <table class="bulk-table">
+                        <thead><tr>
+                            <th>#</th><th>Site Name</th><th>Model</th><th>Loopback</th><th>OSPF Area</th><th>Backhauls</th><th>Status</th><th>Actions</th>
+                        </tr></thead>
+                        <tbody id="bulkTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         SCHEDULED MAINTENANCE TAB
+         ═══════════════════════════════════════════════════════ -->
+    <div class="content-pane" id="maintenance-pane">
+        <div class="container">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+                <div>
+                    <h1 style="margin:0;color:var(--text-color);">Scheduled Maintenance</h1>
+                    <p style="color:var(--text-color-secondary);font-size:14px;margin-top:4px;">Plan, schedule, and track maintenance windows for firmware upgrades, config pushes, and credential rotations.</p>
+                </div>
+                <button onclick="openMaintModal()" style="background:var(--accent-color);color:#fff;padding:10px 24px;border:none;border-radius:var(--radius-sm);font-weight:700;cursor:pointer"> New Maintenance Window</button>
+            </div>
+
+            <div class="maint-status-bar" id="maintStatusBar">
+                <div class="maint-status-card"><div class="count" id="maintCountTotal">0</div><div class="label">Total</div></div>
+                <div class="maint-status-card"><div class="count" id="maintCountScheduled" style="color:#3498db">0</div><div class="label">Scheduled</div></div>
+                <div class="maint-status-card"><div class="count" id="maintCountRunning" style="color:#f39c12">0</div><div class="label">In Progress</div></div>
+                <div class="maint-status-card"><div class="count" id="maintCountCompleted" style="color:#27ae60">0</div><div class="label">Completed</div></div>
+                <div class="maint-status-card"><div class="count" id="maintCountFailed" style="color:#e74c3c">0</div><div class="label">Failed</div></div>
+            </div>
+
+            <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
+                <select id="maintFilter" onchange="maintRender()" style="padding:8px 12px;background:var(--input-bg);color:var(--text-color);border:1px solid var(--border-color);border-radius:var(--radius-sm)">
+                    <option value="all">All Windows</option>
+                    <option value="scheduled">Scheduled</option>
+                    <option value="running">In Progress</option>
+                    <option value="completed">Completed</option>
+                    <option value="failed">Failed</option>
+                </select>
+                <button onclick="maintClearCompleted()" style="background:var(--input-bg);color:var(--text-color);padding:8px 14px;border:1px solid var(--border-color);border-radius:var(--radius-sm);cursor:pointer;font-size:12px">Clear Completed</button>
+            </div>
+
+            <div class="maint-timeline" id="maintTimeline">
+                <div style="text-align:center;padding:60px 20px;color:var(--text-color-secondary)">
+                    <div style="font-size:48px;margin-bottom:12px;opacity:.4"></div>
+                    <p style="font-size:16px;font-weight:600">No maintenance windows scheduled</p>
+                    <p style="font-size:13px;margin-top:6px">Click <strong>"New Maintenance Window"</strong> to create your first one.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     </div>
     </div>
 
-    <!-- Policy Reference Section (Collapsible Footer) -->
+    <!-- ═══════════════════════════════════════════════════════
+         COMMAND PALETTE OVERLAY
+         ═══════════════════════════════════════════════════════ -->
+    <div class="cmd-palette-overlay" id="cmdPalette" onclick="if(event.target===this)closeCommandPalette()">
+        <div class="cmd-palette">
+            <div class="cmd-palette-input-wrap">
+                <span class="search-icon"></span>
+                <input type="text" class="cmd-palette-input" id="cmdPaletteInput" placeholder="Search tabs, actions, configs..." autocomplete="off" spellcheck="false">
+                <span class="cmd-palette-hint">ESC</span>
+            </div>
+            <div class="cmd-palette-results" id="cmdPaletteResults"></div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         MAINTENANCE CREATION MODAL
+         ═══════════════════════════════════════════════════════ -->
+    <div class="modal" id="maintModal">
+        <div class="modal-content" style="max-width:700px">
+            <div class="modal-header">
+                <h2> New Maintenance Window</h2>
+                <button class="modal-close" onclick="closeMaintModal()">&times;</button>
+            </div>
+            <form id="maintForm" onsubmit="maintCreate(event)">
+                <div class="maint-form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Window Name</label>
+                        <input type="text" id="maintName" class="form-input" placeholder="e.g. Kempner Tower Firmware Upgrade" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Scheduled Date & Time</label>
+                        <input type="datetime-local" id="maintDate" class="form-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Duration (minutes)</label>
+                        <input type="number" id="maintDuration" class="form-input" value="120" min="15" max="480">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Priority</label>
+                        <select id="maintPriority" class="form-input">
+                            <option value="low">Low</option>
+                            <option value="normal" selected>Normal</option>
+                            <option value="high">High</option>
+                            <option value="emergency">Emergency</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group" style="margin-top:16px">
+                    <label class="form-label">Device IPs (one per line)</label>
+                    <textarea id="maintDevices" class="form-input" rows="3" placeholder="10.0.0.1&#10;10.0.0.2&#10;10.0.0.3" required style="font-family:'JetBrains Mono',monospace;font-size:12px"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Tasks</label>
+                    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:6px">
+                        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-color);cursor:pointer"><input type="checkbox" name="maintTasks" value="firmware"> Firmware Upgrade</label>
+                        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-color);cursor:pointer"><input type="checkbox" name="maintTasks" value="config"> Config Push</label>
+                        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-color);cursor:pointer"><input type="checkbox" name="maintTasks" value="credentials"> Credential Rotation</label>
+                        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-color);cursor:pointer"><input type="checkbox" name="maintTasks" value="snmp"> SNMP Config</label>
+                        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-color);cursor:pointer"><input type="checkbox" name="maintTasks" value="reboot"> Reboot</label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Notes (optional)</label>
+                    <textarea id="maintNotes" class="form-input" rows="2" placeholder="Any additional context..."></textarea>
+                </div>
+                <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px">
+                    <button type="button" onclick="closeMaintModal()" style="padding:10px 20px;background:var(--input-bg);color:var(--text-color);border:1px solid var(--border-color);border-radius:var(--radius-sm);cursor:pointer">Cancel</button>
+                    <button type="submit" style="padding:10px 24px;background:var(--accent-color);color:#fff;border:none;border-radius:var(--radius-sm);font-weight:700;cursor:pointer"> Create Window</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast container -->
+    <div class="noc-toast-container" id="toastContainer"></div>
     <div id="policyReferenceSection"
         style="position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg-color); border-top: 2px solid var(--border-color); z-index: 1000; max-height: 70vh; overflow-y: auto; display: none; box-shadow: 0 -2px 10px rgba(0,0,0,0.2);">
         <div style="padding: 20px;">
@@ -27206,6 +27591,698 @@ Ready for translation!`);
                 aviatAddLog('Tool initialized', 'info');
             });
         })();
+    </script>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         POWER TOOLS: Toast, Command Palette, Config Diff, Bulk Gen,
+                      Scheduled Maintenance
+         ═══════════════════════════════════════════════════════════════ -->
+    <script>
+    (function () {
+        'use strict';
+
+        /* ──────────────────────────────────────────────────
+           1. TOAST NOTIFICATION SYSTEM
+           ────────────────────────────────────────────────── */
+        const TOAST_ICONS = { success: '', error: '', info: '', warning: '' };
+        window.nocToast = function (msg, type = 'info', duration = 3500) {
+            const c = document.getElementById('toastContainer');
+            if (!c) return;
+            const t = document.createElement('div');
+            t.className = 'noc-toast ' + type;
+            t.innerHTML = `<span class="toast-icon">${TOAST_ICONS[type] || ''}</span><span class="toast-msg">${msg}</span><button class="toast-close" onclick="this.parentElement.classList.add('out');setTimeout(()=>this.parentElement.remove(),300)">&times;</button>`;
+            c.appendChild(t);
+            setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, duration);
+        };
+
+        /* ──────────────────────────────────────────────────
+           2. COMMAND PALETTE (Ctrl+K)
+           ────────────────────────────────────────────────── */
+        const CMD_ITEMS = [
+            // Navigation
+            { cat: 'Navigate', icon: '', label: 'Home Dashboard', desc: 'Return to home', action: () => window.navigateToTab('home') },
+            { cat: 'Navigate', icon: '', label: 'MikroTik Config Generator', desc: 'Full BGP/OSPF/MPLS tower config', action: () => window.navigateToTab('tower') },
+            { cat: 'Navigate', icon: '', label: 'Non-MPLS Enterprise', desc: 'Simplified enterprise configs', action: () => window.navigateToTab('enterprise') },
+            { cat: 'Navigate', icon: '', label: 'MPLS Enterprise', desc: 'Enterprise with MPLS/OSPF/BGP', action: () => window.navigateToTab('enterprise-mpls') },
+            { cat: 'Navigate', icon: '', label: 'Tarana Sectors', desc: 'ALPHA/BETA/GAMMA/DELTA sectors', action: () => window.navigateToTab('tarana') },
+            { cat: 'Navigate', icon: '', label: 'Enterprise Feeding', desc: 'Commercial uplink provisioning', action: () => window.navigateToTab('enterprise-feeding') },
+            { cat: 'Navigate', icon: '', label: '6GHz Switch Port', desc: 'VLAN 3000/4000 config', action: () => window.navigateToTab('ccr2004') },
+            { cat: 'Navigate', icon: '', label: 'MikroTik Switch Maker', desc: 'Switch config (309/326/2004)', action: () => window.navigateToTab('switch-maker') },
+            { cat: 'Navigate', icon: '', label: 'Device Config Studio', desc: 'AP/SM/Switch/UPS/RPC/Aviat/Wave/7250', action: () => window.navigateToTab('field-config-studio') },
+            { cat: 'Navigate', icon: '', label: 'Nokia 7250 Config Maker', desc: 'Full Nokia 7250 IXR form', action: () => window.navigateToTab('nokia7250-maker') },
+            { cat: 'Navigate', icon: '', label: 'Nokia Migration', desc: 'MikroTik → Nokia conversion', action: () => window.navigateToTab('mikrotik-to-nokia') },
+            { cat: 'Navigate', icon: '', label: 'IDO Tools', desc: 'Integrated Device Operations', action: () => window.navigateToTab('ido-tools') },
+            { cat: 'Navigate', icon: '', label: 'Aviat Backhaul Updater', desc: 'Firmware upgrade for WTM4200', action: () => window.navigateToTab('aviat-backhaul') },
+            { cat: 'Navigate', icon: '', label: 'FTTH Home / OLT', desc: 'FTTH OLT & BNG configs', action: () => window.navigateToTab('ftth-home') },
+            { cat: 'Navigate', icon: '', label: 'Command Vault', desc: 'Nokia/Cisco/MikroTik quick commands', action: () => window.navigateToTab('command-vault') },
+            { cat: 'Navigate', icon: '', label: 'Cisco Config', desc: 'Cisco configuration (coming soon)', action: () => window.navigateToTab('cisco-config') },
+            { cat: 'Navigate', icon: '', label: 'Completed Configs', desc: 'Saved configurations archive', action: () => window.navigateToTab('completed-configs') },
+            { cat: 'Navigate', icon: '', label: 'Log History', desc: 'Activity log history', action: () => window.navigateToTab('log-history') },
+            { cat: 'Navigate', icon: '', label: 'Admin Panel', desc: 'Feedback & user management', action: () => window.navigateToTab('admin-panel') },
+            // Power Tools
+            { cat: 'Power Tools', icon: '', label: 'Config Diff Viewer', desc: 'Side-by-side config comparison', action: () => window.navigateToTab('config-diff'), shortcut: '' },
+            { cat: 'Power Tools', icon: '', label: 'Bulk Config Generator', desc: 'CSV → multi-site configs', action: () => window.navigateToTab('bulk-config') },
+            { cat: 'Power Tools', icon: '', label: 'Scheduled Maintenance', desc: 'Plan maintenance windows', action: () => window.navigateToTab('maintenance') },
+            // Actions
+            { cat: 'Actions', icon: '', label: 'Settings', desc: 'Theme, font size, password', action: () => window.openSettingsModal && window.openSettingsModal() },
+            { cat: 'Actions', icon: '', label: 'Submit Feedback', desc: 'Send feedback or bug report', action: () => window.openFeedbackModal && window.openFeedbackModal() },
+            { cat: 'Actions', icon: '', label: 'Toggle Dark Mode', desc: 'Switch light/dark theme', action: () => document.getElementById('darkToggle') && document.getElementById('darkToggle').click() },
+            { cat: 'Actions', icon: '', label: 'Log Out', desc: 'Sign out of your account', action: () => window.handleLogout && window.handleLogout() },
+        ];
+
+        let cmdSelectedIdx = 0;
+        let cmdFiltered = [];
+
+        window.openCommandPalette = function () {
+            const overlay = document.getElementById('cmdPalette');
+            const input = document.getElementById('cmdPaletteInput');
+            overlay.classList.add('show');
+            input.value = '';
+            cmdSelectedIdx = 0;
+            cmdRender('');
+            setTimeout(() => input.focus(), 50);
+        };
+
+        function closeCommandPalette() {
+            document.getElementById('cmdPalette').classList.remove('show');
+        }
+        window.closeCommandPalette = closeCommandPalette;
+
+        function cmdRender(query) {
+            const results = document.getElementById('cmdPaletteResults');
+            const q = query.toLowerCase().trim();
+            cmdFiltered = q ? CMD_ITEMS.filter(i =>
+                i.label.toLowerCase().includes(q) ||
+                i.desc.toLowerCase().includes(q) ||
+                i.cat.toLowerCase().includes(q)
+            ) : [...CMD_ITEMS];
+
+            if (!cmdFiltered.length) {
+                results.innerHTML = '<div class="cmd-palette-empty"><div class="empty-icon"></div><p>No results for "<strong>' + query.replace(/</g, '&lt;') + '</strong>"</p></div>';
+                return;
+            }
+
+            let html = '';
+            let lastCat = '';
+            cmdFiltered.forEach((item, idx) => {
+                if (item.cat !== lastCat) {
+                    lastCat = item.cat;
+                    html += `<div class="cmd-group-label">${item.cat}</div>`;
+                }
+                const sel = idx === cmdSelectedIdx ? ' selected' : '';
+                const sc = item.shortcut ? `<span class="cmd-item-shortcut">${item.shortcut}</span>` : '';
+                html += `<div class="cmd-item${sel}" data-idx="${idx}" onmouseenter="cmdHover(${idx})" onclick="cmdExec(${idx})">
+                    <span class="cmd-item-icon">${item.icon}</span>
+                    <div class="cmd-item-body"><div class="cmd-item-label">${highlight(item.label, q)}</div><div class="cmd-item-desc">${item.desc}</div></div>
+                    ${sc}
+                </div>`;
+            });
+            results.innerHTML = html;
+            ensureVisible();
+        }
+
+        function highlight(text, q) {
+            if (!q) return text;
+            const idx = text.toLowerCase().indexOf(q);
+            if (idx < 0) return text;
+            return text.slice(0, idx) + '<mark style="background:rgba(230,126,34,.3);color:inherit;padding:0 1px;border-radius:2px">' + text.slice(idx, idx + q.length) + '</mark>' + text.slice(idx + q.length);
+        }
+
+        function ensureVisible() {
+            const sel = document.querySelector('.cmd-item.selected');
+            if (sel) sel.scrollIntoView({ block: 'nearest' });
+        }
+
+        window.cmdHover = function (idx) { cmdSelectedIdx = idx; cmdRender(document.getElementById('cmdPaletteInput').value); };
+        window.cmdExec = function (idx) {
+            const item = cmdFiltered[idx];
+            if (item) { closeCommandPalette(); item.action(); }
+        };
+
+        document.addEventListener('keydown', function (e) {
+            // Ctrl+K or Cmd+K opens the palette
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                e.preventDefault();
+                const overlay = document.getElementById('cmdPalette');
+                overlay.classList.contains('show') ? closeCommandPalette() : window.openCommandPalette();
+                return;
+            }
+            // When palette is open
+            const overlay = document.getElementById('cmdPalette');
+            if (!overlay || !overlay.classList.contains('show')) return;
+            if (e.key === 'Escape') { closeCommandPalette(); e.preventDefault(); return; }
+            if (e.key === 'ArrowDown') { e.preventDefault(); cmdSelectedIdx = Math.min(cmdSelectedIdx + 1, cmdFiltered.length - 1); cmdRender(document.getElementById('cmdPaletteInput').value); }
+            if (e.key === 'ArrowUp') { e.preventDefault(); cmdSelectedIdx = Math.max(cmdSelectedIdx - 1, 0); cmdRender(document.getElementById('cmdPaletteInput').value); }
+            if (e.key === 'Enter') { e.preventDefault(); window.cmdExec(cmdSelectedIdx); }
+        });
+
+        document.getElementById('cmdPaletteInput').addEventListener('input', function () {
+            cmdSelectedIdx = 0;
+            cmdRender(this.value);
+        });
+
+        /* ──────────────────────────────────────────────────
+           3. CONFIG DIFF VIEWER
+           ────────────────────────────────────────────────── */
+        window.diffSourceChanged = function (side) {
+            const sel = document.getElementById('diffSource' + side).value;
+            ['paste', 'ssh', 'saved'].forEach(t => {
+                const el = document.getElementById('diffInput' + side + '-' + t);
+                if (el) el.style.display = (t === sel) ? '' : 'none';
+            });
+            if (sel === 'saved') diffLoadSavedList(side);
+        };
+
+        async function diffLoadSavedList(side) {
+            try {
+                const resp = await fetch('/api/get-completed-configs');
+                const data = await resp.json();
+                const select = document.getElementById('diffSaved' + side);
+                select.innerHTML = '<option value="">-- Select a saved config --</option>';
+                (data.configs || data || []).forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.id;
+                    opt.textContent = `${c.site_name || c.name || 'Config'} — ${c.model || ''} (${(c.created_at || '').slice(0, 10)})`;
+                    select.appendChild(opt);
+                });
+            } catch (e) { nocToast('Failed to load saved configs', 'error'); }
+        }
+
+        window.diffFetchSSH = async function (side) {
+            const ip = document.getElementById('diffSshIp' + side).value.trim();
+            if (!ip) { nocToast('Enter a device IP first', 'warning'); return; }
+            nocToast(`Fetching config from ${ip}...`, 'info');
+            try {
+                const resp = await fetch('/api/fetch-config-ssh', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ip })
+                });
+                const data = await resp.json();
+                if (data.config || data.export) {
+                    document.getElementById('diffText' + side).value = data.config || data.export || '';
+                    // Switch view back to paste to show the fetched text
+                    document.getElementById('diffSource' + side).value = 'paste';
+                    diffSourceChanged(side);
+                    nocToast(`Config fetched from ${ip}`, 'success');
+                } else {
+                    nocToast(data.error || 'Failed to fetch config', 'error');
+                }
+            } catch (e) { nocToast('SSH fetch failed: ' + e.message, 'error'); }
+        };
+
+        window.swapDiffSources = function () {
+            const a = document.getElementById('diffTextA').value;
+            document.getElementById('diffTextA').value = document.getElementById('diffTextB').value;
+            document.getElementById('diffTextB').value = a;
+            nocToast('Sources swapped', 'info', 1500);
+        };
+
+        async function getDiffText(side) {
+            const src = document.getElementById('diffSource' + side).value;
+            if (src === 'paste') return document.getElementById('diffText' + side).value;
+            if (src === 'saved') {
+                const id = document.getElementById('diffSaved' + side).value;
+                if (!id) return '';
+                const resp = await fetch('/api/get-completed-config/' + id);
+                const data = await resp.json();
+                return data.config || data.commands || '';
+            }
+            return document.getElementById('diffText' + side).value;
+        }
+
+        window.runDiff = async function () {
+            const textA = await getDiffText('A');
+            const textB = await getDiffText('B');
+            if (!textA.trim() && !textB.trim()) { nocToast('Paste or load configs first', 'warning'); return; }
+            const linesA = textA.split('\n');
+            const linesB = textB.split('\n');
+
+            // Simple LCS-based diff
+            const diff = computeDiff(linesA, linesB);
+            renderDiff(diff, linesA, linesB);
+            document.getElementById('diffOutput').style.display = '';
+            nocToast(`Diff complete: ${diff.added} added, ${diff.removed} removed`, 'success');
+        };
+
+        function computeDiff(a, b) {
+            // Build a set-based diff for speed (line-level)
+            const maxLen = Math.max(a.length, b.length);
+            const resultA = []; const resultB = [];
+            let added = 0, removed = 0, unchanged = 0;
+
+            // Use simple LCS for reasonable-sized configs
+            if (a.length + b.length < 10000) {
+                const lcs = lcsLines(a, b);
+                let ia = 0, ib = 0, il = 0;
+                while (ia < a.length || ib < b.length) {
+                    if (il < lcs.length && ia < a.length && a[ia] === lcs[il] && ib < b.length && b[ib] === lcs[il]) {
+                        resultA.push({ line: a[ia], type: 'unchanged' });
+                        resultB.push({ line: b[ib], type: 'unchanged' });
+                        ia++; ib++; il++; unchanged++;
+                    } else if (il < lcs.length && ia < a.length && a[ia] !== lcs[il]) {
+                        resultA.push({ line: a[ia], type: 'removed' });
+                        resultB.push({ line: '', type: 'pad' });
+                        ia++; removed++;
+                    } else if (il < lcs.length && ib < b.length && b[ib] !== lcs[il]) {
+                        resultA.push({ line: '', type: 'pad' });
+                        resultB.push({ line: b[ib], type: 'added' });
+                        ib++; added++;
+                    } else if (ia < a.length) {
+                        resultA.push({ line: a[ia], type: 'removed' });
+                        resultB.push({ line: '', type: 'pad' });
+                        ia++; removed++;
+                    } else if (ib < b.length) {
+                        resultA.push({ line: '', type: 'pad' });
+                        resultB.push({ line: b[ib], type: 'added' });
+                        ib++; added++;
+                    } else break;
+                }
+            } else {
+                // Fallback for very large configs: simple line-by-line
+                for (let i = 0; i < maxLen; i++) {
+                    const la = i < a.length ? a[i] : null;
+                    const lb = i < b.length ? b[i] : null;
+                    if (la === lb) { resultA.push({ line: la, type: 'unchanged' }); resultB.push({ line: lb, type: 'unchanged' }); unchanged++; }
+                    else {
+                        if (la !== null) { resultA.push({ line: la, type: 'removed' }); removed++; } else { resultA.push({ line: '', type: 'pad' }); }
+                        if (lb !== null) { resultB.push({ line: lb, type: 'added' }); added++; } else { resultB.push({ line: '', type: 'pad' }); }
+                    }
+                }
+            }
+            return { resultA, resultB, added, removed, unchanged };
+        }
+
+        function lcsLines(a, b) {
+            // Optimised LCS for line arrays (Hunt-Szymanski inspired for sparse matches)
+            const n = a.length, m = b.length;
+            if (n === 0 || m === 0) return [];
+            // Build index of b lines
+            const bIdx = {};
+            for (let j = m - 1; j >= 0; j--) {
+                if (!bIdx[b[j]]) bIdx[b[j]] = [];
+                bIdx[b[j]].push(j);
+            }
+            // Patience-style merge
+            const tails = []; const prev = [];
+            for (let i = 0; i < n; i++) {
+                const positions = bIdx[a[i]];
+                if (!positions) continue;
+                for (const j of positions) {
+                    let lo = 0, hi = tails.length;
+                    while (lo < hi) { const mid = (lo + hi) >> 1; tails[mid].j < j ? lo = mid + 1 : hi = mid; }
+                    const entry = { i, j, prev: lo > 0 ? tails[lo - 1] : null };
+                    tails[lo] = entry;
+                }
+            }
+            // Reconstruct
+            const result = [];
+            let cur = tails.length ? tails[tails.length - 1] : null;
+            while (cur) { result.push(a[cur.i]); cur = cur.prev; }
+            return result.reverse();
+        }
+
+        function renderDiff(diff, linesA, linesB) {
+            const panelA = document.getElementById('diffLinesA');
+            const panelB = document.getElementById('diffLinesB');
+            let htmlA = '', htmlB = '';
+            let numA = 0, numB = 0;
+            diff.resultA.forEach((item, idx) => {
+                const bItem = diff.resultB[idx];
+                if (item.type !== 'pad') numA++;
+                if (bItem.type !== 'pad') numB++;
+                const clsA = item.type === 'removed' ? ' removed' : (item.type === 'pad' ? '' : '');
+                const clsB = bItem.type === 'added' ? ' added' : (bItem.type === 'pad' ? '' : '');
+                const nA = item.type !== 'pad' ? numA : '';
+                const nB = bItem.type !== 'pad' ? numB : '';
+                htmlA += `<div class="diff-line${clsA}"><span class="diff-line-num">${nA}</span><span class="diff-line-content">${escHtml(item.line)}</span></div>`;
+                htmlB += `<div class="diff-line${clsB}"><span class="diff-line-num">${nB}</span><span class="diff-line-content">${escHtml(bItem.line)}</span></div>`;
+            });
+            panelA.innerHTML = htmlA;
+            panelB.innerHTML = htmlB;
+            document.getElementById('diffCountA').textContent = `${linesA.length} lines`;
+            document.getElementById('diffCountB').textContent = `${linesB.length} lines`;
+            document.getElementById('diffStats').innerHTML = `
+                <span class="stat-add">+ ${diff.added} added</span>
+                <span class="stat-remove">− ${diff.removed} removed</span>
+                <span class="stat-unchanged">${diff.unchanged} unchanged</span>
+                <span style="margin-left:auto;color:var(--text-color-secondary)">${diff.added + diff.removed + diff.unchanged} total lines</span>`;
+            // Sync scroll
+            const pA = document.getElementById('diffPanelA');
+            const pB = document.getElementById('diffPanelB');
+            let syncing = false;
+            pA.onscroll = () => { if (!syncing) { syncing = true; pB.scrollTop = pA.scrollTop; syncing = false; } };
+            pB.onscroll = () => { if (!syncing) { syncing = true; pA.scrollTop = pB.scrollTop; syncing = false; } };
+        }
+
+        function escHtml(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+        /* ──────────────────────────────────────────────────
+           4. BULK CONFIG GENERATOR
+           ────────────────────────────────────────────────── */
+        let bulkSites = [];
+        let bulkResults = {};
+
+        const BULK_CSV_TEMPLATE = `site_name,model,loopback_ip,ospf_area,ospf_router_id,backhaul_count,backhaul1_name,backhaul1_ip,backhaul2_name,backhaul2_ip,snmp_contact
+Venus Tower,CCR2004-1G-12S+2XS,10.255.0.1,0.0.0.1,10.255.0.1,2,bh-venus-1,172.16.0.1/30,bh-venus-2,172.16.0.5/30,netops@team.nxlink.com
+Kempner Tower,CCR2216-1G-12XS-2XQ,10.255.0.2,0.0.0.2,10.255.0.2,1,bh-kempner-1,172.16.1.1/30,,,,netops@team.nxlink.com
+Example Enterprise,CCR1036-12G-4S,10.255.0.3,0.0.0.3,10.255.0.3,1,bh-example,172.16.2.1/30,,,,netops@team.nxlink.com`;
+
+        window.bulkDownloadTemplate = function () {
+            const blob = new Blob([BULK_CSV_TEMPLATE], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'bulk_config_template.csv'; a.click();
+            URL.revokeObjectURL(url);
+            nocToast('CSV template downloaded', 'success');
+        };
+
+        // Drag & drop
+        const dz = document.getElementById('bulkDropzone');
+        if (dz) {
+            dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+            dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+            dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('dragover'); if (e.dataTransfer.files.length) bulkHandleFile(e.dataTransfer.files[0]); });
+        }
+
+        window.bulkHandleFile = function (file) {
+            if (!file) return;
+            if (!file.name.endsWith('.csv')) { nocToast('Please upload a .csv file', 'warning'); return; }
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                const text = e.target.result;
+                bulkParseCSV(text);
+            };
+            reader.readAsText(file);
+        };
+
+        function bulkParseCSV(text) {
+            const lines = text.trim().split('\n').map(l => l.trim()).filter(l => l);
+            if (lines.length < 2) { nocToast('CSV must have a header row and at least one data row', 'warning'); return; }
+            const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+            bulkSites = [];
+            for (let i = 1; i < lines.length; i++) {
+                const cols = lines[i].split(',').map(c => c.trim());
+                const row = {};
+                headers.forEach((h, j) => row[h] = cols[j] || '');
+                row._idx = i - 1;
+                row._status = 'pending';
+                bulkSites.push(row);
+            }
+            bulkResults = {};
+            bulkRenderTable();
+            document.getElementById('bulkTableWrap').style.display = '';
+            document.getElementById('bulkGenerateBtn').disabled = false;
+            document.getElementById('bulkGenerateBtn').style.opacity = '1';
+            nocToast(`Parsed ${bulkSites.length} sites from CSV`, 'success');
+        }
+
+        function bulkRenderTable() {
+            const tb = document.getElementById('bulkTableBody');
+            if (!tb) return;
+            tb.innerHTML = bulkSites.map((s, i) => {
+                const statusClass = s._status;
+                const statusLabel = s._status === 'pending' ? ' Pending' : s._status === 'running' ? ' Running' : s._status === 'success' ? ' Done' : ' Error';
+                return `<tr>
+                    <td>${i + 1}</td>
+                    <td style="font-weight:600">${escHtml(s.site_name || s.name || 'Site ' + (i+1))}</td>
+                    <td><code style="font-size:11px;background:var(--input-bg);padding:2px 6px;border-radius:3px">${escHtml(s.model || 'auto')}</code></td>
+                    <td style="font-family:'JetBrains Mono',monospace;font-size:12px">${escHtml(s.loopback_ip || '-')}</td>
+                    <td>${escHtml(s.ospf_area || '-')}</td>
+                    <td>${escHtml(s.backhaul_count || '-')}</td>
+                    <td><span class="status-badge ${statusClass}">${statusLabel}</span></td>
+                    <td>${s._status === 'success' ? '<button onclick="bulkDownloadOne(' + i + ')" style="background:var(--accent-color);color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px"> .rsc</button>' : ''}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        window.bulkGenerateAll = async function () {
+            if (!bulkSites.length) return;
+            const btn = document.getElementById('bulkGenerateBtn');
+            btn.disabled = true; btn.textContent = ' Generating...';
+            const prog = document.getElementById('bulkProgress');
+            prog.classList.add('active');
+            let done = 0;
+            const total = bulkSites.length;
+
+            for (let i = 0; i < total; i++) {
+                bulkSites[i]._status = 'running';
+                bulkRenderTable();
+                updateBulkProgress(done, total);
+                try {
+                    const payload = buildBulkPayload(bulkSites[i]);
+                    const resp = await fetch('/api/gen-enterprise-non-mpls', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || '') },
+                        body: JSON.stringify(payload)
+                    });
+                    const data = await resp.json();
+                    if (data.config || data.commands || data.script) {
+                        bulkResults[i] = data.config || data.commands || data.script || '';
+                        bulkSites[i]._status = 'success';
+                    } else {
+                        bulkResults[i] = null;
+                        bulkSites[i]._status = 'error';
+                        bulkSites[i]._error = data.error || 'Unknown error';
+                    }
+                } catch (e) {
+                    bulkResults[i] = null;
+                    bulkSites[i]._status = 'error';
+                    bulkSites[i]._error = e.message;
+                }
+                done++;
+                updateBulkProgress(done, total);
+                bulkRenderTable();
+            }
+
+            btn.disabled = false; btn.innerHTML = ' Generate All';
+            const successCount = bulkSites.filter(s => s._status === 'success').length;
+            nocToast(`Bulk generation complete: ${successCount}/${total} succeeded`, successCount === total ? 'success' : 'warning');
+
+            if (successCount > 0) {
+                document.getElementById('bulkDownloadBtn').disabled = false;
+                document.getElementById('bulkDownloadBtn').style.opacity = '1';
+            }
+        };
+
+        function buildBulkPayload(site) {
+            return {
+                site_name: site.site_name || site.name || 'Unnamed',
+                model: site.model || 'CCR2004-1G-12S+2XS',
+                loopback_ip: site.loopback_ip || '',
+                ospf_area: site.ospf_area || '0.0.0.0',
+                ospf_router_id: site.ospf_router_id || site.loopback_ip || '',
+                snmp_contact: site.snmp_contact || 'netops@team.nxlink.com',
+                backhauls: buildBulkBackhauls(site),
+                bulk_mode: true
+            };
+        }
+
+        function buildBulkBackhauls(site) {
+            const bhs = [];
+            const count = parseInt(site.backhaul_count) || 0;
+            for (let i = 1; i <= count; i++) {
+                const name = site['backhaul' + i + '_name'] || 'bh-' + i;
+                const ip = site['backhaul' + i + '_ip'] || '';
+                if (name || ip) bhs.push({ name, ip });
+            }
+            return bhs;
+        }
+
+        function updateBulkProgress(done, total) {
+            const pct = total ? Math.round((done / total) * 100) : 0;
+            document.getElementById('bulkProgressFill').style.width = pct + '%';
+            document.getElementById('bulkProgressText').textContent = `${done} / ${total} sites generated (${pct}%)`;
+        }
+
+        window.bulkDownloadOne = function (idx) {
+            const cfg = bulkResults[idx];
+            if (!cfg) return;
+            const name = (bulkSites[idx].site_name || 'config').replace(/[^a-zA-Z0-9_-]/g, '_');
+            const blob = new Blob([cfg], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = name + '.rsc'; a.click();
+            URL.revokeObjectURL(url);
+        };
+
+        window.bulkDownloadAllZip = async function () {
+            if (typeof JSZip === 'undefined') { nocToast('JSZip not loaded', 'error'); return; }
+            const zip = new JSZip();
+            let count = 0;
+            bulkSites.forEach((s, i) => {
+                if (bulkResults[i]) {
+                    const name = (s.site_name || 'config_' + (i + 1)).replace(/[^a-zA-Z0-9_-]/g, '_') + '.rsc';
+                    zip.file(name, bulkResults[i]);
+                    count++;
+                }
+            });
+            if (!count) { nocToast('No configs to download', 'warning'); return; }
+            const blob = await zip.generateAsync({ type: 'blob' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'bulk_configs_' + new Date().toISOString().slice(0, 10) + '.zip'; a.click();
+            URL.revokeObjectURL(url);
+            nocToast(`Downloaded ${count} configs as ZIP`, 'success');
+        };
+
+        window.bulkClearAll = function () {
+            bulkSites = []; bulkResults = {};
+            document.getElementById('bulkTableBody').innerHTML = '';
+            document.getElementById('bulkTableWrap').style.display = 'none';
+            document.getElementById('bulkProgress').classList.remove('active');
+            document.getElementById('bulkGenerateBtn').disabled = true;
+            document.getElementById('bulkGenerateBtn').style.opacity = '.5';
+            document.getElementById('bulkDownloadBtn').disabled = true;
+            document.getElementById('bulkDownloadBtn').style.opacity = '.5';
+            document.getElementById('bulkFileInput').value = '';
+            nocToast('Cleared all sites', 'info');
+        };
+
+        /* ──────────────────────────────────────────────────
+           5. SCHEDULED MAINTENANCE
+           ────────────────────────────────────────────────── */
+        const MAINT_KEY = 'noc_maintenance_windows';
+        let maintWindows = [];
+
+        function maintLoad() {
+            try { maintWindows = JSON.parse(localStorage.getItem(MAINT_KEY) || '[]'); } catch { maintWindows = []; }
+        }
+        function maintSave() { localStorage.setItem(MAINT_KEY, JSON.stringify(maintWindows)); }
+
+        window.openMaintModal = function () {
+            document.getElementById('maintModal').classList.add('show');
+            // Default datetime to next 2AM
+            const now = new Date();
+            const next2am = new Date(now);
+            next2am.setDate(next2am.getDate() + 1);
+            next2am.setHours(2, 0, 0, 0);
+            document.getElementById('maintDate').value = next2am.toISOString().slice(0, 16);
+        };
+
+        window.closeMaintModal = function () {
+            document.getElementById('maintModal').classList.remove('show');
+        };
+
+        window.maintCreate = function (e) {
+            e.preventDefault();
+            const name = document.getElementById('maintName').value.trim();
+            const dateStr = document.getElementById('maintDate').value;
+            const duration = parseInt(document.getElementById('maintDuration').value) || 120;
+            const priority = document.getElementById('maintPriority').value;
+            const devices = document.getElementById('maintDevices').value.trim().split('\n').map(d => d.trim()).filter(d => d);
+            const tasks = Array.from(document.querySelectorAll('input[name="maintTasks"]:checked')).map(cb => cb.value);
+            const notes = document.getElementById('maintNotes').value.trim();
+
+            if (!name || !dateStr || !devices.length) { nocToast('Fill in all required fields', 'warning'); return; }
+            if (!tasks.length) { nocToast('Select at least one task', 'warning'); return; }
+
+            const mw = {
+                id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+                name, scheduledAt: dateStr, duration, priority,
+                devices, tasks, notes,
+                status: 'scheduled',
+                createdAt: new Date().toISOString(),
+                createdBy: (() => { try { return JSON.parse(localStorage.getItem('user_info') || '{}').email || 'unknown'; } catch { return 'unknown'; } })()
+            };
+            maintWindows.unshift(mw);
+            maintSave();
+            maintRender();
+            closeMaintModal();
+            document.getElementById('maintForm').reset();
+            nocToast(`Maintenance window "${name}" created`, 'success');
+        };
+
+        window.maintRender = function () {
+            maintLoad();
+            const filter = document.getElementById('maintFilter').value;
+            const filtered = filter === 'all' ? maintWindows : maintWindows.filter(w => w.status === filter);
+
+            // Update counts
+            document.getElementById('maintCountTotal').textContent = maintWindows.length;
+            document.getElementById('maintCountScheduled').textContent = maintWindows.filter(w => w.status === 'scheduled').length;
+            document.getElementById('maintCountRunning').textContent = maintWindows.filter(w => w.status === 'running').length;
+            document.getElementById('maintCountCompleted').textContent = maintWindows.filter(w => w.status === 'completed').length;
+            document.getElementById('maintCountFailed').textContent = maintWindows.filter(w => w.status === 'failed').length;
+
+            const timeline = document.getElementById('maintTimeline');
+            if (!filtered.length) {
+                timeline.innerHTML = `<div style="text-align:center;padding:60px 20px;color:var(--text-color-secondary)">
+                    <div style="font-size:48px;margin-bottom:12px;opacity:.4"></div>
+                    <p style="font-size:16px;font-weight:600">${filter === 'all' ? 'No maintenance windows scheduled' : 'No ' + filter + ' windows'}</p>
+                    <p style="font-size:13px;margin-top:6px">Click <strong>"New Maintenance Window"</strong> to create one.</p></div>`;
+                return;
+            }
+
+            const TASK_LABELS = { firmware: 'Firmware Upgrade', config: 'Config Push', credentials: 'Credential Rotation', snmp: 'SNMP Config', reboot: 'Reboot' };
+            const TASK_CLASS = { firmware: 'firmware', config: 'config', credentials: 'credentials', snmp: 'snmp', reboot: 'firmware' };
+            const PRIORITY_COLORS = { low: '#27ae60', normal: '#3498db', high: '#f39c12', emergency: '#e74c3c' };
+
+            timeline.innerHTML = filtered.map(w => {
+                const d = new Date(w.scheduledAt);
+                const dateLabel = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                const devChips = w.devices.slice(0, 6).map(ip => `<span class="maint-device-chip">${escHtml(ip)}</span>`).join('') + (w.devices.length > 6 ? `<span class="maint-device-chip">+${w.devices.length - 6} more</span>` : '');
+                const taskBadges = w.tasks.map(t => `<span class="maint-task-badge ${TASK_CLASS[t] || ''}">${TASK_LABELS[t] || t}</span>`).join('');
+                const statusActions = w.status === 'scheduled'
+                    ? `<button onclick="maintUpdateStatus('${w.id}','running')" style="background:#f39c12;color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600"> Start</button>
+                       <button onclick="maintDelete('${w.id}')" style="background:transparent;border:1px solid var(--border-color);color:var(--text-color-secondary);padding:4px 12px;border-radius:4px;cursor:pointer;font-size:11px"> Delete</button>`
+                    : w.status === 'running'
+                    ? `<button onclick="maintUpdateStatus('${w.id}','completed')" style="background:#27ae60;color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600"> Complete</button>
+                       <button onclick="maintUpdateStatus('${w.id}','failed')" style="background:#e74c3c;color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600"> Failed</button>`
+                    : '';
+                return `<div class="maint-card ${w.status}">
+                    <div class="maint-card-header">
+                        <div>
+                            <div class="maint-card-title">${escHtml(w.name)}</div>
+                            <div style="font-size:11px;color:var(--text-color-secondary);margin-top:2px">Created by ${escHtml(w.createdBy)} &bull; ${w.duration} min &bull; <span style="color:${PRIORITY_COLORS[w.priority] || '#3498db'};font-weight:700;text-transform:uppercase">${w.priority}</span></div>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:8px">
+                            <span class="maint-card-time"> ${dateLabel}</span>
+                            ${statusActions}
+                        </div>
+                    </div>
+                    <div class="maint-card-devices">${devChips}</div>
+                    <div class="maint-card-tasks">${taskBadges}</div>
+                    ${w.notes ? `<div style="margin-top:10px;font-size:12px;color:var(--text-color-secondary);font-style:italic">${escHtml(w.notes)}</div>` : ''}
+                </div>`;
+            }).join('');
+        };
+
+        window.maintUpdateStatus = function (id, status) {
+            maintLoad();
+            const w = maintWindows.find(w => w.id === id);
+            if (w) { w.status = status; w.updatedAt = new Date().toISOString(); maintSave(); maintRender(); nocToast(`Window "${w.name}" marked as ${status}`, status === 'completed' ? 'success' : status === 'failed' ? 'error' : 'info'); }
+        };
+
+        window.maintDelete = function (id) {
+            if (!confirm('Delete this maintenance window?')) return;
+            maintLoad();
+            maintWindows = maintWindows.filter(w => w.id !== id);
+            maintSave(); maintRender();
+            nocToast('Maintenance window deleted', 'info');
+        };
+
+        window.maintClearCompleted = function () {
+            maintLoad();
+            const before = maintWindows.length;
+            maintWindows = maintWindows.filter(w => w.status !== 'completed');
+            maintSave(); maintRender();
+            nocToast(`Cleared ${before - maintWindows.length} completed windows`, 'info');
+        };
+
+        // Initialize maintenance on tab visit
+        const origNav = window.navigateToTab;
+        if (origNav) {
+            window.navigateToTab = async function (tabId) {
+                await origNav(tabId);
+                if (tabId === 'maintenance') maintRender();
+            };
+        }
+
+        // Load on startup if on maintenance tab
+        maintLoad();
+        if (document.getElementById('maintenance-pane') && document.getElementById('maintenance-pane').classList.contains('active')) maintRender();
+
+    })();
     </script>
 </body>
 
