@@ -16568,7 +16568,7 @@ def bulk_compliance_scan():
 
     SOFT_CHECKS = [
         {'id': 'aaa_radius',     'category': 'AAA',            'label': 'User AAA: use-radius=no',          'pattern': r'use-radius=no'},
-        {'id': 'dhcp_opt43',     'category': 'DHCP',           'label': 'DHCP Option 43 (uss.nxlink.com)',  'pattern': r'uss\.nxlink\.com'},
+        {'id': 'dhcp_opt43',     'category': 'DHCP',           'label': 'DHCP Option 43 (uss.nxlink.com)',  'pattern': r'uss\.nxlink\.com|0x011768747470733a2f2f7573732e6e786c696e6b2e636f6d|code=43.*name=opt43'},
         {'id': 'radius_primary', 'category': 'RADIUS',         'label': 'RADIUS server 142.147.112.2',     'pattern': r'142\.147\.112\.2[^0-9]'},
         {'id': 'radius_secondary','category': 'RADIUS',        'label': 'RADIUS server 142.147.112.18',    'pattern': r'142\.147\.112\.18[^0-9]'},
     ]
@@ -16635,16 +16635,24 @@ def bulk_compliance_scan():
         grade = 'A' if score >= 90 else 'B' if score >= 75 else 'C' if score >= 60 else 'D' if score >= 40 else 'F'
         grade_counts[grade] += 1
 
-        # Also run official validate_compliance for missing_items/warnings
+        # Derive compliant from the regex-based score (accurate against SSH export output)
+        # validate_compliance() uses substring matching that fails on export's extra properties
+        # like address="" in /ip service lines, so we only use it for informational missing_items
+        compliant = (hard_passed == total_hard)  # All 22 hard checks must pass
+
+        # Run validate_compliance() for informational missing_items list (NOT for compliant decision)
         try:
             official = validate_compliance(config_text)
-            missing_items = official.get('missing_items', [])
+            # Merge: only keep missing_items that also failed in our regex checks
+            failed_check_labels = set(c['label'] for c in checks if not c['passed'])
+            missing_items = [m for m in official.get('missing_items', []) if any(fl.lower() in m.lower() for fl in failed_check_labels)] if failed_check_labels else []
+            # Build missing_items from failed regex checks if validate gave us nothing useful
+            if not missing_items and not compliant:
+                missing_items = [c['label'] for c in checks if not c['passed'] and c['severity'] == 'hard']
             warnings = official.get('warnings', [])
-            compliant = official.get('compliant', False)
         except Exception:
-            missing_items = []
-            warnings = []
-            compliant = score == 100
+            missing_items = [c['label'] for c in checks if not c['passed'] and c['severity'] == 'hard']
+            warnings = [c['label'] for c in checks if not c['passed'] and c['severity'] == 'soft']
 
         result = {
             'name': name,
@@ -16666,7 +16674,7 @@ def bulk_compliance_scan():
             'config_lines': len(config_text.splitlines())
         }
 
-        # Apply fix if requested
+        # Apply fix if requested and device has failed hard checks
         if apply_fix and not compliant:
             try:
                 loopback_ip = ''
@@ -16676,11 +16684,17 @@ def bulk_compliance_scan():
                 _lip = loopback_ip.split('/')[0]
                 compliance_blocks = _get_dynamic_compliance_blocks(loopback_ip)
                 fixed_config = inject_compliance_blocks(config_text, compliance_blocks, loopback_ip=_lip)
-                recheck = validate_compliance(fixed_config)
+                # Re-score with the same regex checks (not validate_compliance)
+                fixed_lower = fixed_config.lower()
+                fixed_hard = sum(1 for chk in COMPLIANCE_CHECKS if re.search(chk['pattern'], fixed_lower if chk['id'] not in ('sys_snmp',) else fixed_config))
+                fixed_soft = sum(1 for chk in SOFT_CHECKS if re.search(chk['pattern'], fixed_lower if chk['id'] not in ('radius_primary','radius_secondary') else fixed_config))
+                fixed_hard_pct = (fixed_hard / total_hard * 100) if total_hard else 100
+                fixed_soft_pct = (fixed_soft / total_soft * 100) if total_soft else 100
+                fixed_score = round(fixed_hard_pct * 0.8 + fixed_soft_pct * 0.2)
                 result['fixed_config'] = fixed_config
-                result['fixed_compliant'] = recheck.get('compliant', False)
-                result['fixed_score'] = 100 if recheck.get('compliant') else score + 10
-                result['fixed_missing'] = recheck.get('missing_items', [])
+                result['fixed_compliant'] = (fixed_hard == total_hard)
+                result['fixed_score'] = fixed_score
+                result['fixed_missing'] = [chk['label'] for chk in COMPLIANCE_CHECKS if not re.search(chk['pattern'], fixed_lower if chk['id'] not in ('sys_snmp',) else fixed_config)]
             except Exception as e:
                 result['fix_error'] = str(e)
 
