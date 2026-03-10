@@ -27775,7 +27775,7 @@ Ready for translation!`);
             try {
                 const resp = await fetch('/api/fetch-config-ssh', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ip })
+                    body: JSON.stringify({ host: ip })
                 });
                 const data = await resp.json();
                 if (data.config || data.export) {
