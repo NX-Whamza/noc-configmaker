@@ -16964,24 +16964,42 @@ def ssh_push_config():
             import_output = stdout.read().decode('utf-8', errors='replace')
             import_errors = stderr.read().decode('utf-8', errors='replace')
 
-            # Check for failure indicators
+            # Analyze import output for real vs benign failures
             import re as _re
-            has_errors = bool(import_errors and 'error' in import_errors.lower()) or bool(
-                _re.search(r'failure|bad command|syntax error|input does not match|expected end of command',
-                           import_output, _re.IGNORECASE)
+            output_lines = import_output.strip().splitlines()
+
+            # "failure: already have" is benign — the item already exists
+            benign_pattern = _re.compile(r'failure:\s*already have', _re.IGNORECASE)
+            # These are real errors that indicate broken config
+            critical_pattern = _re.compile(
+                r'bad command name|syntax error|input does not match|'
+                r'expected end of command|no such item|invalid value',
+                _re.IGNORECASE
             )
 
-            if has_errors:
-                steps.append('Import completed WITH ERRORS — rollback scheduler remains active')
+            benign_count = sum(1 for l in output_lines if benign_pattern.search(l))
+            critical_lines = [l.strip() for l in output_lines if critical_pattern.search(l)]
+            # Check stderr for actual errors (not just informational)
+            stderr_critical = bool(import_errors and critical_pattern.search(import_errors))
+
+            has_critical_errors = len(critical_lines) > 0 or stderr_critical
+
+            if has_critical_errors:
+                steps.append(f'Import completed WITH {len(critical_lines)} critical error(s) — rollback scheduler remains active')
                 return {
                     'host': host, 'label': label, 'success': False,
-                    'error': 'Import had errors (rollback scheduler active)',
+                    'error': f'Import had {len(critical_lines)} critical error(s)',
+                    'critical_lines': critical_lines[:20],
                     'port': connected_port, 'steps': steps,
-                    'import_output': import_output[:2000],
-                    'import_errors': import_errors[:2000]
+                    'import_output': import_output[:4000],
+                    'import_errors': import_errors[:2000],
+                    'benign_skipped': benign_count
                 }
 
-            steps.append('Import completed successfully')
+            if benign_count > 0:
+                steps.append(f'Import OK — {benign_count} items already existed (skipped)')
+            else:
+                steps.append('Import completed successfully')
 
             # ── Step 6: Remove rollback scheduler ──
             if rollback_minutes > 0 and backup_name:
