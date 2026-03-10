@@ -14639,6 +14639,40 @@ def ensure_configs_db():
 # ========================================
 # ACTIVITY TRACKING ENDPOINTS
 # ========================================
+
+def _build_activity_message(display_user, activity_type, site_name, device=''):
+    """Build a human-readable activity message from type + context."""
+    _VERB_MAP = {
+        'migration':                        'migrated',
+        'new-config':                       'generated config for',
+        'tower-config':                     'generated Tower config for',
+        'enterprise-config':                'generated Enterprise config for',
+        'enterprise-Non-MPLS':              'generated Enterprise (Non-MPLS) config for',
+        'enterprise-non-mpls':              'generated Enterprise (Non-MPLS) config for',
+        'mpls-enterprise-config':           'generated MPLS Enterprise config for',
+        'switch-config':                    'generated Switch config for',
+        '6ghz-switch-config':               'generated 6 GHz Switch config for',
+        'tarana-config':                    'generated Tarana config for',
+        'enterprise-feeding-config':        'generated Enterprise Feeding config for',
+        'enterprise-feeding-outstate-config': 'generated Enterprise Feeding Out-of-State config for',
+        'aviat-upgrade':                    'performed Aviat backhaul upgrade on',
+        'ftth-bng':                         'generated FTTH BNG config for',
+        'maintenance-scheduled':            'scheduled maintenance:',
+        'maintenance-started':              'started maintenance:',
+        'maintenance-completed':            'completed maintenance:',
+        'maintenance-failed':               'maintenance FAILED:',
+    }
+    verb = _VERB_MAP.get(activity_type)
+    if verb:
+        msg = f"{display_user} {verb} {site_name}".strip()
+    else:
+        # Fallback: humanise the type slug
+        nice_type = activity_type.replace('-', ' ').replace('_', ' ').title()
+        msg = f"{display_user} – {nice_type}: {site_name}".strip()
+    if device:
+        msg += f" ({device})"
+    return msg
+
 def init_activity_db():
     """Initialize activity tracking database"""
     secure_dir = 'secure_data'
@@ -14657,7 +14691,8 @@ def init_activity_db():
                   routeros_version TEXT,
                   success INTEGER,
                   timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-                  timestamp_unix INTEGER)''')
+                  timestamp_unix INTEGER,
+                  ticket_url TEXT DEFAULT '')''')
     conn.commit()
 
     # Ensure older databases get the new columns/indexes (safe to re-run).
@@ -14667,6 +14702,8 @@ def init_activity_db():
             c.execute("ALTER TABLE activities ADD COLUMN timestamp_unix INTEGER")
         if 'timestamp' not in cols:
             c.execute("ALTER TABLE activities ADD COLUMN timestamp TEXT")
+        if 'ticket_url' not in cols:
+            c.execute("ALTER TABLE activities ADD COLUMN ticket_url TEXT DEFAULT ''")
     except Exception as e:
         safe_print(f"[ACTIVITY] Column migration skipped: {e}")
 
@@ -14712,6 +14749,7 @@ def log_activity():
         device = data.get('device', '')
         site_name = data.get('siteName', '')
         routeros = data.get('routeros', '')
+        ticket_url = data.get('ticketUrl', '')
         success = 1 if data.get('success', True) else 0
         
         # Initialize DB if needed
@@ -14725,23 +14763,15 @@ def log_activity():
         ts_unix = get_unix_timestamp()
         ts_iso = get_utc_timestamp()
         c.execute('''INSERT INTO activities 
-                     (username, activity_type, device, site_name, routeros_version, success, timestamp, timestamp_unix)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                  (username, activity_type, device, site_name, routeros, success, ts_iso, ts_unix))
+                     (username, activity_type, device, site_name, routeros_version, success, timestamp, timestamp_unix, ticket_url)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                  (username, activity_type, device, site_name, routeros, success, ts_iso, ts_unix, ticket_url))
         conn.commit()
         conn.close()
         
         # Format activity message (use short username for display)
         display_user = _short_username(username)
-        activity_msg = f"{display_user}"
-        if activity_type == 'migration':
-            activity_msg += f" migrated {site_name}"
-        elif activity_type == 'new-config':
-            activity_msg += f" configured {site_name}"
-        else:
-            activity_msg += f" - {activity_type} - {site_name}"
-        if device:
-            activity_msg += f" ({device})"
+        activity_msg = _build_activity_message(display_user, activity_type, site_name, device)
         
         print(f"[ACTIVITY] {activity_msg}")
         return jsonify({'success': True})
@@ -14809,10 +14839,7 @@ def get_activity():
             elif activity_type == 'new-config':
                 message = f"{display_user} configured {site_name}"
             else:
-                message = f"{display_user} - {activity_type} - {site_name}"
-
-                if device:
-                    message += f" ({device})"
+                message = _build_activity_message(display_user, activity_type, site_name, device)
 
             # Normalize timestamp to ISO UTC for reliable frontend parsing; also return a CST display string.
             dt_utc = None
@@ -14849,6 +14876,12 @@ def get_activity():
                 timestamp_iso = row['timestamp']
                 formatted_time = row['timestamp']
 
+            # Safely read ticket_url (may not exist in older rows)
+            try:
+                ticket_url_val = row['ticket_url'] or ''
+            except (IndexError, KeyError):
+                ticket_url_val = ''
+
             activities.append({
                 'id': row['id'],
                 'username': display_user,
@@ -14860,7 +14893,8 @@ def get_activity():
                 'timestamp': timestamp_iso,
                 'timestamp_unix': int(ts_unix) if ts_unix else None,
                 'formattedTime': formatted_time,
-                'message': message
+                'message': message,
+                'ticketUrl': ticket_url_val
             })
         
         return jsonify({'success': True, 'activities': activities})

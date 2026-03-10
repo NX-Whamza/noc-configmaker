@@ -3387,7 +3387,7 @@
                     </div>
 
                     <!-- Maintenance Tracking (collapsible) -->
-                    <details class="activity-section" style="margin-top:0" open id="homeMaintSection">
+                    <details class="activity-section" style="margin-top:0" id="homeMaintSection">
                         <summary style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;list-style:none">
                             <h2 style="margin:0;display:inline-flex;align-items:center;gap:8px"> Maintenance Tracking <span style="font-size:11px;font-weight:400;color:var(--text-color-secondary);background:var(--input-bg);padding:2px 8px;border-radius:10px" id="homeMaintBadge">0</span></h2>
                             <div style="display:flex;align-items:center;gap:10px">
@@ -6404,12 +6404,15 @@
                                               Firmware</th>
                                         <th
                                             style="padding: 12px; text-align: center; border-bottom: 2px solid var(--border-color);">
+                                            Ticket</th>
+                                        <th
+                                            style="padding: 12px; text-align: center; border-bottom: 2px solid var(--border-color);">
                                             Status</th>
                                     </tr>
                                 </thead>
                                 <tbody id="logHistoryTableBody">
                                     <tr>
-                                        <td colspan="6"
+                                        <td colspan="7"
                                             style="text-align: center; padding: 50px; color: var(--text-color-secondary);">
                                             Loading log history...</td>
                                     </tr>
@@ -8915,6 +8918,56 @@ show mac address-table | include &lt;mac&gt;</div>
                 return formatUsernameDisplay(match);
             });
         }
+
+        /* ── Activity display helpers (shared across Home, Log History, etc.) ── */
+        function getActivityDisplay(type, siteName) {
+            const map = {
+                'migration':            { icon: '\u{1F504}', label: 'Migration' },
+                'new-config':           { icon: '\u{1F4C4}', label: 'Config Generated' },
+                'tower-config':         { icon: '\u{1F4E1}', label: 'Tower Config' },
+                'enterprise-config':    { icon: '\u{1F3E2}', label: 'Enterprise Config' },
+                'enterprise-Non-MPLS':  { icon: '\u{1F3E2}', label: 'Enterprise (Non-MPLS)' },
+                'enterprise-non-mpls':  { icon: '\u{1F3E2}', label: 'Enterprise (Non-MPLS)' },
+                'mpls-enterprise-config': { icon: '\u{1F3E2}', label: 'MPLS Enterprise Config' },
+                'switch-config':        { icon: '\u{1F5A7}', label: 'Switch Config' },
+                '6ghz-switch-config':   { icon: '\u{1F4F6}', label: '6 GHz Switch Config' },
+                'tarana-config':        { icon: '\u{1F4E1}', label: 'Tarana Config' },
+                'enterprise-feeding-config': { icon: '\u{1F3E2}', label: 'Enterprise Feeding Config' },
+                'enterprise-feeding-outstate-config': { icon: '\u{1F3E2}', label: 'Enterprise Feeding Out-of-State' },
+                'aviat-upgrade':        { icon: '\u{2B06}', label: 'Aviat Backhaul Upgrade' },
+                'ftth-bng':             { icon: '\u{1F310}', label: 'FTTH BNG Config' },
+                'maintenance-scheduled':{ icon: '\u{1F4C5}', label: 'Maintenance Scheduled' },
+                'maintenance-started':  { icon: '\u{26A0}',  label: 'Maintenance Started' },
+                'maintenance-completed':{ icon: '\u2705',     label: 'Maintenance Completed' },
+                'maintenance-failed':   { icon: '\u274C',     label: 'Maintenance Failed' },
+            };
+            return map[type] || { icon: '\u{1F4CB}', label: (type || 'activity').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) };
+        }
+
+        function buildFriendlyActivityTitle(type, siteName, device) {
+            const { icon, label } = getActivityDisplay(type, siteName);
+            let title = label;
+            if (siteName) title += ': ' + siteName;
+            if (device) title += ' (' + device + ')';
+            return title;
+        }
+
+        /* ── Extract ticket number from URL (used by log history & maintenance) ── */
+        function extractTicketNum(url) {
+            if (!url) return '?';
+            const patterns = [
+                /\/browse\/([A-Z]+-\d+)/i,     // Jira: /browse/NOC-1234
+                /\/ticket\/(\d+)/i,              // ServiceNow: /ticket/136895
+                /[\/#](\d{4,})/,                 // Generic trailing number
+                /([A-Z]+-\d+)/i,                 // Any KEY-123 pattern
+            ];
+            for (const p of patterns) {
+                const m = url.match(p);
+                if (m) return m[1];
+            }
+            try { const u = new URL(url); const parts = u.pathname.split('/').filter(Boolean); return parts[parts.length-1] || '?'; } catch { return url.slice(-12); }
+        }
+        window.extractTicketNum = extractTicketNum;
 
         function getRADIUSDHCPServers() {
             const servers = getInfrastructureValue('radiusServers.dhcp', []);
@@ -12483,7 +12536,8 @@ show mac address-table | include &lt;mac&gt;</div>
                     device: activity.device || '',
                     siteName: activity.siteName || '',
                     routeros: activity.routeros || '',
-                    success: activity.success !== false
+                    success: activity.success !== false,
+                    ticketUrl: activity.ticketUrl || ''
                 };
 
                 // Include token if available for authenticated tracking
@@ -12703,67 +12757,16 @@ show mac address-table | include &lt;mac&gt;</div>
                             const statusText = (entry.success === false) ? 'FAILED' : 'SUCCESS';
                             const statusColor = (entry.success === false) ? '#dc3545' : '#4CAF50';
 
-                            // Determine icon based on activity type
-                            let icon = '';
-                            let activityLabel = 'Config Generated';
-                            if (entry.type === 'migration' || entry.type === 'upgrade') {
-                                icon = '';
-                                activityLabel = 'Migration';
-                            } else if (entry.type === 'switch-config') {
-                                icon = '';
-                                activityLabel = 'MikroTik Switch Config';
-                            } else if (entry.type === '6ghz-switch-config') {
-                                icon = '';
-                                activityLabel = '6GHz Switch Config';
-                            } else if (entry.type === 'tarana-config') {
-                                icon = '';
-                                activityLabel = 'Tarana Sectors Config';
-                            } else if (entry.type === 'enterprise-feeding-config') {
-                                icon = '';
-                                activityLabel = 'Enterprise Feeding Config';
-                            } else if (entry.type === 'enterprise-feeding-outstate-config') {
-                                icon = '';
-                                activityLabel = 'Enterprise Feeding Out-of-State Config';
-                            } else if (entry.type === 'aviat-upgrade') {
-                                icon = '';
-                                activityLabel = 'Aviat Backhaul Upgrade';
-                            } else if (entry.type === 'tower-config') {
-                                icon = '';
-                                activityLabel = 'Tower Config';
-                            } else if (entry.type === 'enterprise-config' || entry.type === 'enterprise-Non-MPLS' || entry.type === 'enterprise-non-mpls') {
-                                icon = '';
-                                activityLabel = 'Enterprise Config';
-                            } else if (entry.type === 'mpls-enterprise-config' || entry.type === 'new-config') {
-                                // Check siteName to determine if it's MPLS Enterprise
-                                if (entry.siteName && entry.siteName.includes('MPLS Enterprise')) {
-                                    icon = '';
-                                    activityLabel = 'MPLS Enterprise Config';
-                                } else {
-                                    icon = '';
-                                    activityLabel = 'Config Generated';
-                                }
-                            } else if (entry.type === 'maintenance-completed') {
-                                icon = '';
-                                activityLabel = 'Maintenance Completed';
-                            } else if (entry.type === 'maintenance-failed') {
-                                icon = '';
-                                activityLabel = 'Maintenance Failed';
-                            } else if (entry.type === 'maintenance-started') {
-                                icon = '';
-                                activityLabel = 'Maintenance Started';
-                            } else if (entry.type === 'maintenance-scheduled') {
-                                icon = '';
-                                activityLabel = 'Maintenance Scheduled';
-                            }
-
+                            const { icon, label } = getActivityDisplay(entry.type, entry.siteName);
                             const username = formatUsernameDisplay(entry.username || 'Unknown User');
                             const safeSiteName = sanitizeActivityText(entry.siteName || '');
+                            const friendlyTitle = buildFriendlyActivityTitle(entry.type, safeSiteName, entry.device);
+
                             return `
                                 <div class="activity-item" style="cursor: pointer;" onclick="navigateToActivity('${entry.type}', ${entry.id})">
-                                    <div class="title">${icon} ${activityLabel} - ${safeSiteName} <span style="margin-left: 10px; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,0.06); color: ${statusColor}; border: 1px solid rgba(255,255,255,0.12);">${statusText}</span></div>
+                                    <div class="title">${icon} ${friendlyTitle} <span style="margin-left: 10px; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,0.06); color: ${statusColor}; border: 1px solid rgba(255,255,255,0.12);">${statusText}</span></div>
                                     <div class="details">
-                                        <span class="user-info">${username}</span> | 
-                                        Device: ${entry.device} | Firmware: ${entry.routeros}
+                                        <span class="user-info">${username}</span>${entry.device ? ' &bull; ' + sanitizeActivityText(entry.device) : ''}${entry.routeros ? ' &bull; ' + sanitizeActivityText(entry.routeros) : ''}
                                     </div>
                                     <div class="time">${timeStr} <span style="color: #4CAF50; margin-left: 10px;"> Click to view</span></div>
                                 </div>
@@ -12786,15 +12789,15 @@ show mac address-table | include &lt;mac&gt;</div>
                             const completedHTML = recentItems.map(entry => {
                                 const date = new Date(entry.timestamp);
                                 const timeStr = formatCSTTimestamp(entry.timestamp);
-                                const icon = entry.type === 'migration' ? '' : '';
+                                const { icon } = getActivityDisplay(entry.type, entry.siteName);
                                 const username = formatUsernameDisplay(entry.username || getUsername());
                                 const safeSiteName = sanitizeActivityText(entry.siteName || '');
+                                const friendlyTitle = buildFriendlyActivityTitle(entry.type, safeSiteName, entry.device);
                                 return `
                                     <div class="activity-item" style="cursor: pointer;" onclick="navigateToActivity('${entry.type}', ${entry.id})">
-                                        <div class="title">${icon} ${entry.type === 'migration' ? 'Migration' : 'Config Generated'} - ${safeSiteName}</div>
+                                        <div class="title">${icon} ${friendlyTitle}</div>
                                         <div class="details">
-                                            <span class="user-info">${username}</span> | 
-                                            Device: ${entry.device} | Firmware: ${entry.routeros}
+                                            <span class="user-info">${username}</span>${entry.device ? ' &bull; ' + sanitizeActivityText(entry.device) : ''}${entry.routeros ? ' &bull; ' + sanitizeActivityText(entry.routeros) : ''}
                                         </div>
                                         <div class="time">${timeStr} <span style="color: #4CAF50; margin-left: 10px;"> Click to view</span></div>
                                     </div>
@@ -23157,7 +23160,7 @@ Ready for translation!`);
                     return;
                 }
 
-                tableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--text-color-secondary);">Loading log history...</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px; color: var(--text-color-secondary);">Loading log history...</td></tr>';
 
                 console.log('[LOG HISTORY] Fetching activity logs from backend...');
                 // Use AI_API_BASE if defined, otherwise construct it
@@ -23208,36 +23211,45 @@ Ready for translation!`);
                     }
 
                     if (tableFiltered.length === 0) {
-                        tableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 50px; color: var(--text-color-secondary);">No logs found matching filters</td></tr>';
+                        tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 50px; color: var(--text-color-secondary);">No logs found matching filters</td></tr>';
                         return;
                     }
 
                       tableBody.innerHTML = tableFiltered.map(activity => {
                           const successFlag = activity.success === true;
                           const failureFlag = activity.success === false;
-                          const statusIcon = successFlag ? 'OK' : (failureFlag ? 'X' : '-');
+                          const statusIcon = successFlag ? '\u2705' : (failureFlag ? '\u274C' : '\u2013');
                           const statusColor = successFlag ? '#4CAF50' : (failureFlag ? '#dc3545' : '#888');
+                          const friendlyMsg = activity.message || buildFriendlyActivityTitle(activity.type, activity.siteName, activity.device);
+
+                          // Build ticket column: show ticket # as clickable hyperlink
+                          let ticketHTML = '';
+                          if (activity.ticketUrl) {
+                              const tNum = extractTicketNum(activity.ticketUrl);
+                              ticketHTML = `<a href="${sanitizeActivityText(activity.ticketUrl)}" target="_blank" rel="noopener" style="color:#58a6ff;text-decoration:none;font-weight:600" title="Open ticket">#${sanitizeActivityText(tNum)}</a>`;
+                          }
 
                           return `
                       <tr style="border-bottom: 1px solid var(--border-color);">
                           <td style="padding: 12px;">${activity.formattedTime || activity.timestamp}</td>
                           <td style="padding: 12px; font-weight: 600;">${formatUsernameDisplay(activity.username)}</td>
-                          <td style="padding: 12px;">${sanitizeActivityText(activity.message || `${activity.type} - ${activity.siteName || 'N/A'}`)}</td>
-                          <td style="padding: 12px;">${sanitizeActivityText(activity.siteName || 'N/A')} ${activity.device ? `(${activity.device})` : ''}</td>
+                          <td style="padding: 12px;">${sanitizeActivityText(friendlyMsg)}</td>
+                          <td style="padding: 12px;">${sanitizeActivityText(activity.siteName || 'N/A')} ${activity.device ? `(${sanitizeActivityText(activity.device)})` : ''}</td>
                           <td style="padding: 12px;">${activity.routeros || 'N/A'}</td>
+                          <td style="padding: 12px; text-align: center;">${ticketHTML}</td>
                           <td style="padding: 12px; text-align: center; color: ${statusColor}; font-weight: bold;">${statusIcon}</td>
                       </tr>
                   `;
                       }).join('');
                 } else {
                     console.warn('[LOG HISTORY] No activities in response or invalid format:', data);
-                    tableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 50px; color: var(--text-color-secondary);">No activity logs found. Activities will appear here as you generate configurations.</td></tr>';
+                    tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 50px; color: var(--text-color-secondary);">No activity logs found. Activities will appear here as you generate configurations.</td></tr>';
                 }
             } catch (error) {
                 console.error('[LOG HISTORY] Error loading logs:', error);
                 const tableBody = document.getElementById('logHistoryTableBody');
                 if (tableBody) {
-                    tableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 50px; color: #dc3545;">Error loading log history: ${error.message}<br><small style="color: #888; margin-top: 10px; display: block;">Make sure the backend server is running on port 5000</small></td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 50px; color: #dc3545;">Error loading log history: ${error.message}<br><small style="color: #888; margin-top: 10px; display: block;">Make sure the backend server is running on port 5000</small></td></tr>`;
                 }
             }
         };
@@ -23250,13 +23262,14 @@ Ready for translation!`);
 
                 if (data.success && data.activities) {
                     // Convert to CSV
-                      const headers = ['Timestamp', 'User', 'Type', 'Site/Device', 'Firmware', 'Status'];
+                      const headers = ['Timestamp', 'User', 'Type', 'Site/Device', 'Firmware', 'Ticket', 'Status'];
                     const rows = data.activities.map(a => [
                         a.timestamp,
                         a.username,
                         a.type,
                         `${a.siteName || ''} ${a.device || ''}`.trim(),
                         a.routeros || '',
+                        a.ticketUrl || '',
                         a.success ? 'Success' : 'Failed'
                     ]);
 
@@ -28422,33 +28435,15 @@ Example Enterprise,CCR1036-12G-4S,10.255.0.3,0.0.0.3,10.255.0.3,1,bh-example,172
             nocToast(`Cleared ${before - maintWindows.length} completed windows`, 'info');
         };
 
-        /* ── Extract ticket number from URL ── */
-        function extractTicketNum(url) {
-            if (!url) return '?';
-            // Try common patterns: /browse/NOC-1234, /ticket/136895, ends with digits
-            const patterns = [
-                /\/browse\/([A-Z]+-\d+)/i,     // Jira: /browse/NOC-1234
-                /\/ticket\/(\d+)/i,              // ServiceNow: /ticket/136895
-                /[\/#](\d{4,})/,                 // Generic trailing number
-                /([A-Z]+-\d+)/i,                 // Any KEY-123 pattern
-            ];
-            for (const p of patterns) {
-                const m = url.match(p);
-                if (m) return m[1];
-            }
-            // Fallback: last segment of URL path
-            try { const u = new URL(url); const parts = u.pathname.split('/').filter(Boolean); return parts[parts.length-1] || '?'; } catch { return url.slice(-12); }
-        }
-        window.extractTicketNum = extractTicketNum;
-
         /* ── Log maintenance events to backend activity feed ── */
         function maintLogActivity(type, mw) {
             if (typeof window.sendActivityToBackend === 'function') {
                 window.sendActivityToBackend({
                     type: type,
-                    device: (mw.devices || []).join(', '),
-                    siteName: mw.name + (mw.ticketUrl ? ' | Ticket: ' + mw.ticketUrl : ''),
-                    routeros: mw.tasks.join(', '),
+                    device: (mw.devices || []).slice(0, 5).join(', ') + (mw.devices && mw.devices.length > 5 ? ' +' + (mw.devices.length - 5) + ' more' : ''),
+                    siteName: mw.name,
+                    routeros: mw.tasks.slice(0, 3).map(t => ({'firmware':'FW Upgrade','config':'Config Push','credentials':'Cred Rotation','snmp':'SNMP','reboot':'Reboot','monitoring':'Monitoring','patching':'Patching','backup':'Backup','migration':'Migration','testing':'Testing','rollback':'Rollback'}[t] || t)).join(', '),
+                    ticketUrl: mw.ticketUrl || '',
                     success: type !== 'maintenance-failed'
                 });
             }
