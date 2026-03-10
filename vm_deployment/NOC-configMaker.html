@@ -27847,17 +27847,27 @@ Ready for translation!`);
 
         async function diffLoadSavedList(side) {
             try {
-                const resp = await fetch('/api/get-completed-configs');
+                const apiBase = (typeof resolveApiBase === 'function') ? resolveApiBase() : '/api';
+                const resp = await fetch(`${apiBase}/get-completed-configs`);
                 const data = await resp.json();
                 const select = document.getElementById('diffSaved' + side);
                 select.innerHTML = '<option value="">-- Select a saved config --</option>';
                 (data.configs || data || []).forEach(c => {
                     const opt = document.createElement('option');
                     opt.value = c.id;
-                    opt.textContent = `${c.site_name || c.name || 'Config'} — ${c.model || ''} (${(c.created_at || '').slice(0, 10)})`;
+                    const name = c.device_name || c.customer_code || c.site_name || 'Config';
+                    const type = c.config_type || c.device_type || '';
+                    const date = (c.created_at || '').slice(0, 10);
+                    opt.textContent = `${name}${type ? ' \u2014 ' + type : ''}${date ? ' (' + date + ')' : ''}`;
                     select.appendChild(opt);
                 });
-            } catch (e) { nocToast('Failed to load saved configs', 'error'); }
+                if (select.options.length <= 1) {
+                    select.innerHTML = '<option value="">No saved configs found</option>';
+                }
+            } catch (e) {
+                console.error('[DIFF] Failed to load saved configs:', e);
+                nocToast('Failed to load saved configs: ' + (e.message || 'API error'), 'error');
+            }
         }
 
         window.diffFetchSSH = async function (side) {
@@ -27952,10 +27962,20 @@ Ready for translation!`);
             if (src === 'paste') return document.getElementById('diffText' + side).value;
             if (src === 'saved') {
                 const id = document.getElementById('diffSaved' + side).value;
-                if (!id) return '';
-                const resp = await fetch('/api/get-completed-config/' + id);
-                const data = await resp.json();
-                return data.config || data.commands || '';
+                if (!id) { nocToast('Select a saved config first', 'warning'); return ''; }
+                try {
+                    const apiBase = (typeof resolveApiBase === 'function') ? resolveApiBase() : '/api';
+                    const resp = await fetch(`${apiBase}/get-completed-config/${id}`);
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const data = await resp.json();
+                    const config = data.config_content || data.config || data.commands || '';
+                    if (!config) nocToast('Saved config is empty', 'warning');
+                    return config;
+                } catch (e) {
+                    console.error('[DIFF] Failed to load saved config:', e);
+                    nocToast('Failed to load saved config: ' + (e.message || 'error'), 'error');
+                    return '';
+                }
             }
             return document.getElementById('diffText' + side).value;
         }
