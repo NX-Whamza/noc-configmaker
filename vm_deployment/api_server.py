@@ -16829,6 +16829,223 @@ def bulk_migration_execute():
     })
 
 
+# ─── SSH Push Config to Live MikroTik Devices ────────────────────────
+@app.route('/api/ssh-push-config', methods=['POST'])
+def ssh_push_config():
+    """
+    Push .rsc config text to MikroTik devices via SFTP upload + /import.
+    Safety: creates a binary backup before import, sets a dead-man's-switch
+    scheduler that auto-restores the backup if the push fails.
+
+    Body JSON:
+        devices: [ { host, config_text, label? } ]
+        ports: [22, 5022]              (optional, default [22,5022])
+        create_backup: true            (optional, default true)
+        rollback_minutes: 5            (optional, default 5, 0 = no rollback)
+    """
+    import paramiko
+    import io as _io
+    import time as _time
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    data = request.get_json(force=True, silent=True) or {}
+    devices = data.get('devices', [])
+    if not devices:
+        return jsonify({'error': 'No devices provided'}), 400
+
+    ssh_user = os.getenv('NEXTLINK_SSH_USERNAME', '')
+    ssh_pass = os.getenv('NEXTLINK_SSH_PASSWORD', '')
+    if not ssh_user or not ssh_pass:
+        return jsonify({'error': 'SSH credentials not configured on server'}), 500
+
+    raw_ports = data.get('ports', [22, 5022])
+    if isinstance(raw_ports, str):
+        raw_ports = [int(p.strip()) for p in raw_ports.split(',') if p.strip().isdigit()]
+    elif isinstance(raw_ports, (int, float)):
+        raw_ports = [int(raw_ports)]
+    ports = [int(p) for p in raw_ports if 0 < int(p) < 65536] or [22, 5022]
+
+    create_backup = data.get('create_backup', True)
+    rollback_minutes = int(data.get('rollback_minutes', 5))
+
+    MAX_CONCURRENT = 3
+
+    def _push_one(dev):
+        host = (dev.get('host') or '').strip()
+        config_text = (dev.get('config_text') or '').strip()
+        label = dev.get('label') or host
+
+        if not host or not config_text:
+            return {'host': host, 'label': label, 'success': False, 'error': 'Missing host or config_text'}
+
+        # Validate IP
+        try:
+            import ipaddress
+            ipaddress.IPv4Address(host)
+        except ValueError:
+            return {'host': host, 'label': label, 'success': False, 'error': f'Invalid IP: {host}'}
+
+        filename = f'noc_push_{host.replace(".", "_")}_{int(_time.time())}.rsc'
+        steps = []
+        client = None
+        connected_port = None
+
+        # ── Step 1: SSH Connect ──
+        for port in ports:
+            try:
+                client = paramiko.SSHClient()
+                client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                client.connect(
+                    hostname=host, port=port,
+                    username=ssh_user, password=ssh_pass,
+                    timeout=10, banner_timeout=10, auth_timeout=10
+                )
+                connected_port = port
+                break
+            except paramiko.AuthenticationException:
+                if client:
+                    client.close()
+                return {'host': host, 'label': label, 'success': False,
+                        'error': f'Authentication failed on port {port}', 'port': port}
+            except (paramiko.SSHException, OSError):
+                if client:
+                    try:
+                        client.close()
+                    except Exception:
+                        pass
+                client = None
+                continue
+
+        if client is None:
+            return {'host': host, 'label': label, 'success': False,
+                    'error': f'Connection failed on ports {ports}'}
+
+        try:
+            steps.append(f'Connected on port {connected_port}')
+            backup_name = None
+
+            # ── Step 2: Create backup ──
+            if create_backup:
+                backup_name = f'pre-push-{int(_time.time())}'
+                stdin, stdout, stderr = client.exec_command(
+                    f'/system backup save name={backup_name}', timeout=30
+                )
+                stdout.read()
+                _time.sleep(2)  # give RouterOS time to write backup file
+                steps.append(f'Backup created: {backup_name}.backup')
+
+            # ── Step 3: Dead-man's-switch scheduler ──
+            if rollback_minutes > 0 and backup_name:
+                sched_cmd = (
+                    f'/system scheduler add name=noc-push-rollback '
+                    f'interval={rollback_minutes}m '
+                    f'on-event="/system backup load name={backup_name}" '
+                    f'policy=ftp,reboot,read,write,policy,test,password,sniff,sensitive,romon '
+                    f'comment="NOC push safety — auto-restore in {rollback_minutes}m"'
+                )
+                stdin, stdout, stderr = client.exec_command(sched_cmd, timeout=15)
+                stdout.read()
+                steps.append(f'Rollback scheduler set ({rollback_minutes}m)')
+
+            # ── Step 4: SFTP upload .rsc file ──
+            try:
+                sftp = client.open_sftp()
+                sftp.putfo(_io.BytesIO(config_text.encode('utf-8')), filename)
+                sftp.close()
+                steps.append(f'Uploaded {filename} ({len(config_text)} bytes)')
+            except Exception as sftp_err:
+                steps.append(f'SFTP failed: {sftp_err}')
+                return {'host': host, 'label': label, 'success': False,
+                        'error': f'SFTP upload failed: {sftp_err}', 'port': connected_port, 'steps': steps}
+
+            # ── Step 5: Import the .rsc file ──
+            import_cmd = f'/import file-name={filename} verbose=yes'
+            stdin, stdout, stderr = client.exec_command(import_cmd, timeout=120)
+            import_output = stdout.read().decode('utf-8', errors='replace')
+            import_errors = stderr.read().decode('utf-8', errors='replace')
+
+            # Check for failure indicators
+            import re as _re
+            has_errors = bool(import_errors and 'error' in import_errors.lower()) or bool(
+                _re.search(r'failure|bad command|syntax error|input does not match|expected end of command',
+                           import_output, _re.IGNORECASE)
+            )
+
+            if has_errors:
+                steps.append('Import completed WITH ERRORS — rollback scheduler remains active')
+                return {
+                    'host': host, 'label': label, 'success': False,
+                    'error': 'Import had errors (rollback scheduler active)',
+                    'port': connected_port, 'steps': steps,
+                    'import_output': import_output[:2000],
+                    'import_errors': import_errors[:2000]
+                }
+
+            steps.append('Import completed successfully')
+
+            # ── Step 6: Remove rollback scheduler ──
+            if rollback_minutes > 0 and backup_name:
+                try:
+                    stdin, stdout, stderr = client.exec_command(
+                        '/system scheduler remove noc-push-rollback', timeout=10
+                    )
+                    stdout.read()
+                    steps.append('Rollback scheduler removed (push confirmed OK)')
+                except Exception:
+                    steps.append('WARNING: Could not remove rollback scheduler')
+
+            # ── Step 7: Clean up uploaded .rsc file ──
+            try:
+                stdin, stdout, stderr = client.exec_command(
+                    f'/file remove {filename}', timeout=10
+                )
+                stdout.read()
+                steps.append(f'Cleaned up {filename}')
+            except Exception:
+                pass
+
+            return {
+                'host': host, 'label': label, 'success': True,
+                'port': connected_port, 'steps': steps,
+                'import_output': import_output[:2000]
+            }
+
+        except Exception as e:
+            return {'host': host, 'label': label, 'success': False,
+                    'error': f'Unexpected error: {str(e)}', 'port': connected_port,
+                    'steps': steps}
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+    # Dispatch all devices through thread pool
+    results = []
+    host_order = {dev.get('host', ''): i for i, dev in enumerate(devices)}
+    with ThreadPoolExecutor(max_workers=MAX_CONCURRENT) as pool:
+        future_map = {pool.submit(_push_one, dev): dev for dev in devices}
+        for future in as_completed(future_map):
+            try:
+                results.append(future.result())
+            except Exception as e:
+                dev = future_map[future]
+                results.append({'host': dev.get('host', ''), 'success': False,
+                                'error': f'Thread error: {str(e)}'})
+
+    # Sort back to original order
+    results.sort(key=lambda r: host_order.get(r.get('host', ''), 999))
+
+    success_count = sum(1 for r in results if r.get('success'))
+    return jsonify({
+        'success': True,
+        'total': len(devices),
+        'succeeded': success_count,
+        'failed': len(devices) - success_count,
+        'results': results
+    })
+
+
 if __name__ == '__main__':
     print("\n" + "=" * 50)
     print("NOC Config Maker - AI Backend Server")
@@ -16847,6 +17064,7 @@ if __name__ == '__main__':
     print("  POST /api/apply-compliance     - Apply RFC-09-10-25 standards")
     print("  POST /api/autofill-from-export - Parse exported config")
     print("  POST /api/explain-config       - Explain config sections")
+    print("  POST /api/ssh-push-config      - Push configs to devices via SSH")
     print("  GET  /api/get-config-policies  - List config policies")
     print("  GET  /api/health               - Health check")
 
