@@ -16961,45 +16961,59 @@ def ssh_push_config():
             # ── Step 5: Import the .rsc file ──
             import_cmd = f'/import file-name={filename} verbose=yes'
             stdin, stdout, stderr = client.exec_command(import_cmd, timeout=120)
-            import_output = stdout.read().decode('utf-8', errors='replace')
-            import_errors = stderr.read().decode('utf-8', errors='replace')
+            import_stdout = stdout.read().decode('utf-8', errors='replace')
+            import_stderr = stderr.read().decode('utf-8', errors='replace')
 
-            # Analyze import output for real vs benign failures
+            # RouterOS sends import output to EITHER stdout or stderr depending
+            # on version/channel.  Merge them for analysis.
+            combined_output = (import_stdout + '\n' + import_stderr).strip()
+            all_lines = combined_output.splitlines()
+
             import re as _re
-            output_lines = import_output.strip().splitlines()
 
-            # "failure: already have" is benign — the item already exists
-            benign_pattern = _re.compile(r'failure:\s*already have', _re.IGNORECASE)
-            # These are real errors that indicate broken config
-            critical_pattern = _re.compile(
-                r'bad command name|syntax error|input does not match|'
-                r'expected end of command|no such item|invalid value',
-                _re.IGNORECASE
+            # Positive success indicator from RouterOS
+            success_marker = any(
+                'script file loaded and executed successfully' in l.lower()
+                for l in all_lines
             )
 
-            benign_count = sum(1 for l in output_lines if benign_pattern.search(l))
-            critical_lines = [l.strip() for l in output_lines if critical_pattern.search(l)]
-            # Check stderr for actual errors (not just informational)
-            stderr_critical = bool(import_errors and critical_pattern.search(import_errors))
+            # "failure: already have" is benign — item already exists on device
+            benign_pattern = _re.compile(r'failure:\s*already have', _re.IGNORECASE)
+            benign_count = sum(1 for l in all_lines if benign_pattern.search(l))
 
-            has_critical_errors = len(critical_lines) > 0 or stderr_critical
+            # These are real errors that indicate broken config syntax
+            critical_pattern = _re.compile(
+                r'bad command name|syntax error|input does not match|'
+                r'expected end of command|invalid value',
+                _re.IGNORECASE
+            )
+            critical_lines = [l.strip() for l in all_lines
+                              if critical_pattern.search(l) and not benign_pattern.search(l)]
 
-            if has_critical_errors:
+            # Decision: if RouterOS says "executed successfully" → trust it
+            # Only fail if we see real critical syntax errors AND no success marker
+            if critical_lines and not success_marker:
                 steps.append(f'Import completed WITH {len(critical_lines)} critical error(s) — rollback scheduler remains active')
                 return {
                     'host': host, 'label': label, 'success': False,
                     'error': f'Import had {len(critical_lines)} critical error(s)',
                     'critical_lines': critical_lines[:20],
                     'port': connected_port, 'steps': steps,
-                    'import_output': import_output[:4000],
-                    'import_errors': import_errors[:2000],
+                    'import_output': combined_output[:6000],
                     'benign_skipped': benign_count
                 }
 
+            # Success path
+            status_parts = []
+            if success_marker:
+                status_parts.append('RouterOS confirmed execution')
             if benign_count > 0:
-                steps.append(f'Import OK — {benign_count} items already existed (skipped)')
-            else:
-                steps.append('Import completed successfully')
+                status_parts.append(f'{benign_count} items already existed (skipped)')
+            if critical_lines:
+                status_parts.append(f'{len(critical_lines)} minor warnings (import still succeeded)')
+            if not status_parts:
+                status_parts.append('completed successfully')
+            steps.append('Import ' + ' — '.join(status_parts))
 
             # ── Step 6: Remove rollback scheduler ──
             if rollback_minutes > 0 and backup_name:
@@ -17025,7 +17039,8 @@ def ssh_push_config():
             return {
                 'host': host, 'label': label, 'success': True,
                 'port': connected_port, 'steps': steps,
-                'import_output': import_output[:2000]
+                'import_output': combined_output[:6000],
+                'benign_skipped': benign_count
             }
 
         except Exception as e:
