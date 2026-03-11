@@ -341,6 +341,26 @@
             }
         })();
 
+        // ── API Base URL detection (mirrors NOC-configMaker.html logic) ──
+        const _isFileProtocol = window.location.protocol === 'file:';
+        const _isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const _isLocalDev = _isFileProtocol || _isLocalhost;
+        const _isDockerFrontend = window.location.port === '8000';
+        let API_BASE;
+        if (_isLocalDev && window.location.port !== '5000') {
+            if (_isDockerFrontend) {
+                API_BASE = window.location.origin;
+                console.log('[LOGIN] DOCKER FRONTEND MODE - Using same-origin API proxy');
+            } else {
+                API_BASE = 'http://localhost:5000';
+                console.log('[LOGIN] LOCAL DEVELOPMENT MODE - Redirecting API calls to localhost:5000');
+            }
+        } else {
+            const shouldForceHttps = window.location.protocol === 'http:' && window.location.hostname.endsWith('nxlink.com');
+            API_BASE = shouldForceHttps ? `https://${window.location.host}` : window.location.origin;
+            console.log('[LOGIN] ORIGIN MODE - Using:', API_BASE);
+        }
+
         // Microsoft SSO Configuration
         const MSAL_CONFIG = {
             auth: {
@@ -408,7 +428,7 @@
                 // For now, use a simplified approach - in production, use MSAL.js
                 // This will redirect to Microsoft login
                 // Use relative URL so it works through the launcher proxy
-                const response = await fetch('/api/auth/microsoft', {
+                const response = await fetch(`${API_BASE}/api/auth/microsoft`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                 });
@@ -452,7 +472,7 @@
 
             try {
                 // Use relative URL so it works through the launcher proxy
-                const response = await fetch('/api/auth/login', {
+                const response = await fetch(`${API_BASE}/api/auth/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password })
@@ -522,7 +542,7 @@
             }
 
             hideError();
-            fetch('/api/auth/forgot-password', {
+            fetch(`${API_BASE}/api/auth/forgot-password`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email: trimmedEmail })

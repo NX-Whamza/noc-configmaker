@@ -10335,65 +10335,29 @@ show mac address-table | include &lt;mac&gt;</div>
             }
         }
 
-        // 6GHz Switch Config Generator - Auto-generates full configuration (make globally accessible)
-        window.generate6GhzConfig = async function () {
+        // 6GHz Switch Port Config Generator – simple port configuration on the tower router
+        window.generate6GhzConfig = function () {
             try {
-                // Show progress tracker
-                window.showProgressTracker('6GHz Switch Configuration Generation');
-                window.updateProgressStep('Initializing 6GHz switch configuration...');
-                window.updateProgressPercent(5);
-                window.addProgressLog('info', 'Starting 6GHz switch configuration generation');
-
-                await new Promise(resolve => setTimeout(resolve, 300));
-
                 const switchType = document.getElementById('ghz_switch_type').value;
                 const routerOSVersion = document.getElementById('ghz_routeros_version').value;
                 const vlan3000Subnet = document.getElementById('ghz_subnet3000').value.trim();
                 const vlan4000Subnet = document.getElementById('ghz_subnet4000').value.trim();
                 const poolOffset = parseInt(document.getElementById('ghz_poolOffset').value || '0', 10);
 
-                window.updateProgressStep('Validating inputs...');
-                window.updateProgressPercent(10);
-                window.addProgressLog('info', 'Validating switch type, RouterOS version, and VLAN subnets');
-
-                // Get DNS from user input or NextLink infrastructure (no fallbacks)
+                // Get DNS from user input or NextLink infrastructure
                 let dnsServers = document.getElementById('ghz_dns').value.trim();
                 if (!dnsServers) {
                     dnsServers = getDNSList();
                     if (!dnsServers) {
-                        window.addProgressLog('error', 'DNS servers must be configured');
-                        window.completeProgressTracker(false);
                         alert('DNS servers must be configured. Either enter DNS servers in the field above or configure them in nextlink_constants.js.');
                         return;
                     }
                 }
 
                 // Validation
-                if (!switchType) {
-                    window.addProgressLog('error', 'Switch type not selected');
-                    window.completeProgressTracker(false);
-                    alert('Please select a switch type.');
-                    return;
-                }
-                if (!routerOSVersion) {
-                    window.addProgressLog('error', 'RouterOS version not selected');
-                    window.completeProgressTracker(false);
-                    alert('Please select a RouterOS version.');
-                    return;
-                }
-                if (!vlan3000Subnet || !vlan4000Subnet) {
-                    window.addProgressLog('error', 'VLAN subnets missing');
-                    window.completeProgressTracker(false);
-                    alert('Please provide both VLAN 3000 and VLAN 4000 subnets.');
-                    return;
-                }
-
-                window.addProgressLog('success', `Switch type: ${switchType}, RouterOS: ${routerOSVersion}`);
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                window.updateProgressStep('Determining port configuration...');
-                window.updateProgressPercent(15);
-                window.addProgressLog('info', 'Identifying switch ports based on switch type');
+                if (!switchType) { alert('Please select a switch type.'); return; }
+                if (!routerOSVersion) { alert('Please select a RouterOS version.'); return; }
+                if (!vlan3000Subnet || !vlan4000Subnet) { alert('Please provide both VLAN 3000 and VLAN 4000 subnets.'); return; }
 
                 // Determine port names based on switch type
                 let port1, port2, switchComment;
@@ -10410,18 +10374,9 @@ show mac address-table | include &lt;mac&gt;</div>
                     port2 = 'sfp-sfpplus9';
                     switchComment = 'SWT-MT309';
                 } else {
-                    window.addProgressLog('error', 'Invalid switch type selected');
-                    window.completeProgressTracker(false);
                     alert('Invalid switch type selected.');
                     return;
                 }
-
-                window.addProgressLog('success', `Ports: ${port1}, ${port2} (${switchComment})`);
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                window.updateProgressStep('Parsing VLAN subnets...');
-                window.updateProgressPercent(20);
-                window.addProgressLog('info', 'Parsing VLAN 3000 and VLAN 4000 subnets');
 
                 // Parse VLAN subnets
                 const parseSubnet = (subnetStr) => {
@@ -10435,9 +10390,6 @@ show mac address-table | include &lt;mac&gt;</div>
 
                 const vlan3000 = parseSubnet(vlan3000Subnet);
                 const vlan4000 = parseSubnet(vlan4000Subnet);
-
-                window.addProgressLog('success', `VLAN 3000: ${vlan3000.cidr}, VLAN 4000: ${vlan4000.cidr}`);
-                await new Promise(resolve => setTimeout(resolve, 200));
 
                 // Calculate network addresses and gateways
                 const calculateNetwork = (ipStr, prefix) => {
@@ -10508,18 +10460,7 @@ show mac address-table | include &lt;mac&gt;</div>
                     };
                 };
 
-                window.updateProgressStep('Calculating network addresses and DHCP pools...');
-                window.updateProgressPercent(30);
-                window.addProgressLog('info', 'Calculating network addresses, gateways, and DHCP pool ranges');
-
                 const poolRange = calculatePoolRange(vlan4000GatewayIP, vlan4000Network, vlan4000.prefix, poolOffset);
-
-                window.addProgressLog('success', `DHCP pool: ${poolRange.start}-${poolRange.end}`);
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                window.updateProgressStep('Determining RouterOS syntax...');
-                window.updateProgressPercent(35);
-                window.addProgressLog('info', 'Checking RouterOS version for syntax compatibility');
 
                 // Determine speed syntax based on RouterOS version
                 const versionType = getRouterOSVersionType(routerOSVersion);
@@ -10528,28 +10469,14 @@ show mac address-table | include &lt;mac&gt;</div>
                 // Get shared key from infrastructure or use placeholder
                 const sharedKey = getInfrastructureValue('sharedKeys.ospfBgpMd5', 'CHANGE_ME');
 
-                window.updateProgressStep('Generating 6GHz switch configuration...');
-                window.updateProgressPercent(40);
-                window.addProgressLog('info', 'Building configuration blocks');
-
-                // Generate configuration
-                let config = `###################################\n###    6GHz SWITCH CONFIG       ###\n###################################\n\n`;
-
-                window.updateProgressStep('Configuring bridges...');
-                window.updateProgressPercent(45);
-                window.addProgressLog('info', 'Creating bridge interfaces (bridge2000, bridge3000, bridge4000)');
+                // ── Build port configuration ──
+                let config = `###################################\n###  6GHz SWITCH PORT CONFIG    ###\n###################################\n\n`;
 
                 // Interface Bridge
                 config += `/interface bridge\n`;
                 config += `add name=bridge2000 port-cost-mode=short\n`;
                 config += `add name=bridge3000 port-cost-mode=short\n`;
                 config += `add name=bridge4000 port-cost-mode=short\n\n`;
-
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                window.updateProgressStep('Configuring Ethernet ports and bonding...');
-                window.updateProgressPercent(50);
-                window.addProgressLog('info', `Setting up ${port1} and ${port2} for bonding`);
 
                 // Interface Ethernet
                 config += `/interface ethernet\n`;
@@ -10560,23 +10487,12 @@ show mac address-table | include &lt;mac&gt;</div>
                 config += `/interface bonding\n`;
                 config += `add lacp-user-key=1 mode=802.3ad name=bonding1 slaves=${port1},${port2} transmit-hash-policy=layer-2-and-3\n\n`;
 
-                window.addProgressLog('success', 'Bonding interface created (802.3ad LACP)');
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                window.updateProgressStep('Configuring VLANs...');
-                window.updateProgressPercent(55);
-                window.addProgressLog('info', 'Creating VLAN interfaces (1000, 2000, 3000, 4000)');
-
                 // Interface VLAN
                 config += `/interface vlan\n`;
                 config += `add interface=bonding1 name=vlan1000-bonding1 vlan-id=1000\n`;
                 config += `add interface=bonding1 name=vlan2000-bonding1 vlan-id=2000\n`;
                 config += `add interface=bonding1 name=vlan3000-bonding1 vlan-id=3000\n`;
                 config += `add interface=bonding1 name=vlan4000-bonding1 vlan-id=4000\n\n`;
-
-                window.updateProgressStep('Assigning VLANs to bridges...');
-                window.updateProgressPercent(60);
-                window.addProgressLog('info', 'Mapping VLANs to bridge ports');
 
                 // Interface Bridge Port
                 config += `/interface bridge port\n`;
@@ -10585,27 +10501,10 @@ show mac address-table | include &lt;mac&gt;</div>
                 config += `add bridge=lan-bridge ingress-filtering=no interface=vlan1000-bonding1 internal-path-cost=10 path-cost=10\n`;
                 config += `add bridge=bridge2000 ingress-filtering=no interface=vlan2000-bonding1 internal-path-cost=10 path-cost=10\n\n`;
 
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                window.updateProgressStep('Configuring IP addresses...');
-                window.updateProgressPercent(65);
-                window.addProgressLog('info', 'Assigning IP addresses to bridges');
-
                 // IP Address
                 config += `/ip address\n`;
-                // VLAN3000: Use the EXACT IP the user entered as router IP
-                // Example: user enters 10.245.65.25/28  router IP = 10.245.65.25, network = 10.245.65.16
                 config += `add address=${vlan3000RouterIP}/${vlan3000.prefix} comment=6GHZ interface=bridge3000 network=${vlan3000Network}\n`;
-                // VLAN4000: Use the EXACT IP the user entered as gateway IP
-                // Example: user enters 10.56.23.25/22  gateway = 10.56.23.25, network = 10.56.20.0
                 config += `add address=${vlan4000GatewayIP}/${vlan4000.prefix} comment="6GHZ CPE" interface=bridge4000 network=${vlan4000Network}\n\n`;
-
-                window.addProgressLog('success', `VLAN 3000: ${vlan3000RouterIP}/${vlan3000.prefix}, VLAN 4000: ${vlan4000GatewayIP}/${vlan4000.prefix}`);
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                window.updateProgressStep('Configuring DHCP server...');
-                window.updateProgressPercent(70);
-                window.addProgressLog('info', 'Setting up DHCP pool and server for VLAN 4000');
 
                 // IP Pool
                 config += `/ip pool\n`;
@@ -10619,13 +10518,6 @@ show mac address-table | include &lt;mac&gt;</div>
                 config += `/ip dhcp-server network\n`;
                 config += `add address=${vlan4000Network}/${vlan4000.prefix} dns-server=${dnsServers} gateway=${vlan4000GatewayIP} netmask=${vlan4000.prefix}\n\n`;
 
-                window.addProgressLog('success', `DHCP pool configured: ${poolRange.start}-${poolRange.end}`);
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                window.updateProgressStep('Configuring firewall and OSPF...');
-                window.updateProgressPercent(80);
-                window.addProgressLog('info', 'Adding firewall address-list and OSPF interface template');
-
                 // Firewall Address List
                 config += `/ip firewall address-list\n`;
                 config += `add address=${vlan3000Network}/${vlan3000.prefix} comment=6ghz list=bgp-networks\n\n`;
@@ -10634,83 +10526,16 @@ show mac address-table | include &lt;mac&gt;</div>
                 config += `/routing ospf interface-template\n`;
                 config += `add area=backbone-v2 auth=md5 auth-id=1 auth-key=${sharedKey} comment="6GHZ CPE" disabled=no interfaces=bridge4000 networks=${vlan4000Network}/${vlan4000.prefix} passive priority=1\n\n`;
 
-                window.addProgressLog('success', 'OSPF interface template configured');
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                // ========================================
-                // DYNAMIC COMPLIANCE FROM GITLAB
-                // ========================================
-                window.updateProgressStep('Fetching compliance from GitLab...');
-                window.updateProgressPercent(85);
-                window.addProgressLog('info', 'Applying dynamic compliance blocks from backend');
-
-                // Use backend /api/apply-compliance for verbatim GitLab compliance injection
-                const beforeGhzCompliance = config;
-                config = await applyBackendCompliance(config, vlan3000RouterIP);
-                if (config !== beforeGhzCompliance) {
-                    window.addProgressLog('success', 'Verbatim GitLab compliance applied via backend');
-                } else {
-                    // Fallback: try parsed compliance blocks
-                    const ghzComplianceBlocks = await fetchComplianceBlocks(vlan3000RouterIP);
-                    if (ghzComplianceBlocks) {
-                        config += '# Set LoopIP for compliance block references\n';
-                        config += ':global LoopIP "' + vlan3000RouterIP + '"\n';
-                        config += ':global curDate [/system clock get date]\n';
-                        config += ':global curTime [/system clock get time]\n';
-                        config += ':global CurDT ($curDate . " " . $curTime)\n\n';
-                        config = appendComplianceBlocks(config, ghzComplianceBlocks, GHZ_COMPLIANCE_BLOCKS);
-                        window.addProgressLog('warning', 'Parsed compliance blocks applied (verbatim unavailable)');
-                    } else {
-                        window.addProgressLog('warning', 'Compliance blocks unavailable - config generated without compliance overlay');
-                    }
-                }
-
-                window.updateProgressStep('Finalizing configuration...');
-                window.updateProgressPercent(95);
-                window.addProgressLog('info', 'Configuration generation complete');
-
                 // Display configuration
                 const output = document.getElementById('ccr_output');
-                if (output) {
-                    output.value = config;
-                }
-
-                window.updateProgressPercent(100);
-                window.updateProgressStep('Configuration generated successfully!');
-                window.addProgressLog('success', `6GHz switch configuration generated (${config.length} characters)`);
+                if (output) { output.value = config; }
 
                 const warnBox = document.getElementById('ghz_warnBox');
                 if (warnBox) {
-                    warnBox.innerHTML = `<div style="color: #4CAF50; font-weight: bold;"> 6GHz Switch Configuration generated successfully!</div>`;
+                    warnBox.innerHTML = `<div style="color: #4CAF50; font-weight: bold;">&#10004; 6GHz Switch Port Configuration generated successfully!</div>`;
                 }
 
-                window.completeProgressTracker(true);
-
-                // --- FIX START: SAVE CONFIGURATION TO DATABASE ---
-                const ghzUserInfo = JSON.parse(localStorage.getItem('user_info') || '{}');
-                const ghzUsername = ghzUserInfo.email || 'unknown';
-
-                // Save to Completed Configs Database (CONFIGS Tab)
-                await saveCompletedConfig({
-                    config_type: '6ghz-switch-config',
-                    device_name: `6GHz-Switch-${switchType}`,
-                    device_type: switchType === 'swt_mt326' ? 'CRS326' : switchType === 'swt_ccr2004' ? 'CCR2004' : 'CRS309',
-                    customer_code: '',
-                    loopback_ip: vlan3000Subnet.split('/')[0],
-                    routeros_version: routerOSVersion,
-                    config_content: config,
-                    site_name: '6GHz Switch Site',
-                    created_by: ghzUsername,
-                    metadata: {
-                        type: '6ghz',
-                        vlan3000: vlan3000Subnet
-                    }
-                });
-                console.log('[6GHz CONFIG] Saved to Completed Configs database');
-                // --- FIX END ---
-
-                // Track activity for analytics (reuse variables from above - switchType, routerOSVersion, vlan3000Subnet, and vlan4000Subnet already declared)
-
+                // Lightweight history tracking
                 saveConfigToHistory({
                     type: '6ghz-switch-config',
                     device: switchType === 'swt_mt326' ? 'CRS326' : switchType === 'swt_ccr2004' ? 'CCR2004' : 'CRS309',
@@ -10720,25 +10545,11 @@ show mac address-table | include &lt;mac&gt;</div>
                 });
 
             } catch (error) {
-                window.addProgressLog('error', 'Configuration generation failed: ' + error.message);
-                window.completeProgressTracker(false);
-
-                // Track failure
-                const switchType = document.getElementById('ghz_switch_type')?.value || 'Unknown';
-                const routerOSVersion = document.getElementById('ghz_routeros_version')?.value || 'Unknown';
-                saveConfigToHistory({
-                    type: '6ghz-switch-config',
-                    device: switchType,
-                    siteName: '6GHz Switch Config',
-                    routeros: routerOSVersion,
-                    success: false
-                });
-
                 alert('Error generating 6GHz configuration: ' + error.message);
                 console.error('6GHz Generation Error:', error);
                 const warnBox = document.getElementById('ghz_warnBox');
                 if (warnBox) {
-                    warnBox.innerHTML = `<div style="color: #dc3545; font-weight: bold;"> Error: ${error.message}</div>`;
+                    warnBox.innerHTML = `<div style="color: #dc3545; font-weight: bold;">&#10008; Error: ${error.message}</div>`;
                 }
             }
         }
@@ -10951,30 +10762,6 @@ show mac address-table | include &lt;mac&gt;</div>
                     config += `add bridge=bridge2000 ingress-filtering=no interface=vlan2000-bonding1 internal-path-cost=10 path-cost=10\n\n`;
                 }
 
-                // ========================================
-                // DYNAMIC COMPLIANCE FROM GITLAB
-                // ========================================
-                // Use backend /api/apply-compliance for verbatim GitLab compliance injection
-                const beforeOutstateCompliance = config;
-                config = await applyBackendCompliance(config, '10.0.0.1');
-                if (config !== beforeOutstateCompliance) {
-                    console.log('[6GHZ-OUTSTATE] Verbatim GitLab compliance applied via backend');
-                } else {
-                    // Fallback: try parsed compliance blocks
-                    const outstateBlocks = await fetchComplianceBlocks('10.0.0.1');
-                    if (outstateBlocks) {
-                        config += '# Set LoopIP for compliance block references\n';
-                        config += ':global LoopIP "10.0.0.1"\n';
-                        config += ':global curDate [/system clock get date]\n';
-                        config += ':global curTime [/system clock get time]\n';
-                        config += ':global CurDT ($curDate . " " . $curTime)\n\n';
-                        config = appendComplianceBlocks(config, outstateBlocks, SWITCH_COMPLIANCE_BLOCKS);
-                        console.log('[6GHZ-OUTSTATE] Parsed compliance blocks applied (verbatim unavailable)');
-                    } else {
-                        console.warn('[6GHZ-OUTSTATE] Compliance blocks unavailable - config generated without compliance overlay');
-                    }
-                }
-
                 // Display configuration
                 const output = document.getElementById('ccr_output');
                 if (output) {
@@ -10983,7 +10770,7 @@ show mac address-table | include &lt;mac&gt;</div>
 
                 const warnBox = document.getElementById('ghz_outstate_warnBox');
                 if (warnBox) {
-                    warnBox.innerHTML = `<div style="color: #4CAF50; font-weight: bold;"> 6GHz Switch Configuration (OUT-OF-STATE) generated successfully!</div>`;
+                    warnBox.innerHTML = `<div style="color: #4CAF50; font-weight: bold;">&#10004; 6GHz Switch Port Configuration (OUT-OF-STATE) generated successfully!</div>`;
                 }
 
             } catch (error) {
@@ -19078,22 +18865,9 @@ show mac address-table | include &lt;mac&gt;</div>
             }
         }
 
-        // TARANA SECTORS Generator - Critical function - must always work
-        // This function is isolated and self-contained
-        async function genTarana() {
+        // TARANA SECTORS Generator – simple port configuration on tower router
+        function genTarana() {
             try {
-                // Show progress tracker
-                window.showProgressTracker('Tarana Sector Configuration Generation');
-                window.updateProgressStep('Initializing Tarana sector configuration...');
-                window.updateProgressPercent(5);
-                window.addProgressLog('info', 'Starting Tarana sector configuration generation');
-
-                await new Promise(resolve => setTimeout(resolve, 300));
-
-                window.updateProgressStep('Validating inputs...');
-                window.updateProgressPercent(10);
-                window.addProgressLog('info', 'Validating port selections and device configuration');
-
                 const alpha = (document.getElementById('tarana_alphaPort') || document.getElementById('tower_tarana_alpha'))?.value || '';
                 const beta = (document.getElementById('tarana_betaPort') || document.getElementById('tower_tarana_beta'))?.value || '';
                 const gamma = (document.getElementById('tarana_gammaPort') || document.getElementById('tower_tarana_gamma'))?.value || '';
@@ -19102,226 +18876,101 @@ show mac address-table | include &lt;mac&gt;</div>
                 const deviceSel = (document.getElementById('tarana_routerboard_device') || document.getElementById('tarana_device') || document.getElementById('upgradeTargetDevice'));
                 const device = deviceSel ? deviceSel.value.toLowerCase() : 'ccr2004';
 
-                // ============================================================
-                // BNG1 FORMAT DETECTION - CRITICAL FOR LIVE DEVICES
-                // ============================================================
-                // BNG1 Format Specification (IMMUTABLE):
-                // - Bridge name: bridge3000 (NOT UNICORNMGMT)
-                // - Bridge comment: "UNICORN MGMT" (with quotes)
-                // - Ethernet comments: "Alpha", "Beta", "Gamma", "Delta" (quoted title case)
-                // - NO speed/auto-negotiation on ethernet
-                // - NO port-cost-mode on bridges
-                // - NO path-cost parameters on bridge ports
-                // - IP interface: bridge3000
-                // - IP comment: "UNICORN MGMT" (with quotes)
-                // - OSPF interface: bridge3000
-                // ============================================================
+                // BNG1 Format constants
+                const mgmtBridgeName = 'bridge3000';
+                const mgmtBridgeComment = '"UNICORN MGMT"';
+                const ipComment = '"UNICORN MGMT"';
+                const ethernetComments = ['Alpha', 'Beta', 'Gamma', 'Delta'];
 
-                // Detect if this is BNG1 or BNG2
-                // Check if BNG1 tab is active - use multiple checks for reliability
-                const bng1Section = document.getElementById('tarana-bng1-section');
-                const bng2Section = document.getElementById('tarana-bng2-section');
-                const bng1Btn = document.getElementById('tarana-bng1-btn');
-                const bng2Btn = document.getElementById('tarana-bng2-btn');
-
-                // Determine active tab with fallback logic
-                let isBNG1 = true; // Default to BNG1 for safety
-                if (bng1Section && bng2Section) {
-                    // Both sections exist - check display style
-                    const bng1Visible = window.getComputedStyle(bng1Section).display !== 'none';
-                    const bng2Visible = window.getComputedStyle(bng2Section).display !== 'none';
-                    isBNG1 = bng1Visible && !bng2Visible;
-                } else if (bng1Btn && bng2Btn) {
-                    // Check button active state
-                    isBNG1 = bng1Btn.classList.contains('active') && !bng2Btn.classList.contains('active');
-                } else if (!bng2Section) {
-                    // BNG2 section doesn't exist - must be BNG1
-                    isBNG1 = true;
-                }
-
-                // VALIDATION: Ensure BNG1 format is always consistent
-                // BNG1 uses bridge3000 with quoted comments, simple format
-                const mgmtBridgeName = 'bridge3000'; // ALWAYS bridge3000 for BNG1
-                const mgmtBridgeComment = '"UNICORN MGMT"'; // ALWAYS quoted
-                const ipComment = '"UNICORN MGMT"'; // ALWAYS quoted
-                const ethernetComments = ['Alpha', 'Beta', 'Gamma', 'Delta']; // ALWAYS title case
-
-                // Log format detection for debugging
-                window.addProgressLog('info', `Format: ${isBNG1 ? 'BNG1' : 'BNG2'} - Bridge: ${mgmtBridgeName}`);
-
-                // Restrict to CCR2004/CCR2216 when selector exists
+                // Restrict to CCR2004/CCR2216
                 if (deviceSel && !(device === 'ccr2004' || device === 'ccr2216')) {
-                    window.addProgressLog('error', 'Tarana sectors are only supported on CCR2004 and CCR2216');
-                    window.completeProgressTracker(false);
                     alert('Tarana sectors are only supported on CCR2004 and CCR2216.');
                     return;
                 }
 
                 if (!alpha || !beta || !gamma) {
-                    window.addProgressLog('error', 'ALPHA, BETA, and GAMMA ports must be selected');
-                    window.completeProgressTracker(false);
                     alert('Select ALPHA, BETA and GAMMA ports (DELTA optional).');
                     return;
                 }
 
-                window.updateProgressStep('Generating base configuration...');
-                window.updateProgressPercent(20);
-                window.addProgressLog('info', `Configuring sectors: ALPHA (${alpha}), BETA (${beta}), GAMMA (${gamma})${delta ? `, DELTA (${delta})` : ''}`);
-
                 const sectorPorts = [alpha, beta, gamma].concat(delta ? [delta] : []);
                 let config = '';
 
-                // Frontend standard for current RouterOS targets.
-                const speedSyntax = '10G-baseSR-LR';
-
-                window.updateProgressStep('Configuring Ethernet interfaces...');
-                window.updateProgressPercent(30);
-                window.addProgressLog('info', 'Setting port comments');
-
-                // ============================================================
-                // SECTION 1: INTERFACE ETHERNET (FIRST - matches your example)
-                // BNG1 Format: Simple comments only, NO speed/auto-negotiation
-                // ============================================================
+                // SECTION 1: INTERFACE ETHERNET
                 config += `/interface ethernet\n\n`;
                 sectorPorts.forEach((p, i) => {
                     const comment = ethernetComments[i] || 'Sector';
-                    // BNG1: ALWAYS quoted title case, NO speed/auto-negotiation
                     config += `set [ find default-name=${p} ] comment="${comment}"\n`;
                 });
                 config += `\n`;
 
-                window.updateProgressStep('Creating bridges...');
-                window.updateProgressPercent(40);
-                window.addProgressLog('info', `Creating ${mgmtBridgeName} and bridge2000 bridges`);
-
-                // ============================================================
-                // SECTION 2: INTERFACE BRIDGE (SECOND - matches your example)
-                // BNG1 Format: bridge3000 with "UNICORN MGMT" comment, NO port-cost-mode
-                // ============================================================
+                // SECTION 2: INTERFACE BRIDGE
                 config += `/interface bridge\n\n`;
-                // VALIDATION: Ensure bridge3000 is used (not UNICORNMGMT)
-                if (mgmtBridgeName !== 'bridge3000') {
-                    window.addProgressLog('error', 'CRITICAL: Bridge name must be bridge3000 for BNG1');
-                    window.completeProgressTracker(false);
-                    throw new Error('Invalid bridge name - must be bridge3000');
-                }
                 config += `add comment=${mgmtBridgeComment} name=${mgmtBridgeName}\n`;
                 config += `add comment=STATIC name=bridge2000\n\n`;
 
-                // IP Address - Add IP to UNICORNMGMT bridge
+                // IP Address + VLANs + Bridge Ports + OSPF (only if subnet provided)
                 if (unicornCidr) {
-                    window.updateProgressStep('Configuring IP address and OSPF...');
-                    window.updateProgressPercent(70);
-                    window.addProgressLog('info', `Calculating network address for ${unicornCidr}`);
-
                     let networkAddr = '';
                     let routerIp = '';
                     let prefix = '29';
                     let networkCidrForOspf = '';
 
-                    // Extract IP and prefix from user input (dynamically handle any format)
                     const cidrParts = String(unicornCidr).trim().split('/');
-                    routerIp = cidrParts[0].trim(); // Use exactly what the user typed for IP
+                    routerIp = cidrParts[0].trim();
                     prefix = (cidrParts[1] || '29').trim();
 
-                    // Validate routerIp format before proceeding
                     if (!routerIp || !routerIp.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) {
-                        window.addProgressLog('error', 'Invalid IP address format');
-                        window.completeProgressTracker(false);
                         alert('Invalid IP address format. Please enter a valid IP address (e.g., 10.32.5.89)');
                         return;
                     }
 
-                    // Calculate network address using Nextlink convention: network = IP - 1
-                    // This MUST work correctly every time - no exceptions
                     try {
-                        // Convert user's IP to integer using the helper function
                         if (typeof ipToInt === 'function' && typeof intToIp === 'function') {
                             const routerIpInt = ipToInt(routerIp);
-                            // Network = IP - 1 (Nextlink convention)
-                            const networkInt = (routerIpInt - 1) >>> 0; // Use >>> 0 to handle underflow as unsigned
+                            const networkInt = (routerIpInt - 1) >>> 0;
                             networkAddr = intToIp(networkInt);
-
-                            // Validate network address is valid
                             if (!networkAddr || !networkAddr.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) {
                                 throw new Error('Invalid network address calculated');
                             }
-
                             networkCidrForOspf = `${networkAddr}/${prefix}`;
                         } else {
-                            // Fallback if helper functions not available: manual calculation
                             const parts = routerIp.split('.').map(Number);
                             if (parts.length !== 4 || parts.some(p => isNaN(p) || p < 0 || p > 255)) {
                                 throw new Error('Invalid IP address format');
                             }
-
-                            // Calculate network = IP - 1 (handle underflow)
                             let networkParts = [...parts];
                             if (networkParts[3] > 0) {
-                                networkParts[3] = networkParts[3] - 1;
+                                networkParts[3] -= 1;
                             } else {
-                                // Handle .0 case: wrap to previous octet
                                 networkParts[3] = 255;
-                                if (networkParts[2] > 0) {
-                                    networkParts[2] = networkParts[2] - 1;
-                                } else {
-                                    networkParts[2] = 255;
-                                    if (networkParts[1] > 0) {
-                                        networkParts[1] = networkParts[1] - 1;
-                                    } else {
-                                        networkParts[1] = 255;
-                                        networkParts[0] = Math.max(0, networkParts[0] - 1);
-                                    }
-                                }
+                                if (networkParts[2] > 0) { networkParts[2] -= 1; }
+                                else { networkParts[2] = 255; if (networkParts[1] > 0) { networkParts[1] -= 1; } else { networkParts[1] = 255; networkParts[0] = Math.max(0, networkParts[0] - 1); } }
                             }
                             networkAddr = networkParts.join('.');
                             networkCidrForOspf = `${networkAddr}/${prefix}`;
                         }
                     } catch (e) {
-                        console.error('Network address calculation error:', e);
-                        window.addProgressLog('error', 'Network address calculation failed: ' + e.message);
-                        window.completeProgressTracker(false);
                         alert('Error calculating network address. Please check your IP address format.');
                         return;
                     }
 
-                    // Add IP address line - ONLY ONCE, with validated values
-                    // Ensure all values are clean strings with no unexpected characters
                     const cleanRouterIp = String(routerIp).trim();
                     const cleanPrefix = String(prefix).trim();
                     const cleanNetworkAddr = String(networkAddr).trim();
 
-                    // Final validation before adding to config
                     if (!cleanRouterIp.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) ||
                         !cleanNetworkAddr.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) ||
                         !cleanPrefix.match(/^\d{1,2}$/)) {
-                        console.error('[TARANA] Validation failed before adding IP address line:', {
-                            routerIp: cleanRouterIp,
-                            prefix: cleanPrefix,
-                            networkAddr: cleanNetworkAddr
-                        });
                         alert('Error: Invalid values calculated for IP address. Please check your input and try again.');
                         return;
                     }
 
-                    // ============================================================
-                    // SECTION 3: IP ADDRESS (THIRD - matches your example)
-                    // BNG1 Format: interface=bridge3000, comment="UNICORN MGMT"
-                    // ============================================================
-                    window.updateProgressStep('Configuring IP address...');
-                    window.updateProgressPercent(50);
-                    window.addProgressLog('info', `Calculating network address for ${unicornCidr}`);
+                    // SECTION 3: IP ADDRESS
                     config += `/ip address\n\n`;
                     config += `add address=${cleanRouterIp}/${cleanPrefix} comment=${ipComment} interface=${mgmtBridgeName} network=${cleanNetworkAddr}\n\n`;
 
-                    window.updateProgressStep('Creating VLANs...');
-                    window.updateProgressPercent(60);
-                    window.addProgressLog('info', 'Creating VLANs 1000, 2000, 3000 for each sector');
-
-                    // ============================================================
-                    // SECTION 4: INTERFACE VLAN (FOURTH - matches your example)
-                    // BNG1 Format: Create VLANs for each sector port
-                    // ============================================================
+                    // SECTION 4: INTERFACE VLAN
                     config += `/interface vlan\n\n`;
                     sectorPorts.forEach(p => {
                         config += `add interface=${p} name=vlan1000-${p} vlan-id=1000\n`;
@@ -19330,43 +18979,17 @@ show mac address-table | include &lt;mac&gt;</div>
                     });
                     config += `\n`;
 
-                    window.updateProgressStep('Configuring bridge ports...');
-                    window.updateProgressPercent(70);
-                    window.addProgressLog('info', 'Adding VLANs to bridges');
-
-                    // ============================================================
-                    // SECTION 5: INTERFACE BRIDGE PORT (FIFTH - matches your example)
-                    // BNG1 Format: Simple format, NO path-cost parameters
-                    // ============================================================
+                    // SECTION 5: INTERFACE BRIDGE PORT
                     config += `/interface bridge port\n\n`;
-                    // First add vlan3000 interfaces to management bridge
-                    sectorPorts.forEach(p => {
-                        config += `add bridge=${mgmtBridgeName} ingress-filtering=no interface=vlan3000-${p}\n`;
-                    });
-                    // Then add vlan1000 to lan-bridge
-                    sectorPorts.forEach(p => {
-                        config += `add bridge=lan-bridge ingress-filtering=no interface=vlan1000-${p}\n`;
-                    });
-                    // Finally add vlan2000 to bridge2000
-                    sectorPorts.forEach(p => {
-                        config += `add bridge=bridge2000 ingress-filtering=no interface=vlan2000-${p}\n`;
-                    });
+                    sectorPorts.forEach(p => { config += `add bridge=${mgmtBridgeName} ingress-filtering=no interface=vlan3000-${p}\n`; });
+                    sectorPorts.forEach(p => { config += `add bridge=lan-bridge ingress-filtering=no interface=vlan1000-${p}\n`; });
+                    sectorPorts.forEach(p => { config += `add bridge=bridge2000 ingress-filtering=no interface=vlan2000-${p}\n`; });
                     config += `\n`;
 
-                    // ============================================================
-                    // SECTION 6: ROUTING OSPF INTERFACE-TEMPLATE (SIXTH - matches your example)
-                    // BNG1 Format: interfaces=bridge3000, comment="UNICORN MGMT"
-                    // ============================================================
-                    window.updateProgressStep('Configuring OSPF...');
-                    window.updateProgressPercent(80);
-                    window.addProgressLog('info', 'Adding OSPF interface-template');
+                    // SECTION 6: ROUTING OSPF INTERFACE-TEMPLATE
                     config += `/routing ospf interface-template add interfaces=${mgmtBridgeName} cost=10 priority=1 area=backbone type=broadcast comment="UNICORN MGMT" network=${networkCidrForOspf}\n`;
                 } else {
-                    // If no IP address provided, still create VLANs and bridge ports
-                    window.updateProgressStep('Creating VLANs...');
-                    window.updateProgressPercent(60);
-                    window.addProgressLog('info', 'Creating VLANs 1000, 2000, 3000 for each sector');
-
+                    // No IP — still create VLANs and bridge ports
                     config += `/interface vlan\n\n`;
                     sectorPorts.forEach(p => {
                         config += `add interface=${p} name=vlan1000-${p} vlan-id=1000\n`;
@@ -19375,279 +18998,48 @@ show mac address-table | include &lt;mac&gt;</div>
                     });
                     config += `\n`;
 
-                    window.updateProgressStep('Configuring bridge ports...');
-                    window.updateProgressPercent(70);
-                    window.addProgressLog('info', 'Adding VLANs to bridges');
-
                     config += `/interface bridge port\n\n`;
-                    sectorPorts.forEach(p => {
-                        config += `add bridge=${mgmtBridgeName} ingress-filtering=no interface=vlan3000-${p}\n`;
-                    });
-                    sectorPorts.forEach(p => {
-                        config += `add bridge=lan-bridge ingress-filtering=no interface=vlan1000-${p}\n`;
-                    });
-                    sectorPorts.forEach(p => {
-                        config += `add bridge=bridge2000 ingress-filtering=no interface=vlan2000-${p}\n`;
-                    });
+                    sectorPorts.forEach(p => { config += `add bridge=${mgmtBridgeName} ingress-filtering=no interface=vlan3000-${p}\n`; });
+                    sectorPorts.forEach(p => { config += `add bridge=lan-bridge ingress-filtering=no interface=vlan1000-${p}\n`; });
+                    sectorPorts.forEach(p => { config += `add bridge=bridge2000 ingress-filtering=no interface=vlan2000-${p}\n`; });
                     config += `\n`;
                 }
 
+                // Display config immediately
                 const out = document.getElementById('tarana_output');
-
-                // ============================================================
-                // FINAL VALIDATION: Ensure BNG1 format is correct
-                // ============================================================
-                // Validate IP address line uses bridge3000 (not UNICORNMGMT)
-                const ipAddressLineMatch = config.match(/add address=([^\s]+)\s+comment=([^\s]+)\s+interface=bridge3000\s+network=([^\s]+)/);
-                if (ipAddressLineMatch) {
-                    const addressPart = ipAddressLineMatch[1];
-                    const networkPart = ipAddressLineMatch[3]; // network is group 3
-
-                    // Validate format - should be IP/prefix format
-                    if (!addressPart.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\/\d{1,2}$/)) {
-                        console.error('[TARANA] Invalid address format in config:', addressPart);
-                        alert('Error: Invalid IP address format in generated config. Please try again.');
-                        return;
-                    }
-
-                    // Validate network address format
-                    if (!networkPart.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) {
-                        console.error('[TARANA] Invalid network format in config:', networkPart);
-                        alert('Error: Invalid network address format in generated config. Please try again.');
-                        return;
-                    }
+                if (out) {
+                    out.value = config;
+                    out.style.opacity = '1';
                 }
 
-                // Validate OSPF uses bridge3000
-                if (unicornCidr && !config.includes('interfaces=bridge3000')) {
-                    window.addProgressLog('error', 'VALIDATION FAILED: OSPF must use interfaces=bridge3000');
-                    window.completeProgressTracker(false);
-                    alert('Configuration validation failed: OSPF must use bridge3000 interface');
-                    return;
+                const warnBox = document.getElementById('tarana_warn');
+                if (warnBox) {
+                    warnBox.innerHTML = '<div style="color: #4CAF50; font-weight: bold;">&#10004; Tarana sector port configuration generated successfully!</div>';
                 }
 
-                // Validate NO UNICORNMGMT references (should use bridge3000)
-                if (config.includes('interface=UNICORNMGMT')) {
-                    window.addProgressLog('error', 'VALIDATION FAILED: Must use bridge3000, not UNICORNMGMT');
-                    window.completeProgressTracker(false);
-                    alert('Configuration validation failed: Must use bridge3000 interface name');
-                    return;
-                }
-
-                // Validate NO path-cost parameters (BNG1 format)
-                if (config.includes('path-cost=') || config.includes('internal-path-cost=')) {
-                    window.addProgressLog('error', 'VALIDATION FAILED: BNG1 format must not include path-cost parameters');
-                    window.completeProgressTracker(false);
-                    alert('Configuration validation failed: BNG1 format must not include path-cost parameters');
-                    return;
-                }
-
-                // Validate NO port-cost-mode (BNG1 format)
-                if (config.includes('port-cost-mode=')) {
-                    window.addProgressLog('error', 'VALIDATION FAILED: BNG1 format must not include port-cost-mode');
-                    window.completeProgressTracker(false);
-                    alert('Configuration validation failed: BNG1 format must not include port-cost-mode');
-                    return;
-                }
-
-                window.addProgressLog('info', ' BNG1 format validation passed');
-
-                window.updateProgressStep('Sending to AI backend for validation...');
-                window.updateProgressPercent(80);
-                window.addProgressLog('info', 'Validating configuration with AI backend');
-
-                // DO NOT show config yet - wait for AI validation to complete
-                // This ensures the progress tracker completes before showing the config
-
-                // Send to AI backend for validation, network calculation correction, and enhancement
-                // Reuse deviceSel and routerosSel from above (already defined earlier in function)
+                // Lightweight history tracking
+                const deviceConfig = DEVICE_CONFIGS[device];
+                const sectors = [alpha, beta, gamma].concat(delta ? [delta] : []).map((p, i) => ['ALPHA', 'BETA', 'GAMMA', 'DELTA'][i]).join(', ');
                 const routerosSel = document.getElementById('tarana_routeros_version');
-                const finalDevice = device; // Use device already defined above
                 const routerosVersion = routerosSel ? routerosSel.value : '7.19.4';
 
-                // Use AI_API_BASE if defined, otherwise construct it
-                const apiBase = resolveApiBase();
-
-                // Prepare activity tracking data (will be used after completion)
-                const deviceConfig = DEVICE_CONFIGS[finalDevice];
-                const sectors = [alpha, beta, gamma].concat(delta ? [delta] : []).map((p, i) => ['ALPHA', 'BETA', 'GAMMA', 'DELTA'][i]).join(', ');
-
-                // Add timeout to prevent hanging
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-
-                fetch(`${apiBase}/gen-tarana-config`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        config: config,
-                        device: finalDevice,
-                        routeros_version: routerosVersion
-                    }),
-                    signal: controller.signal
-                })
-                    .then(function (response) {
-                        clearTimeout(timeoutId);
-                        // Backend should ALWAYS return success - even if AI fails
-                        if (!response.ok) {
-                            // If backend returns error, still try to parse response
-                            return response.json().catch(() => {
-                                // If can't parse, return success with original config
-                                return { success: true, config: config };
-                            });
-                        }
-                        return response.json();
-                    })
-                    .then(function (data) {
-                        window.updateProgressStep('Processing validation results...');
-                        window.updateProgressPercent(90);
-                        window.addProgressLog('info', 'Backend validation completed');
-
-                        // Backend validates accurately - check success flag
-                        let finalConfig = config; // Default to original
-                        let validationSuccess = false;
-                        let validationErrors = [];
-                        let validationWarnings = [];
-
-                        if (data && data.success === true && data.config) {
-                            // Backend validated successfully - config is accurate
-                            finalConfig = data.config;
-                            validationSuccess = true;
-                            validationWarnings = data.warnings || [];
-                            window.addProgressLog('success', 'Configuration validated and enhanced by backend');
-
-                            if (validationWarnings.length > 0) {
-                                window.addProgressLog('warning', `Validation warnings: ${validationWarnings.join(', ')}`);
-                            }
-                        } else if (data && data.success === false) {
-                            // Backend validation failed - config has errors
-                            validationErrors = data.errors || [data.error || 'Validation failed'];
-                            validationWarnings = data.warnings || [];
-                            finalConfig = data.config || config; // Use corrected config if available, otherwise original
-
-                            window.addProgressLog('error', `Validation failed: ${validationErrors.join(', ')}`);
-                            if (validationWarnings.length > 0) {
-                                window.addProgressLog('warning', `Warnings: ${validationWarnings.join(', ')}`);
-                            }
-                        } else if (data && data.config) {
-                            // Backend returned config but no success flag - use it but warn
-                            finalConfig = data.config;
-                            window.addProgressLog('warning', 'Backend response unclear - using provided config');
-                        } else {
-                            // Backend returned but no config - use original
-                            window.addProgressLog('warning', 'No config from backend - using generated configuration');
-                        }
-
-                        // Now show the config and complete progress tracker
-                        if (validationSuccess) {
-                            window.updateProgressStep('Configuration validated and ready!');
-                            window.updateProgressPercent(100);
-                            window.addProgressLog('success', 'Tarana sector configuration validated and ready for device deployment');
-                        } else {
-                            window.updateProgressStep('Configuration generated with validation issues');
-                            window.updateProgressPercent(100);
-                            window.addProgressLog('warning', 'Configuration generated but validation found issues - review before deployment');
-                        }
-
-                        // Display the final config
-                        if (out) {
-                            out.value = finalConfig;
-                            out.style.opacity = '1';
-                        }
-
-                        // Show appropriate message based on validation result
-                        const warnBox = document.getElementById('tarana_warn');
-                        if (warnBox) {
-                            if (validationSuccess) {
-                                let message = '<div style="color: #4CAF50; font-weight: bold;"> Configuration validated and ready for device deployment</div>';
-                                if (validationWarnings.length > 0) {
-                                    message += `<div style="color: #ff9800; margin-top: 5px;"> Warnings: ${validationWarnings.join('; ')}</div>`;
-                                }
-                                warnBox.innerHTML = message;
-                            } else {
-                                let message = '<div style="color: #f44336; font-weight: bold;"> Configuration validation failed</div>';
-                                if (validationErrors.length > 0) {
-                                    message += `<div style="color: #f44336; margin-top: 5px;">Errors: ${validationErrors.join('; ')}</div>`;
-                                }
-                                if (validationWarnings.length > 0) {
-                                    message += `<div style="color: #ff9800; margin-top: 5px;">Warnings: ${validationWarnings.join('; ')}</div>`;
-                                }
-                                message += '<div style="color: #ff9800; margin-top: 5px;"> Review configuration before deploying to device</div>';
-                                warnBox.innerHTML = message;
-                            }
-                        }
-
-                        // Complete progress tracker
-                        window.completeProgressTracker(validationSuccess);
-
-                        // Track activity for analytics (after everything is complete)
-                        saveConfigToHistory({
-                            type: 'tarana-config',
-                            device: deviceConfig ? deviceConfig.name : finalDevice.toUpperCase(),
-                            siteName: `Tarana Sectors: ${sectors}`,
-                            routeros: routerosVersion,
-                            success: validationSuccess
-                        });
-                    })
-                    .catch(function (error) {
-                        clearTimeout(timeoutId);
-                        console.error('Backend request error:', error);
-
-                        // Even if fetch fails, show the config (it's already generated)
-                        window.updateProgressStep('Finalizing configuration...');
-                        window.updateProgressPercent(95);
-                        window.addProgressLog('info', 'Using generated configuration');
-
-                        // Show the config (it's valid even without backend validation)
-                        if (out) {
-                            out.value = config;
-                            out.style.opacity = '1';
-                        }
-
-                        const warnBox = document.getElementById('tarana_warn');
-                        if (warnBox) {
-                            warnBox.innerHTML = '<div style="color: #4CAF50; font-weight: bold;"> Configuration generated successfully - Ready for device deployment</div>';
-                        }
-
-                        // Complete progress tracker
-                        window.updateProgressStep('Configuration ready!');
-                        window.updateProgressPercent(100);
-                        window.addProgressLog('success', 'Tarana sector configuration generated successfully');
-                        window.completeProgressTracker(true);
-
-                        // Track activity (config generated successfully)
-                        saveConfigToHistory({
-                            type: 'tarana-config',
-                            device: deviceConfig ? deviceConfig.name : finalDevice.toUpperCase(),
-                            siteName: `Tarana Sectors: ${sectors}`,
-                            routeros: routerosVersion,
-                            success: true
-                        });
-                    });
+                saveConfigToHistory({
+                    type: 'tarana-config',
+                    device: deviceConfig ? deviceConfig.name : device.toUpperCase(),
+                    siteName: `Tarana Sectors: ${sectors}`,
+                    routeros: routerosVersion,
+                    success: true
+                });
 
             } catch (error) {
-                window.addProgressLog('error', 'Configuration generation failed: ' + error.message);
-                window.completeProgressTracker(false);
                 alert('Error generating configuration: ' + error.message);
                 console.error('Tarana generation error:', error);
             }
         }
 
-        // Enterprise Feeding Generator
-        async function genEntFeeding() {
+        // Enterprise Feeding Generator – simple port configuration on tower router
+        function genEntFeeding() {
             try {
-                // Show progress tracker
-                window.showProgressTracker('Enterprise Feeding Configuration');
-                window.updateProgressStep('Initializing Enterprise Feeding configuration...');
-                window.updateProgressPercent(5);
-                window.addProgressLog('info', 'Starting Enterprise Feeding configuration generation');
-
-                await new Promise(resolve => setTimeout(resolve, 300));
-
-                window.updateProgressStep('Reading form inputs...');
-                window.updateProgressPercent(10);
-                window.addProgressLog('info', 'Validating device, RouterOS version, and port selection');
-
                 const device = document.getElementById('ent_feeding_device')?.value;
                 const routerOS = document.getElementById('ent_feeding_routeros')?.value;
                 const label = document.getElementById('ent_feeding_label')?.value.trim() || 'Customer';
@@ -19658,34 +19050,19 @@ show mac address-table | include &lt;mac&gt;</div>
                 const publicIP = document.getElementById('ent_feeding_public')?.value.trim(); // Public /30 or /29
 
                 if (!device || !routerOS || !port) {
-                    window.addProgressLog('error', 'Missing required fields: device, RouterOS version, or port');
-                    window.completeProgressTracker(false);
                     alert('Please select device, RouterOS version, and port!');
                     return;
                 }
 
                 if (!uplink) {
-                    window.addProgressLog('error', 'Backhaul subnet (/29) is required');
-                    window.completeProgressTracker(false);
                     alert('Please provide Backhaul subnet (/29) - this is required for backhaul configuration!');
                     return;
                 }
 
-                window.addProgressLog('success', `Device: ${device}, RouterOS: ${routerOS}, Port: ${port}, Label: ${label}`);
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                window.updateProgressStep('Processing device configuration...');
-                window.updateProgressPercent(20);
-                window.addProgressLog('info', 'Loading device configuration and RouterOS version type');
-
                 const deviceConfig = DEVICE_CONFIGS[device];
                 const versionType = getRouterOSVersionType(routerOS);
 
-                window.updateProgressStep('Parsing backhaul subnet...');
-                window.updateProgressPercent(30);
-                window.addProgressLog('info', `Parsing uplink subnet: ${uplink}`);
-
-                // Parse uplink subnet (/29) - user enters tower IP like 10.24.252.57/29
+                // Parse uplink subnet (/29)
                 let backhaulIP = ''; // Tower side IP (e.g., 10.24.252.57)
                 let backhaulNetwork = ''; // Network address (e.g., 10.24.252.56)
                 let gatewayIP = ''; // Customer gateway (e.g., 10.24.252.60)
@@ -19829,20 +19206,9 @@ show mac address-table | include &lt;mac&gt;</div>
                 // Build network CIDR for OSPF
                 const backhaulNetworkCidr = `${backhaulNetwork}/${backhaulPrefix}`;
 
-                window.addProgressLog('success', `Backhaul network: ${backhaulNetworkCidr}, Gateway: ${gatewayIP}`);
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                window.updateProgressStep('Generating Enterprise Feeding configuration...');
-                window.updateProgressPercent(50);
-                window.addProgressLog('info', 'Building configuration blocks');
-
                 let config = `# === Enterprise / Commercial Auto-generated ===\n\n`;
 
-                window.updateProgressStep('Configuring interface settings...');
-                window.updateProgressPercent(55);
-                window.addProgressLog('info', `Configuring Ethernet interface ${port} with speed ${speed}`);
-
-                // Interface Ethernet - combine all settings into one command (no duplicates)
+                // Interface Ethernet
                 config += `/interface ethernet\n`;
                 const ethernetParts = [`comment=${label}`];
                 if (speed === 'auto') {
@@ -19860,41 +19226,21 @@ show mac address-table | include &lt;mac&gt;</div>
                 }
                 config += `set [ find default-name=${port} ] ${ethernetParts.join(' ')}\n\n`;
 
-                window.addProgressLog('success', 'Interface Ethernet configured');
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                window.updateProgressStep('Configuring IP address...');
-                window.updateProgressPercent(60);
-                window.addProgressLog('info', `Adding IP address ${backhaulIP}/${backhaulPrefix} to interface ${port}`);
-
-                // IP Address - Only backhaul (/29) - Use tower side IP (user's input)
+                // IP Address - backhaul (/29)
                 config += `/ip address\n`;
                 // Tower side uses the IP user entered, network parameter is the calculated network address
                 config += `add address=${backhaulIP}/${backhaulPrefix} comment="${label}" interface=${port} network=${backhaulNetwork}\n\n`;
-
-                window.addProgressLog('success', 'IP address configured');
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                window.updateProgressStep('Configuring firewall and routing...');
-                window.updateProgressPercent(70);
-                window.addProgressLog('info', 'Adding firewall address-list entries');
 
                 // IP Firewall Address List
                 config += `/ip firewall address-list\n`;
                 if (loop) {
                     const loopIP = loop.includes('/') ? loop.split('/')[0] : loop;
                     config += `add address=${loopIP} comment="${label}" list=bgp-networks\n`;
-                    window.addProgressLog('info', `Added loopback ${loopIP} to BGP networks`);
                 }
                 if (publicIP) {
                     config += `add address=${publicIP} comment="${label}" list=bgp-networks\n`;
-                    window.addProgressLog('info', `Added public IP ${publicIP} to BGP networks`);
                 }
                 config += `\n`;
-
-                window.updateProgressStep('Adding static routes...');
-                window.updateProgressPercent(75);
-                window.addProgressLog('info', 'Configuring static routes for loopback and public IP');
 
                 // IP Routes
                 if (loop || publicIP) {
@@ -19902,243 +19248,40 @@ show mac address-table | include &lt;mac&gt;</div>
                     if (loop) {
                         const loopIP = loop.includes('/') ? loop.split('/')[0] : loop;
                         config += `add comment="${label}" disabled=no distance=1 dst-address=${loopIP} gateway=${gatewayIP} routing-table=main scope=30 target-scope=10\n`;
-                        window.addProgressLog('info', `Route added for loopback ${loopIP} via ${gatewayIP}`);
                     }
                     if (publicIP) {
                         config += `add comment="${label}" disabled=no distance=1 dst-address=${publicIP} gateway=${gatewayIP} routing-table=main scope=30 target-scope=10\n`;
-                        window.addProgressLog('info', `Route added for public IP ${publicIP} via ${gatewayIP}`);
                     }
                     config += `\n`;
                 }
 
-                window.updateProgressStep('Configuring OSPF...');
-                window.updateProgressPercent(85);
-                window.addProgressLog('info', 'Adding OSPF interface template');
-
                 // OSPF Interface Template
-                // Format: add area=backbone-v2 auth-id=1 comment="..." cost=10 disabled=no networks=X.X.X.X/29 priority=1
                 config += `/routing ospf interface-template\n`;
                 config += `add area=backbone-v2 auth-id=1 comment="${label}" cost=10 disabled=no networks=${backhaulNetworkCidr} priority=1\n`;
 
-                window.addProgressLog('success', `OSPF interface template configured for ${backhaulNetworkCidr}`);
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                // Show status and validate BEFORE displaying config
+                // Display config immediately
                 const warnBox = document.getElementById('ent_feeding_warn');
                 const out = document.getElementById('ent_feeding_output');
 
-                window.updateProgressStep('Validating configuration with AI...');
-                window.updateProgressPercent(90);
-                window.addProgressLog('info', 'Sending configuration to AI backend for validation');
-
-                // Show "Generating..." status
-                if (warnBox) {
-                    warnBox.innerHTML = '<div style="color: #FF9800; font-weight: bold;"> Configuration generated, validating with AI backend...</div>';
-                }
-
-                // Clear output initially
                 if (out) {
-                    out.value = '';
-                    out.style.opacity = '0.5';
+                    out.value = config;
+                    out.style.opacity = '1';
                 }
 
-                // Validate BEFORE showing config (like Non-MPLS Enterprise)
-                if (typeof AI_API_BASE === 'undefined') {
-                    console.error('AI_API_BASE not defined');
-                    window.addProgressLog('warning', 'AI validation skipped (API base not configured)');
-                    window.completeProgressTracker(true);
-
-                    // Track activity (config generated, validation skipped)
-                    const device = document.getElementById('ent_feeding_device')?.value || 'Unknown';
-                    const routerOS = document.getElementById('ent_feeding_routeros')?.value || 'Unknown';
-                    const label = document.getElementById('ent_feeding_label')?.value.trim() || 'Customer';
-                    saveConfigToHistory({
-                        type: 'enterprise-feeding-config',
-                        device: device,
-                        siteName: `Enterprise Feeding: ${label}`,
-                        routeros: routerOS,
-                        success: true
-                    });
-
-                    // Show config anyway if backend unavailable
-                    if (out) {
-                        out.value = config;
-                        out.style.opacity = '1';
-                    }
-                    if (warnBox) {
-                        warnBox.innerHTML = '<div style="color: #6c757d; font-style: italic;"> Configuration generated. AI validation skipped (API base not configured).</div>';
-                    }
-                    return;
+                if (warnBox) {
+                    warnBox.innerHTML = '<div style="color: #4CAF50; font-weight: bold;">&#10004; Enterprise Feeding port configuration generated successfully!</div>';
                 }
 
-                // Validate config with AI backend
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout for AI validation (AI can be slow)
-
-                fetch(`${AI_API_BASE}/validate-config`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        config: config,
-                        type: 'enterprise-feeding'
-                    }),
-                    signal: controller.signal
-                })
-                    .then(function (response) {
-                        clearTimeout(timeoutId);
-
-                        if (response.ok) {
-                            return response.json().then(function (validation) {
-                                window.updateProgressPercent(95);
-                                window.addProgressLog('info', 'AI validation response received');
-
-                                // Show config after validation
-                                if (out) {
-                                    out.value = config;
-                                    out.style.opacity = '1';
-                                }
-
-                                if (validation && validation.validation && validation.validation.issues && validation.validation.issues.length > 0) {
-                                    window.addProgressLog('warning', `Validation found ${validation.validation.issues.length} issue(s)`);
-                                    window.completeProgressTracker(true);
-
-                                    // Track activity for analytics (still success, just with warnings)
-                                    const device = document.getElementById('ent_feeding_device')?.value || 'Unknown';
-                                    const routerOS = document.getElementById('ent_feeding_routeros')?.value || 'Unknown';
-                                    const label = document.getElementById('ent_feeding_label')?.value.trim() || 'Customer';
-                                    saveConfigToHistory({
-                                        type: 'enterprise-feeding-config',
-                                        device: device,
-                                        siteName: `Enterprise Feeding: ${label}`,
-                                        routeros: routerOS,
-                                        success: true
-                                    });
-
-                                    if (warnBox) {
-                                        warnBox.innerHTML = '<div style="color: #FF9800; font-weight: bold;"> Configuration validated with warnings. Review before deployment.</div>';
-                                    }
-                                } else {
-                                    window.updateProgressPercent(100);
-                                    window.updateProgressStep('Configuration validated successfully!');
-                                    window.addProgressLog('success', 'AI validation passed - no issues found');
-                                    window.completeProgressTracker(true);
-
-                                    // Track activity for analytics
-                                    const device = document.getElementById('ent_feeding_device')?.value || 'Unknown';
-                                    const routerOS = document.getElementById('ent_feeding_routeros')?.value || 'Unknown';
-                                    const label = document.getElementById('ent_feeding_label')?.value.trim() || 'Customer';
-                                    saveConfigToHistory({
-                                        type: 'enterprise-feeding-config',
-                                        device: device,
-                                        siteName: `Enterprise Feeding: ${label}`,
-                                        routeros: routerOS,
-                                        success: true
-                                    });
-
-                                    if (warnBox) {
-                                        warnBox.innerHTML = '<div style="color: #4CAF50; font-weight: bold;"> Configuration validated successfully by AI backend!</div>';
-                                    }
-                                }
-                            });
-                        } else {
-                            // Show config anyway if validation fails
-                            if (out) {
-                                out.value = config;
-                                out.style.opacity = '1';
-                            }
-
-                            const errorText = response.text().catch(() => '');
-                            console.warn('AI validation returned status:', response.status);
-                            if (warnBox) {
-                                if (response.status === 404) {
-                                    warnBox.innerHTML = '<div style="color: #6c757d; font-style: italic;"> Configuration generated. AI validation endpoint not found (backend may need update).</div>';
-                                } else if (response.status >= 500) {
-                                    warnBox.innerHTML = '<div style="color: #6c757d; font-style: italic;"> Configuration generated. AI validation temporarily unavailable (server error).</div>';
-                                } else {
-                                    warnBox.innerHTML = '<div style="color: #6c757d; font-style: italic;"> Configuration generated. AI validation returned error (status: ' + response.status + ').</div>';
-                                }
-                            }
-                        }
-                    })
-                    .catch(function (aiError) {
-                        clearTimeout(timeoutId);
-
-                        window.addProgressLog('warning', 'AI validation failed or timed out');
-
-                        // Show config even if validation fails
-                        if (out) {
-                            out.value = config;
-                            out.style.opacity = '1';
-                        }
-
-                        // Track activity even if validation fails (config was still generated)
-                        const device = document.getElementById('ent_feeding_device')?.value || 'Unknown';
-                        const routerOS = document.getElementById('ent_feeding_routeros')?.value || 'Unknown';
-                        const label = document.getElementById('ent_feeding_label')?.value.trim() || 'Customer';
-
-                        if (aiError.name === 'AbortError') {
-                            window.addProgressLog('warning', 'AI validation timeout after 30 seconds');
-                            window.completeProgressTracker(true);
-                            console.warn('AI validation timeout after 30 seconds');
-
-                            // Track activity (config generated, validation timeout)
-                            saveConfigToHistory({
-                                type: 'enterprise-feeding-config',
-                                device: device,
-                                siteName: `Enterprise Feeding: ${label}`,
-                                routeros: routerOS,
-                                success: true
-                            });
-
-                            if (warnBox) {
-                                warnBox.innerHTML = '<div style="color: #6c757d; font-style: italic;"> Configuration generated. AI validation timeout (AI may be processing - check backend console).</div>';
-                            }
-                        } else if (aiError.message && (aiError.message.includes('Failed to fetch') || aiError.message.includes('NetworkError'))) {
-                            window.addProgressLog('warning', 'Cannot reach AI backend');
-                            window.completeProgressTracker(true);
-                            console.warn('AI validation network error:', aiError);
-
-                            // Track activity (config generated, backend unavailable)
-                            const device = document.getElementById('ent_feeding_device')?.value || 'Unknown';
-                            const routerOS = document.getElementById('ent_feeding_routeros')?.value || 'Unknown';
-                            const label = document.getElementById('ent_feeding_label')?.value.trim() || 'Customer';
-                            saveConfigToHistory({
-                                type: 'enterprise-feeding-config',
-                                device: device,
-                                siteName: `Enterprise Feeding: ${label}`,
-                                routeros: routerOS,
-                                success: true
-                            });
-
-                            if (warnBox) {
-                                warnBox.innerHTML = '<div style="color: #6c757d; font-style: italic;"> Configuration generated. AI validation skipped (cannot reach backend - check if api_server.py is running on port 5000).</div>';
-                            }
-                        } else {
-                            window.addProgressLog('warning', 'AI validation error: ' + (aiError.message || 'Unknown'));
-                            window.completeProgressTracker(true);
-                            console.warn('AI validation error:', aiError);
-
-                            // Track activity (config generated, validation error)
-                            const device = document.getElementById('ent_feeding_device')?.value || 'Unknown';
-                            const routerOS = document.getElementById('ent_feeding_routeros')?.value || 'Unknown';
-                            const label = document.getElementById('ent_feeding_label')?.value.trim() || 'Customer';
-                            saveConfigToHistory({
-                                type: 'enterprise-feeding-config',
-                                device: device,
-                                siteName: `Enterprise Feeding: ${label}`,
-                                routeros: routerOS,
-                                success: true
-                            });
-
-                            if (warnBox) {
-                                warnBox.innerHTML = '<div style="color: #6c757d; font-style: italic;"> Configuration generated. AI validation error: ' + (aiError.message || 'Unknown error') + '</div>';
-                            }
-                        }
-                    });
+                // Lightweight history tracking
+                saveConfigToHistory({
+                    type: 'enterprise-feeding-config',
+                    device: device,
+                    siteName: `Enterprise Feeding: ${label}`,
+                    routeros: routerOS,
+                    success: true
+                });
 
             } catch (error) {
-                window.addProgressLog('error', 'Configuration generation failed: ' + error.message);
-                window.completeProgressTracker(false);
                 alert('Error generating configuration: ' + error.message);
                 console.error('Enterprise Feeding Generation Error:', error);
             }
