@@ -3849,7 +3849,10 @@
                                     <option value="ccr2004" selected>CCR2004</option>
                                     <option value="ccr1036">CCR1036</option>
                                     <option value="ccr1072">CCR1072</option>
+                                    <option value="rb5009">RB5009</option>
                                     <option value="rb1009">RB1009</option>
+                                    <option value="rb2011">RB2011</option>
+                                    <option value="ccr2116">CCR2116</option>
                                     <option value="ccr2216">CCR2216</option>
                                 </select>
                             </div>
@@ -5079,31 +5082,30 @@
                                 <div class="form-group">
                                     <label for="targetDevice">Target Device:</label>
                                     <select id="targetDevice" class="form-control">
-                                        <option value="CCR1036-12G-4S">CCR1036-12G-4S (12 Ethernet, 4 SFP)</option>
                                         <option value="CCR2004-1G-12S+2XS">CCR2004-1G-12S+2XS (12 SFP+, 2 XS, 1
                                             Ethernet)</option>
-                                        <option value="CCR2004-16G-2S+">CCR2004-16G-2S+ (16 Ethernet, 2 SFP+)</option>
+                                        <option value="CCR1036-12G-4S">CCR1036-12G-4S (12 Ethernet, 4 SFP)</option>
+                                        <option value="RB5009UG+S+">RB5009UG+S+ (8 Ethernet, 1 SFP+)</option>
                                         <option value="CCR2116-12G-4S+">CCR2116-12G-4S+ (12 Ethernet, 4 SFP+)</option>
                                         <option value="CCR2216-1G-12XS-2XQ">CCR2216-1G-12XS-2XQ (12 SFP28, 2 QSFP28, 1
                                             Ethernet)</option>
+                                        <option value="CCR2004-16G-2S+">CCR2004-16G-2S+ (16 Ethernet, 2 SFP+)</option>
                                         <option value="CRS326-24G-2S+">CRS326-24G-2S+ (24 Ethernet, 2 SFP+)</option>
                                         <option value="CRS354-48G-4S+2Q+">CRS354-48G-4S+2Q+ (48 Ethernet, 4 SFP+, 2
                                             QSFP+)</option>
                                     </select>
                                 </div>
                                 <select id="ent_routerboard_device"
-                                    onchange="updateDeviceName(); updateEnterpriseInterfaces();">
-                                    <option value="CCR1036-12G-4S">CCR1036-12G-4S (12 Ethernet, 4 SFP)</option>
-                                    <option value="CCR2004-1G-12S+2XS">CCR2004-1G-12S+2XS (12 SFP+, 2 XS, 1 Ethernet)
-                                    </option>
-                                    <option value="CCR2004-16G-2S+">CCR2004-16G-2S+ (16 Ethernet, 2 SFP+)</option>
-                                    <option value="CCR2116-12G-4S+">CCR2116-12G-4S+ (12 Ethernet, 4 SFP+)</option>
-                                    <option value="CCR2216-1G-12XS-2XQ">CCR2216-1G-12XS-2XQ (12 SFP28, 2 QSFP28, 1
-                                        Ethernet)</option>
-                                    <option value="CRS326-24G-2S+">CRS326-24G-2S+ (24 Ethernet, 2 SFP+)</option>
-                                    <option value="CRS354-48G-4S+2Q+">CRS354-48G-4S+2Q+ (48 Ethernet, 4 SFP+, 2 QSFP+)
-                                    </option>
+                                    onchange="handleEntDeviceChange();">
+                                    <option value="">Select RouterBoard Device</option>
+                                    <option value="ccr2004" selected>CCR2004 (Recommended)</option>
+                                    <option value="ccr1036">CCR1036</option>
+                                    <option value="rb5009">RB5009</option>
+                                    <option value="ccr2116">CCR2116</option>
                                     <option value="ccr2216">CCR2216</option>
+                                    <option value="ccr1072">CCR1072</option>
+                                    <option value="rb1009">RB1009</option>
+                                    <option value="rb2011">RB2011</option>
                                 </select>
                             </div>
                             <div>
@@ -5125,7 +5127,11 @@
                                     <option value="CCR2004">CCR2004</option>
                                     <option value="CCR1036">CCR1036</option>
                                     <option value="RB5009">RB5009</option>
+                                    <option value="CCR2116">CCR2116</option>
                                     <option value="CCR2216">CCR2216</option>
+                                    <option value="CCR1072">CCR1072</option>
+                                    <option value="RB1009">RB1009</option>
+                                    <option value="RB2011">RB2011</option>
                                 </select>
                             </div>
                             <div>
@@ -17651,10 +17657,12 @@ show mac address-table | include &lt;mac&gt;</div>
         function getDevicePortOptions(device) {
             const defaults = ['ether7', 'ether8', 'sfp-sfpplus1', 'sfp-sfpplus2'];
             if (!device) return defaults;
-            if (device === 'ccr2004') return ['sfp-sfpplus7', 'sfp-sfpplus8', 'sfp-sfpplus1', 'sfp-sfpplus2', 'ether7', 'ether8'];
-            if (device === 'ccr1036') return ['sfp-sfpplus7', 'sfp-sfpplus8', 'sfp-sfpplus1', 'sfp-sfpplus2', 'ether7', 'ether8'];
-            if (device === 'ccr2216') return ['sfp28-1', 'sfp28-2', 'sfp28-3', 'sfp28-4', 'sfp28-5', 'sfp28-6', 'sfp28-7', 'sfp28-8', 'sfp28-9', 'sfp28-10', 'sfp28-11', 'sfp28-12', 'ether1'];
-            if (device === 'rb5009') return ['ether7', 'ether8', 'sfp-sfpplus1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6'];
+            const key = device.toLowerCase();
+            const cfg = (typeof DEVICE_CONFIGS !== 'undefined') && DEVICE_CONFIGS[key];
+            if (cfg) {
+                // Return all ports: ethernet + SFP combined
+                return [...cfg.ports, ...cfg.sfpPorts];
+            }
             return defaults;
         }
         function repopulateInterfaceSelect(sel, options, prefer) {
@@ -17668,7 +17676,7 @@ show mac address-table | include &lt;mac&gt;</div>
             if (prefer && options.includes(prefer)) sel.value = prefer; else if (options.length) sel.value = options[0];
         }
         function updateEnterpriseInterfaces() {
-            const dev = document.getElementById('ent_routerboard_device')?.value;
+            const dev = (document.getElementById('ent_routerboard_device')?.value || '').toLowerCase();
             const ports = getDevicePortOptions(dev);
             const pubSel = document.getElementById('ent_publicInterface');
             const natSel = document.getElementById('ent_natInterface');
@@ -17676,20 +17684,42 @@ show mac address-table | include &lt;mac&gt;</div>
 
             // Auto-select interfaces based on device type and Nextlink policy
             let publicPort, natPort, backhaulPort;
+            const cfg = (typeof DEVICE_CONFIGS !== 'undefined') && DEVICE_CONFIGS[dev];
+            const hasSfp = cfg && cfg.sfpPorts && cfg.sfpPorts.length > 1;
 
             if (dev === 'rb5009') {
                 publicPort = 'ether7';    // Customer Handoff (CX HANDOFF)
                 natPort = 'ether8';       // NAT
-                backhaulPort = 'sfp-sfpplus1'; // Uplink (Weston)
-            } else if (dev === 'ccr2004' || dev === 'ccr1036') {
+                backhaulPort = 'sfp-sfpplus1'; // Uplink
+            } else if (dev === 'ccr2004') {
                 publicPort = 'sfp-sfpplus7';  // Customer Handoff
                 natPort = 'sfp-sfpplus8';     // NAT
                 backhaulPort = 'sfp-sfpplus1'; // Uplink
+            } else if (dev === 'ccr1036' || dev === 'ccr1072') {
+                publicPort = 'ether7';  // Customer Handoff
+                natPort = 'ether8';     // NAT
+                backhaulPort = 'sfp1';  // Uplink
+            } else if (dev === 'ccr2116') {
+                publicPort = 'ether7';  // Customer Handoff
+                natPort = 'ether8';     // NAT
+                backhaulPort = 'sfp-sfpplus1'; // Uplink
+            } else if (dev === 'ccr2216') {
+                publicPort = 'sfp28-7';   // Customer Handoff
+                natPort = 'sfp28-8';      // NAT
+                backhaulPort = 'sfp28-1';  // Uplink
+            } else if (dev === 'rb2011') {
+                publicPort = 'ether7';    // Customer Handoff
+                natPort = 'ether8';       // NAT
+                backhaulPort = 'sfp1';    // Uplink
+            } else if (dev === 'rb1009') {
+                publicPort = 'ether7';    // Customer Handoff
+                natPort = 'ether8';       // NAT
+                backhaulPort = 'ether1';  // Uplink (no SFP on RB1009)
             } else {
-                // Default fallback
-                publicPort = ports.find(p => p.includes('ether7')) || ports[0];
-                natPort = ports.find(p => p.includes('ether8')) || ports[1];
-                backhaulPort = ports.find(p => p.startsWith('sfp')) || ports[2];
+                // Dynamic fallback using DEVICE_CONFIGS
+                publicPort = ports.find(p => p.includes('ether7')) || ports[ports.length - 2] || ports[0];
+                natPort = ports.find(p => p.includes('ether8')) || ports[ports.length - 1] || ports[1];
+                backhaulPort = ports.find(p => p.startsWith('sfp')) || ports[0];
             }
 
             repopulateInterfaceSelect(pubSel, ports, publicPort);
@@ -17700,7 +17730,7 @@ show mac address-table | include &lt;mac&gt;</div>
         function handleEntDeviceChange() {
             const dev = document.getElementById('ent_routerboard_device')?.value || '';
             // Map routerboard device to deviceType for naming
-            const map = { ccr2004: 'CCR2004', ccr2216: 'CCR2216', ccr1036: 'CCR1036', rb5009: 'RB5009', ccr1072: 'CCR1072', rb2011: 'RB2011', rb1009: 'RB1009' };
+            const map = { ccr2004: 'CCR2004', ccr2216: 'CCR2216', ccr2116: 'CCR2116', ccr1036: 'CCR1036', rb5009: 'RB5009', ccr1072: 'CCR1072', rb2011: 'RB2011', rb1009: 'RB1009' };
             const mappedType = map[dev] || '';
             const typeSel = document.getElementById('ent_deviceType');
             if (typeSel && mappedType) { typeSel.value = mappedType; updateEnterpriseDeviceName(); }

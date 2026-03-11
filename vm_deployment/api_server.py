@@ -3614,30 +3614,31 @@ def suggest_config():
             # Generate suggestions based on device type
             suggestions = {}
             
-            if device == 'ccr2004':
+            # Define port suggestions per device type
+            device_port_suggestions = {
+                'ccr2004': {'public_port': 'sfp-sfpplus7', 'nat_port': 'sfp-sfpplus8', 'uplink_interface': 'sfp-sfpplus1'},
+                'rb5009': {'public_port': 'ether7', 'nat_port': 'ether8', 'uplink_interface': 'sfp-sfpplus1'},
+                'ccr1036': {'public_port': 'ether7', 'nat_port': 'ether8', 'uplink_interface': 'sfp1'},
+                'ccr1072': {'public_port': 'ether7', 'nat_port': 'ether8', 'uplink_interface': 'sfp1'},
+                'ccr2116': {'public_port': 'ether7', 'nat_port': 'ether8', 'uplink_interface': 'sfp-sfpplus1'},
+                'ccr2216': {'public_port': 'sfp28-7', 'nat_port': 'sfp28-8', 'uplink_interface': 'sfp28-1'},
+                'rb2011': {'public_port': 'ether7', 'nat_port': 'ether8', 'uplink_interface': 'sfp1'},
+                'rb1009': {'public_port': 'ether7', 'nat_port': 'ether8', 'uplink_interface': 'ether1'},
+            }
+            
+            dev_key = device.lower() if device else ''
+            port_suggestion = device_port_suggestions.get(dev_key, device_port_suggestions.get('rb5009'))
+            
+            try:
                 suggestions = {
-                    'public_port': 'sfp-sfpplus7',
-                    'nat_port': 'sfp-sfpplus8',
-                    'uplink_interface': 'sfp-sfpplus1',
-                    'public_pool': f"{public_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(public_cidr.split('/')[0].split('.')[-1]) + 1}-{public_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(public_cidr.split('/')[0].split('.')[-1]) + 2}",
-                    'gateway': f"{bh_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(bh_cidr.split('/')[0].split('.')[-1]) - 1}"
+                    'public_port': port_suggestion['public_port'],
+                    'nat_port': port_suggestion['nat_port'],
+                    'uplink_interface': port_suggestion['uplink_interface'],
+                    'public_pool': f"{public_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(public_cidr.split('/')[0].split('.')[-1]) + 1}-{public_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(public_cidr.split('/')[0].split('.')[-1]) + 2}" if public_cidr and '/' in public_cidr else '',
+                    'gateway': f"{bh_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(bh_cidr.split('/')[0].split('.')[-1]) - 1}" if bh_cidr and '/' in bh_cidr else ''
                 }
-            elif device == 'rb5009':
-                suggestions = {
-                    'public_port': 'ether7',
-                    'nat_port': 'ether8',
-                    'uplink_interface': 'sfp-sfpplus1',
-                    'public_pool': f"{public_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(public_cidr.split('/')[0].split('.')[-1]) + 1}-{public_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(public_cidr.split('/')[0].split('.')[-1]) + 2}",
-                    'gateway': f"{bh_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(bh_cidr.split('/')[0].split('.')[-1]) - 1}"
-                }
-            elif device == 'ccr1036':
-                suggestions = {
-                    'public_port': 'sfp-sfpplus7',
-                    'nat_port': 'sfp-sfpplus8',
-                    'uplink_interface': 'sfp-sfpplus1',
-                    'public_pool': f"{public_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(public_cidr.split('/')[0].split('.')[-1]) + 1}-{public_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(public_cidr.split('/')[0].split('.')[-1]) + 2}",
-                    'gateway': f"{bh_cidr.split('/')[0].rsplit('.', 1)[0]}.{int(bh_cidr.split('/')[0].split('.')[-1]) - 1}"
-                }
+            except (ValueError, IndexError):
+                suggestions = port_suggestion
             
             return jsonify({
                 'success': True,
@@ -14271,14 +14272,16 @@ def extract_port_mapping(config_content):
 
 def format_port_mapping_text(port_mapping, device_name='', customer_code=''):
     """
-    Format port mapping in the requested format:
+    Format port mapping in pipe-delimited format for easy parsing:
     
     ===================================================================
     BH IPs/Port Map
     ===================================================================
-    
-    NXLink160535.ether#: 10.45.250.65/28
-    ROBINSON-NXLink160535: 10.45.250.66/28
+    COMMENT | PORT | IP/CIDR
+    -------------------------------------------------------------------
+    CX HANDOFF | ether7 | 142.147.123.65/29
+    NAT | ether8 | 192.168.88.1/24
+    ZAYO-DF-ALEDO | sfp-sfpplus1 | 10.45.250.65/29
     ...
     """
     if not port_mapping:
@@ -14288,7 +14291,8 @@ def format_port_mapping_text(port_mapping, device_name='', customer_code=''):
     lines.append("=" * 67)
     lines.append("BH IPs/Port Map")
     lines.append("=" * 67)
-    lines.append("")
+    lines.append(f"{'COMMENT':<30} | {'PORT':<20} | {'IP/CIDR'}")
+    lines.append("-" * 67)
     
     # Sort ports for consistent output
     # Priority: interfaces with IPs first, then by IP address value (for sequential ordering), then by port type
@@ -14324,39 +14328,21 @@ def format_port_mapping_text(port_mapping, device_name='', customer_code=''):
         # Prefer IP comment if available, otherwise use interface comment
         display_comment = ip_comment if ip_comment else comment
         
-        # Format: comment.port: ip_address
+        # Format: COMMENT | PORT | IP/CIDR  (pipe-delimited for easy parsing)
         if display_comment and ip_address:
-            # Clean up comment (remove quotes, extra spaces)
             comment_clean = display_comment.strip('"').strip("'").strip()
-            # Format as requested: comment.port: ip/subnet
-            # Replace port number with # if it's ethernet (e.g., ether7 -> ether#)
-            port_display = port
-            if port.startswith('ether') and re.search(r'\d+', port):
-                port_display = re.sub(r'\d+', '#', port)
-            line = f"{comment_clean}.{port_display}: {ip_address}"
+            line = f"{comment_clean} | {port} | {ip_address}"
             lines.append(line)
         elif comment and ip_address:
-            # Fallback to interface comment
             comment_clean = comment.strip('"').strip("'").strip()
-            port_display = port
-            if port.startswith('ether') and re.search(r'\d+', port):
-                port_display = re.sub(r'\d+', '#', port)
-            line = f"{comment_clean}.{port_display}: {ip_address}"
+            line = f"{comment_clean} | {port} | {ip_address}"
             lines.append(line)
         elif display_comment:
-            # Port with comment but no IP
             comment_clean = display_comment.strip('"').strip("'").strip()
-            port_display = port
-            if port.startswith('ether') and re.search(r'\d+', port):
-                port_display = re.sub(r'\d+', '#', port)
-            line = f"{comment_clean}.{port_display}: (no IP)"
+            line = f"{comment_clean} | {port} | (no IP)"
             lines.append(line)
         elif ip_address:
-            # Port with IP but no comment
-            port_display = port
-            if port.startswith('ether') and re.search(r'\d+', port):
-                port_display = re.sub(r'\d+', '#', port)
-            line = f"{port_display}: {ip_address}"
+            line = f"(none) | {port} | {ip_address}"
             lines.append(line)
     
     lines.append("")
