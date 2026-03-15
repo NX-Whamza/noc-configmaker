@@ -12862,6 +12862,10 @@ show mac address-table | include &lt;mac&gt;</div>
                 const targetPane = document.getElementById(tabId + '-pane');
                 if (targetPane) {
                     targetPane.classList.add('active');
+                    // Scroll content area to top when switching tabs
+                    const contentArea = targetPane.closest('.content-area');
+                    if (contentArea) contentArea.scrollTop = 0;
+                    window.scrollTo(0, 0);
                 }
 
                 // Highlight the active nav item
@@ -27682,7 +27686,10 @@ Ready for translation!`);
         window.cmdHover = function (idx) { cmdSelectedIdx = idx; cmdRender(document.getElementById('cmdPaletteInput').value); };
         window.cmdExec = function (idx) {
             const item = cmdFiltered[idx];
-            if (item) { closeCommandPalette(); item.action(); }
+            if (item) {
+                closeCommandPalette();
+                setTimeout(() => item.action(), 50);
+            }
         };
 
         document.addEventListener('keydown', function (e) {
@@ -29557,7 +29564,8 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
 
         // --- Tab navigation via sidebar ---
         sidebar.querySelectorAll('.sb-item[data-sb-tab]').forEach(item => {
-            item.addEventListener('click', () => {
+            item.addEventListener('click', (e) => {
+                e.stopPropagation(); // Prevent bubbling to group header
                 const tabId = item.getAttribute('data-sb-tab');
                 const subtab = item.getAttribute('data-sb-subtab');
 
