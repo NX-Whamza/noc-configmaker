@@ -8634,12 +8634,12 @@ def gen_enterprise_non_mpls():
         if private_cidr and private_gateway:
             # Add dhcp-option-set=optset if address doesn't start with "10."
             private_dhcp_optset = "" if private_network.startswith("10.") else " dhcp-option-set=optset"
-            dhcp_net_block += f"add address={private_network}/{private_parts[1]} comment=PRIVATES dns-server={dns1},{dns2} gateway={private_gateway} netmask={private_parts[1]}{private_dhcp_optset}\n"
+            dhcp_net_block += f"add address={private_network}/{private_parts[1]} comment=PRIVATES dns-server={dns1},{dns2} gateway={private_gateway}{private_dhcp_optset}\n"
         else:
             private_base = pub['first_host'].rsplit('.', 1)[0]
             # Add dhcp-option-set=optset if address doesn't start with "10."
             private_dhcp_optset = "" if private_base.startswith("10.") else " dhcp-option-set=optset"
-            dhcp_net_block += f"add address={private_base}.0/24 comment=PRIVATES dns-server={dns1},{dns2} gateway={private_base}.1 netmask=24{private_dhcp_optset}\n"
+            dhcp_net_block += f"add address={private_base}.0/24 comment=PRIVATES dns-server={dns1},{dns2} gateway={private_base}.1{private_dhcp_optset}\n"
         blocks.append(dhcp_net_block)
         
         # Firewall NAT (tab-specific rules - NTP, private NAT)
