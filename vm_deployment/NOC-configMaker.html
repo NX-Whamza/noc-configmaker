@@ -361,6 +361,7 @@
             color: var(--text-color);
         }
         .sb-item.active {
+            background: rgba(139,92,246,0.12);
             background: color-mix(in srgb, var(--accent-color) 12%, transparent);
             color: var(--accent-color);
             border-left-color: var(--accent-color);
@@ -375,10 +376,12 @@
             filter: grayscale(0.55) brightness(0.8);
         }
         .sb-item:hover .sb-item-icon {
+            background: rgba(139,92,246,0.08);
             background: color-mix(in srgb, var(--accent-color) 8%, transparent);
             filter: grayscale(0.1) brightness(1.05);
         }
         .sb-item.active .sb-item-icon {
+            background: rgba(139,92,246,0.18);
             background: color-mix(in srgb, var(--accent-color) 18%, transparent);
             filter: grayscale(0) brightness(1.1) drop-shadow(0 0 4px var(--accent-color));
         }
@@ -27746,7 +27749,7 @@ Ready for translation!`);
                 }
                 const sel = idx === cmdSelectedIdx ? ' selected' : '';
                 const sc = item.shortcut ? `<span class="cmd-item-shortcut">${item.shortcut}</span>` : '';
-                html += `<div class="cmd-item${sel}" data-idx="${idx}" onmouseenter="cmdHover(${idx})" onclick="cmdExec(${idx})">
+                html += `<div class="cmd-item${sel}" data-cmd-idx="${idx}">
                     <span class="cmd-item-icon">${item.icon}</span>
                     <div class="cmd-item-body"><div class="cmd-item-label">${highlight(item.label, q)}</div><div class="cmd-item-desc">${item.desc}</div></div>
                     ${sc}
@@ -27768,12 +27771,33 @@ Ready for translation!`);
             if (sel) sel.scrollIntoView({ block: 'nearest' });
         }
 
-        window.cmdHover = function (idx) { cmdSelectedIdx = idx; cmdRender(document.getElementById('cmdPaletteInput').value); };
+        // Event delegation — click & hover on results container (survives innerHTML rebuilds)
+        document.getElementById('cmdPaletteResults').addEventListener('click', function(e) {
+            const item = e.target.closest('.cmd-item[data-cmd-idx]');
+            if (!item) return;
+            const idx = parseInt(item.getAttribute('data-cmd-idx'), 10);
+            const entry = cmdFiltered[idx];
+            if (entry) {
+                closeCommandPalette();
+                setTimeout(() => { entry.action(); }, 60);
+            }
+        });
+        document.getElementById('cmdPaletteResults').addEventListener('mouseover', function(e) {
+            const item = e.target.closest('.cmd-item[data-cmd-idx]');
+            if (!item) return;
+            const idx = parseInt(item.getAttribute('data-cmd-idx'), 10);
+            if (idx === cmdSelectedIdx) return;
+            // Update highlight without full re-render
+            const prev = this.querySelector('.cmd-item.selected');
+            if (prev) prev.classList.remove('selected');
+            item.classList.add('selected');
+            cmdSelectedIdx = idx;
+        });
         window.cmdExec = function (idx) {
             const item = cmdFiltered[idx];
             if (item) {
                 closeCommandPalette();
-                setTimeout(() => item.action(), 50);
+                setTimeout(() => { item.action(); }, 60);
             }
         };
 
