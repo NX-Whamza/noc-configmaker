@@ -18713,9 +18713,9 @@ show mac address-table | include &lt;mac&gt;</div>
             const uplinks = document.querySelectorAll('#ent_mpls_uplinksContainer .interface-item');
             const uplinkData = [];
             uplinks.forEach((uplink, index) => {
-                const uplinkInterface = uplink.querySelector('.ent_mpls_uplinkInterface').value;
-                const uplinkIP = uplink.querySelector('.ent_mpls_uplinkIP').value;
-                const uplinkComment = uplink.querySelector('.ent_mpls_uplinkComment').value;
+                const uplinkInterface = uplink.querySelector('.ent_mpls_uplinkInterface')?.value || '';
+                const uplinkIP = uplink.querySelector('.ent_mpls_uplinkIP')?.value || '';
+                const uplinkComment = uplink.querySelector('.ent_mpls_uplinkComment')?.value || '';
                 if (uplinkInterface && uplinkIP) {
                     uplinkData.push({
                         interface: uplinkInterface,
@@ -23869,29 +23869,37 @@ Ready for translation!`);
             };
 
             // --- Collect table data from main pane ---
+            function getCellFieldValue(row, cellIndex, selector, fallback = '') {
+                const cell = row?.cells?.[cellIndex];
+                const field = cell?.querySelector(selector);
+                if (!field) return fallback;
+                if (field.type === 'checkbox') return !!field.checked;
+                return typeof field.value === 'string' ? field.value.trim() : (field.value ?? fallback);
+            }
+
             function nokia7250MainGetConnectors() {
                 return [...document.querySelectorAll('#nokia7250_conn_tbl tbody tr')].map(tr => ({
-                    port: tr.cells[0].querySelector('select').value,
-                    desc: tr.cells[1].querySelector('input').value.trim(),
-                    ip: tr.cells[2].querySelector('input').value.trim(),
-                    mtu: tr.cells[3].querySelector('input').value.trim()
+                    port: getCellFieldValue(tr, 0, 'select'),
+                    desc: getCellFieldValue(tr, 1, 'input'),
+                    ip: getCellFieldValue(tr, 2, 'input'),
+                    mtu: getCellFieldValue(tr, 3, 'input')
                 })).filter(c => c.desc);
             }
 
             function nokia7250MainGetUplinks() {
                 return [...document.querySelectorAll('#nokia7250_uplink_tbl tbody tr')].map(tr => ({
-                    port: tr.cells[0].querySelector('select').value,
-                    desc: tr.cells[1].querySelector('input').value.trim(),
-                    ip: tr.cells[2].querySelector('input').value.trim(),
-                    speed: tr.cells[3].querySelector('select').value,
-                    mtu: tr.cells[4].querySelector('input').value.trim()
+                    port: getCellFieldValue(tr, 0, 'select'),
+                    desc: getCellFieldValue(tr, 1, 'input'),
+                    ip: getCellFieldValue(tr, 2, 'input'),
+                    speed: getCellFieldValue(tr, 3, 'select'),
+                    mtu: getCellFieldValue(tr, 4, 'input')
                 })).filter(u => u.desc);
             }
 
             function nokia7250MainGetBgpNeighbors() {
                 return [...document.querySelectorAll('#nokia7250_bgp_tbl tbody tr')].map(tr => ({
-                    group: tr.cells[0].querySelector('input').value.trim(),
-                    ip: tr.cells[1].querySelector('input').value.trim()
+                    group: getCellFieldValue(tr, 0, 'input'),
+                    ip: getCellFieldValue(tr, 1, 'input')
                 })).filter(b => b.ip);
             }
 
@@ -25694,12 +25702,12 @@ Ready for translation!`);
         // Collect port rows
         function nokia7250psGetPorts() {
             return [...document.querySelectorAll('#nokia7250ps_port_table tbody tr')].map(tr => ({
-                port: tr.cells[0].querySelector('select').value,
-                desc: tr.cells[1].querySelector('input').value.trim(),
-                ip: tr.cells[2].querySelector('input').value.trim(),
-                mtu: tr.cells[3].querySelector('input').value.trim() || '1514',
-                speed: tr.cells[4].querySelector('select').value,
-                noShut: tr.cells[5].querySelector('input').checked
+                port: getCellFieldValue(tr, 0, 'select'),
+                desc: getCellFieldValue(tr, 1, 'input'),
+                ip: getCellFieldValue(tr, 2, 'input'),
+                mtu: getCellFieldValue(tr, 3, 'input') || '1514',
+                speed: getCellFieldValue(tr, 4, 'select'),
+                noShut: !!getCellFieldValue(tr, 5, 'input', false)
             })).filter(p => p.desc && p.ip);
         }
 
@@ -28357,26 +28365,35 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
         // ── Mode Switching ──
         window.bulkSwitchMode = function (mode) {
             document.querySelectorAll('.bulk-mode-tab').forEach(t => t.classList.remove('active'));
-            document.querySelector(`.bulk-mode-tab[data-bulk-mode="${mode}"]`).classList.add('active');
-            document.getElementById('bulkModeGenerate').style.display = mode === 'generate' ? '' : 'none';
-            document.getElementById('bulkModeSshFetch').style.display = mode === 'ssh-fetch' ? '' : 'none';
-            document.getElementById('bulkModeMigration').style.display = mode === 'migration' ? '' : 'none';
+            const activeTab = document.querySelector(`.bulk-mode-tab[data-bulk-mode="${mode}"]`);
+            if (activeTab) activeTab.classList.add('active');
+            const generatePane = document.getElementById('bulkModeGenerate');
+            const sshPane = document.getElementById('bulkModeSshFetch');
+            const migrationPane = document.getElementById('bulkModeMigration');
+            if (generatePane) generatePane.style.display = mode === 'generate' ? '' : 'none';
+            if (sshPane) sshPane.style.display = mode === 'ssh-fetch' ? '' : 'none';
+            if (migrationPane) migrationPane.style.display = mode === 'migration' ? '' : 'none';
         };
 
         // ── Input type switching ──
         window.bulkGenInputChanged = function () {
-            const inputType = document.getElementById('bulkGenInputType').value;
-            document.getElementById('bulkDropzone').style.display = (inputType === 'csv' || inputType === 'json') ? '' : 'none';
-            document.getElementById('bulkManualEntry').style.display = inputType === 'manual' ? '' : 'none';
+            const inputType = document.getElementById('bulkGenInputType')?.value || 'csv';
+            const dropzone = document.getElementById('bulkDropzone');
+            const manualEntry = document.getElementById('bulkManualEntry');
+            if (dropzone) dropzone.style.display = (inputType === 'csv' || inputType === 'json') ? '' : 'none';
+            if (manualEntry) manualEntry.style.display = inputType === 'manual' ? '' : 'none';
             // Update dropzone text
+            const dropTitle = document.querySelector('#bulkDropzone .drop-title');
+            const dropSub = document.querySelector('#bulkDropzone .drop-sub');
+            const fileInput = document.getElementById('bulkFileInput');
             if (inputType === 'json') {
-                document.querySelector('#bulkDropzone .drop-title').textContent = 'Drop your JSON file here';
-                document.querySelector('#bulkDropzone .drop-sub').innerHTML = 'or click to browse &bull; Accepts .json files &bull; <a href="#" onclick="event.stopPropagation();bulkDownloadTemplate()" style="color:var(--accent-color)">Download template</a>';
-                document.getElementById('bulkFileInput').accept = '.json';
+                if (dropTitle) dropTitle.textContent = 'Drop your JSON file here';
+                if (dropSub) dropSub.innerHTML = 'or click to browse &bull; Accepts .json files &bull; <a href="#" onclick="event.stopPropagation();bulkDownloadTemplate()" style="color:var(--accent-color)">Download template</a>';
+                if (fileInput) fileInput.accept = '.json';
             } else {
-                document.querySelector('#bulkDropzone .drop-title').textContent = 'Drop your CSV file here';
-                document.querySelector('#bulkDropzone .drop-sub').innerHTML = 'or click to browse &bull; Accepts .csv files &bull; <a href="#" onclick="event.stopPropagation();bulkDownloadTemplate()" style="color:var(--accent-color)">Download template</a>';
-                document.getElementById('bulkFileInput').accept = '.csv';
+                if (dropTitle) dropTitle.textContent = 'Drop your CSV file here';
+                if (dropSub) dropSub.innerHTML = 'or click to browse &bull; Accepts .csv files &bull; <a href="#" onclick="event.stopPropagation();bulkDownloadTemplate()" style="color:var(--accent-color)">Download template</a>';
+                if (fileInput) fileInput.accept = '.csv';
             }
         };
 
