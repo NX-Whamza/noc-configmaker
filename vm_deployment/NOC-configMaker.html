@@ -5517,8 +5517,8 @@
                             <div>
                                 <label for="ent_routerboard_device">RouterBoard Device:</label>
                                 <div class="form-group">
-                                    <label for="targetDevice">Target Device:</label>
-                                    <select id="targetDevice" class="form-control">
+                                    <label for="ent_targetDeviceLegacy">Target Device:</label>
+                                    <select id="ent_targetDeviceLegacy" class="form-control">
                                         <option value="CCR2004-1G-12S+2XS">CCR2004-1G-12S+2XS (12 SFP+, 2 XS, 1
                                             Ethernet)</option>
                                         <option value="CCR1036-12G-4S">CCR1036-12G-4S (12 Ethernet, 4 SFP)</option>
@@ -10133,6 +10133,12 @@ show mac address-table | include &lt;mac&gt;</div>
             console.log(`Available ports: ${[...deviceConfig.ports, ...deviceConfig.sfpPorts].join(', ')}`);
         }
 
+        function updateInterfacesForMigration() {
+            if (typeof updateDevicePorts === 'function') {
+                updateDevicePorts();
+            }
+        }
+
         // Enterprise Config RouterOS Version Handler
         function handleEnterpriseRouterOSChange() {
             const routerOSSelect = document.getElementById('ent_routeros_version');
@@ -13489,6 +13495,7 @@ show mac address-table | include &lt;mac&gt;</div>
             // Settings Modal Functions
             window.openSettingsModal = function () {
                 const modal = document.getElementById('settingsModal');
+                if (!modal) return;
                 modal.classList.add('show');
 
                 // Load current settings
@@ -13514,14 +13521,15 @@ show mac address-table | include &lt;mac&gt;</div>
             }
 
             window.closeSettingsModal = function () {
-                document.getElementById('settingsModal').classList.remove('show');
+                const modal = document.getElementById('settingsModal');
+                if (modal) modal.classList.remove('show');
             }
 
             window.updateSettingsSelection = function () {
                 // Update font option styling
                 document.querySelectorAll('.font-option').forEach(opt => {
                     const radio = opt.querySelector('input[type="radio"]');
-                    if (radio.checked) {
+                    if (radio?.checked) {
                         opt.classList.add('selected');
                     } else {
                         opt.classList.remove('selected');
@@ -13532,7 +13540,7 @@ show mac address-table | include &lt;mac&gt;</div>
             window.saveSettings = function () {
                 // Get selected values
                 const theme = document.getElementById('themeSelect')?.value || 'dark';
-                const fontSize = document.querySelector('input[name="fontSize"]:checked').value;
+                const fontSize = document.querySelector('input[name="fontSize"]:checked')?.value || localStorage.getItem('fontSize') || 'comfortable';
 
                 // Save to localStorage
                 localStorage.setItem('theme', theme);
@@ -18038,9 +18046,21 @@ show mac address-table | include &lt;mac&gt;</div>
             const dev = document.getElementById('ent_routerboard_device')?.value || '';
             // Map routerboard device to deviceType for naming
             const map = { ccr2004: 'CCR2004', ccr2216: 'CCR2216', ccr2116: 'CCR2116', ccr1036: 'CCR1036', rb5009: 'RB5009', ccr1072: 'CCR1072', rb2011: 'RB2011', rb1009: 'RB1009' };
+            const legacyModelMap = {
+                ccr2004: 'CCR2004-1G-12S+2XS',
+                ccr1036: 'CCR1036-12G-4S',
+                rb5009: 'RB5009UG+S+',
+                ccr2116: 'CCR2116-12G-4S+',
+                ccr2216: 'CCR2216-1G-12XS-2XQ',
+                rb1009: 'RB5009UG+S+',
+                rb2011: 'RB5009UG+S+',
+                ccr1072: 'CCR1036-12G-4S'
+            };
             const mappedType = map[dev] || '';
             const typeSel = document.getElementById('ent_deviceType');
             if (typeSel && mappedType) { typeSel.value = mappedType; updateEnterpriseDeviceName(); }
+            const legacyTarget = document.getElementById('ent_targetDeviceLegacy');
+            if (legacyTarget && legacyModelMap[dev]) legacyTarget.value = legacyModelMap[dev];
             updateEnterpriseInterfaces();
         }
 
@@ -29481,7 +29501,8 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
         let _pushSource = ''; // 'compliance' | 'migration'
 
         window.closePushModal = function () {
-            document.getElementById('sshPushModal').classList.remove('show');
+            const modal = document.getElementById('sshPushModal');
+            if (modal) modal.classList.remove('show');
         };
 
         function openPushConfirmation(devices, source) {
