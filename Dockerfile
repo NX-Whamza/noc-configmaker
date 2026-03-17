@@ -8,6 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
+    curl \
     libsnmp-dev \
     libsmi2-dev \
     pkg-config \
@@ -21,6 +22,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Non-root user for security (platform compliance)
+# Note: secure_data volume must be writable by uid 1001
 RUN mkdir -p /app/secure_data && chown -R appuser:appgroup /app/secure_data
 
 USER appuser
