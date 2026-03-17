@@ -4,7 +4,9 @@ REM NOC Config Maker - Unified Backend Startup
 REM Starts all required backend services in one script
 REM ========================================
 setlocal enabledelayedexpansion
-cd /d "%~dp0"
+set "SCRIPT_DIR=%~dp0"
+for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
+cd /d "%REPO_ROOT%"
 
 echo ========================================
 echo NOC Config Maker - Unified Backend Startup
@@ -28,9 +30,6 @@ if %ERRORLEVEL% NEQ 0 (
 
 REM ===== Step 1: Start Backend API =====
 echo [1/2] Starting Backend API...
-set "AI_PROVIDER=openai"
-set "ROS_TRAINING_DIR=%USERPROFILE%\Downloads\ros-migration-trainer-v3"
-set "BASE_CONFIG_PATH=%USERPROFILE%\Downloads\netlaunch-tools-main\netlaunch-tools-main"
 
 REM Check if backend is already running
 curl -s http://localhost:5000/api/health >nul 2>&1
@@ -39,7 +38,7 @@ if %ERRORLEVEL% EQU 0 (
     echo [1/2]    Skipping startup to avoid conflicts
 ) else (
     echo [1/2] Launching FastAPI backend (uvicorn)...
-    start "NOC Backend API" /min cmd /c "cd /d %~dp0 && uvicorn --app-dir vm_deployment fastapi_server:app --host 0.0.0.0 --port 5000"
+    start "NOC Backend API" /min cmd /c "cd /d \"%REPO_ROOT%\" && python -m uvicorn --app-dir vm_deployment fastapi_server:app --host 0.0.0.0 --port 5000"
     echo [1/2] Waiting for backend to initialize...
     timeout /t 5 /nobreak >nul
     
@@ -61,8 +60,8 @@ if %ERRORLEVEL% EQU 0 (
     echo [2/2] WARNING: Frontend server is already running on port 8000
     echo [2/2]    Skipping startup to avoid conflicts
 ) else (
-    echo [2/2] Launching serve_html.py...
-    start "NOC HTML Frontend" /min cmd /c "cd /d %~dp0 && python serve_html.py"
+    echo [2/2] Launching Python http.server for vm_deployment...
+    start "NOC HTML Frontend" /min cmd /c "cd /d \"%REPO_ROOT%\\vm_deployment\" && python -m http.server 8000"
     echo [2/2] Waiting for frontend to initialize...
     timeout /t 2 /nobreak >nul
     echo [2/2] Frontend server started

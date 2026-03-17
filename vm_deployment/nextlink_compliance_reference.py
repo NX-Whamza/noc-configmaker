@@ -490,6 +490,31 @@ def get_compliance_ldp_filters():
 # ========================================
 # GET ALL COMPLIANCE BLOCKS
 # ========================================
+def _local_reference_compliance_blocks(loopback_ip=None):
+    if not loopback_ip:
+        loopback_ip = "10.0.0.1/32"
+    return {
+        "ip_services": COMPLIANCE_IP_SERVICES.strip(),
+        "dns": COMPLIANCE_DNS.strip(),
+        "firewall_address_lists": get_compliance_address_lists_block().strip(),
+        "firewall_filter_input": COMPLIANCE_FIREWALL_FILTER_INPUT.strip(),
+        "firewall_raw": COMPLIANCE_FIREWALL_RAW.strip(),
+        "firewall_forward": COMPLIANCE_FIREWALL_FORWARD.strip(),
+        "firewall_nat": COMPLIANCE_FIREWALL_NAT.strip(),
+        "firewall_mangle": COMPLIANCE_FIREWALL_MANGLE.strip(),
+        "clock_ntp": COMPLIANCE_CLOCK_NTP.strip(),
+        "snmp": COMPLIANCE_SNMP.strip(),
+        "system_settings": COMPLIANCE_SYSTEM_SETTINGS.strip(),
+        "vpls_edge": COMPLIANCE_VPLS_EDGE.strip(),
+        "logging": get_compliance_logging(loopback_ip).strip(),
+        "user_aaa": COMPLIANCE_USER_AAA.strip(),
+        "user_groups": COMPLIANCE_USER_GROUPS.strip(),
+        "dhcp_options": COMPLIANCE_DHCP_OPTIONS.strip(),
+        "radius": get_compliance_radius(loopback_ip).strip(),
+        "ldp_filters": get_compliance_ldp_filters().strip(),
+    }
+
+
 def get_all_compliance_blocks(loopback_ip=None):
     """
     Get all compliance configuration blocks from GitLab (single source of truth).
@@ -522,10 +547,8 @@ def get_all_compliance_blocks(loopback_ip=None):
     else:
         print("[COMPLIANCE-REF] WARNING: GitLab compliance module not available")
 
-    # No hardcoded fallback — GitLab is the single source of truth
-    print("[COMPLIANCE-REF] WARNING: No compliance blocks available — "
-          "GitLab is the only source (no hardcoded fallback)")
-    return {}
+    print("[COMPLIANCE-REF] WARNING: GitLab unavailable, using bundled local compliance reference blocks")
+    return _local_reference_compliance_blocks(loopback_ip)
 
 # ========================================
 # COMPLIANCE VALIDATION

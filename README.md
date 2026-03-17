@@ -502,7 +502,7 @@ noc-configmaker/
 ├── NOC-configMaker.html          # Main application UI
 ├── login.html                    # Authentication page
 ├── change-password.html          # Password management
-├── launcher.py                   # Application entry point
+├── vm_deployment/launcher.py     # Packaged launcher / EXE entrypoint
 ├── build_exe.py                  # Executable builder
 │
 ├── nextlink_standards.py         # RouterOS policies
@@ -547,11 +547,14 @@ cd noc-configmaker
 # 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Start server
-python api_server.py
+# 3. Start backend
+python -m uvicorn --app-dir vm_deployment fastapi_server:app --host 0.0.0.0 --port 5000
 
-# 4. Access application
-# http://localhost:5000
+# 4. Serve frontend in another terminal
+python -m http.server 8000 --directory vm_deployment
+
+# 5. Access application
+# http://localhost:8000/NOC-configMaker.html
 ```
 
 ### Production VM Deployment

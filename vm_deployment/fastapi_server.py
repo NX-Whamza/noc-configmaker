@@ -515,7 +515,7 @@ def mt_generate_config(config_type: str, payload: Dict[str, Any] = Body(default_
     config_cls = _mt_config_class(config_type)
     try:
         local_payload = ido_merge_defaults(config_type, dict(payload or {}))
-        apply_compliance = bool(local_payload.pop("apply_compliance", True))
+        apply_compliance = _ido_to_bool(local_payload.pop("apply_compliance", True), True)
         payload_loopback = local_payload.get("loopback_subnet") or local_payload.get("loop_ip")
         cfg = config_cls(**local_payload)
         # Keep response shape compatible: frontend expects response.json() -> string
@@ -615,7 +615,7 @@ def ido_render(config_type: str, payload: Dict[str, Any] = Body(default_factory=
     config_cls = _mt_config_class(config_type)
     try:
         local_payload = ido_merge_defaults(config_type, dict(payload or {}))
-        apply_compliance = bool(local_payload.pop("apply_compliance", True))
+        apply_compliance = _ido_to_bool(local_payload.pop("apply_compliance", True), True)
         payload_loopback = local_payload.get("loopback_subnet") or local_payload.get("loop_ip")
         cfg = config_cls(**local_payload)
         config_text = cfg.generate_config()
