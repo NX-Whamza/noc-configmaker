@@ -360,6 +360,12 @@
             background: var(--sidebar-hover);
             color: var(--text-color);
         }
+        .sb-item:focus-visible {
+            outline: 2px solid color-mix(in srgb, var(--accent-color) 72%, white 28%);
+            outline-offset: -2px;
+            background: color-mix(in srgb, var(--accent-color) 10%, transparent);
+            color: var(--text-color);
+        }
         .sb-item.active {
             background: rgba(139,92,246,0.12);
             background: color-mix(in srgb, var(--accent-color) 12%, transparent);
@@ -3398,6 +3404,7 @@
         .cmd-group-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--accent-color);padding:10px 14px 4px;user-select:none}
         .cmd-item{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:8px;cursor:pointer;transition:background .12s}
         .cmd-item:hover,.cmd-item.selected{background:var(--accent-color);color:#fff}
+        .cmd-item:focus-visible{outline:2px solid color-mix(in srgb,var(--accent-color) 70%,white 30%);outline-offset:-2px;background:color-mix(in srgb,var(--accent-color) 14%,transparent)}
         .cmd-item:hover .cmd-item-desc,.cmd-item.selected .cmd-item-desc{color:rgba(255,255,255,.75)}
         .cmd-item-icon{font-size:18px;width:28px;text-align:center;flex-shrink:0}
         .cmd-item-body{flex:1;min-width:0}
@@ -27728,6 +27735,7 @@ Ready for translation!`);
 
         function cmdRender(query) {
             const results = document.getElementById('cmdPaletteResults');
+            if (!results) return;
             const q = query.toLowerCase().trim();
             cmdFiltered = q ? CMD_ITEMS.filter(i =>
                 i.label.toLowerCase().includes(q) ||
@@ -27748,8 +27756,9 @@ Ready for translation!`);
                     html += `<div class="cmd-group-label">${item.cat}</div>`;
                 }
                 const sel = idx === cmdSelectedIdx ? ' selected' : '';
+                const ariaSelected = idx === cmdSelectedIdx ? 'true' : 'false';
                 const sc = item.shortcut ? `<span class="cmd-item-shortcut">${item.shortcut}</span>` : '';
-                html += `<div class="cmd-item${sel}" data-cmd-idx="${idx}">
+                html += `<div class="cmd-item${sel}" data-cmd-idx="${idx}" role="option" aria-selected="${ariaSelected}" tabindex="-1">
                     <span class="cmd-item-icon">${item.icon}</span>
                     <div class="cmd-item-body"><div class="cmd-item-label">${highlight(item.label, q)}</div><div class="cmd-item-desc">${item.desc}</div></div>
                     ${sc}
@@ -27772,27 +27781,32 @@ Ready for translation!`);
         }
 
         // Event delegation — click & hover on results container (survives innerHTML rebuilds)
-        document.getElementById('cmdPaletteResults').addEventListener('click', function(e) {
-            const item = e.target.closest('.cmd-item[data-cmd-idx]');
-            if (!item) return;
-            const idx = parseInt(item.getAttribute('data-cmd-idx'), 10);
-            const entry = cmdFiltered[idx];
-            if (entry) {
-                closeCommandPalette();
-                setTimeout(() => { entry.action(); }, 60);
-            }
-        });
-        document.getElementById('cmdPaletteResults').addEventListener('mouseover', function(e) {
-            const item = e.target.closest('.cmd-item[data-cmd-idx]');
-            if (!item) return;
-            const idx = parseInt(item.getAttribute('data-cmd-idx'), 10);
-            if (idx === cmdSelectedIdx) return;
-            // Update highlight without full re-render
-            const prev = this.querySelector('.cmd-item.selected');
-            if (prev) prev.classList.remove('selected');
-            item.classList.add('selected');
-            cmdSelectedIdx = idx;
-        });
+        const cmdPaletteResults = document.getElementById('cmdPaletteResults');
+        if (cmdPaletteResults) {
+            cmdPaletteResults.addEventListener('click', function(e) {
+                const item = e.target.closest('.cmd-item[data-cmd-idx]');
+                if (!item) return;
+                const idx = parseInt(item.getAttribute('data-cmd-idx'), 10);
+                const entry = cmdFiltered[idx];
+                if (entry) {
+                    closeCommandPalette();
+                    setTimeout(() => { entry.action(); }, 60);
+                }
+            });
+            cmdPaletteResults.addEventListener('mouseover', function(e) {
+                const item = e.target.closest('.cmd-item[data-cmd-idx]');
+                if (!item) return;
+                const idx = parseInt(item.getAttribute('data-cmd-idx'), 10);
+                if (idx === cmdSelectedIdx) return;
+                // Update highlight without full re-render
+                const prev = this.querySelector('.cmd-item.selected');
+                if (prev) prev.classList.remove('selected');
+                item.classList.add('selected');
+                item.setAttribute('aria-selected', 'true');
+                if (prev) prev.setAttribute('aria-selected', 'false');
+                cmdSelectedIdx = idx;
+            });
+        }
         window.cmdExec = function (idx) {
             const item = cmdFiltered[idx];
             if (item) {
@@ -27818,10 +27832,13 @@ Ready for translation!`);
             if (e.key === 'Enter') { e.preventDefault(); window.cmdExec(cmdSelectedIdx); }
         });
 
-        document.getElementById('cmdPaletteInput').addEventListener('input', function () {
-            cmdSelectedIdx = 0;
-            cmdRender(this.value);
-        });
+        const cmdPaletteInput = document.getElementById('cmdPaletteInput');
+        if (cmdPaletteInput) {
+            cmdPaletteInput.addEventListener('input', function () {
+                cmdSelectedIdx = 0;
+                cmdRender(this.value);
+            });
+        }
 
         /* ──────────────────────────────────────────────────
            3. CONFIG DIFF VIEWER
@@ -29659,86 +29676,164 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
         const sidebar = document.getElementById('appSidebar');
         if (!sidebar) return;
 
-        // --- Group expand/collapse ---
-        sidebar.querySelectorAll('.sb-group > .sb-item-header').forEach(header => {
-            header.addEventListener('click', () => {
-                const group = header.closest('.sb-group');
-                // Close other groups
-                sidebar.querySelectorAll('.sb-group').forEach(g => {
-                    if (g !== group) g.classList.remove('open');
-                });
-                group.classList.toggle('open');
+        function makeSidebarNodeFocusable(node) {
+            if (!node || node.hasAttribute('tabindex')) return;
+            node.setAttribute('tabindex', '0');
+            node.setAttribute('role', 'button');
+        }
+
+        sidebar.querySelectorAll('.sb-item, .sb-item-header').forEach(makeSidebarNodeFocusable);
+
+        function toggleSidebarGroup(header) {
+            const group = header?.closest('.sb-group');
+            if (!group) return;
+            sidebar.querySelectorAll('.sb-group').forEach(g => {
+                if (g !== group) g.classList.remove('open');
             });
-        });
+            group.classList.toggle('open');
+        }
 
-        // --- Tab navigation via sidebar ---
-        sidebar.querySelectorAll('.sb-item[data-sb-tab]').forEach(item => {
-            item.addEventListener('click', (e) => {
-                e.stopPropagation(); // Prevent bubbling to group header
-                const tabId = item.getAttribute('data-sb-tab');
-                const subtab = item.getAttribute('data-sb-subtab');
+        function getCurrentSidebarSelection() {
+            const activePane = document.querySelector('.content-pane.active');
+            let tabId = activePane?.id ? activePane.id.replace(/-pane$/, '') : 'home';
+            let subtab = null;
 
-                // Call existing navigateToTab
-                if (typeof window.navigateToTab === 'function') {
-                    window.navigateToTab(tabId);
-                }
+            if (tabId === 'ftth-home') {
+                subtab = document.querySelector('#ftth-home-pane .ftth-home-dropdown-item.active')?.dataset.ftthHomeTab
+                    || document.querySelector('#ftth-home-pane .ftth-home-section.active')?.id?.replace('ftth-home-', '').replace('-section', '')
+                    || 'olt';
+            } else if (tabId === 'command-vault') {
+                subtab = document.querySelector('#command-vault-pane .command-vault-tab.active')?.dataset.commandVaultTab
+                    || document.querySelector('#command-vault-pane .command-vault-section.active')?.id?.replace('command-vault-', '').replace('-section', '')
+                    || 'nokia';
+            }
 
-                // Handle subtabs (FTTH, Command Vault)
-                if (tabId === 'ftth-home' && subtab && typeof window.showFtthHomeSubTab === 'function') {
-                    window.showFtthHomeSubTab(subtab);
-                }
-                if (tabId === 'command-vault' && subtab && typeof window.showCommandVaultSubTab === 'function') {
-                    window.showCommandVaultSubTab(subtab);
-                }
+            return { tabId, subtab };
+        }
 
-                // Update sidebar active state
-                updateSidebarActive(tabId);
-            });
-        });
+        function updateSidebarActive(preferredTabId, preferredSubtab) {
+            const resolved = preferredTabId ? { tabId: preferredTabId, subtab: preferredSubtab || null } : getCurrentSidebarSelection();
+            sidebar.querySelectorAll('.sb-item[data-sb-tab]').forEach(el => el.classList.remove('active'));
 
-        // --- Action buttons (feedback, settings, policy) ---
-        sidebar.querySelectorAll('.sb-item[data-sb-action]').forEach(item => {
-            item.addEventListener('click', () => {
-                const action = item.getAttribute('data-sb-action');
-                if (action === 'feedback' && typeof window.openFeedbackModal === 'function') {
-                    window.openFeedbackModal();
-                } else if (action === 'settings' && typeof window.openSettingsModal === 'function') {
-                    window.openSettingsModal();
-                } else if (action === 'policy' && typeof window.togglePolicyReference === 'function') {
-                    window.togglePolicyReference();
-                }
-            });
-        });
+            let activeItem = null;
+            if (resolved.subtab) {
+                activeItem = sidebar.querySelector(`.sb-item[data-sb-tab="${resolved.tabId}"][data-sb-subtab="${resolved.subtab}"]`);
+            }
+            if (!activeItem && resolved.tabId) {
+                activeItem = sidebar.querySelector(`.sb-item[data-sb-tab="${resolved.tabId}"]:not([data-sb-subtab])`)
+                    || sidebar.querySelector(`.sb-item[data-sb-tab="${resolved.tabId}"]`);
+            }
+            if (!activeItem) return;
 
-        // --- Update sidebar active state ---
-        function updateSidebarActive(tabId) {
-            sidebar.querySelectorAll('.sb-item').forEach(el => el.classList.remove('active'));
-            const activeItem = sidebar.querySelector(`.sb-item[data-sb-tab="${tabId}"]`);
-            if (activeItem) {
-                activeItem.classList.add('active');
-                // Open parent group if in one
-                const parentGroup = activeItem.closest('.sb-group');
-                if (parentGroup) parentGroup.classList.add('open');
+            activeItem.classList.add('active');
+            const parentGroup = activeItem.closest('.sb-group');
+            if (parentGroup) parentGroup.classList.add('open');
+        }
+
+        function triggerSidebarAction(action) {
+            if (action === 'feedback' && typeof window.openFeedbackModal === 'function') {
+                window.openFeedbackModal();
+                return;
+            }
+            if (action === 'settings' && typeof window.openSettingsModal === 'function') {
+                window.openSettingsModal();
+                return;
+            }
+            if (action === 'policy' && typeof window.togglePolicyReference === 'function') {
+                window.togglePolicyReference();
             }
         }
 
-        // --- Monkey-patch navigateToTab to sync sidebar ---
-        const _origNavigateToTab = window.navigateToTab;
-        if (_origNavigateToTab) {
-            window.navigateToTab = async function(tabId) {
-                const result = await _origNavigateToTab(tabId);
+        function handleSidebarItem(item) {
+            if (!item) return;
+            const action = item.getAttribute('data-sb-action');
+            if (action) {
+                triggerSidebarAction(action);
+                return;
+            }
+
+            const tabId = item.getAttribute('data-sb-tab');
+            const subtab = item.getAttribute('data-sb-subtab');
+            if (!tabId) return;
+
+            if (typeof window.navigateToTab === 'function') {
+                window.navigateToTab(tabId);
+            }
+            if (tabId === 'ftth-home' && subtab && typeof window.showFtthHomeSubTab === 'function') {
+                window.showFtthHomeSubTab(subtab);
+            }
+            if (tabId === 'command-vault' && subtab && typeof window.showCommandVaultSubTab === 'function') {
+                window.showCommandVaultSubTab(subtab);
+            }
+            updateSidebarActive(tabId, subtab);
+        }
+
+        sidebar.addEventListener('click', (event) => {
+            const header = event.target.closest('.sb-group > .sb-item-header');
+            if (header && sidebar.contains(header)) {
+                toggleSidebarGroup(header);
+                return;
+            }
+
+            const item = event.target.closest('.sb-item');
+            if (item && sidebar.contains(item)) {
+                event.stopPropagation();
+                handleSidebarItem(item);
+            }
+        });
+
+        sidebar.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+
+            const header = event.target.closest('.sb-group > .sb-item-header');
+            if (header && sidebar.contains(header)) {
+                event.preventDefault();
+                toggleSidebarGroup(header);
+                return;
+            }
+
+            const item = event.target.closest('.sb-item');
+            if (item && sidebar.contains(item)) {
+                event.preventDefault();
+                handleSidebarItem(item);
+            }
+        });
+
+        const origNavigateToTab = window.navigateToTab;
+        if (typeof origNavigateToTab === 'function' && !origNavigateToTab.__sidebarSyncWrapped) {
+            const wrappedNavigateToTab = async function(tabId) {
+                const result = await origNavigateToTab(tabId);
                 updateSidebarActive(tabId);
                 return result;
             };
+            wrappedNavigateToTab.__sidebarSyncWrapped = true;
+            window.navigateToTab = wrappedNavigateToTab;
         }
 
-        // --- Add Infara theme to settings if not already there ---
-        // (handled by settings modal code — the theme is available via CSS)
+        const origShowFtthHomeSubTab = window.showFtthHomeSubTab;
+        if (typeof origShowFtthHomeSubTab === 'function' && !origShowFtthHomeSubTab.__sidebarSyncWrapped) {
+            const wrappedFtthHomeSubTab = function(tabKey) {
+                const result = origShowFtthHomeSubTab(tabKey);
+                updateSidebarActive('ftth-home', tabKey);
+                return result;
+            };
+            wrappedFtthHomeSubTab.__sidebarSyncWrapped = true;
+            window.showFtthHomeSubTab = wrappedFtthHomeSubTab;
+        }
 
-        // Set initial sidebar state from URL hash or default
-        const hash = window.location.hash.replace('#', '');
-        if (hash) updateSidebarActive(hash);
-        else updateSidebarActive('home');
+        const origShowCommandVaultSubTab = window.showCommandVaultSubTab;
+        if (typeof origShowCommandVaultSubTab === 'function' && !origShowCommandVaultSubTab.__sidebarSyncWrapped) {
+            const wrappedCommandVaultSubTab = function(tabKey) {
+                const result = origShowCommandVaultSubTab(tabKey);
+                updateSidebarActive('command-vault', tabKey);
+                return result;
+            };
+            wrappedCommandVaultSubTab.__sidebarSyncWrapped = true;
+            window.showCommandVaultSubTab = wrappedCommandVaultSubTab;
+        }
+
+        window.addEventListener('hashchange', () => updateSidebarActive());
+        setTimeout(() => updateSidebarActive(), 0);
     })();
     </script>
 

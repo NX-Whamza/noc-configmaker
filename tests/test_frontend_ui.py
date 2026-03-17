@@ -15,8 +15,9 @@ UI_FILE = repo_root / 'vm_deployment' / 'NOC-configMaker.html'
 
 def test_ftth_modal_exists():
     content = UI_FILE.read_text(encoding='utf-8')
-    assert 'FTTH BNG CONFIG' in content, 'Missing menu label "FTTH BNG CONFIG" in Mikrotik dropdown in NOC-configMaker.html'
-    assert 'data-tab="ftth"' in content, 'Missing data-tab="ftth" attribute for FTTH menu item in NOC-configMaker.html'
+    assert 'FTTH BNG CONFIG' in content, 'Missing menu label "FTTH BNG CONFIG" in FTTH HOME navigation in NOC-configMaker.html'
+    assert 'data-tab="ftth-home"' in content, 'Missing data-tab="ftth-home" attribute for FTTH HOME navigation in NOC-configMaker.html'
+    assert 'id="ftth-home-pane"' in content, 'Missing FTTH HOME content pane id="ftth-home-pane" in NOC-configMaker.html'
     assert 'id="ftth-pane"' in content, 'Missing ftth content pane id="ftth-pane" in NOC-configMaker.html'
     assert 'id="ftthPreviewBtn"' in content, 'Missing Preview button id="ftthPreviewBtn" in NOC-configMaker.html'
     assert ('generateFtthBng' in content) or ('ftthGenerate' in content), 'Missing generator hook: generateFtthBng() or element id="ftthGenerate"'
