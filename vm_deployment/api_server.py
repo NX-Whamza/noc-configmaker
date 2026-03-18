@@ -542,17 +542,16 @@ def _aviat_status_from_result(result):
     status = (result or {}).get("status")
     success = result.get("success")
     err_text = str((result or {}).get("error") or "").lower()
+    target_version = _aviat_target_version(result or {})
     final_version = _aviat_extract_version(
         (result or {}).get("firmware_version_after") or (result or {}).get("firmware_version_before")
     )
-    final_ok = _aviat_version_tuple(final_version) >= _aviat_version_tuple(
-        getattr(AVIAT_CONFIG, "firmware_final_version", "6.1.0")
-    )
+    final_ok = _aviat_version_meets_target(final_version, target_version)
     hard_component_error = any(
         (result or {}).get(k) is False for k in ("password_changed", "snmp_configured", "buffer_configured")
     )
     hard_precheck_error = any(
-        (result or {}).get(k) is False for k in ("license_ok", "stp_ok")
+        (result or {}).get(k) is False for k in ("license_ok", "stp_ok", "subnet_ok")
     )
     if final_ok and not hard_component_error and not hard_precheck_error:
         return "success"
@@ -574,6 +573,8 @@ def _aviat_status_from_result(result):
         return "aborted"
     if _aviat_is_transient_result(result):
         return "pending_verify"
+    if hard_precheck_error:
+        return "pending"
     if success:
         return "success"
     return "error"
@@ -595,6 +596,22 @@ def _aviat_extract_version(value):
     return match.group(1) if match else None
 
 
+def _aviat_target_version(payload):
+    if not isinstance(payload, dict):
+        return None
+    explicit = payload.get("target_version") or payload.get("targetVersion")
+    explicit = _aviat_extract_version(explicit)
+    if explicit:
+        return explicit
+    maintenance = payload.get("maintenance_params") or {}
+    target_name = str(maintenance.get("firmware_target") or payload.get("firmware_target") or "").strip().lower()
+    if target_name == "baseline":
+        return _aviat_extract_version(getattr(AVIAT_CONFIG, "firmware_baseline_version", "2.11.11"))
+    if target_name == "final":
+        return _aviat_extract_version(getattr(AVIAT_CONFIG, "firmware_final_version", "6.1.0"))
+    return None
+
+
 def _aviat_version_tuple(version):
     if not version:
         return (0, 0, 0)
@@ -608,6 +625,19 @@ def _aviat_firmware_is_final(version):
     target = _aviat_extract_version(getattr(AVIAT_CONFIG, "firmware_final_version", "6.1.0"))
     return _aviat_version_tuple(_aviat_extract_version(version)) >= _aviat_version_tuple(target)
 
+
+def _aviat_version_meets_target(version, target_version=None):
+    actual = _aviat_extract_version(version)
+    target = _aviat_extract_version(target_version) or _aviat_extract_version(
+        getattr(AVIAT_CONFIG, "firmware_final_version", "6.1.0")
+    )
+    if not actual or not target:
+        return False
+    baseline = _aviat_extract_version(getattr(AVIAT_CONFIG, "firmware_baseline_version", "2.11.11"))
+    if baseline and _aviat_version_tuple(target) <= _aviat_version_tuple(baseline):
+        return _aviat_version_tuple(actual) == _aviat_version_tuple(target)
+    return _aviat_version_tuple(actual) >= _aviat_version_tuple(target)
+
 def _aviat_queue_update_from_result(result, username=None):
     if not result:
         return
@@ -615,6 +645,7 @@ def _aviat_queue_update_from_result(result, username=None):
     if not ip:
         return
     status = _aviat_status_from_result(result)
+    target_version = _aviat_target_version(result)
     updates = {
         "status": status,
         "firmwareStatus": _aviat_substatus(
@@ -628,6 +659,8 @@ def _aviat_queue_update_from_result(result, username=None):
         "bufferStatus": _aviat_substatus(result.get("buffer_configured")),
         "sopStatus": _aviat_substatus(result.get("sop_passed")),
     }
+    if target_version:
+        updates["targetVersion"] = target_version
     subnet_ok = result.get("subnet_ok")
     subnet_detail = result.get("subnet_actual")
     # Fallback from SOP output when direct subnet fields are absent.
@@ -680,14 +713,12 @@ def _aviat_queue_update_from_result(result, username=None):
     final_version = _aviat_extract_version(
         result.get("firmware_version_after") or result.get("firmware_version_before")
     )
-    final_ok = _aviat_version_tuple(final_version) >= _aviat_version_tuple(
-        getattr(AVIAT_CONFIG, "firmware_final_version", "6.1.0")
-    )
+    final_ok = _aviat_version_meets_target(final_version, target_version)
     hard_component_error = any(
         updates.get(k) == "error" for k in ("passwordStatus", "snmpStatus", "bufferStatus")
     )
     hard_precheck_error = any(
-        result.get(k) is False for k in ("license_ok", "stp_ok")
+        result.get(k) is False for k in ("license_ok", "stp_ok", "subnet_ok")
     )
     if updates.get("status") in ("error", "pending_verify", "loading") and final_ok and not hard_component_error and not hard_precheck_error:
         updates["status"] = "success"
@@ -1093,6 +1124,7 @@ def _aviat_activate_entries(task_id, to_activate, username=None):
                     "status": result.status,
                     "firmwareStatus": "pending_verify" if result.status == "pending_verify" else "loading",
                     "username": entry.get("username") or username or "aviat-tool",
+                    "targetVersion": res_dict.get("target_version") or _aviat_target_version(entry),
                 })
                 _aviat_save_shared_queue()
             elif result.firmware_scheduled and result.status == "scheduled":
@@ -1107,6 +1139,7 @@ def _aviat_activate_entries(task_id, to_activate, username=None):
                 _aviat_queue_upsert(ip, {
                     "status": "scheduled",
                     "username": entry.get("username") or username or "aviat-tool",
+                    "targetVersion": res_dict.get("target_version") or _aviat_target_version(entry),
                 })
                 _aviat_save_shared_queue()
 
@@ -14894,6 +14927,7 @@ def _aviat_result_dict(result, username=None):
         'ip': result.ip,
         'success': result.success,
         'status': getattr(result, 'status', 'completed'),
+        'target_version': getattr(result, 'target_version', None),
         'firmware_downloaded': result.firmware_downloaded,
         'firmware_downloaded_version': getattr(result, 'firmware_downloaded_version', None),
         'firmware_scheduled': result.firmware_scheduled,
@@ -14956,6 +14990,7 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
     aviat_tasks[task_id]['status'] = 'running'
     maintenance_params = maintenance_params or {}
     activation_mode = maintenance_params.get('activation_mode')
+    target_version = _aviat_target_version({"maintenance_params": maintenance_params})
 
     def log_callback(message, level):
         _aviat_broadcast_log(message, level, task_id=task_id)
@@ -15020,6 +15055,7 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
                     "status": res.get("status"),
                     "firmwareStatus": "pending_verify" if res.get("status") == "pending_verify" else "loading",
                     "username": username or "aviat-tool",
+                    "targetVersion": res.get("target_version") or target_version,
                 })
             elif res.get("status") == "scheduled":
                 aviat_scheduled_queue.append({
@@ -15033,6 +15069,7 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
                     "status": "scheduled",
                     "firmwareStatus": "scheduled",
                     "username": username or "aviat-tool",
+                    "targetVersion": res.get("target_version") or target_version,
                 })
             elif res.get("status") == "reboot_required":
                 aviat_reboot_queue.append({
@@ -15109,6 +15146,7 @@ def aviat_run_tasks():
     task_types = data.get('tasks', [])
     m_params = data.get('maintenance_params', {})
     username = data.get('username')
+    target_version = _aviat_target_version({"maintenance_params": m_params})
 
     if not ips:
         return jsonify({'error': 'No IPs provided'}), 400
@@ -15117,6 +15155,7 @@ def aviat_run_tasks():
         _aviat_queue_upsert(ip, {
             "status": "processing",
             "username": username or "aviat-tool",
+            "targetVersion": target_version,
         })
     _aviat_save_shared_queue()
 
@@ -15449,6 +15488,7 @@ def aviat_check_status():
             continue
         current = _aviat_queue_find(ip) or {}
         current_status = current.get("status")
+        target_version = _aviat_target_version(current)
         if current_status == "processing" and (res.get("error") or not res.get("reachable", True)):
             continue
         err_text = res.get("error")
@@ -15463,13 +15503,14 @@ def aviat_check_status():
         ):
             # Do not downgrade in-progress upgrade radios to hard-failed due transient SSH loss.
             continue
-        firmware_ok = _aviat_firmware_is_final(res.get("firmware"))
+        firmware_ok = _aviat_version_meets_target(res.get("firmware"), target_version)
         snmp_ok = bool(res.get("snmp_ok"))
         buffer_ok = bool(res.get("buffer_ok"))
         license_ok = res.get("license_ok")
         stp_ok = res.get("stp_ok")
         subnet_ok = res.get("subnet_ok")
-        status = "success" if firmware_ok and snmp_ok and buffer_ok else "pending"
+        precheck_clear = license_ok is not False and stp_ok is not False and subnet_ok is not False
+        status = "success" if firmware_ok and snmp_ok and buffer_ok and precheck_clear else "pending"
         if err_text and not transient_err:
             status = "error"
         _aviat_queue_upsert(ip, {
@@ -15484,6 +15525,7 @@ def aviat_check_status():
             "licenseDetail": res.get("license_detail"),
             "stpDetail": res.get("stp_detail"),
             "subnetDetail": res.get("subnet_actual"),
+            "targetVersion": target_version,
         })
     _aviat_save_shared_queue()
 
@@ -15500,16 +15542,19 @@ def aviat_recheck_precheck():
         return jsonify({"error": "Missing ip"}), 400
 
     result = aviat_check_device_status(ip)
+    current = _aviat_queue_find(ip) or {}
     err_text = result.get("error")
     transient_err = _aviat_error_is_transient(err_text)
-    firmware_ok = _aviat_firmware_is_final(result.get("firmware"))
+    target_version = _aviat_target_version(current)
+    firmware_ok = _aviat_version_meets_target(result.get("firmware"), target_version)
     snmp_ok = bool(result.get("snmp_ok"))
     buffer_ok = bool(result.get("buffer_ok"))
     license_ok = result.get("license_ok")
     stp_ok = result.get("stp_ok")
     subnet_ok = result.get("subnet_ok")
 
-    status = "success" if firmware_ok and snmp_ok and buffer_ok else "pending"
+    precheck_clear = license_ok is not False and stp_ok is not False and subnet_ok is not False
+    status = "success" if firmware_ok and snmp_ok and buffer_ok and precheck_clear else "pending"
     if err_text and not transient_err:
         status = "error"
 
@@ -15525,6 +15570,7 @@ def aviat_recheck_precheck():
         "licenseDetail": result.get("license_detail"),
         "stpDetail": result.get("stp_detail"),
         "subnetDetail": result.get("subnet_actual"),
+        "targetVersion": target_version,
     }
     _aviat_queue_upsert(ip, updates)
     _aviat_save_shared_queue()

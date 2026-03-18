@@ -26859,7 +26859,8 @@ Ready for translation!`);
                     licenseDetail: r.licenseDetail,
                     stpDetail: r.stpDetail,
                     subnetDetail: r.subnetDetail,
-                    username: r.username || ''
+                    username: r.username || '',
+                    targetVersion: r.targetVersion || r.target_version || ''
                 };
                 // Precheck-only blockers (subnet/license/STP) should not be counted as hard failures.
                 // Keep the issue badges red, but set main status to pending so queue/history stay accurate.
@@ -27552,7 +27553,9 @@ Ready for translation!`);
                             radio.status = 'error';
                             return;
                         }
-                        const firmwareOk = res.firmware && res.firmware.startsWith('6.');
+                        const selectedTarget = (document.getElementById('firmwareTarget') || {}).value || 'final';
+                        const expectedFirmware = radio.targetVersion || (selectedTarget === 'baseline' ? '2.11.11' : '6.1.0');
+                        const firmwareOk = res.firmware && String(res.firmware).startsWith(expectedFirmware);
                         radio.firmwareStatus = firmwareOk ? 'success' : 'pending';
                         radio.snmpStatus = res.snmp_ok ? 'success' : 'pending';
                         radio.bufferStatus = res.buffer_ok ? 'success' : 'pending';

@@ -78,3 +78,45 @@ def test_firmware_final_check_uses_version_tuple_not_major_prefix():
     assert api_server._aviat_firmware_is_final("6.1.0") is True
     assert api_server._aviat_firmware_is_final("6.2.0") is True
     assert api_server._aviat_firmware_is_final("2.11.11") is False
+
+
+def test_target_version_check_handles_baseline_downgrade_exactly():
+    api_server = _load_module()
+    assert api_server._aviat_version_meets_target("2.11.11", "2.11.11") is True
+    assert api_server._aviat_version_meets_target("6.1.0", "2.11.11") is False
+
+
+def test_baseline_target_result_maps_to_success():
+    api_server = _load_module()
+    result = {
+        "ip": "10.0.0.4",
+        "success": True,
+        "status": None,
+        "target_version": "2.11.11",
+        "firmware_version_before": "6.1.0",
+        "firmware_version_after": "2.11.11",
+        "password_changed": True,
+        "snmp_configured": True,
+        "buffer_configured": True,
+        "license_ok": True,
+        "stp_ok": True,
+    }
+    assert api_server._aviat_status_from_result(result) == "success"
+
+
+def test_precheck_failure_keeps_overall_status_pending():
+    api_server = _load_module()
+    result = {
+        "ip": "10.0.0.5",
+        "success": True,
+        "status": None,
+        "target_version": "6.1.0",
+        "firmware_version_after": "6.1.0",
+        "password_changed": True,
+        "snmp_configured": True,
+        "buffer_configured": True,
+        "license_ok": True,
+        "stp_ok": True,
+        "subnet_ok": False,
+    }
+    assert api_server._aviat_status_from_result(result) == "pending"
