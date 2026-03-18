@@ -221,12 +221,10 @@ except ImportError:
 
 
 def _get_dynamic_compliance_blocks(loopback_ip: str = "10.0.0.1/32", return_source: bool = False):
-    """Get compliance blocks from GitLab (single source of truth).
+    """Get compliance blocks with GitLab-first loading and bundled fallback.
 
     Every endpoint that needs compliance blocks should call this instead of
-    ``get_all_compliance_blocks()`` directly.  GitLab is the ONLY source —
-    there is no hardcoded fallback.  When GitLab is unavailable the caller
-    receives an empty dict and a clear warning is logged.
+    duplicating the GitLab loader / local reference fallback logic.
 
     Args:
         loopback_ip: Loopback IP address to inject into compliance blocks.
@@ -238,7 +236,7 @@ def _get_dynamic_compliance_blocks(loopback_ip: str = "10.0.0.1/32", return_sour
     """
     blocks = {}
 
-    # GitLab dynamic compliance — single source of truth
+    # GitLab dynamic compliance is preferred when configured.
     if _HAS_GITLAB_COMPLIANCE and _get_gitlab_compliance_loader is not None:
         try:
             loader = _get_gitlab_compliance_loader()
@@ -258,9 +256,19 @@ def _get_dynamic_compliance_blocks(loopback_ip: str = "10.0.0.1/32", return_sour
     else:
         print("[COMPLIANCE] WARNING: GitLab compliance module not available")
 
-    # No hardcoded fallback — GitLab is the single source of truth.
-    # Return empty dict so the caller knows compliance is unavailable.
-    print("[COMPLIANCE] WARNING: No compliance blocks available — GitLab is the only source")
+    # Fall back to the bundled reference blocks so compliance-backed features
+    # keep working in local/dev or when GitLab is temporarily unavailable.
+    try:
+        fallback_blocks = get_all_compliance_blocks(loopback_ip=loopback_ip)
+        if fallback_blocks:
+            print(f"[COMPLIANCE] Using bundled fallback compliance blocks ({len(fallback_blocks)} blocks)")
+            if return_source:
+                return fallback_blocks, 'bundled-local'
+            return fallback_blocks
+    except Exception as _exc:
+        print(f"[COMPLIANCE] ERROR: bundled compliance fallback failed: {_exc}")
+
+    print("[COMPLIANCE] WARNING: No compliance blocks available from GitLab or bundled fallback")
     if return_source:
         return blocks, 'unavailable'
     return blocks
@@ -9057,20 +9065,21 @@ def inject_compliance_blocks(config: str, compliance_blocks: dict, loopback_ip: 
     """
     Inject compliance into a RouterOS configuration.
 
-    Source: **GitLab only** (single source of truth).
+    Source priority:
       1. **Verbatim GitLab text** — the full TX-ARv2.rsc content is appended
          word-for-word (comments, inline comment="..." attributes, exact
          command syntax, section order — all preserved exactly as engineering
          wrote it).  Only $LoopIP is substituted with the concrete IP.
-      2. **GitLab parsed blocks** — if the verbatim text is unavailable but
-         parsed blocks were obtained from GitLab, they are reassembled.
-      3. **No fallback** — if GitLab is fully unavailable, compliance is
-         NOT injected and a clear warning is logged.
+      2. **Parsed compliance blocks** — if the verbatim GitLab text is
+         unavailable but parsed blocks were obtained from GitLab or the
+         bundled compliance reference, they are reassembled.
+      3. **No blocks available** — if neither source is available, compliance
+         is not injected and a clear warning is logged.
 
     Args:
         config: Existing RouterOS configuration
-        compliance_blocks: Dictionary of compliance blocks (GitLab-sourced;
-            used only when verbatim GitLab text is unavailable)
+        compliance_blocks: Dictionary of compliance blocks used when verbatim
+            GitLab text is unavailable
         loopback_ip: Loopback IP for $LoopIP substitutions
         stripped_ips_out: Optional mutable set; if provided, IPs removed
             by compliance stripping are added to it (for validation awareness).
@@ -9106,11 +9115,10 @@ def inject_compliance_blocks(config: str, compliance_blocks: dict, loopback_ip: 
     # Get it FIRST so we can parse it for dynamic section extraction.
     raw_text = _get_raw_gitlab_compliance_text(loopback_ip)
 
-    # Guard: if GitLab is fully unavailable (no raw text AND no blocks),
-    # return config untouched.  GitLab is the single source of truth —
-    # we never silently fall back to stale hardcoded data.
+    # Guard: if both the verbatim GitLab text and parsed compliance blocks are
+    # unavailable, return config untouched.
     if not raw_text and not compliance_blocks:
-        print("[COMPLIANCE] WARNING: GitLab compliance fully unavailable — "
+        print("[COMPLIANCE] WARNING: Compliance sources unavailable — "
               "config returned WITHOUT compliance injection")
         return config
 
@@ -12209,7 +12217,7 @@ _API_REGISTRY = [
     # ── Config Translation & Validation ──
     {"method": "POST", "path": "/api/translate-config",      "category": "Config Tools",      "summary": "Translate config between ROS versions/devices", "payload": {"source_config": "str", "target_device": "str", "target_version": "str", "strict_preserve?": "bool", "apply_compliance?": "bool"}},
     {"method": "POST", "path": "/api/validate-config",       "category": "Config Tools",      "summary": "Validate config for errors & compliance",   "payload": {"config": "str", "type?": "tower|enterprise|mpls|enterprise-feeding"}},
-    {"method": "POST", "path": "/api/apply-compliance",      "category": "Config Tools",      "summary": "Apply RFC compliance (GitLab source)",      "payload": {"config": "str", "loopback_ip?": "str"}},
+    {"method": "POST", "path": "/api/apply-compliance",      "category": "Config Tools",      "summary": "Apply RFC compliance (GitLab-first with fallback)",      "payload": {"config": "str", "loopback_ip?": "str"}},
     {"method": "POST", "path": "/api/suggest-config",        "category": "Config Tools",      "summary": "AI auto-fill config fields",                "payload": {"device": "str", "target_version": "str", "loopback_ip": "str"}},
     {"method": "POST", "path": "/api/explain-config",        "category": "Config Tools",      "summary": "AI explain config section",                 "payload": {"config": "str"}},
     {"method": "POST", "path": "/api/autofill-from-export",  "category": "Config Tools",      "summary": "Parse export → auto-fill form fields",      "payload": {"exported_config": "str", "target_form?": "str"}},
@@ -15802,7 +15810,7 @@ def mt_generate_portmap(config_type):
 def get_compliance_blocks_api():
     """Return compliance blocks as JSON for client-side config generators.
 
-    Source priority: GitLab verbatim (TTL-cached) → parsed blocks → hardcoded reference.
+    Source priority: GitLab verbatim (TTL-cached) → parsed blocks → bundled reference.
     Query params:
         loopback_ip  – optional, defaults to 10.0.0.1
     """

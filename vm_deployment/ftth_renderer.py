@@ -306,7 +306,7 @@ def _fetch_compliance_blocks(loopback_ip: str) -> dict | None:
         try:
             blocks = _get_compliance_blocks(loopback_ip)
             if blocks:
-                print(f"[FTTH-COMPLIANCE] Loaded {len(blocks)} blocks via compliance reference (GitLab)")
+                print(f"[FTTH-COMPLIANCE] Loaded {len(blocks)} blocks via compliance reference")
                 return blocks
         except Exception as exc:
             print(f"[FTTH-COMPLIANCE] Compliance reference error: {exc}")
