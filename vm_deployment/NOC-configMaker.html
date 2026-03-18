@@ -22698,20 +22698,68 @@ Ready for translation!`);
                 `;
                     }
 
+                    const configVariants = (data.config_variants && typeof data.config_variants === 'object')
+                        ? data.config_variants
+                        : null;
+                    const hasVariants = !!(configVariants && Object.keys(configVariants).length);
+                    const defaultVariant = hasVariants
+                        ? (data.default_config_variant && configVariants[data.default_config_variant] ? data.default_config_variant : Object.keys(configVariants)[0])
+                        : null;
+                    const initialConfig = hasVariants ? (configVariants[defaultVariant] || '') : (data.config_content || '');
+                    const selectorMarkup = hasVariants ? `
+                    <div style="margin: 12px 0 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                        <label for="completedConfigVariantSelect" style="color: var(--text-color-secondary); font-size: 13px;">Saved Output Format</label>
+                        <select id="completedConfigVariantSelect" style="padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--input-bg); color: var(--text-color);">
+                            ${Object.keys(configVariants).map((key) => `<option value="${key}" ${key === defaultVariant ? 'selected' : ''}>${key === 'commands' ? 'Command Lines' : 'Classic Hierarchy'}</option>`).join('')}
+                        </select>
+                    </div>` : '';
                     modal.innerHTML = `
                 <div style="background: var(--bg-color); border-radius: 8px; padding: 30px; max-width: 90%; max-height: 90%; overflow-y: auto; position: relative;">
                     <button onclick="this.parentElement.parentElement.remove()" style="position: absolute; top: 10px; right: 10px; background: #dc3545; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; font-weight: bold;"> Close</button>
                     <h2 style="color: var(--text-color); margin-bottom: 20px;">${data.device_name || 'Configuration'}</h2>
                     ${portMapDisplay}
                     <h3 style="color: var(--text-color); margin-top: 20px;">Configuration</h3>
-                    <pre style="background: var(--output-bg); padding: 20px; border-radius: 5px; overflow-x: auto; white-space: pre-wrap; font-family: monospace; font-size: 12px; max-height: 60vh; overflow-y: auto;">${data.config_content || ''}</pre>
+                    ${selectorMarkup}
+                    <pre id="completedConfigContentView" style="background: var(--output-bg); padding: 20px; border-radius: 5px; overflow-x: auto; white-space: pre-wrap; font-family: monospace; font-size: 12px; max-height: 60vh; overflow-y: auto;"></pre>
                     <div style="margin-top: 20px;">
-                        <button onclick="navigator.clipboard.writeText(\`${(data.config_content || '').replace(/`/g, '\\`')}\`) && alert(' Copied!')" style="background: #2196F3; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-right: 10px;"> Copy Config</button>
-                        <button onclick="downloadCompletedConfig(${configId})" style="background: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;"> Download</button>
+                        <button id="completedConfigCopyBtn" style="background: #2196F3; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-right: 10px;"> Copy Config</button>
+                        <button id="completedConfigDownloadBtn" onclick="downloadCompletedConfig(${configId})" style="background: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;"> Download</button>
                     </div>
                 </div>
             `;
                     document.body.appendChild(modal);
+
+                    if (hasVariants) {
+                        const select = modal.querySelector('#completedConfigVariantSelect');
+                        const pre = modal.querySelector('#completedConfigContentView');
+                        const copyBtn = modal.querySelector('#completedConfigCopyBtn');
+                        const dlBtn = modal.querySelector('#completedConfigDownloadBtn');
+                        const updateVariant = () => {
+                            const key = select?.value || defaultVariant;
+                            const text = configVariants[key] || '';
+                            if (pre) pre.textContent = text;
+                            if (dlBtn) dlBtn.dataset.variant = key;
+                        };
+                        if (copyBtn) {
+                            copyBtn.addEventListener('click', () => {
+                                const key = select?.value || defaultVariant;
+                                navigator.clipboard.writeText(configVariants[key] || '').then(() => alert(' Copied!'));
+                            });
+                        }
+                        if (select) {
+                            select.addEventListener('change', updateVariant);
+                        }
+                        updateVariant();
+                    } else {
+                        const pre = modal.querySelector('#completedConfigContentView');
+                        const copyBtn = modal.querySelector('#completedConfigCopyBtn');
+                        if (pre) pre.textContent = initialConfig || '';
+                        if (copyBtn) {
+                            copyBtn.addEventListener('click', () => {
+                                navigator.clipboard.writeText(initialConfig || '').then(() => alert(' Copied!'));
+                            });
+                        }
+                    }
                 })
                 .catch(error => {
                     console.error('Error loading config:', error);
@@ -22728,11 +22776,17 @@ Ready for translation!`);
                         return;
                     }
 
-                    const blob = new Blob([data.config_content || ''], { type: 'text/plain' });
+                    const variantSelect = document.getElementById('completedConfigVariantSelect');
+                    const variantKey = variantSelect?.value || data.default_config_variant || 'hierarchy';
+                    const variantContent = data.config_variants && data.config_variants[variantKey]
+                        ? data.config_variants[variantKey]
+                        : (data.config_content || '');
+                    const blob = new Blob([variantContent], { type: 'text/plain' });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `${data.device_name || 'config'}_${new Date(data.created_at).toISOString().split('T')[0]}.rsc`;
+                    const suffix = variantKey === 'commands' ? 'command-lines' : 'classic-hierarchy';
+                    a.download = `${data.device_name || 'config'}_${suffix}_${new Date(data.created_at).toISOString().split('T')[0]}.txt`;
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
@@ -24674,7 +24728,12 @@ Ready for translation!`);
                             connector_count: connectors.length,
                             uplink_count: uplinks.length,
                             bgp_neighbor_count: bgpNeighbors.length,
-                            available_output_formats: ['hierarchy', 'commands']
+                            available_output_formats: ['hierarchy', 'commands'],
+                            output_formats: {
+                                hierarchy: hierarchyOutput,
+                                commands: commandOutput
+                            },
+                            default_output_format: 'hierarchy'
                         }
                     });
                 }

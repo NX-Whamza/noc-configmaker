@@ -14546,9 +14546,9 @@ def get_completed_config(config_id):
         
         config = dict(row)
 
-        # Always return a prettified config for display/copy/download.
-        # This does not change the stored config/history (DB content is untouched).
-        if config.get('config_content'):
+        # Always return a prettified config for display/copy/download unless the config type
+        # depends on indentation-sensitive hierarchy output (for example Nokia 7250 classic CLI).
+        if config.get('config_content') and config.get('config_type') != 'nokia-7250':
             try:
                 config['config_content'] = format_config_spacing(config['config_content'])
             except Exception:
@@ -14603,7 +14603,16 @@ def get_completed_config(config_id):
                 config['metadata'] = {}
         else:
                 config['metadata'] = {}
-        
+
+        if config.get('config_type') == 'nokia-7250':
+            output_formats = config.get('metadata', {}).get('output_formats')
+            if isinstance(output_formats, dict):
+                config['config_variants'] = output_formats
+                default_key = config.get('metadata', {}).get('default_output_format', 'hierarchy')
+                config['default_config_variant'] = default_key
+                if output_formats.get(default_key):
+                    config['config_content'] = output_formats.get(default_key)
+
         return jsonify(config)
         
     except Exception as e:
