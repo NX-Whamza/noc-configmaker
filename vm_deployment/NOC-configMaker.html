@@ -25157,7 +25157,9 @@ Ready for translation!`);
                 if (!isCidr(olt, 29)) { errEl.textContent = 'OLT must be a /29 (e.g., 198.51.100.8/29)'; errEl.style.display = 'block'; return false; }
 
                 try {
-                    const r = await fetch('/api/preview-ftth-bng', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ loopback_ip: loopback, cpe_cidr: cpe, cgnat_cidr: cgnat, olt_cidr: olt }) });
+                    const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : (window.AI_API_BASE || '/api');
+                    const targetUrl = `${apiBase.replace(/\/+$/, '')}/preview-ftth-bng`;
+                    const r = await fetch(targetUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ loopback_ip: loopback, cpe_cidr: cpe, cgnat_cidr: cgnat, olt_cidr: olt }) });
                     if (!r.ok) {
                         const txt = await r.text();
                         errEl.textContent = 'Preview server responded with status ' + r.status + ': ' + (txt || '');

@@ -45,6 +45,8 @@ def test_ftth_speed_controls_and_backend_payload_hooks_exist():
     assert 'BGP Peer Configuration' in content, 'Missing FTTH BGP peer display section in NOC-configMaker.html'
     assert '10.2.0.107/32' in content, 'Missing FTTH CR7 peer display in NOC-configMaker.html'
     assert '10.2.0.108/32' in content, 'Missing FTTH CR8 peer display in NOC-configMaker.html'
+    assert "const targetUrl = `${apiBase.replace(/\\/+$/, '')}/preview-ftth-bng`;" in content, \
+        'Missing resolved API base wiring for FTTH preview in NOC-configMaker.html'
 
 
 
