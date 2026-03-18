@@ -883,6 +883,35 @@ def _aviat_loading_check_loop():
                 if target_version:
                     ready_versions.add(target_version)
 
+                # If active firmware already meets target (or final), resume deferred tasks
+                # immediately instead of waiting on inactive/loadOk state.
+                if target_version and active_version and _aviat_version_tuple(active_version) >= _aviat_version_tuple(target_version):
+                    _aviat_broadcast_log(
+                        f"[{ip}] Active firmware {active_version} already applied; removing from loading queue.",
+                        "success",
+                    )
+                    resumed = _aviat_resume_remaining_tasks(entry, callback=local_log)
+                    if resumed is None:
+                        _aviat_queue_upsert(ip, {
+                            "status": "success",
+                            "firmwareStatus": "success",
+                            "username": entry.get("username") or "aviat-tool",
+                        })
+                    continue
+                if active_version and _aviat_version_tuple(active_version) >= _aviat_version_tuple(AVIAT_CONFIG.firmware_final_version):
+                    _aviat_broadcast_log(
+                        f"[{ip}] Active firmware {active_version} already final; removing from loading queue.",
+                        "success",
+                    )
+                    resumed = _aviat_resume_remaining_tasks(entry, callback=local_log)
+                    if resumed is None:
+                        _aviat_queue_upsert(ip, {
+                            "status": "success",
+                            "firmwareStatus": "success",
+                            "username": entry.get("username") or "aviat-tool",
+                        })
+                    continue
+
                 # Do not schedule activation solely from inactive version text. Radios can show
                 # inactive final while software state is idle/loadError and not activation-ready.
                 if inactive_version and inactive_version in ready_versions and software_state != "loadok":
@@ -955,33 +984,6 @@ def _aviat_loading_check_loop():
                     )
                     continue
 
-                # If active firmware already meets target (or final), remove from loading queue.
-                if target_version and active_version and _aviat_version_tuple(active_version) >= _aviat_version_tuple(target_version):
-                    _aviat_broadcast_log(
-                        f"[{ip}] Active firmware {active_version} already applied; removing from loading queue.",
-                        "success",
-                    )
-                    resumed = _aviat_resume_remaining_tasks(entry, callback=local_log)
-                    if resumed is None:
-                        _aviat_queue_upsert(ip, {
-                            "status": "success",
-                            "firmwareStatus": "success",
-                            "username": entry.get("username") or "aviat-tool",
-                        })
-                    continue
-                if active_version and _aviat_version_tuple(active_version) >= _aviat_version_tuple(AVIAT_CONFIG.firmware_final_version):
-                    _aviat_broadcast_log(
-                        f"[{ip}] Active firmware {active_version} already final; removing from loading queue.",
-                        "success",
-                    )
-                    resumed = _aviat_resume_remaining_tasks(entry, callback=local_log)
-                    if resumed is None:
-                        _aviat_queue_upsert(ip, {
-                            "status": "success",
-                            "firmwareStatus": "success",
-                            "username": entry.get("username") or "aviat-tool",
-                        })
-                    continue
                 if (
                     not inactive_version
                     or str(inactive_version).lower() in ("none", "unknown", "0.0.0", "0")
@@ -1110,6 +1112,11 @@ def _aviat_resume_remaining_tasks(entry, callback=None):
     res_dict = _aviat_result_dict(result, username=username)
     _log_aviat_activity(res_dict)
     _aviat_queue_update_from_result(res_dict, username=username)
+    _aviat_queue_upsert(ip, {
+        "firmwareStatus": "success",
+        "targetVersion": res_dict.get("target_version") or entry.get("target_version"),
+        "username": username,
+    })
     _aviat_save_shared_queue()
     return result
 
