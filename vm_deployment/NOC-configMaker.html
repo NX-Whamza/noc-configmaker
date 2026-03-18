@@ -28615,7 +28615,7 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
             for (const r of bulkSshResults) {
                 if (!r.success || !r.config) continue;
                 try {
-                    await fetch(apiBase + '/save-config', {
+                    await fetch(apiBase + '/save-completed-config', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || '') },
                         body: JSON.stringify({

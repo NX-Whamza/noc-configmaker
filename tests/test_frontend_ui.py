@@ -47,6 +47,10 @@ def test_ftth_speed_controls_and_backend_payload_hooks_exist():
     assert '10.2.0.108/32' in content, 'Missing FTTH CR8 peer display in NOC-configMaker.html'
     assert "const targetUrl = `${apiBase.replace(/\\/+$/, '')}/preview-ftth-bng`;" in content, \
         'Missing resolved API base wiring for FTTH preview in NOC-configMaker.html'
+    assert "apiBase + '/save-completed-config'" in content, \
+        'Missing completed-config endpoint wiring for bulk SSH save in NOC-configMaker.html'
+    assert "apiBase + '/save-config'" not in content, \
+        'Found stale /save-config endpoint reference in NOC-configMaker.html'
 
 
 
