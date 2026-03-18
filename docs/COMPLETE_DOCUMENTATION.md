@@ -506,6 +506,7 @@ The TARANA SECTORS section is fully protected and isolated:
 **HTML Server (current options):**
 - Local development: `python -m http.server 8000 --directory vm_deployment`
 - Packaged/EXE runtime: `vm_deployment/launcher.py`
+- Binds to `0.0.0.0` (all network interfaces)
 - Port 8000
 
 **API Server (`fastapi_server.py` via uvicorn, or `api_server.py` compatibility shim):**

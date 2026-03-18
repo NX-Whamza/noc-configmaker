@@ -360,6 +360,12 @@
             background: var(--sidebar-hover);
             color: var(--text-color);
         }
+        .sb-item:focus-visible {
+            outline: 2px solid color-mix(in srgb, var(--accent-color) 72%, white 28%);
+            outline-offset: -2px;
+            background: color-mix(in srgb, var(--accent-color) 10%, transparent);
+            color: var(--text-color);
+        }
         .sb-item.active {
             background: rgba(139,92,246,0.12);
             background: color-mix(in srgb, var(--accent-color) 12%, transparent);
@@ -3398,6 +3404,7 @@
         .cmd-group-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--accent-color);padding:10px 14px 4px;user-select:none}
         .cmd-item{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:8px;cursor:pointer;transition:background .12s}
         .cmd-item:hover,.cmd-item.selected{background:var(--accent-color);color:#fff}
+        .cmd-item:focus-visible{outline:2px solid color-mix(in srgb,var(--accent-color) 70%,white 30%);outline-offset:-2px;background:color-mix(in srgb,var(--accent-color) 14%,transparent)}
         .cmd-item:hover .cmd-item-desc,.cmd-item.selected .cmd-item-desc{color:rgba(255,255,255,.75)}
         .cmd-item-icon{font-size:18px;width:28px;text-align:center;flex-shrink:0}
         .cmd-item-body{flex:1;min-width:0}
@@ -12297,6 +12304,17 @@ show mac address-table | include &lt;mac&gt;</div>
 
             // Tarana event listeners moved to initializeEventHandlers
 
+            function isTaranaFourthSectorEnabled() {
+                const legacyToggle = document.getElementById('enableTaranaFourthSector');
+                if (legacyToggle) return !!legacyToggle.checked;
+
+                const modernSectorCount = parseInt(document.getElementById('mtTaranaSectorCount')?.value || '3', 10);
+                if (modernSectorCount >= 4) return true;
+
+                const deltaPort = (document.getElementById('tarana_deltaPort')?.value || document.getElementById('tower_tarana_delta')?.value || '').trim();
+                return !!deltaPort;
+            }
+
             function populateTaranaVlans() {
                 // Clear existing Tarana VLANs first
                 document.querySelectorAll('.vlan-item:not(#vlanTemplate)').forEach(el => {
@@ -12307,7 +12325,7 @@ show mac address-table | include &lt;mac&gt;</div>
                     }
                 });
 
-                const fourthSector = document.getElementById('enableTaranaFourthSector').checked;
+                const fourthSector = isTaranaFourthSectorEnabled();
 
                 // Standard Tarana ports with Greek letter names: Alpha, Beta, Gamma, Delta
                 const taranaPorts = [
@@ -12496,11 +12514,13 @@ show mac address-table | include &lt;mac&gt;</div>
                 if (btn) btn.onclick = () => {
                     tpl.remove();
                     portCount--;
-                    document.getElementById('addPortBtn').disabled = portCount >= 12;
+                    const addPortButton = document.getElementById('addPortUplinkBtn') || document.getElementById('addPortBtn');
+                    if (addPortButton) addPortButton.disabled = portCount >= 12;
                 };
 
                 document.getElementById('portConfigs').appendChild(tpl);
-                if (portCount === 12) document.getElementById('addPortBtn').disabled = true;
+                const addPortButton = document.getElementById('addPortUplinkBtn') || document.getElementById('addPortBtn');
+                if (addPortButton && portCount === 12) addPortButton.disabled = true;
                 return tpl;
             }
 
@@ -12521,7 +12541,7 @@ show mac address-table | include &lt;mac&gt;</div>
                     { port: 'sfp-sfpplus10', comment: 'Tarana Gamma' }
                 ];
 
-                if (document.getElementById('enableTaranaFourthSector')?.checked) {
+                if (isTaranaFourthSectorEnabled()) {
                     taranaPorts.push({ port: 'sfp-sfpplus6', comment: 'Tarana Sector Delta' });
                 }
 
@@ -14448,24 +14468,69 @@ show mac address-table | include &lt;mac&gt;</div>
                 alert('MPLS/VPLS preset applied! MPLS/LDP and VPLS tunnels enabled.');
             }
 
+            function getTaranaSectorSelection() {
+                const checkboxEls = {
+                    alpha: document.getElementById('enableTaranaAlpha'),
+                    beta: document.getElementById('enableTaranaBeta'),
+                    gamma: document.getElementById('enableTaranaGamma'),
+                    delta: document.getElementById('enableTaranaDelta')
+                };
+                const hasLegacyCheckboxes = Object.values(checkboxEls).some(Boolean);
+                if (hasLegacyCheckboxes) {
+                    return {
+                        alpha: !!checkboxEls.alpha?.checked,
+                        beta: !!checkboxEls.beta?.checked,
+                        gamma: !!checkboxEls.gamma?.checked,
+                        delta: !!checkboxEls.delta?.checked,
+                        mode: 'legacy-checkboxes'
+                    };
+                }
+
+                const portValues = {
+                    alpha: (document.getElementById('tarana_alphaPort')?.value || document.getElementById('tower_tarana_alpha')?.value || '').trim(),
+                    beta: (document.getElementById('tarana_betaPort')?.value || document.getElementById('tower_tarana_beta')?.value || '').trim(),
+                    gamma: (document.getElementById('tarana_gammaPort')?.value || document.getElementById('tower_tarana_gamma')?.value || '').trim(),
+                    delta: (document.getElementById('tarana_deltaPort')?.value || document.getElementById('tower_tarana_delta')?.value || '').trim()
+                };
+                return {
+                    alpha: !!portValues.alpha,
+                    beta: !!portValues.beta,
+                    gamma: !!portValues.gamma,
+                    delta: !!portValues.delta,
+                    mode: 'port-selects'
+                };
+            }
+
             function applyTaranaPreset() {
-                document.getElementById('ospfArea').value = 'backbone-v2';
-                document.getElementById('enableDHCP').checked = true;
-                document.getElementById('enableMPLS').checked = false;
-                document.getElementById('enableVPLS').checked = false;
-                document.getElementById('enableTarana').checked = true;
-                document.getElementById('enableSWT').checked = false;
+                const ospfArea = document.getElementById('ospfArea');
+                const enableDHCP = document.getElementById('enableDHCP');
+                const enableMPLS = document.getElementById('enableMPLS');
+                const enableVPLS = document.getElementById('enableVPLS');
+                const enableTarana = document.getElementById('enableTarana');
+                const enableSWT = document.getElementById('enableSWT');
+                const enableTaranaAlpha = document.getElementById('enableTaranaAlpha');
+                const enableTaranaBeta = document.getElementById('enableTaranaBeta');
+                const enableTaranaGamma = document.getElementById('enableTaranaGamma');
+                const enableTaranaDelta = document.getElementById('enableTaranaDelta');
 
-                // Enable common Tarana sectors by default
-                document.getElementById('enableTaranaAlpha').checked = true;
-                document.getElementById('enableTaranaBeta').checked = true;
-                document.getElementById('enableTaranaGamma').checked = true;
-                document.getElementById('enableTaranaDelta').checked = false; // DELTA is rare
+                if (ospfArea) ospfArea.value = 'backbone-v2';
+                if (enableDHCP) enableDHCP.checked = true;
+                if (enableMPLS) enableMPLS.checked = false;
+                if (enableVPLS) enableVPLS.checked = false;
+                if (enableTarana) enableTarana.checked = true;
+                if (enableSWT) enableSWT.checked = false;
 
-                // Trigger area change to update UI
-                document.getElementById('ospfArea').dispatchEvent(new Event('change'));
+                // Keep legacy sector toggles in sync when they exist.
+                if (enableTaranaAlpha) enableTaranaAlpha.checked = true;
+                if (enableTaranaBeta) enableTaranaBeta.checked = true;
+                if (enableTaranaGamma) enableTaranaGamma.checked = true;
+                if (enableTaranaDelta) enableTaranaDelta.checked = false;
 
-                alert('Tarana preset applied! ALPHA, BETA, and GAMMA sectors enabled. Use "Auto-Configure Selected Sectors" to set up VLANs.');
+                if (ospfArea) {
+                    ospfArea.dispatchEvent(new Event('change'));
+                }
+
+                alert('Tarana preset applied. ALPHA, BETA, and GAMMA are treated as the default sectors, and existing Tarana ports remain active.');
             }
 
             async function autoConfigureTaranaSectors() {
@@ -14498,11 +14563,12 @@ show mac address-table | include &lt;mac&gt;</div>
                 window.updateProgressPercent(20);
                 window.addProgressLog('info', 'Reading sector selection');
 
-                // Get selected sectors
-                const alphaSelected = document.getElementById('enableTaranaAlpha').checked;
-                const betaSelected = document.getElementById('enableTaranaBeta').checked;
-                const gammaSelected = document.getElementById('enableTaranaGamma').checked;
-                const deltaSelected = document.getElementById('enableTaranaDelta').checked;
+                // Support both the legacy checkbox flow and the current port-select UI.
+                const sectorSelection = getTaranaSectorSelection();
+                const alphaSelected = sectorSelection.alpha;
+                const betaSelected = sectorSelection.beta;
+                const gammaSelected = sectorSelection.gamma;
+                const deltaSelected = sectorSelection.delta;
 
                 if (!alphaSelected && !betaSelected && !gammaSelected && !deltaSelected) {
                     window.addProgressLog('error', 'No sectors selected');
@@ -14517,7 +14583,7 @@ show mac address-table | include &lt;mac&gt;</div>
                 if (gammaSelected) selectedSectors.push('GAMMA');
                 if (deltaSelected) selectedSectors.push('DELTA');
 
-                window.addProgressLog('success', `Selected sectors: ${selectedSectors.join(', ')}`);
+                window.addProgressLog('success', `Selected sectors: ${selectedSectors.join(', ')} (${sectorSelection.mode})`);
                 await new Promise(resolve => setTimeout(resolve, 200));
 
                 window.updateProgressStep('Determining port mappings...');
@@ -17788,8 +17854,24 @@ show mac address-table | include &lt;mac&gt;</div>
         }
 
         function updateMPLSEnterpriseDeviceName() {
-            const deviceType = document.getElementById('ent_mpls_deviceType').value;
-            const customerCode = document.getElementById('ent_mpls_customerCode').value;
+            const legacyTypeField = document.getElementById('ent_mpls_deviceType');
+            const routerboardField = document.getElementById('ent_mpls_routerboard_device');
+            const customerField = document.getElementById('ent_mpls_customerCode');
+            const deviceNameField = document.getElementById('ent_mpls_deviceName');
+            if (!customerField || !deviceNameField) return;
+
+            const routerboardMap = {
+                ccr2004: 'CCR2004',
+                ccr1036: 'CCR1036',
+                rb5009: 'RB5009',
+                ccr2216: 'CCR2216',
+                ccr1072: 'CCR1072',
+                rb2011: 'RB2011',
+                rb1009: 'RB1009'
+            };
+            const deviceType = (legacyTypeField && legacyTypeField.value)
+                || (routerboardField ? routerboardMap[routerboardField.value] || '' : '');
+            const customerCode = customerField.value;
             if (deviceType && customerCode) {
                 let prefix = 'RTR-MT';
                 if (deviceType === 'CCR2004') prefix += 'CCR2004';
@@ -17797,7 +17879,9 @@ show mac address-table | include &lt;mac&gt;</div>
                 else if (deviceType === 'RB5009') prefix += 'RB-5009';
                 else if (deviceType === 'CCR2216') prefix += 'CCR2216';
                 else if (deviceType === 'CCR1072') prefix += 'CCR1072';
-                document.getElementById('ent_mpls_deviceName').value = `${prefix}.${customerCode}`;
+                deviceNameField.value = `${prefix}.${customerCode}`;
+            } else {
+                deviceNameField.value = customerCode || '';
             }
         }
 
@@ -18075,9 +18159,14 @@ show mac address-table | include &lt;mac&gt;</div>
         function applyMplsPreset() {
             // Apply a minimal preset: set device type only so UI shows proper interfaces.
             // Do NOT fill customer-specific fields (customerCode/deviceName/IPs/snmp)  this tool is used dynamically per customer.
-            document.getElementById('ent_mpls_deviceType').value = 'CCR2004';
+            const routerboardField = document.getElementById('ent_mpls_routerboard_device');
+            const legacyTypeField = document.getElementById('ent_mpls_deviceType');
+            if (routerboardField) routerboardField.value = 'ccr2004';
+            if (legacyTypeField) legacyTypeField.value = 'CCR2004';
             // Do not auto-fill customerCode, deviceName, loopback, public/private IPs, gateway, or SNMP.
+            if (window.updateMPLSDeviceName) window.updateMPLSDeviceName();
             updateMPLSEnterpriseDeviceName();
+            if (typeof updateMPLSEnterpriseInterfaces === 'function') updateMPLSEnterpriseInterfaces();
         }
 
         function addEnterpriseUplink() {
@@ -18653,9 +18742,12 @@ show mac address-table | include &lt;mac&gt;</div>
             });
 
             // Parse BGP ASN and peers only if BGP is explicitly enabled
-            const enableBGP = (document.getElementById('ent_mpls_enableBGP') && document.getElementById('ent_mpls_enableBGP').checked);
-            const bgpAsRaw = enableBGP && document.getElementById('ent_mpls_bgpAs') ? document.getElementById('ent_mpls_bgpAs').value.trim() : '';
-            const bgpPeersRaw = enableBGP && document.getElementById('ent_mpls_bgpPeers') ? document.getElementById('ent_mpls_bgpPeers').value.trim() : '';
+            const entMplsBgpToggle = document.getElementById('ent_mpls_enableBGP');
+            const entMplsBgpAs = document.getElementById('ent_mpls_bgpAs');
+            const entMplsBgpPeers = document.getElementById('ent_mpls_bgpPeers');
+            const enableBGP = !!entMplsBgpToggle?.checked;
+            const bgpAsRaw = enableBGP ? (entMplsBgpAs?.value || '').trim() : '';
+            const bgpPeersRaw = enableBGP ? (entMplsBgpPeers?.value || '').trim() : '';
             const bgpAs = bgpAsRaw ? parseInt(bgpAsRaw, 10) : null;
             const bgpPeers = [];
             if (bgpPeersRaw) {
@@ -21431,6 +21523,10 @@ show mac address-table | include &lt;mac&gt;</div>
         // AI Config Validation (can be called from any tab)
         async function validateConfigWithAI(config, configType = 'tower') {
             const keyInput = document.getElementById('llm_api_key');
+            if (!keyInput) {
+                updateApiKeyStatus(' AI key input is not available in this build.', 'error');
+                return;
+            }
             const key = keyInput.value.trim();
 
             if (!key) {
@@ -21449,13 +21545,18 @@ show mac address-table | include &lt;mac&gt;</div>
 
         function clearApiKey() {
             localStorage.removeItem('openai_api_key');
-            document.getElementById('llm_api_key').value = '';
+            const keyInput = document.getElementById('llm_api_key');
+            if (keyInput) keyInput.value = '';
             updateApiKeyStatus(' API Key cleared', 'info');
         }
 
         function toggleApiKeyVisibility() {
             const input = document.getElementById('llm_api_key');
             const btn = document.getElementById('toggleApiKeyBtn');
+            if (!input || !btn) {
+                updateApiKeyStatus(' AI key controls are not available in this build.', 'error');
+                return;
+            }
             if (input.type === 'password') {
                 input.type = 'text';
                 btn.textContent = ' Hide';
@@ -21766,15 +21867,21 @@ Translate this configuration section to RouterOS ${context.targetVersion} syntax
                 return false;
             });
 
-            document.getElementById('diff_before').value = removed.join('\n') || '(No major syntax removals)';
-            document.getElementById('diff_after').value = added.join('\n') || '(No major syntax additions)';
-            document.getElementById('diff_viewer').style.display = 'block';
+            const diffBefore = document.getElementById('diff_before');
+            const diffAfter = document.getElementById('diff_after');
+            const diffViewer = document.getElementById('diff_viewer');
+            if (!diffBefore || !diffAfter || !diffViewer) return;
+
+            diffBefore.value = removed.join('\n') || '(No major syntax removals)';
+            diffAfter.value = added.join('\n') || '(No major syntax additions)';
+            diffViewer.style.display = 'block';
         }
 
         // Update Progress Bar
         function updateProgress(percent, message) {
             const bar = document.getElementById('progress_bar');
             const text = document.getElementById('progress_text');
+            if (!bar || !text) return;
             bar.style.width = percent + '%';
             bar.textContent = percent + '%';
             text.textContent = message;
@@ -21783,6 +21890,8 @@ Translate this configuration section to RouterOS ${context.targetVersion} syntax
         // Display Validation Issues
         function displayValidationIssues(issues) {
             const issuesList = document.getElementById('issues_list');
+            const issuesWrapper = document.getElementById('validation_issues');
+            if (!issuesList || !issuesWrapper) return;
             issuesList.innerHTML = '';
 
             if (issues.length === 0) {
@@ -21798,16 +21907,40 @@ Translate this configuration section to RouterOS ${context.targetVersion} syntax
                 });
             }
 
-            document.getElementById('validation_issues').style.display = 'block';
+            issuesWrapper.style.display = 'block';
+        }
+
+        function getLegacyTranslatorElements() {
+            const els = {
+                sourceConfig: document.getElementById('source_config'),
+                targetDevice: document.getElementById('target_device_llm'),
+                targetRouterOS: document.getElementById('target_routeros_llm'),
+                preserveComments: document.getElementById('translate_preserve_comments'),
+                validateRFC: document.getElementById('translate_validate_rfc'),
+                translatedOutput: document.getElementById('translated_output'),
+                progress: document.getElementById('translation_progress'),
+                validationIssues: document.getElementById('validation_issues'),
+                diffViewer: document.getElementById('diff_viewer'),
+                outputSection: document.getElementById('translation_output_section'),
+                sourceDevice: document.getElementById('source_device_llm'),
+                sourceRouterOS: document.getElementById('source_routeros_llm')
+            };
+            return els;
         }
 
         // Main Translation Function
         async function translateConfig() {
-            const sourceConfig = document.getElementById('source_config').value;
-            const targetDevice = document.getElementById('target_device_llm').value;
-            const targetRouterOS = document.getElementById('target_routeros_llm').value;
-            const preserveComments = document.getElementById('translate_preserve_comments').checked;
-            const validateRFC = document.getElementById('translate_validate_rfc').checked;
+            const ui = getLegacyTranslatorElements();
+            if (!ui.sourceConfig || !ui.targetDevice || !ui.targetRouterOS || !ui.progress || !ui.validationIssues || !ui.diffViewer || !ui.outputSection) {
+                alert('Translation workspace is not available in this build.');
+                return;
+            }
+
+            const sourceConfig = ui.sourceConfig.value;
+            const targetDevice = ui.targetDevice.value;
+            const targetRouterOS = ui.targetRouterOS.value;
+            const preserveComments = !!ui.preserveComments?.checked;
+            const validateRFC = !!ui.validateRFC?.checked;
 
             // Validation
             if (!sourceConfig || !targetDevice || !targetRouterOS) {
@@ -21828,10 +21961,10 @@ Translate this configuration section to RouterOS ${context.targetVersion} syntax
             addProgressLog('info', `Target: ${targetDevice}  RouterOS ${targetRouterOS}`);
 
             // Reset UI
-            document.getElementById('translation_progress').style.display = 'block';
-            document.getElementById('validation_issues').style.display = 'none';
-            document.getElementById('diff_viewer').style.display = 'none';
-            document.getElementById('translation_output_section').style.display = 'none';
+            ui.progress.style.display = 'block';
+            ui.validationIssues.style.display = 'none';
+            ui.diffViewer.style.display = 'none';
+            ui.outputSection.style.display = 'none';
 
             try {
                 updateProgress(5, 'Parsing source configuration...');
@@ -21911,8 +22044,8 @@ Translate this configuration section to RouterOS ${context.targetVersion} syntax
                 addProgressLog('success', 'Configuration migration completed successfully!');
 
                 // 6. Display results
-                document.getElementById('translated_output').value = translatedConfig;
-                document.getElementById('translation_output_section').style.display = 'block';
+                if (ui.translatedOutput) ui.translatedOutput.value = translatedConfig;
+                ui.outputSection.style.display = 'block';
 
                 // Track in history BEFORE completing progress tracker
                 saveConfigToHistory({
@@ -21930,13 +22063,13 @@ Translate this configuration section to RouterOS ${context.targetVersion} syntax
 
                 // Auto-hide translation progress bar after 2 seconds
                 setTimeout(() => {
-                    document.getElementById('translation_progress').style.display = 'none';
+                    ui.progress.style.display = 'none';
                 }, 2000);
 
             } catch (error) {
                 console.error('Translation error:', error);
                 updateProgress(0, '');
-                document.getElementById('translation_progress').style.display = 'none';
+                ui.progress.style.display = 'none';
                 addProgressLog('error', `Translation failed: ${error.message}`);
 
                 // Track failure
@@ -21955,8 +22088,14 @@ Translate this configuration section to RouterOS ${context.targetVersion} syntax
 
         // Validate Only (No Translation)
         async function validateOnly() {
-            const sourceConfig = document.getElementById('source_config').value;
-            const targetDevice = document.getElementById('target_device_llm').value;
+            const ui = getLegacyTranslatorElements();
+            if (!ui.sourceConfig || !ui.targetDevice) {
+                alert('Translation workspace is not available in this build.');
+                return;
+            }
+
+            const sourceConfig = ui.sourceConfig.value;
+            const targetDevice = ui.targetDevice.value;
 
             if (!sourceConfig) {
                 alert(' Please paste a source configuration first!');
@@ -21983,9 +22122,11 @@ Ready for translation!`);
 
         // Target Device Info Display
         function updateTargetDeviceInfo() {
-            const targetDevice = document.getElementById('target_device_llm').value;
+            const targetDeviceField = document.getElementById('target_device_llm');
             const infoDiv = document.getElementById('targetDeviceInfo');
             const detailsDiv = document.getElementById('targetDeviceDetails');
+            if (!targetDeviceField || !infoDiv || !detailsDiv) return;
+            const targetDevice = targetDeviceField.value;
 
             if (!targetDevice) {
                 infoDiv.style.display = 'none';
@@ -22007,7 +22148,12 @@ Ready for translation!`);
 
         // Copy/Download Functions
         function copyTranslatedConfig() {
-            const config = document.getElementById('translated_output').value;
+            const output = document.getElementById('translated_output');
+            if (!output) {
+                alert('Translation workspace is not available in this build.');
+                return;
+            }
+            const config = output.value;
             if (!config) {
                 alert(' No configuration to copy!');
                 return;
@@ -22020,14 +22166,21 @@ Ready for translation!`);
         }
 
         function downloadTranslatedConfig() {
-            const config = document.getElementById('translated_output').value;
+            const output = document.getElementById('translated_output');
+            const targetDeviceField = document.getElementById('target_device_llm');
+            const targetRouterOSField = document.getElementById('target_routeros_llm');
+            if (!output || !targetDeviceField || !targetRouterOSField) {
+                alert('Translation workspace is not available in this build.');
+                return;
+            }
+            const config = output.value;
             if (!config) {
                 alert(' No configuration to download!');
                 return;
             }
 
-            const targetDevice = document.getElementById('target_device_llm').value;
-            const targetVersion = document.getElementById('target_routeros_llm').value;
+            const targetDevice = targetDeviceField.value;
+            const targetVersion = targetRouterOSField.value;
             const filename = `translated_${targetDevice}_${targetVersion}_${Date.now()}.rsc`;
 
             const blob = new Blob([config], { type: 'text/plain' });
@@ -22040,15 +22193,19 @@ Ready for translation!`);
         }
 
         function resetTranslator() {
-            document.getElementById('source_config').value = '';
-            document.getElementById('translated_output').value = '';
-            document.getElementById('translation_output_section').style.display = 'none';
-            document.getElementById('validation_issues').style.display = 'none';
-            document.getElementById('diff_viewer').style.display = 'none';
-            document.getElementById('source_device_llm').value = '';
-            document.getElementById('source_routeros_llm').value = '';
-            document.getElementById('target_device_llm').value = '';
-            document.getElementById('target_routeros_llm').value = '';
+            const ui = getLegacyTranslatorElements();
+            if (!ui.sourceConfig || !ui.translatedOutput || !ui.outputSection || !ui.validationIssues || !ui.diffViewer || !ui.targetDevice || !ui.targetRouterOS) {
+                return;
+            }
+            ui.sourceConfig.value = '';
+            ui.translatedOutput.value = '';
+            ui.outputSection.style.display = 'none';
+            ui.validationIssues.style.display = 'none';
+            ui.diffViewer.style.display = 'none';
+            if (ui.sourceDevice) ui.sourceDevice.value = '';
+            if (ui.sourceRouterOS) ui.sourceRouterOS.value = '';
+            ui.targetDevice.value = '';
+            ui.targetRouterOS.value = '';
             updateTargetDeviceInfo();
         }
 
@@ -22131,13 +22288,24 @@ Ready for translation!`);
                 });
 
                 const fields = result.fields;
+                const setValueIfPresent = (ids, value) => {
+                    if (value === undefined || value === null || String(value).trim() === '') return;
+                    const candidates = Array.isArray(ids) ? ids : [ids];
+                    for (const id of candidates) {
+                        const el = document.getElementById(id);
+                        if (el) {
+                            el.value = value;
+                            return;
+                        }
+                    }
+                };
 
                 // Auto-fill form fields based on tab type
                 if (tabType === 'tower') {
-                    if (fields.site_name) document.getElementById('siteName').value = fields.site_name;
-                    if (fields.router_id) document.getElementById('routerId').value = fields.router_id;
-                    if (fields.loopback_ip) document.getElementById('loopbackIP').value = fields.loopback_ip;
-                    if (fields.asn) document.getElementById('asn').value = fields.asn;
+                    setValueIfPresent(['mtSiteName', 'siteName'], fields.site_name);
+                    setValueIfPresent(['routerId'], fields.router_id);
+                    setValueIfPresent(['mtLoopbackSubnet', 'ent_loopbackIP'], fields.loopback_ip);
+                    setValueIfPresent(['mtAsn', 'bgpAS'], fields.asn);
                 }
 
                 showAIStatus(' Form auto-filled! Review and generate config.', 'success');
@@ -25147,9 +25315,19 @@ Ready for translation!`);
                 const cpe = ((document.getElementById(`ftth_cpe_${sfx}`) || {}).value || '').trim() || (isOutstate ? '10.255.0.0/22' : '');
                 const cgnat = ((document.getElementById(`ftth_cgnat_private_${sfx}`) || {}).value || '').trim() || (isOutstate ? '100.127.252.0/22' : '');
                 const olt = (document.getElementById(`ftth_olt_network_${sfx}`) || {}).value || '';
-                const errEl = document.getElementById('ftthError');
+                const errEl = document.getElementById('ftthError') || document.getElementById('ftth_error');
                 const previewEl = document.getElementById('ftthPreview');
-                errEl.style.display = 'none'; errEl.textContent = ''; previewEl.style.display = 'none'; previewEl.textContent = '';
+                const generateBtn = document.getElementById('ftthGenerate');
+                if (!errEl) {
+                    alert('FTTH preview is not available in this build.');
+                    return false;
+                }
+
+                errEl.style.display = 'none'; errEl.textContent = '';
+                if (previewEl) {
+                    previewEl.style.display = 'none';
+                    previewEl.textContent = '';
+                }
 
                 if (!loopback || !isCidr(loopback, 32)) { errEl.textContent = 'Loopback must be a /32 (e.g., 10.13.100.5/32)'; errEl.style.display = 'block'; return false; }
                 if (!isOutstate && !isCidr(cpe, 22)) { errEl.textContent = 'CPE must be a /22 (e.g., 192.0.2.0/22)'; errEl.style.display = 'block'; return false; }
@@ -25182,7 +25360,14 @@ Ready for translation!`);
                     html += `<div><b>CPE pool:</b> ${p.cpe.network}/${p.cpe.prefix} - hosts: ${p.cpe.first_host} - ${p.cpe.last_host}</div>`;
                     html += `<div><b>CGNAT pool:</b> ${p.cgnat.network}/${p.cgnat.prefix} - hosts: ${p.cgnat.first_host} - ${p.cgnat.last_host}</div>`;
                     html += `<div style="margin-top:6px; color:#666;"><em>${p.note || ''}</em></div>`;
-                    previewEl.innerHTML = html; previewEl.style.display = 'block'; document.getElementById('ftthGenerate').disabled = false;
+                    if (previewEl) {
+                        previewEl.innerHTML = html;
+                        previewEl.style.display = 'block';
+                    } else {
+                        errEl.textContent = 'Preview completed. Use Generate Configuration to continue.';
+                        errEl.style.display = 'block';
+                    }
+                    if (generateBtn) generateBtn.disabled = false;
                     return true;
                 } catch (e) {
                     errEl.textContent = 'Preview request failed: ' + (e.message || e); errEl.style.display = 'block'; return false;
@@ -25227,8 +25412,12 @@ Ready for translation!`);
                         `ftth_routeros_${sfx}`
                     ];
                     ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-                    document.getElementById('ftthPreview').style.display = 'none'; document.getElementById('ftthPreview').textContent = '';
-                    document.getElementById('ftthGenerate').disabled = true; document.getElementById('ftthError').style.display = 'none';
+                    const previewEl = document.getElementById('ftthPreview');
+                    const generateBtn = document.getElementById('ftthGenerate');
+                    const errEl = document.getElementById('ftthError') || document.getElementById('ftth_error');
+                    if (previewEl) { previewEl.style.display = 'none'; previewEl.textContent = ''; }
+                    if (generateBtn) generateBtn.disabled = true;
+                    if (errEl) errEl.style.display = 'none';
                 });
 
                 // FTTH -> Port & Uplink helpers
@@ -26576,6 +26765,9 @@ Ready for translation!`);
 
             function getAviatStreamBase() {
                 if (aviatApiOverride && aviatApiOverride.startsWith('http')) return aviatApiOverride;
+                if (window.location.protocol === 'file:' || window.location.origin === 'null') {
+                    return 'http://localhost:5000/api/aviat';
+                }
                 return `${window.location.origin}/api/aviat`;
             }
 
@@ -27057,7 +27249,8 @@ Ready for translation!`);
                     const data = await parseAviatJson(response);
                     if (data.task_id) {
                         aviatState.currentTaskId = data.task_id;
-                        document.getElementById('abortBtn').disabled = false;
+                        const abortBtn = document.getElementById('abortBtn');
+                        if (abortBtn) abortBtn.disabled = false;
                         aviatStartLogStream(data.task_id);
                         aviatMonitorStatus(data.task_id);
                     } else {
@@ -27076,8 +27269,11 @@ Ready for translation!`);
             window.aviatRunSingle = async function (ip) {
                 if (aviatState.isProcessing) return;
                 aviatState.isProcessing = true;
-                document.getElementById('runBtn').textContent = 'Processing...';
-                document.getElementById('runBtn').disabled = true;
+                const runBtn = document.getElementById('runBtn');
+                if (runBtn) {
+                    runBtn.textContent = 'Processing...';
+                    runBtn.disabled = true;
+                }
                 await aviatSubmitRun([ip]);
             };
             window.aviatRebootRequired = async function (ip) {
@@ -27266,12 +27462,13 @@ Ready for translation!`);
                         aviatResetRunButton();
                         return;
                     }
-                if (data.task_id) {
+                    if (data.task_id) {
                         aviatState.activationCheckStart = Date.now();
                         aviatState.nextStatusCheckAt = aviatState.activationCheckStart + 900000;
                         setTimeout(() => { aviatCheckStatus(); }, 900000);
                         aviatState.currentTaskId = data.task_id;
-                        document.getElementById('abortBtn').disabled = false;
+                        const abortBtn = document.getElementById('abortBtn');
+                        if (abortBtn) abortBtn.disabled = false;
                         aviatStartLogStream(data.task_id);
                         aviatMonitorStatus(data.task_id);
                     } else {
@@ -27302,8 +27499,11 @@ Ready for translation!`);
                 aviatState.currentTaskId = null;
                 const abortBtn = document.getElementById('abortBtn');
                 if (abortBtn) abortBtn.disabled = true;
-                document.getElementById('runBtn').textContent = 'Run All';
-                document.getElementById('runBtn').disabled = false;
+                const runBtn = document.getElementById('runBtn');
+                if (runBtn) {
+                    runBtn.textContent = 'Run All';
+                    runBtn.disabled = false;
+                }
             }
 
             function aviatStartAutoStatusChecks() {
@@ -27766,6 +27966,7 @@ Ready for translation!`);
 
         function cmdRender(query) {
             const results = document.getElementById('cmdPaletteResults');
+            if (!results) return;
             const q = query.toLowerCase().trim();
             cmdFiltered = q ? CMD_ITEMS.filter(i =>
                 i.label.toLowerCase().includes(q) ||
@@ -27786,8 +27987,9 @@ Ready for translation!`);
                     html += `<div class="cmd-group-label">${item.cat}</div>`;
                 }
                 const sel = idx === cmdSelectedIdx ? ' selected' : '';
+                const ariaSelected = idx === cmdSelectedIdx ? 'true' : 'false';
                 const sc = item.shortcut ? `<span class="cmd-item-shortcut">${item.shortcut}</span>` : '';
-                html += `<div class="cmd-item${sel}" data-cmd-idx="${idx}">
+                html += `<div class="cmd-item${sel}" data-cmd-idx="${idx}" role="option" aria-selected="${ariaSelected}" tabindex="-1">
                     <span class="cmd-item-icon">${item.icon}</span>
                     <div class="cmd-item-body"><div class="cmd-item-label">${highlight(item.label, q)}</div><div class="cmd-item-desc">${item.desc}</div></div>
                     ${sc}
@@ -27810,27 +28012,32 @@ Ready for translation!`);
         }
 
         // Event delegation — click & hover on results container (survives innerHTML rebuilds)
-        document.getElementById('cmdPaletteResults').addEventListener('click', function(e) {
-            const item = e.target.closest('.cmd-item[data-cmd-idx]');
-            if (!item) return;
-            const idx = parseInt(item.getAttribute('data-cmd-idx'), 10);
-            const entry = cmdFiltered[idx];
-            if (entry) {
-                closeCommandPalette();
-                setTimeout(() => { entry.action(); }, 60);
-            }
-        });
-        document.getElementById('cmdPaletteResults').addEventListener('mouseover', function(e) {
-            const item = e.target.closest('.cmd-item[data-cmd-idx]');
-            if (!item) return;
-            const idx = parseInt(item.getAttribute('data-cmd-idx'), 10);
-            if (idx === cmdSelectedIdx) return;
-            // Update highlight without full re-render
-            const prev = this.querySelector('.cmd-item.selected');
-            if (prev) prev.classList.remove('selected');
-            item.classList.add('selected');
-            cmdSelectedIdx = idx;
-        });
+        const cmdPaletteResults = document.getElementById('cmdPaletteResults');
+        if (cmdPaletteResults) {
+            cmdPaletteResults.addEventListener('click', function(e) {
+                const item = e.target.closest('.cmd-item[data-cmd-idx]');
+                if (!item) return;
+                const idx = parseInt(item.getAttribute('data-cmd-idx'), 10);
+                const entry = cmdFiltered[idx];
+                if (entry) {
+                    closeCommandPalette();
+                    setTimeout(() => { entry.action(); }, 60);
+                }
+            });
+            cmdPaletteResults.addEventListener('mouseover', function(e) {
+                const item = e.target.closest('.cmd-item[data-cmd-idx]');
+                if (!item) return;
+                const idx = parseInt(item.getAttribute('data-cmd-idx'), 10);
+                if (idx === cmdSelectedIdx) return;
+                // Update highlight without full re-render
+                const prev = this.querySelector('.cmd-item.selected');
+                if (prev) prev.classList.remove('selected');
+                item.classList.add('selected');
+                item.setAttribute('aria-selected', 'true');
+                if (prev) prev.setAttribute('aria-selected', 'false');
+                cmdSelectedIdx = idx;
+            });
+        }
         window.cmdExec = function (idx) {
             const item = cmdFiltered[idx];
             if (item) {
@@ -27856,10 +28063,13 @@ Ready for translation!`);
             if (e.key === 'Enter') { e.preventDefault(); window.cmdExec(cmdSelectedIdx); }
         });
 
-        document.getElementById('cmdPaletteInput').addEventListener('input', function () {
-            cmdSelectedIdx = 0;
-            cmdRender(this.value);
-        });
+        const cmdPaletteInput = document.getElementById('cmdPaletteInput');
+        if (cmdPaletteInput) {
+            cmdPaletteInput.addEventListener('input', function () {
+                cmdSelectedIdx = 0;
+                cmdRender(this.value);
+            });
+        }
 
         /* ──────────────────────────────────────────────────
            3. CONFIG DIFF VIEWER
@@ -29315,17 +29525,27 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
             _pushQueue = devices;  // [{host, config_text, label}]
             _pushSource = source;
             const listEl = document.getElementById('sshPushDeviceList');
+            const confirmBtn = document.getElementById('sshPushConfirmBtn');
+            const body = document.getElementById('sshPushBody');
+            const progress = document.getElementById('sshPushProgress');
+            const results = document.getElementById('sshPushResults');
+            const modal = document.getElementById('sshPushModal');
+            if (!listEl || !confirmBtn || !body || !progress || !results || !modal) {
+                nocToast('SSH push modal is not available right now.', 'error');
+                return;
+            }
             listEl.innerHTML = devices.map((d, i) =>
                 `<div style="padding:3px 0;border-bottom:1px solid var(--border-color)">${i + 1}. <strong>${escHtml(d.host)}</strong> ${d.label && d.label !== d.host ? '(' + escHtml(d.label) + ')' : ''} — ${(d.config_text || '').split('\n').length} lines</div>`
             ).join('');
             document.getElementById('sshPushConfirmBtn').textContent = `🚀 Yes, Push to ${devices.length} Device${devices.length > 1 ? 's' : ''}`;
-            document.getElementById('sshPushConfirmBtn').style.display = '';
-            document.getElementById('sshPushConfirmBtn').disabled = false;
-            document.getElementById('sshPushBody').style.display = '';
-            document.getElementById('sshPushProgress').style.display = 'none';
-            document.getElementById('sshPushResults').style.display = 'none';
-            document.getElementById('sshPushModal').classList.add('show');
+            confirmBtn.style.display = '';
+            confirmBtn.disabled = false;
+            body.style.display = '';
+            progress.style.display = 'none';
+            results.style.display = 'none';
+            modal.classList.add('show');
         }
+        window.openPushConfirmation = openPushConfirmation;
 
         window.executePush = async function () {
             if (!_pushQueue.length) return;
@@ -29697,86 +29917,164 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
         const sidebar = document.getElementById('appSidebar');
         if (!sidebar) return;
 
-        // --- Group expand/collapse ---
-        sidebar.querySelectorAll('.sb-group > .sb-item-header').forEach(header => {
-            header.addEventListener('click', () => {
-                const group = header.closest('.sb-group');
-                // Close other groups
-                sidebar.querySelectorAll('.sb-group').forEach(g => {
-                    if (g !== group) g.classList.remove('open');
-                });
-                group.classList.toggle('open');
+        function makeSidebarNodeFocusable(node) {
+            if (!node || node.hasAttribute('tabindex')) return;
+            node.setAttribute('tabindex', '0');
+            node.setAttribute('role', 'button');
+        }
+
+        sidebar.querySelectorAll('.sb-item, .sb-item-header').forEach(makeSidebarNodeFocusable);
+
+        function toggleSidebarGroup(header) {
+            const group = header?.closest('.sb-group');
+            if (!group) return;
+            sidebar.querySelectorAll('.sb-group').forEach(g => {
+                if (g !== group) g.classList.remove('open');
             });
-        });
+            group.classList.toggle('open');
+        }
 
-        // --- Tab navigation via sidebar ---
-        sidebar.querySelectorAll('.sb-item[data-sb-tab]').forEach(item => {
-            item.addEventListener('click', (e) => {
-                e.stopPropagation(); // Prevent bubbling to group header
-                const tabId = item.getAttribute('data-sb-tab');
-                const subtab = item.getAttribute('data-sb-subtab');
+        function getCurrentSidebarSelection() {
+            const activePane = document.querySelector('.content-pane.active');
+            let tabId = activePane?.id ? activePane.id.replace(/-pane$/, '') : 'home';
+            let subtab = null;
 
-                // Call existing navigateToTab
-                if (typeof window.navigateToTab === 'function') {
-                    window.navigateToTab(tabId);
-                }
+            if (tabId === 'ftth-home') {
+                subtab = document.querySelector('#ftth-home-pane .ftth-home-dropdown-item.active')?.dataset.ftthHomeTab
+                    || document.querySelector('#ftth-home-pane .ftth-home-section.active')?.id?.replace('ftth-home-', '').replace('-section', '')
+                    || 'olt';
+            } else if (tabId === 'command-vault') {
+                subtab = document.querySelector('#command-vault-pane .command-vault-tab.active')?.dataset.commandVaultTab
+                    || document.querySelector('#command-vault-pane .command-vault-section.active')?.id?.replace('command-vault-', '').replace('-section', '')
+                    || 'nokia';
+            }
 
-                // Handle subtabs (FTTH, Command Vault)
-                if (tabId === 'ftth-home' && subtab && typeof window.showFtthHomeSubTab === 'function') {
-                    window.showFtthHomeSubTab(subtab);
-                }
-                if (tabId === 'command-vault' && subtab && typeof window.showCommandVaultSubTab === 'function') {
-                    window.showCommandVaultSubTab(subtab);
-                }
+            return { tabId, subtab };
+        }
 
-                // Update sidebar active state
-                updateSidebarActive(tabId);
-            });
-        });
+        function updateSidebarActive(preferredTabId, preferredSubtab) {
+            const resolved = preferredTabId ? { tabId: preferredTabId, subtab: preferredSubtab || null } : getCurrentSidebarSelection();
+            sidebar.querySelectorAll('.sb-item[data-sb-tab]').forEach(el => el.classList.remove('active'));
 
-        // --- Action buttons (feedback, settings, policy) ---
-        sidebar.querySelectorAll('.sb-item[data-sb-action]').forEach(item => {
-            item.addEventListener('click', () => {
-                const action = item.getAttribute('data-sb-action');
-                if (action === 'feedback' && typeof window.openFeedbackModal === 'function') {
-                    window.openFeedbackModal();
-                } else if (action === 'settings' && typeof window.openSettingsModal === 'function') {
-                    window.openSettingsModal();
-                } else if (action === 'policy' && typeof window.togglePolicyReference === 'function') {
-                    window.togglePolicyReference();
-                }
-            });
-        });
+            let activeItem = null;
+            if (resolved.subtab) {
+                activeItem = sidebar.querySelector(`.sb-item[data-sb-tab="${resolved.tabId}"][data-sb-subtab="${resolved.subtab}"]`);
+            }
+            if (!activeItem && resolved.tabId) {
+                activeItem = sidebar.querySelector(`.sb-item[data-sb-tab="${resolved.tabId}"]:not([data-sb-subtab])`)
+                    || sidebar.querySelector(`.sb-item[data-sb-tab="${resolved.tabId}"]`);
+            }
+            if (!activeItem) return;
 
-        // --- Update sidebar active state ---
-        function updateSidebarActive(tabId) {
-            sidebar.querySelectorAll('.sb-item').forEach(el => el.classList.remove('active'));
-            const activeItem = sidebar.querySelector(`.sb-item[data-sb-tab="${tabId}"]`);
-            if (activeItem) {
-                activeItem.classList.add('active');
-                // Open parent group if in one
-                const parentGroup = activeItem.closest('.sb-group');
-                if (parentGroup) parentGroup.classList.add('open');
+            activeItem.classList.add('active');
+            const parentGroup = activeItem.closest('.sb-group');
+            if (parentGroup) parentGroup.classList.add('open');
+        }
+
+        function triggerSidebarAction(action) {
+            if (action === 'feedback' && typeof window.openFeedbackModal === 'function') {
+                window.openFeedbackModal();
+                return;
+            }
+            if (action === 'settings' && typeof window.openSettingsModal === 'function') {
+                window.openSettingsModal();
+                return;
+            }
+            if (action === 'policy' && typeof window.togglePolicyReference === 'function') {
+                window.togglePolicyReference();
             }
         }
 
-        // --- Monkey-patch navigateToTab to sync sidebar ---
-        const _origNavigateToTab = window.navigateToTab;
-        if (_origNavigateToTab) {
-            window.navigateToTab = async function(tabId) {
-                const result = await _origNavigateToTab(tabId);
+        function handleSidebarItem(item) {
+            if (!item) return;
+            const action = item.getAttribute('data-sb-action');
+            if (action) {
+                triggerSidebarAction(action);
+                return;
+            }
+
+            const tabId = item.getAttribute('data-sb-tab');
+            const subtab = item.getAttribute('data-sb-subtab');
+            if (!tabId) return;
+
+            if (typeof window.navigateToTab === 'function') {
+                window.navigateToTab(tabId);
+            }
+            if (tabId === 'ftth-home' && subtab && typeof window.showFtthHomeSubTab === 'function') {
+                window.showFtthHomeSubTab(subtab);
+            }
+            if (tabId === 'command-vault' && subtab && typeof window.showCommandVaultSubTab === 'function') {
+                window.showCommandVaultSubTab(subtab);
+            }
+            updateSidebarActive(tabId, subtab);
+        }
+
+        sidebar.addEventListener('click', (event) => {
+            const header = event.target.closest('.sb-group > .sb-item-header');
+            if (header && sidebar.contains(header)) {
+                toggleSidebarGroup(header);
+                return;
+            }
+
+            const item = event.target.closest('.sb-item');
+            if (item && sidebar.contains(item)) {
+                event.stopPropagation();
+                handleSidebarItem(item);
+            }
+        });
+
+        sidebar.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+
+            const header = event.target.closest('.sb-group > .sb-item-header');
+            if (header && sidebar.contains(header)) {
+                event.preventDefault();
+                toggleSidebarGroup(header);
+                return;
+            }
+
+            const item = event.target.closest('.sb-item');
+            if (item && sidebar.contains(item)) {
+                event.preventDefault();
+                handleSidebarItem(item);
+            }
+        });
+
+        const origNavigateToTab = window.navigateToTab;
+        if (typeof origNavigateToTab === 'function' && !origNavigateToTab.__sidebarSyncWrapped) {
+            const wrappedNavigateToTab = async function(tabId) {
+                const result = await origNavigateToTab(tabId);
                 updateSidebarActive(tabId);
                 return result;
             };
+            wrappedNavigateToTab.__sidebarSyncWrapped = true;
+            window.navigateToTab = wrappedNavigateToTab;
         }
 
-        // --- Add Infara theme to settings if not already there ---
-        // (handled by settings modal code — the theme is available via CSS)
+        const origShowFtthHomeSubTab = window.showFtthHomeSubTab;
+        if (typeof origShowFtthHomeSubTab === 'function' && !origShowFtthHomeSubTab.__sidebarSyncWrapped) {
+            const wrappedFtthHomeSubTab = function(tabKey) {
+                const result = origShowFtthHomeSubTab(tabKey);
+                updateSidebarActive('ftth-home', tabKey);
+                return result;
+            };
+            wrappedFtthHomeSubTab.__sidebarSyncWrapped = true;
+            window.showFtthHomeSubTab = wrappedFtthHomeSubTab;
+        }
 
-        // Set initial sidebar state from URL hash or default
-        const hash = window.location.hash.replace('#', '');
-        if (hash) updateSidebarActive(hash);
-        else updateSidebarActive('home');
+        const origShowCommandVaultSubTab = window.showCommandVaultSubTab;
+        if (typeof origShowCommandVaultSubTab === 'function' && !origShowCommandVaultSubTab.__sidebarSyncWrapped) {
+            const wrappedCommandVaultSubTab = function(tabKey) {
+                const result = origShowCommandVaultSubTab(tabKey);
+                updateSidebarActive('command-vault', tabKey);
+                return result;
+            };
+            wrappedCommandVaultSubTab.__sidebarSyncWrapped = true;
+            window.showCommandVaultSubTab = wrappedCommandVaultSubTab;
+        }
+
+        window.addEventListener('hashchange', () => updateSidebarActive());
+        setTimeout(() => updateSidebarActive(), 0);
     })();
     </script>
 
