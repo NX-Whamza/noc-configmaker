@@ -22741,9 +22741,10 @@ Ready for translation!`);
                             if (dlBtn) dlBtn.dataset.variant = key;
                         };
                         if (copyBtn) {
-                            copyBtn.addEventListener('click', () => {
+                            copyBtn.addEventListener('click', async () => {
                                 const key = select?.value || defaultVariant;
-                                navigator.clipboard.writeText(configVariants[key] || '').then(() => alert(' Copied!'));
+                                const copied = await copyTextWithFallback(configVariants[key] || '');
+                                alert(copied ? ' Copied!' : ' Copy failed');
                             });
                         }
                         if (select) {
@@ -22755,8 +22756,9 @@ Ready for translation!`);
                         const copyBtn = modal.querySelector('#completedConfigCopyBtn');
                         if (pre) pre.textContent = initialConfig || '';
                         if (copyBtn) {
-                            copyBtn.addEventListener('click', () => {
-                                navigator.clipboard.writeText(initialConfig || '').then(() => alert(' Copied!'));
+                            copyBtn.addEventListener('click', async () => {
+                                const copied = await copyTextWithFallback(initialConfig || '');
+                                alert(copied ? ' Copied!' : ' Copy failed');
                             });
                         }
                     }
@@ -22818,6 +22820,36 @@ Ready for translation!`);
                     document.body.removeChild(notification);
                 }, 2000);
             }, 100);
+        }
+
+        async function copyTextWithFallback(text) {
+            const value = String(text || '');
+            if (!value) return false;
+            if (navigator.clipboard && window.isSecureContext) {
+                try {
+                    await navigator.clipboard.writeText(value);
+                    return true;
+                } catch (_) {
+                    // fall through to execCommand fallback
+                }
+            }
+            const textarea = document.createElement('textarea');
+            textarea.value = value;
+            textarea.setAttribute('readonly', '');
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            textarea.style.pointerEvents = 'none';
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+            let copied = false;
+            try {
+                copied = document.execCommand('copy');
+            } catch (_) {
+                copied = false;
+            }
+            document.body.removeChild(textarea);
+            return copied;
         }
 
         // ========================================
