@@ -24192,25 +24192,43 @@ Ready for translation!`);
             };
 
             function validateNokia7250Inputs(loopback, connectors, uplinks) {
+                const isValidNokiaIPv4 = (value) => /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(String(value || '').trim());
+                const isValidNokiaCIDR = (value) => {
+                    const parts = String(value || '').trim().split('/');
+                    if (parts.length !== 2) return false;
+                    const prefix = Number(parts[1]);
+                    return isValidNokiaIPv4(parts[0]) && Number.isInteger(prefix) && prefix >= 0 && prefix <= 32;
+                };
+                const isNokiaNetworkOrBroadcast = (value) => {
+                    if (!isValidNokiaCIDR(value)) return false;
+                    const [ip, cidr] = String(value).trim().split('/');
+                    const cidrNum = Number(cidr);
+                    const ipParts = ip.split('.').map(Number);
+                    const ipInt = ((ipParts[0] << 24) >>> 0) + ((ipParts[1] << 16) >>> 0) + ((ipParts[2] << 8) >>> 0) + (ipParts[3] >>> 0);
+                    const mask = cidrNum === 0 ? 0 : ((0xFFFFFFFF << (32 - cidrNum)) >>> 0);
+                    const networkAddress = (ipInt & mask) >>> 0;
+                    const broadcastAddress = (networkAddress | (~mask >>> 0)) >>> 0;
+                    return cidrNum < 31 && (ipInt === networkAddress || ipInt === broadcastAddress);
+                };
                 const errors = [];
-                if (!isValidIPWithCIDR(loopback)) {
+                if (!isValidNokiaCIDR(loopback)) {
                     errors.push('System IP / Loopback must be a valid IPv4 CIDR (example: 10.25.0.46/32).');
-                } else if (isNetworkOrBroadcastAddress(loopback)) {
+                } else if (isNokiaNetworkOrBroadcast(loopback)) {
                     errors.push('System IP / Loopback cannot be a network or broadcast address.');
                 }
 
                 connectors.forEach((connector, index) => {
-                    if (connector.ip && !isValidIPWithCIDR(connector.ip)) {
+                    if (connector.ip && !isValidNokiaCIDR(connector.ip)) {
                         errors.push(`100G Connector ${index + 1} IP/CIDR is invalid: ${connector.ip}`);
-                    } else if (connector.ip && isNetworkOrBroadcastAddress(connector.ip)) {
+                    } else if (connector.ip && isNokiaNetworkOrBroadcast(connector.ip)) {
                         errors.push(`100G Connector ${index + 1} IP/CIDR cannot be a network or broadcast address: ${connector.ip}`);
                     }
                 });
 
                 uplinks.forEach((uplink, index) => {
-                    if (uplink.ip && !isValidIPWithCIDR(uplink.ip)) {
+                    if (uplink.ip && !isValidNokiaCIDR(uplink.ip)) {
                         errors.push(`Uplink ${index + 1} IP/CIDR is invalid: ${uplink.ip}`);
-                    } else if (uplink.ip && isNetworkOrBroadcastAddress(uplink.ip)) {
+                    } else if (uplink.ip && isNokiaNetworkOrBroadcast(uplink.ip)) {
                         errors.push(`Uplink ${index + 1} IP/CIDR cannot be a network or broadcast address: ${uplink.ip}`);
                     }
                 });
