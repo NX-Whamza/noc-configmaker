@@ -556,8 +556,6 @@ def _aviat_status_from_result(result):
     hard_precheck_error = any(
         (result or {}).get(k) is False for k in ("license_ok", "stp_ok", "subnet_ok")
     )
-    if final_ok and not hard_component_error and not hard_precheck_error:
-        return "success"
     if "precheck blocked upgrade" in err_text:
         return "pending"
     if "software operation already in progress" in err_text:
@@ -576,6 +574,8 @@ def _aviat_status_from_result(result):
         return "aborted"
     if _aviat_is_transient_result(result):
         return "pending_verify"
+    if final_ok and not hard_component_error and not hard_precheck_error:
+        return "success"
     if hard_precheck_error:
         return "pending"
     if success:
@@ -723,9 +723,18 @@ def _aviat_queue_update_from_result(result, username=None):
     hard_precheck_error = any(
         result.get(k) is False for k in ("license_ok", "stp_ok", "subnet_ok")
     )
-    if updates.get("status") in ("error", "pending_verify", "loading") and final_ok and not hard_component_error and not hard_precheck_error:
+    if updates.get("status") == "error" and final_ok and not hard_component_error and not hard_precheck_error:
         updates["status"] = "success"
         updates["error"] = None
+    if final_ok and updates.get("status") not in (
+        "loading",
+        "pending_verify",
+        "scheduled",
+        "reboot_required",
+        "reboot_pending",
+        "rebooting",
+    ):
+        updates["firmwareStatus"] = "success"
 
     if username:
         updates["username"] = username

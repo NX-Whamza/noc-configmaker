@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 import sys
 from pathlib import Path
+import pytest
 
 
 def _load_module():
@@ -120,3 +121,100 @@ def test_precheck_failure_keeps_overall_status_pending():
         "subnet_ok": False,
     }
     assert api_server._aviat_status_from_result(result) == "pending"
+
+
+@pytest.mark.parametrize(
+    ("result", "expected_status", "expected_firmware_status"),
+    [
+        (
+            {
+                "ip": "10.0.0.6",
+                "success": True,
+                "status": "loading",
+                "firmware_version_before": "2.11.11",
+                "firmware_version_after": None,
+            },
+            "loading",
+            "loading",
+        ),
+        (
+            {
+                "ip": "10.0.0.7",
+                "success": True,
+                "status": "pending_verify",
+                "firmware_version_before": "6.1.0",
+                "firmware_version_after": None,
+                "error": "firmware version not ready",
+            },
+            "pending_verify",
+            "pending_verify",
+        ),
+        (
+            {
+                "ip": "10.0.0.8",
+                "success": True,
+                "status": "scheduled",
+                "firmware_scheduled": True,
+                "target_version": "6.1.0",
+                "firmware_version_before": "2.11.11",
+                "firmware_version_after": None,
+            },
+            "scheduled",
+            "scheduled",
+        ),
+        (
+            {
+                "ip": "10.0.0.9",
+                "success": True,
+                "status": "reboot_required",
+                "target_version": "6.1.0",
+                "firmware_version_before": "2.11.11",
+                "firmware_version_after": None,
+            },
+            "reboot_required",
+            "pending",
+        ),
+        (
+            {
+                "ip": "10.0.0.10",
+                "success": True,
+                "status": None,
+                "target_version": "6.1.0",
+                "firmware_version_after": "6.1.0",
+                "password_changed": True,
+                "snmp_configured": True,
+                "buffer_configured": True,
+                "license_ok": True,
+                "stp_ok": True,
+                "subnet_ok": True,
+            },
+            "success",
+            "success",
+        ),
+        (
+            {
+                "ip": "10.0.0.11",
+                "success": True,
+                "status": "precheck_failed",
+                "target_version": "6.1.0",
+                "firmware_version_after": "6.1.0",
+                "password_changed": True,
+                "snmp_configured": True,
+                "buffer_configured": True,
+                "license_ok": True,
+                "stp_ok": True,
+                "subnet_ok": False,
+            },
+            "pending",
+            "success",
+        ),
+    ],
+)
+def test_status_matrix_maps_correctly(result, expected_status, expected_firmware_status):
+    api_server = _load_module()
+    api_server.aviat_shared_queue.clear()
+    api_server.aviat_shared_queue.append({"ip": result["ip"], "status": "pending"})
+    api_server._aviat_queue_update_from_result(result, username="tester")
+    updated = api_server._aviat_queue_find(result["ip"])
+    assert updated["status"] == expected_status
+    assert updated["firmwareStatus"] == expected_firmware_status
