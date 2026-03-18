@@ -16,7 +16,7 @@ UI_FILE = repo_root / 'vm_deployment' / 'NOC-configMaker.html'
 def test_ftth_modal_exists():
     content = UI_FILE.read_text(encoding='utf-8')
     assert 'FTTH BNG CONFIG' in content, 'Missing menu label "FTTH BNG CONFIG" in Mikrotik dropdown in NOC-configMaker.html'
-    assert 'data-tab="ftth"' in content, 'Missing data-tab="ftth" attribute for FTTH menu item in NOC-configMaker.html'
+    assert 'data-tab="ftth-home"' in content, 'Missing FTTH HOME navigation entry in NOC-configMaker.html'
     assert 'id="ftth-pane"' in content, 'Missing ftth content pane id="ftth-pane" in NOC-configMaker.html'
     assert 'id="ftthPreviewBtn"' in content, 'Missing Preview button id="ftthPreviewBtn" in NOC-configMaker.html'
     assert ('generateFtthBng' in content) or ('ftthGenerate' in content), 'Missing generator hook: generateFtthBng() or element id="ftthGenerate"'
@@ -36,10 +36,22 @@ def test_ftth_modal_exists():
     assert 'id="ftth_preset_name"' in content, 'Missing preset name input id="ftth_preset_name" in NOC-configMaker.html'
 
 
+def test_ftth_speed_controls_and_backend_payload_hooks_exist():
+    content = UI_FILE.read_text(encoding='utf-8')
+    assert '25G-baseSR-LR' in content, 'Missing 25G-baseSR-LR FTTH speed option in NOC-configMaker.html'
+    assert "auto_negotiation: row.querySelector('.ftth-uplink-autoneg')?.checked || false" in content, \
+        'Missing FTTH uplink auto-negotiation payload mapping in NOC-configMaker.html'
+    assert "speed: speedSelect.value" in content, 'Missing FTTH OLT speed payload mapping in NOC-configMaker.html'
+    assert 'BGP Peer Configuration' in content, 'Missing FTTH BGP peer display section in NOC-configMaker.html'
+    assert '10.2.0.107/32' in content, 'Missing FTTH CR7 peer display in NOC-configMaker.html'
+    assert '10.2.0.108/32' in content, 'Missing FTTH CR8 peer display in NOC-configMaker.html'
+
+
 
 if __name__ == '__main__':
     try:
         test_ftth_modal_exists()
+        test_ftth_speed_controls_and_backend_payload_hooks_exist()
         print('[OK] test_ftth_modal_exists')
         raise SystemExit(0)
     except AssertionError as e:

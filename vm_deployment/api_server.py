@@ -56,6 +56,12 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from ftth_renderer import render_ftth_config
 from typing import Optional
+try:
+    from routes.ftth import create_ftth_blueprint
+    from routes.runtime import create_runtime_blueprint
+except Exception:
+    from vm_deployment.routes.ftth import create_ftth_blueprint
+    from vm_deployment.routes.runtime import create_runtime_blueprint
 
 # Ensure local module imports work regardless of process working directory.
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -8454,6 +8460,10 @@ def _cidr_details_gen(cidr: str) -> dict:
     }
 
 
+app.register_blueprint(create_runtime_blueprint())
+app.register_blueprint(create_ftth_blueprint(render_ftth_config, _cidr_details_gen))
+
+
 def _ros_quote(value: str) -> str:
     v = (value or "").replace('"', '\\"')
     return f"\"{v}\""
@@ -9484,102 +9494,6 @@ def validate_tarana_config(config_text, device, routeros_version):
     
     is_valid = len(errors) == 0
     return is_valid, errors, warnings
-
-@app.route('/api/gen-ftth-bng', methods=['POST'])
-def gen_ftth_bng():
-    """Deprecated FTTH endpoint. Use /api/generate-ftth-bng with full payload."""
-    try:
-        data = request.get_json(force=True) or {}
-
-        required_full = [
-            'loopback_ip',
-            'cpe_network',
-            'cgnat_private',
-            'cgnat_public',
-            'unauth_network',
-            'olt_network'
-        ]
-        if all(data.get(k) for k in required_full):
-            config = render_ftth_config(data)
-            return jsonify({'success': True, 'config': config})
-
-        # Backward compatibility for legacy payload used by older UI/tests.
-        legacy_required = ['loopback_ip', 'cpe_cidr', 'cgnat_cidr', 'olt_cidr']
-        if all(data.get(k) for k in legacy_required):
-            identity = data.get('identity', 'RTR-CCR2216.FTTH-BNG')
-            olt_port = data.get('olt_port', 'sfp28-3')
-            olt_speed = str(data.get('olt_port_speed', 'auto')).strip() or 'auto'
-            legacy_payload = {
-                'router_identity': identity,
-                'location': data.get('location', '0,0'),
-                'loopback_ip': data.get('loopback_ip'),
-                'cpe_network': data.get('cpe_cidr'),
-                'cgnat_private': data.get('cgnat_cidr'),
-                'cgnat_public': data.get('cgnat_public', '132.147.184.91/32'),
-                'unauth_network': data.get('unauth_cidr', data.get('cpe_cidr')),
-                'olt_network': data.get('olt_cidr'),
-                'routeros_version': data.get('target_version', '7.19.4'),
-                'olt_name': data.get('olt_name', 'OLT-GW'),
-                'olt_ports': [{
-                    'port': olt_port,
-                    'group': '1',
-                    'speed': olt_speed,
-                    'comment': f"OLT-speed:{olt_speed}",
-                }],
-                'uplinks': data.get('uplinks', []),
-            }
-            config = render_ftth_config(legacy_payload)
-            if "add name=cpe_pool" not in config:
-                config = config.replace("add name=cpe ranges=", "add name=cpe_pool ranges=")
-            if "FTTH-CPE-NAT" not in config:
-                config = config + "\n# FTTH-CPE-NAT\n"
-            return jsonify({'success': True, 'config': config, 'device': 'CCR2216'})
-
-        return jsonify({
-            'success': False,
-            'error': 'FTTH generator now requires full FTTH fields (CGNAT Public, UNAUTH, OLT name, location). Use the FTTH BNG tab and /api/generate-ftth-bng.'
-        }), 400
-    except Exception as exc:
-        print(f"[FTTH BNG] Error generating ftth bng: {exc}")
-        return jsonify({'success': False, 'error': str(exc)}), 500
-
-
-@app.route('/api/preview-ftth-bng', methods=['POST','OPTIONS'])
-def preview_ftth_bng():
-    """Return parsed FTTH CIDR details for previewing in the UI."""
-    try:
-        # Respond to preflight / OPTIONS gracefully
-        if request.method == 'OPTIONS':
-            return jsonify({'success': True}), 200
-        data = request.get_json(force=True)
-        loopback_ip = data.get('loopback_ip')
-        cpe_cidr = data.get('cpe_cidr')
-        cgnat_cidr = data.get('cgnat_cidr')
-        olt_cidr = data.get('olt_cidr')
-
-        if not (loopback_ip and cpe_cidr and cgnat_cidr and olt_cidr):
-            return jsonify({'success': False, 'error': 'Missing one of required CIDR params (loopback_ip, cpe_cidr, cgnat_cidr, olt_cidr)'}), 400
-
-        try:
-            olt_info = _cidr_details_gen(olt_cidr)
-            cpe_info = _cidr_details_gen(cpe_cidr)
-            cgnat_info = _cidr_details_gen(cgnat_cidr)
-        except Exception as e:
-            return jsonify({'success': False, 'error': f'Invalid CIDR provided: {e}'}), 400
-
-        preview = {
-            'loopback': loopback_ip,
-            'olt': olt_info,
-            'cpe': cpe_info,
-            'cgnat': cgnat_info,
-            'suggested_nat_comment': 'FTTH-CPE-NAT',
-            'note': 'Preview only - use Generate to produce full configuration'
-        }
-        return jsonify({'success': True, 'preview': preview})
-    except Exception as exc:
-        print(f"[FTTH BNG] Preview error: {exc}")
-        return jsonify({'success': False, 'error': str(exc)}), 500
-
 
 @app.route('/api/gen-tarana-config', methods=['POST'])
 def gen_tarana_config():
@@ -12400,24 +12314,6 @@ def api_docs():
         'docs_url': 'See docs/API_REFERENCE.md for full payload examples'
     })
 
-@app.route('/api/app-config', methods=['GET'])
-def app_config():
-    """
-    Lightweight runtime configuration consumed by the frontend.
-
-    Keep this endpoint unauthenticated so the UI can load defaults during startup.
-    """
-    bng_peers = {
-        'NE': os.getenv('BNG_PEER_NE', '10.254.247.3'),
-        'IL': os.getenv('BNG_PEER_IL', '10.247.72.34'),
-        'IA': os.getenv('BNG_PEER_IA', '10.254.247.3'),
-        'KS': os.getenv('BNG_PEER_KS', '10.249.0.200'),
-        'IN': os.getenv('BNG_PEER_IN', '10.254.247.3'),
-    }
-    default_bng_peer = os.getenv('BNG_PEER_DEFAULT', '10.254.247.3')
-    return jsonify({'bng_peers': bng_peers, 'default_bng_peer': default_bng_peer})
-
-
 IDO_PROXY_ALLOWED_PREFIXES = (
     "/api/bh/",
     "/api/ap/",
@@ -12843,7 +12739,7 @@ def infrastructure_config():
     dns_secondary = os.getenv('NEXTLINK_DNS_SECONDARY', '142.147.112.19').strip()
     shared_key = os.getenv('NEXTLINK_SHARED_KEY', '').strip()
 
-    radius_secret = os.getenv('NEXTLINK_RADIUS_SECRET', '').strip()
+    radius_secret = os.getenv('NEXTLINK_RADIUS_SECRET', 'Nl22021234').strip() or 'Nl22021234'
     radius_dhcp_servers = _csv(os.getenv('NEXTLINK_RADIUS_DHCP_SERVERS', ''))
     radius_login_servers = _csv(os.getenv('NEXTLINK_RADIUS_LOGIN_SERVERS', ''))
 
@@ -12862,7 +12758,7 @@ def infrastructure_config():
             'contact': os.getenv('NEXTLINK_SNMP_CONTACT', 'netops@team.nxlink.com').strip(),
         },
         'radius': {
-            'secret': radius_secret or None,
+            'secret': radius_secret,
             'dhcp_servers': radius_dhcp_servers,
             'login_servers': radius_login_servers,
         },
@@ -15728,30 +15624,6 @@ def aviat_get_status(task_id):
     if task_id not in aviat_tasks:
         return jsonify({'error': 'Task not found'}), 404
     return jsonify(aviat_tasks[task_id])
-
-
-@app.route('/api/generate-ftth-bng', methods=['POST'])
-def generate_ftth_bng():
-    """Generate complete FTTH BNG configuration from the strict template."""
-    try:
-        data = request.get_json() or {}
-        print(f"[FTTH BNG] Received configuration request: {data.get('deployment_type', 'unknown')}")
-        config = render_ftth_config(data)
-        print(f"[FTTH BNG] Generated configuration: {len(config)} characters")
-        return jsonify({
-            'success': True,
-            'config': config,
-        })
-    except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
-        print(f"[ERROR] FTTH BNG generation failed: {e}")
-        print(error_details)
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'details': error_details
-        }), 500
 
 
 @app.route('/api/ftth-home/mf2-package', methods=['POST'])

@@ -7482,6 +7482,24 @@
                 </div>
 
                 <div class="section">
+                    <h2>BGP Peer Configuration</h2>
+                    <p style="margin-bottom: 15px; color: var(--text-color-secondary);">
+                        FTTH BGP uses the loopback IP as `local.address` and `router-id`. The backend automatically
+                        builds the core peers below.
+                    </p>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <div style="padding: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg);">
+                            <strong>CR7</strong><br>
+                            <span style="color: var(--text-color-secondary);">10.2.0.107/32</span>
+                        </div>
+                        <div style="padding: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg);">
+                            <strong>CR8</strong><br>
+                            <span style="color: var(--text-color-secondary);">10.2.0.108/32</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
                     <h2>Port & Uplink Configuration</h2>
                     <p style="margin-bottom: 15px; color: var(--text-color-secondary);">Configure ports with IP
                         addresses for OSPF routing, bridge assignment, or switch mode. The tool automatically handles
@@ -7668,6 +7686,24 @@
                             <label for="ftth_olt_lag100g_out">OLT LAG Name (200G Ports, Optional):</label>
                             <input type="text" id="ftth_olt_lag100g_out" placeholder="TX-LAB-MF2-100G"
                                 oninput="updateFtthOltLagName('out', '100g')">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2>BGP Peer Configuration</h2>
+                    <p style="margin-bottom: 15px; color: var(--text-color-secondary);">
+                        FTTH BGP uses the loopback IP as `local.address` and `router-id`. The backend automatically
+                        builds the core peers below.
+                    </p>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <div style="padding: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg);">
+                            <strong>CR7</strong><br>
+                            <span style="color: var(--text-color-secondary);">10.2.0.107/32</span>
+                        </div>
+                        <div style="padding: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg);">
+                            <strong>CR8</strong><br>
+                            <span style="color: var(--text-color-secondary);">10.2.0.108/32</span>
                         </div>
                     </div>
                 </div>
@@ -25980,7 +26016,7 @@ Ready for translation!`);
                 portDiv.style.cssText = 'margin-bottom: 10px; padding: 15px; background: var(--input-bg); border-radius: 4px; border: 1px solid var(--border-color);';
                 const speedOptions = groupId === '100g'
                     ? '<option value="100G-baseCR4" selected>100G-baseCR4</option>'
-                    : '<option value="auto">Auto</option><option value="10G-baseSR-LR">10G-baseSR-LR</option><option value="10G-baseSR-LR">10G-baseSR-LR</option>';
+                    : '<option value="auto">Auto</option><option value="10G-baseSR-LR">10G-baseSR-LR</option><option value="25G-baseSR-LR">25G-baseSR-LR</option>';
                 const speedDisabled = groupId === '100g' ? 'disabled' : '';
                 portDiv.innerHTML = `
                     <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; align-items: center;">

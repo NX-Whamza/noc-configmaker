@@ -14,14 +14,15 @@ import threading
 import time
 import sqlite3
 import shutil
+from contextlib import asynccontextmanager
 from datetime import datetime
 from urllib.parse import urljoin
 import requests
 from pathlib import Path
 from typing import Any, Dict, Type
 
+from a2wsgi import WSGIMiddleware
 from fastapi import Body, FastAPI, HTTPException, Request
-from fastapi.middleware.wsgi import WSGIMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 
@@ -48,7 +49,13 @@ from ido_adapter import (
 from api_v2 import router as api_v2_router
 
 
-app = FastAPI(title="NOC Config Maker API", version="1.0")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    _maybe_purge_bad_aviat_logs_on_startup()
+    yield
+
+
+app = FastAPI(title="NOC Config Maker API", version="1.0", lifespan=lifespan)
 
 # Match current permissive CORS behavior from Flask setup.
 app.add_middleware(
@@ -126,11 +133,6 @@ def _maybe_purge_bad_aviat_logs_on_startup() -> None:
         print(f"[ACTIVITY] Auto-purge complete: deleted {deleted} bad Aviat rows.")
     except Exception as exc:
         print(f"[ACTIVITY] Auto-purge failed: {exc}")
-
-
-@app.on_event("startup")
-def _startup_maintenance() -> None:
-    _maybe_purge_bad_aviat_logs_on_startup()
 
 
 @app.get("/api/runtime")
