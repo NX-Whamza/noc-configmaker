@@ -24077,6 +24077,33 @@ Ready for translation!`);
                 if (output) output.value = window._nokia7250Outputs?.[resolved] || '';
             };
 
+            function validateNokia7250Inputs(loopback, connectors, uplinks) {
+                const errors = [];
+                if (!isValidIPWithCIDR(loopback)) {
+                    errors.push('System IP / Loopback must be a valid IPv4 CIDR (example: 10.25.0.46/32).');
+                } else if (isNetworkOrBroadcastAddress(loopback)) {
+                    errors.push('System IP / Loopback cannot be a network or broadcast address.');
+                }
+
+                connectors.forEach((connector, index) => {
+                    if (connector.ip && !isValidIPWithCIDR(connector.ip)) {
+                        errors.push(`100G Connector ${index + 1} IP/CIDR is invalid: ${connector.ip}`);
+                    } else if (connector.ip && isNetworkOrBroadcastAddress(connector.ip)) {
+                        errors.push(`100G Connector ${index + 1} IP/CIDR cannot be a network or broadcast address: ${connector.ip}`);
+                    }
+                });
+
+                uplinks.forEach((uplink, index) => {
+                    if (uplink.ip && !isValidIPWithCIDR(uplink.ip)) {
+                        errors.push(`Uplink ${index + 1} IP/CIDR is invalid: ${uplink.ip}`);
+                    } else if (uplink.ip && isNetworkOrBroadcastAddress(uplink.ip)) {
+                        errors.push(`Uplink ${index + 1} IP/CIDR cannot be a network or broadcast address: ${uplink.ip}`);
+                    }
+                });
+
+                return errors;
+            }
+
             // Timezone DST map
             const nokia7250MainTzMap = {
                 CST: { zone: 'CST', dst: 'CDT', start: 'second sunday march 02:00', end: 'first sunday november 02:00' },
@@ -24152,6 +24179,11 @@ Ready for translation!`);
                 const connectors = nokia7250MainGetConnectors();
                 const uplinks = nokia7250MainGetUplinks();
                 const bgpNeighbors = nokia7250MainGetBgpNeighbors();
+                const validationErrors = validateNokia7250Inputs(loopback, connectors, uplinks);
+                if (validationErrors.length) {
+                    alert(`Please fix the Nokia 7250 inputs before generating:\n\n- ${validationErrors.join('\n- ')}`);
+                    return;
+                }
                 const allInterfaces = [];
 
                 connectors.forEach(c => allInterfaces.push({ port: c.port + '/1', desc: c.desc, ip: c.ip, speed: '100000', isConnector: true, connPort: c.port, mtu: c.mtu }));

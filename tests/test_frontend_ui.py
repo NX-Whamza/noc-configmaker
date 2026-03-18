@@ -67,6 +67,8 @@ def test_sidebar_and_nokia_7250_layout_updates_exist():
     assert 'Command Lines' in content, 'Missing Nokia 7250 command-line option'
     assert 'buildNokia7250CommandLineOutput' in content, 'Missing Nokia 7250 command-line conversion helper'
     assert 'setNokia7250OutputFormat' in content, 'Missing Nokia 7250 output format switcher'
+    assert 'validateNokia7250Inputs' in content, 'Missing Nokia 7250 input validation helper'
+    assert 'Uplink ${index + 1} IP/CIDR is invalid' in content, 'Missing Nokia 7250 uplink CIDR validation message'
 
 
 
