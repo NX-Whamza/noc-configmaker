@@ -27507,14 +27507,21 @@ Ready for translation!`);
                 }
             }
 
+            function aviatHasActiveProgress(radio) {
+                const status = aviatNormalizeStatus(radio.status);
+                const firmware = aviatNormalizeStatus(radio.firmwareStatus);
+                return ['processing', 'loading', 'pending_verify', 'reboot_pending', 'rebooting'].includes(status)
+                    || ['loading', 'pending_verify'].includes(firmware);
+            }
+
             function aviatStartAutoStatusChecks() {
                 if (aviatState.autoStatusInterval) return;
                 aviatState.autoStatusInterval = setInterval(() => {
-                    const hasRunning = aviatState.radios.some(r => aviatNormalizeStatus(r.status) === 'processing');
+                    const hasRunning = aviatState.radios.some(aviatHasActiveProgress);
                     if (hasRunning) {
                         aviatCheckStatus();
                     }
-                }, 900000);
+                }, 60000);
             }
 
             async function aviatCheckStatus() {
@@ -27525,12 +27532,12 @@ Ready for translation!`);
                         aviatAddLog(`Status check deferred (${mins} min until post-activation window).`, 'info');
                         return;
                     }
-                    const processing = aviatState.radios.filter(r => aviatNormalizeStatus(r.status) === 'processing');
+                    const processing = aviatState.radios.filter(aviatHasActiveProgress);
                     if (processing.length === 0) {
-                        aviatAddLog('No running radios to check', 'info');
+                        aviatAddLog('No active radios to check', 'info');
                         return;
                     }
-                    aviatAddLog(`Checking status for ${processing.length} running radio(s)...`, 'info');
+                    aviatAddLog(`Checking status for ${processing.length} active radio(s)...`, 'info');
                     const response = await aviatFetch('/check-status', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -27596,20 +27603,19 @@ Ready for translation!`);
                         }
                         return;
                     }
-                    const scheduled = new Set(scheduledData.scheduled || []);
-                    const loading = new Set(loadingData.loading || []);
-                    aviatState.radios = aviatState.radios.map(r => {
-                        if (loading.has(r.ip)) {
-                            return { ...r, status: 'loading', firmwareStatus: 'loading' };
-                        }
-                        if (scheduled.has(r.ip)) {
-                            return { ...r, status: 'scheduled' };
-                        }
-                        if (r.status === 'loading' || r.status === 'scheduled') {
+                    if (!queueLoaded) {
+                        const scheduled = new Set(scheduledData.scheduled || []);
+                        const loading = new Set(loadingData.loading || []);
+                        aviatState.radios = aviatState.radios.map(r => {
+                            if (loading.has(r.ip)) {
+                                return { ...r, status: 'loading', firmwareStatus: 'loading' };
+                            }
+                            if (scheduled.has(r.ip)) {
+                                return { ...r, status: 'scheduled' };
+                            }
                             return r;
-                        }
-                        return r;
-                    });
+                        });
+                    }
                     aviatUpdateUI();
                     if (!quiet) {
                         aviatAddLog(queueLoaded ? 'Refreshed shared queue' : 'Refreshed scheduled queue', 'info');

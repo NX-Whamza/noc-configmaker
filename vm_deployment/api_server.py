@@ -305,6 +305,7 @@ try:
         process_radios_parallel as aviat_process_radios_parallel,
         check_device_status as aviat_check_device_status,
         CONFIG as AVIAT_CONFIG,
+        trigger_firmware_download as aviat_trigger_firmware_download,
         get_firmware_version as aviat_get_firmware_version,
         get_inactive_firmware_version as aviat_get_inactive_firmware_version,
         get_uptime_days as aviat_get_uptime_days,
@@ -358,9 +359,11 @@ aviat_activation_lock = threading.Lock()
 aviat_loading_lock = threading.Lock()
 AVIAT_AUTO_ACTIVATE = os.getenv("AVIAT_AUTO_ACTIVATE", "true").lower() in ("1", "true", "yes")
 AVIAT_AUTO_ACTIVATE_POLL = int(os.getenv("AVIAT_AUTO_ACTIVATE_POLL", "60"))
-AVIAT_LOADING_CHECK_INTERVAL = int(os.getenv("AVIAT_LOADING_CHECK_INTERVAL", "900"))
+AVIAT_LOADING_CHECK_INTERVAL = int(os.getenv("AVIAT_LOADING_CHECK_INTERVAL", "60"))
 AVIAT_LOADING_MAX_WAIT = int(os.getenv("AVIAT_LOADING_MAX_WAIT", "5400"))
 AVIAT_LOADING_UNKNOWN_MAX_CHECKS = int(os.getenv("AVIAT_LOADING_UNKNOWN_MAX_CHECKS", "6"))
+_aviat_background_threads_started = False
+_aviat_background_threads_lock = threading.Lock()
 
 
 def _aviat_dedupe_queue(entries):
@@ -907,13 +910,18 @@ def _aviat_loading_check_loop():
                         try:
                             client_retry = _aviat_connect_with_fallback(ip, callback=local_log)
                             try:
-                                client_retry.send_command("software abort", timeout=12)
-                            except Exception:
-                                pass
-                            retry_cmd = f"software load uri {target_uri} force activation-immediately"
-                            retry_out = client_retry.send_command(retry_cmd, timeout=20) or ""
-                            client_retry.close()
-                            if "loading started" in retry_out.lower():
+                                retry_ok, retry_msg = aviat_trigger_firmware_download(
+                                    client_retry,
+                                    target_uri,
+                                    activation_time=None,
+                                    activate_now=True,
+                                    activation_mode="immediate",
+                                    callback=local_log,
+                                )
+                            finally:
+                                client_retry.close()
+                            retry_out = retry_msg or ""
+                            if retry_ok:
                                 entry["loaderror_retries"] = retry_count + 1
                                 entry["check_count"] = current_check_count + 1
                                 entry["unknown_count"] = 0
@@ -1055,6 +1063,23 @@ def _aviat_loading_check_loop():
             )
 
         time.sleep(AVIAT_LOADING_CHECK_INTERVAL)
+
+
+def _start_aviat_background_threads():
+    global _aviat_background_threads_started
+    if not HAS_AVIAT:
+        return
+    with _aviat_background_threads_lock:
+        if _aviat_background_threads_started:
+            return
+        if AVIAT_AUTO_ACTIVATE:
+            print("[AVIAT] Auto-activation scheduler is ENABLED")
+            threading.Thread(target=_aviat_auto_activate_loop, daemon=True).start()
+        else:
+            print("[AVIAT] Auto-activation scheduler is DISABLED")
+        print(f"[AVIAT] Firmware loading checker is ENABLED ({AVIAT_LOADING_CHECK_INTERVAL}s interval)")
+        threading.Thread(target=_aviat_loading_check_loop, daemon=True).start()
+        _aviat_background_threads_started = True
 
 def _aviat_activate_entries(task_id, to_activate, username=None):
     aviat_tasks[task_id]['status'] = 'running'
@@ -2660,6 +2685,7 @@ log.setLevel(logging.WARNING)  # Only show warnings and errors, not info/debug
 @app.before_request
 def filter_scanner_requests():
     """Filter out noisy scanner requests from logs"""
+    _start_aviat_background_threads()
     client_ip = request.remote_addr
     
     # Check for broadcast addresses or suspicious patterns
@@ -17086,14 +17112,9 @@ if __name__ == '__main__':
     else:
         print("\n[WARN] RFC-09-10-25 enforcement is DISABLED (reference not found)")
 
-    if HAS_AVIAT and AVIAT_AUTO_ACTIVATE:
-        print("\n[AVIAT] Auto-activation scheduler is ENABLED")
-        threading.Thread(target=_aviat_auto_activate_loop, daemon=True).start()
-    elif HAS_AVIAT:
-        print("\n[AVIAT] Auto-activation scheduler is DISABLED")
     if HAS_AVIAT:
-        print("[AVIAT] Firmware loading checker is ENABLED")
-        threading.Thread(target=_aviat_loading_check_loop, daemon=True).start()
+        print("")
+        _start_aviat_background_threads()
 
     print("\nStarting server on http://0.0.0.0:5000")
     print("=" * 50 + "\n")
