@@ -58,8 +58,15 @@ def test_ftth_fiber_customer_and_cisco_generator_exist():
     content = UI_FILE.read_text(encoding='utf-8')
     assert 'data-ftth-home-tab="fiber"' in content, 'Missing FTTH Fiber Customer subtab in NOC-configMaker.html'
     assert 'id="ftth-home-fiber-section"' in content, 'Missing FTTH Fiber Customer section in NOC-configMaker.html'
+    assert 'id="ftthFiberRouterboard"' in content, 'Missing FTTH Fiber Customer RouterBoard selector in NOC-configMaker.html'
+    assert 'id="ftthFiberRouteros"' in content, 'Missing FTTH Fiber Customer RouterOS selector in NOC-configMaker.html'
+    assert 'updateFtthFiberPortOptions' in content, 'Missing FTTH Fiber Customer dynamic port helper in NOC-configMaker.html'
     assert 'generateFtthFiberCustomerConfig' in content, 'Missing FTTH Fiber Customer generator hook in NOC-configMaker.html'
     assert 'id="cisco-config-pane"' in content, 'Missing Cisco Config pane in NOC-configMaker.html'
+    assert 'id="ciscoHostname"' in content, 'Missing Cisco hostname field in NOC-configMaker.html'
+    assert 'id="ciscoOspfProcess"' in content, 'Missing Cisco OSPF process field in NOC-configMaker.html'
+    assert 'id="ciscoOspfArea"' in content, 'Missing Cisco OSPF area field in NOC-configMaker.html'
+    assert 'id="ciscoMtu"' in content, 'Missing Cisco MTU field in NOC-configMaker.html'
     assert 'generateCiscoConfig' in content, 'Missing Cisco Config generator hook in NOC-configMaker.html'
     assert "config_type: 'ftth-fiber-customer'" in content, 'Missing FTTH Fiber Customer completed-config save wiring in NOC-configMaker.html'
     assert "device: 'MikroTik Fiber Customer'" in content, 'Missing FTTH Fiber Customer activity wiring in NOC-configMaker.html'
@@ -86,6 +93,7 @@ def test_nokia_configurator_is_truly_unified():
     content = UI_FILE.read_text(encoding='utf-8')
     assert 'id="nokiaPlatformModel"' in content, 'Missing Nokia platform model selector in NOC-configMaker.html'
     assert 'id="nokiaPlatformProfile"' in content, 'Missing Nokia platform profile selector in NOC-configMaker.html'
+    assert 'id="nokiaProfileHost"' in content, 'Missing Nokia profile host container in NOC-configMaker.html'
     assert 'id="nokia7210ProfileSection"' in content, 'Missing Nokia 7210 profile section in NOC-configMaker.html'
     assert 'id="nokia7210IsdSection"' in content, 'Missing Nokia 7210 ISD profile section in NOC-configMaker.html'
     assert 'id="nokia7750TunnelSection"' in content, 'Missing Nokia 7750 tunnel section in NOC-configMaker.html'

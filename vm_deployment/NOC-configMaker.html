@@ -1279,6 +1279,15 @@
             margin: 0 auto;
         }
 
+        .nokia-profile-host {
+            max-width: 1200px;
+            margin: 0 auto 18px;
+        }
+
+        .nokia-profile-panel {
+            display: none;
+        }
+
         @media (max-width: 900px) {
             .nokia7250-config-container {
                 grid-template-columns: 1fr;
@@ -6996,6 +7005,8 @@
                         </div>
                     </div>
 
+                    <div id="nokiaProfileHost" class="nokia-profile-host"></div>
+
                     <div class="nokia7250-config-container">
                         <!-- LEFT COLUMN -->
                         <div class="nokia7250-left-col">
@@ -7076,7 +7087,7 @@
                                 </div>
                             </div>
 
-                            <div class="section" id="nokia7210ProfileSection" style="display:none; background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 16px;">
+                            <div class="section nokia-profile-panel" id="nokia7210ProfileSection" style="display:none; background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 16px;">
                                 <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">7210 Routing Profile</h2>
                                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;">
                                     <input type="text" id="nokia7210_ospfArea" value="0.0.0.0" placeholder="OSPF Area"
@@ -7096,7 +7107,7 @@
                                     style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
                             </div>
 
-                            <div class="section" id="nokia7210IsdSection" style="display:none; background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 16px;">
+                            <div class="section nokia-profile-panel" id="nokia7210IsdSection" style="display:none; background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 16px;">
                                 <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">7210 ISD Service Profile</h2>
                                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;">
                                     <input type="text" id="nokia7210_isdSiteName" placeholder="Site Name"
@@ -7110,7 +7121,7 @@
                                 </div>
                             </div>
 
-                            <div class="section" id="nokia7750TunnelSection" style="display:none; background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 16px;">
+                            <div class="section nokia-profile-panel" id="nokia7750TunnelSection" style="display:none; background: var(--container-bg); padding: 20px; border-radius: 8px; margin-bottom: 16px;">
                                 <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">7750 Tunnel / VPLS Profile</h2>
                                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;">
                                     <input type="text" id="nokia7750_sdpNumber" value="101" placeholder="SDP Number"
@@ -8031,12 +8042,35 @@
                             </p>
                             <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                                 <div>
+                                    <label for="ftthFiberRouterboard">RouterBoard Device</label>
+                                    <select id="ftthFiberRouterboard">
+                                        <option value="ccr2004" selected>CCR2004</option>
+                                        <option value="ccr2216">CCR2216</option>
+                                        <option value="ccr2116">CCR2116</option>
+                                        <option value="ccr1072">CCR1072</option>
+                                        <option value="ccr1036">CCR1036</option>
+                                        <option value="rb5009">RB5009</option>
+                                        <option value="rb2011">RB2011</option>
+                                        <option value="rb1009">RB1009</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="ftthFiberRouteros">RouterOS Version</label>
+                                    <select id="ftthFiberRouteros">
+                                        <option value="7.19.4" selected>7.19.4</option>
+                                        <option value="7.18.2">7.18.2</option>
+                                        <option value="7.16.2">7.16.2</option>
+                                        <option value="7">7.x Generic</option>
+                                    </select>
+                                </div>
+                                <div>
                                     <label for="ftthFiberProvider">Fiber Provider</label>
                                     <input type="text" id="ftthFiberProvider" placeholder="FIBERCOMM">
                                 </div>
                                 <div>
                                     <label for="ftthFiberPort">Router Port</label>
-                                    <input type="text" id="ftthFiberPort" value="sfp-sfpplus8" placeholder="sfp-sfpplus8">
+                                    <select id="ftthFiberPort"></select>
+                                    <small id="ftthFiberPortHint" style="color: var(--text-color-secondary); font-size: 11px;">Ports populate from the selected RouterBoard profile.</small>
                                 </div>
                                 <div>
                                     <label for="ftthFiberAddress">Provider IP / CIDR</label>
@@ -8684,6 +8718,10 @@ network point-to-point</div>
                 <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">Interface Parameters</h2>
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                     <div>
+                        <label for="ciscoHostname">Hostname</label>
+                        <input type="text" id="ciscoHostname" placeholder="CRS-HOHQ-01">
+                    </div>
+                    <div>
                         <label for="ciscoPortDesc">Port Description</label>
                         <input type="text" id="ciscoPortDesc" placeholder="BH-TO-SITE-A">
                     </div>
@@ -8713,6 +8751,22 @@ network point-to-point</div>
                     <div>
                         <label for="ciscoOspfCost">OSPF Cost</label>
                         <input type="number" id="ciscoOspfCost" value="10" min="1" max="65535">
+                    </div>
+                    <div>
+                        <label for="ciscoOspfProcess">OSPF Process</label>
+                        <input type="number" id="ciscoOspfProcess" value="1" min="1" max="65535">
+                    </div>
+                    <div>
+                        <label for="ciscoOspfArea">OSPF Area</label>
+                        <input type="text" id="ciscoOspfArea" value="0" placeholder="0">
+                    </div>
+                    <div>
+                        <label for="ciscoMtu">MTU</label>
+                        <input type="number" id="ciscoMtu" value="9216" min="1500" max="9216">
+                    </div>
+                    <div>
+                        <label for="ciscoOspfKey">OSPF MD5 Key</label>
+                        <input type="text" id="ciscoOspfKey" value="0456532B5A0B5B580D2028" placeholder="Encrypted OSPF key">
                     </div>
                     <div>
                         <label for="ciscoPassive">Passive</label>
@@ -24277,7 +24331,13 @@ Ready for translation!`);
                     isd: 'ISD'
                 };
                 const profileLabel = profileLabelMap[profile] || 'Standard';
+                const host = document.getElementById('nokiaProfileHost');
                 heading.textContent = `Nokia Configurator`;
+                if (host) {
+                    [section7210, section7210Isd, section7750].forEach((panel) => {
+                        if (panel && panel.parentElement !== host) host.appendChild(panel);
+                    });
+                }
                 if (section7210) section7210.style.display = model === '7210' && profile !== 'isd' ? 'block' : 'none';
                 if (section7210Isd) section7210Isd.style.display = model === '7210' && profile === 'isd' ? 'block' : 'none';
                 if (section7750) section7750.style.display = model === '7750' ? 'block' : 'none';
@@ -24303,6 +24363,31 @@ Ready for translation!`);
                     model: (document.getElementById('nokiaPlatformModel')?.value || '7250').trim(),
                     profile: (document.getElementById('nokiaPlatformProfile')?.value || 'standard').trim()
                 };
+            }
+
+            function getFtthFiberPreferredPort(deviceKey) {
+                const profile = typeof getEnterpriseDeviceProfile === 'function' ? getEnterpriseDeviceProfile(deviceKey) : null;
+                if (profile?.uplinkPort) return profile.uplinkPort;
+                const ports = getDevicePortOptions(deviceKey);
+                return ports.find((port) => port.startsWith('sfp') || port.startsWith('combo')) || ports[0] || 'sfp-sfpplus1';
+            }
+
+            function updateFtthFiberPortOptions() {
+                const device = (document.getElementById('ftthFiberRouterboard')?.value || 'ccr2004').trim();
+                const portSelect = document.getElementById('ftthFiberPort');
+                const hint = document.getElementById('ftthFiberPortHint');
+                if (!portSelect) return;
+                const ports = getDevicePortOptions(device);
+                portSelect.innerHTML = '';
+                ports.forEach((portName) => {
+                    const option = document.createElement('option');
+                    option.value = portName;
+                    option.textContent = portName;
+                    portSelect.appendChild(option);
+                });
+                const preferred = getFtthFiberPreferredPort(device);
+                if (ports.includes(preferred)) portSelect.value = preferred;
+                if (hint) hint.textContent = `Ports populate from ${device.toUpperCase()} and default to ${preferred}.`;
             }
 
             function getNokiaOutputMetadataBase(hostname, loopback, lat, lon, tz, extras) {
@@ -27082,8 +27167,10 @@ Ready for translation!`);
         };
 
         window.generateFtthFiberCustomerConfig = function () {
+            const routerboard = (document.getElementById('ftthFiberRouterboard')?.value || 'ccr2004').trim();
+            const routeros = (document.getElementById('ftthFiberRouteros')?.value || '7.19.4').trim();
             const provider = (document.getElementById('ftthFiberProvider')?.value || '').trim();
-            const port = (document.getElementById('ftthFiberPort')?.value || 'sfp-sfpplus8').trim();
+            const port = (document.getElementById('ftthFiberPort')?.value || getFtthFiberPreferredPort(routerboard)).trim();
             const address = (document.getElementById('ftthFiberAddress')?.value || '').trim();
             const network = (document.getElementById('ftthFiberNetwork')?.value || '').trim();
             const vlanMode = (document.getElementById('ftthFiberVlanMode')?.value || 'none').trim();
@@ -27114,7 +27201,7 @@ Ready for translation!`);
                 return;
             }
 
-            let config = '\n# FIBER SITE SETTINGS\n\n/interface ethernet\n';
+            let config = `# FIBER SITE SETTINGS\n# RouterBoard: ${routerboard.toUpperCase()}\n# RouterOS: ${routeros}\n# Provider: ${provider}\n\n/interface ethernet\n`;
             config += `set [ find default-name="${port}" ] comment="${provider}"\n\n`;
             if (vlanMode === 'tagged') {
                 const vlanName = `VLAN ${vlanNum}`;
@@ -27122,11 +27209,13 @@ Ready for translation!`);
                 config += `add interface="${port}" name="${vlanName}" vlan-id="${vlanNum}"\n\n`;
                 config += '/ip address\n';
                 config += `add address=${address} comment="${provider} VLAN ${vlanNum}" interface="${vlanName}" network=${network.split('/')[0]}\n\n`;
+                config += '/routing ospf instance\nadd disabled=no name=default-v2 router-id=' + address.split('/')[0] + '\n\n';
                 config += '#OSPF Settings\n/routing ospf interface-template\n';
                 config += `add area=backbone-v2 auth=md5 auth-id=1 auth-key=m8M5JwvdYM cost=10 disabled=no interfaces="${vlanName}" networks=${network} priority=1 type=ptp comment="${provider} VLAN ${vlanNum}"\n`;
             } else {
                 config += '/ip address\n';
                 config += `add address=${address} comment="${provider}" interface=${port} network=${network.split('/')[0]}\n\n`;
+                config += '/routing ospf instance\nadd disabled=no name=default-v2 router-id=' + address.split('/')[0] + '\n\n';
                 config += '#OSPF Settings\n/routing ospf interface-template\n';
                 config += `add area=backbone-v2 auth=md5 auth-id=1 auth-key=m8M5JwvdYM cost=10 disabled=no interfaces=${port} networks=${network} priority=1 type=ptp comment="${provider}"\n`;
             }
@@ -27145,6 +27234,8 @@ Ready for translation!`);
                     config_content: rendered,
                     site_name: provider,
                     metadata: {
+                        routerboard,
+                        routeros,
                         provider,
                         port,
                         address,
@@ -27160,7 +27251,7 @@ Ready for translation!`);
                     type: 'new-config',
                     device: 'MikroTik Fiber Customer',
                     siteName: provider,
-                    routeros: '7',
+                    routeros,
                     success: true
                 });
             }
@@ -27170,7 +27261,7 @@ Ready for translation!`);
                     type: 'ftth-fiber-customer',
                     device: 'MikroTik Fiber Customer',
                     siteName: provider,
-                    routeros: '7',
+                    routeros,
                     success: true
                 });
             }
@@ -27206,12 +27297,17 @@ Ready for translation!`);
         };
 
         window.generateCiscoConfig = function () {
+            const hostname = (document.getElementById('ciscoHostname')?.value || '').trim();
             const desc = (document.getElementById('ciscoPortDesc')?.value || '').trim();
             const type = (document.getElementById('ciscoPortType')?.value || 'TenGigE').trim();
             const port = (document.getElementById('ciscoPortNumber')?.value || '').trim();
             const ip = (document.getElementById('ciscoBhIp')?.value || '').trim();
             const mask = (document.getElementById('ciscoBhMask')?.value || '255.255.255.252').trim();
             const ospfCost = (document.getElementById('ciscoOspfCost')?.value || '10').trim();
+            const ospfProcess = (document.getElementById('ciscoOspfProcess')?.value || '1').trim();
+            const ospfArea = (document.getElementById('ciscoOspfArea')?.value || '0').trim();
+            const mtu = (document.getElementById('ciscoMtu')?.value || '9216').trim();
+            const ospfKey = (document.getElementById('ciscoOspfKey')?.value || '0456532B5A0B5B580D2028').trim();
             const passive = (document.getElementById('ciscoPassive')?.value || 'No').trim();
             const statusEl = document.getElementById('ciscoConfigStatus');
             const outputEl = document.getElementById('ciscoConfigOutput');
@@ -27239,22 +27335,29 @@ Ready for translation!`);
                 return;
             }
 
-            const passiveLine = passive === 'Yes' ? 'passive enable' : '';
+            const passiveLine = passive === 'Yes' ? 'passive enable' : 'no passive';
             const lines = [
                 'configure terminal',
                 '',
+                hostname ? `hostname ${hostname}` : '',
+                '',
                 `interface ${type} ${port}`,
                 `description ${desc}`,
+                `mtu ${mtu}`,
                 `ipv4 address ${ip} ${mask}`,
+                'no shutdown',
                 ' ',
-                'router ospf 1 area 0',
+                `router ospf ${ospfProcess} area ${ospfArea}`,
                 '',
                 `interface ${type} ${port}`,
                 `cost ${ospfCost}`,
                 'authentication message-digest',
-                'message-digest-key 1 md5 encrypted 0456532B5A0B5B580D2028',
+                `message-digest-key 1 md5 encrypted ${ospfKey}`,
                 'network point-to-point',
-                passiveLine
+                passiveLine,
+                '',
+                'commit',
+                'end'
             ];
             const config = lines.filter((line, index) => line !== '' || (index > 0 && lines[index - 1] !== '')).join('\n').trim() + '\n';
             if (outputEl) outputEl.value = config;
@@ -27276,6 +27379,9 @@ Ready for translation!`);
                         interface_ip: ip,
                         subnet_mask: mask,
                         ospf_cost: ospfCost,
+                        ospf_process: ospfProcess,
+                        ospf_area: ospfArea,
+                        mtu,
                         passive
                     }
                 });
@@ -27334,10 +27440,17 @@ Ready for translation!`);
         document.addEventListener('DOMContentLoaded', () => {
             initFtthHomeTabs();
             initCommandVaultTabs();
+            const ftthFiberBoard = document.getElementById('ftthFiberRouterboard');
+            if (ftthFiberBoard && !ftthFiberBoard.dataset.bound) {
+                ftthFiberBoard.addEventListener('change', updateFtthFiberPortOptions);
+                ftthFiberBoard.dataset.bound = '1';
+            }
+            updateFtthFiberPortOptions();
         });
         window.addEventListener('load', () => {
             if (typeof initFtthHomeTabs === 'function') initFtthHomeTabs();
             if (typeof initCommandVaultTabs === 'function') initCommandVaultTabs();
+            if (typeof updateFtthFiberPortOptions === 'function') updateFtthFiberPortOptions();
         });
 
         // ========================================
