@@ -13109,6 +13109,7 @@ _API_REGISTRY = [
     {"method": "POST", "path": "/api/generate-ftth-bng",     "category": "FTTH BNG",          "summary": "Generate FTTH BNG config (strict template)", "payload": {"deployment_type": "str", "loopback_ip": "str", "cpe_network": "str", "cgnat_private": "str"}},
     {"method": "POST", "path": "/api/gen-ftth-bng",          "category": "FTTH BNG",          "summary": "Alternate FTTH BNG input contract",         "payload": {"loopback_ip": "str", "cpe_cidr": "str", "cgnat_cidr": "str"}},
     {"method": "POST", "path": "/api/preview-ftth-bng",      "category": "FTTH BNG",          "summary": "Preview FTTH CIDR details (no config gen)", "payload": {"loopback_ip": "str", "cpe_cidr": "str", "cgnat_cidr": "str"}},
+    {"method": "POST", "path": "/api/generate-ftth-fiber-customer", "category": "FTTH BNG",   "summary": "Generate FTTH fiber customer handoff config", "payload": {"routerboard": "str", "routeros": "str", "provider": "str", "port?": "str", "address": "str", "network": "str", "loopback_ip?": "str", "vlan_mode?": "none|tagged", "vlan_id?": "str", "apply_compliance?": "bool"}},
     {"method": "POST", "path": "/api/ftth-home/mf2-package", "category": "FTTH BNG",          "summary": "Generate MF2 ZIP package",                  "payload": {"gateway_ip": "str", "primary_ip": "str"}},
     # ── Nokia 7250 ──
     {"method": "GET",  "path": "/api/nokia7250-defaults",    "category": "Nokia 7250",        "summary": "Nokia credentials/secrets from env"},
@@ -16603,6 +16604,191 @@ def aviat_get_status(task_id):
     if task_id not in aviat_tasks:
         return jsonify({'error': 'Task not found'}), 404
     return jsonify(aviat_tasks[task_id])
+
+
+FTTH_FIBER_DEVICE_PROFILES = {
+    'ccr2004': {'preferred_port': 'sfp-sfpplus1'},
+    'ccr2216': {'preferred_port': 'sfp28-1'},
+    'ccr2116': {'preferred_port': 'sfp-sfpplus1'},
+    'ccr1072': {'preferred_port': 'sfp1'},
+    'ccr1036': {'preferred_port': 'sfp1'},
+    'rb5009': {'preferred_port': 'sfp-sfpplus1'},
+    'rb2011': {'preferred_port': 'sfp1'},
+    'rb1009': {'preferred_port': 'ether1'},
+}
+
+
+def _normalize_ftth_fiber_routerboard(value: str) -> str:
+    normalized = str(value or '').strip().lower()
+    aliases = {
+        '2004': 'ccr2004',
+        '2216': 'ccr2216',
+        '2116': 'ccr2116',
+        '1072': 'ccr1072',
+        '1036': 'ccr1036',
+        '5009': 'rb5009',
+        '2011': 'rb2011',
+        '1009': 'rb1009',
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _preferred_ftth_fiber_port(routerboard: str) -> str:
+    profile = FTTH_FIBER_DEVICE_PROFILES.get(_normalize_ftth_fiber_routerboard(routerboard), {})
+    return profile.get('preferred_port', 'sfp-sfpplus1')
+
+
+def _build_ftth_fiber_customer_base_config(data: dict):
+    routerboard = _normalize_ftth_fiber_routerboard(data.get('routerboard', 'ccr2004'))
+    routeros = str(data.get('routeros', '7.19.4')).strip() or '7.19.4'
+    provider = str(data.get('provider', '')).strip()
+    port = str(data.get('port', '')).strip() or _preferred_ftth_fiber_port(routerboard)
+    address = str(data.get('address', '')).strip()
+    network = str(data.get('network', '')).strip()
+    vlan_mode = str(data.get('vlan_mode', 'none')).strip().lower() or 'none'
+    vlan_id = str(data.get('vlan_id', '')).strip()
+    loopback_ip = str(data.get('loopback_ip', '')).strip()
+
+    if routerboard not in FTTH_FIBER_DEVICE_PROFILES:
+        raise ValueError(f'Unsupported RouterBoard for FTTH fiber customer: {routerboard}')
+    if not provider:
+        raise ValueError('provider is required')
+    if not address:
+        raise ValueError('address is required')
+    if not network:
+        raise ValueError('network is required')
+    if vlan_mode not in {'none', 'tagged'}:
+        raise ValueError('vlan_mode must be "none" or "tagged"')
+    if vlan_mode == 'tagged' and not vlan_id:
+        raise ValueError('vlan_id is required when vlan_mode is tagged')
+
+    try:
+        address_if = ipaddress.ip_interface(address)
+    except ValueError as exc:
+        raise ValueError(f'address must be a valid IPv4 interface: {exc}') from exc
+
+    try:
+        network_obj = ipaddress.ip_network(network, strict=False)
+    except ValueError as exc:
+        raise ValueError(f'network must be a valid IPv4 network: {exc}') from exc
+
+    if address_if.version != 4 or network_obj.version != 4:
+        raise ValueError('Only IPv4 fiber-customer handoffs are supported')
+    if address_if.network.network_address != network_obj.network_address or address_if.network.prefixlen != network_obj.prefixlen:
+        raise ValueError('address and network must belong to the same CIDR block')
+
+    router_id = str(address_if.ip)
+    loopback_meta = ''
+    if loopback_ip:
+        try:
+            loopback_if = ipaddress.ip_interface(loopback_ip)
+        except ValueError as exc:
+            raise ValueError(f'loopback_ip must be a valid IPv4 /32: {exc}') from exc
+        if loopback_if.version != 4 or loopback_if.network.prefixlen != 32:
+            raise ValueError('loopback_ip must be an IPv4 /32')
+        router_id = str(loopback_if.ip)
+        loopback_meta = str(loopback_if)
+
+    vlan_name = f'VLAN {vlan_id}' if vlan_mode == 'tagged' else ''
+    comment_suffix = f' VLAN {vlan_id}' if vlan_mode == 'tagged' else ''
+    interface_name = vlan_name if vlan_mode == 'tagged' else port
+
+    lines = [
+        '# FIBER SITE SETTINGS',
+        f'# RouterBoard: {routerboard.upper()}',
+        f'# RouterOS: {routeros}',
+        f'# Provider: {provider}',
+        f'# Port: {port}',
+    ]
+    if loopback_meta:
+        lines.append(f'# Loopback: {loopback_meta}')
+    lines.extend([
+        '',
+        '/interface ethernet',
+        f'set [ find default-name="{port}" ] comment="{provider}"',
+        '',
+    ])
+
+    if vlan_mode == 'tagged':
+        lines.extend([
+            '/interface vlan',
+            f'add interface="{port}" name="{vlan_name}" vlan-id="{vlan_id}" comment="{provider} VLAN {vlan_id}"',
+            '',
+        ])
+
+    lines.extend([
+        '/ip address',
+        f'add address={address_if.with_prefixlen} comment="{provider}{comment_suffix}" interface="{interface_name}" network={network_obj.network_address}',
+        '',
+        '/routing ospf instance',
+        f'add disabled=no name=default-v2 router-id={router_id}',
+        '',
+        '/routing ospf area',
+        'add area-id=0.0.0.0 disabled=no instance=default-v2 name=backbone-v2',
+        '',
+        '# OSPF Settings',
+        '/routing ospf interface-template',
+        f'add area=backbone-v2 auth=md5 auth-id=1 auth-key=m8M5JwvdYM cost=10 disabled=no interfaces="{interface_name}" networks={network_obj.with_prefixlen} priority=1 type=ptp comment="{provider}{comment_suffix}"',
+        '',
+    ])
+
+    return '\n'.join(lines).strip() + '\n', {
+        'routerboard': routerboard,
+        'routeros': routeros,
+        'provider': provider,
+        'port': port,
+        'address': address_if.with_prefixlen,
+        'network': network_obj.with_prefixlen,
+        'vlan_mode': vlan_mode,
+        'vlan_id': vlan_id if vlan_mode == 'tagged' else '',
+        'loopback_ip': loopback_meta,
+        'router_id': router_id,
+    }
+
+
+@app.route('/api/generate-ftth-fiber-customer', methods=['POST'])
+def generate_ftth_fiber_customer():
+    data = request.get_json(silent=True) or {}
+    apply_compliance_flag = bool(data.get('apply_compliance', True))
+
+    try:
+        base_config, metadata = _build_ftth_fiber_customer_base_config(data)
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+
+    rendered = base_config
+    compliance_validation = None
+    compliance_source = None
+    warnings = []
+
+    if apply_compliance_flag:
+        loopback_ip = metadata.get('loopback_ip')
+        if not loopback_ip:
+            return jsonify({'error': 'loopback_ip is required when apply_compliance is enabled'}), 400
+        try:
+            compliance_blocks, compliance_source = _get_dynamic_compliance_blocks(loopback_ip, return_source=True)
+            if compliance_blocks:
+                rendered = inject_compliance_blocks(base_config, compliance_blocks, loopback_ip=loopback_ip)
+                if HAS_COMPLIANCE:
+                    try:
+                        compliance_validation = validate_compliance(rendered)
+                    except Exception as exc:
+                        warnings.append(f'Compliance validation failed: {exc}')
+            else:
+                warnings.append('No compliance blocks were available to append.')
+        except Exception as exc:
+            return jsonify({'error': f'Failed to apply compliance: {exc}'}), 500
+
+    return jsonify({
+        'success': True,
+        'config': rendered,
+        'base_config': base_config,
+        'metadata': metadata,
+        'selected_port': metadata.get('port'),
+        'compliance': compliance_validation,
+        'compliance_source': compliance_source,
+        'warnings': warnings,
+    })
 
 
 @app.route('/api/ftth-home/mf2-package', methods=['POST'])

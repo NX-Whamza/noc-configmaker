@@ -8081,6 +8081,10 @@
                                     <input type="text" id="ftthFiberNetwork" placeholder="10.42.10.0/30">
                                 </div>
                                 <div>
+                                    <label for="ftthFiberLoopback">Loopback /32</label>
+                                    <input type="text" id="ftthFiberLoopback" placeholder="10.26.0.7/32">
+                                </div>
+                                <div>
                                     <label for="ftthFiberVlanMode">VLAN Mode</label>
                                     <select id="ftthFiberVlanMode">
                                         <option value="none" selected>No VLAN</option>
@@ -8092,6 +8096,10 @@
                                     <input type="number" id="ftthFiberVlanNum" placeholder="300" min="1" max="4094">
                                 </div>
                             </div>
+                            <label style="display:flex; align-items:center; gap:8px; margin-top: 14px; cursor:pointer;">
+                                <input type="checkbox" id="ftthFiberApplyCompliance" checked>
+                                <span>Apply Nextlink compliance blocks</span>
+                            </label>
                             <div style="margin-top: 16px; display:flex; gap:10px; flex-wrap:wrap;">
                                 <button type="button" onclick="generateFtthFiberCustomerConfig()" style="background: var(--accent-color); color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">Generate Fiber Customer Config</button>
                                 <button type="button" onclick="copyFtthFiberCustomerConfig()" style="background: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">Copy</button>
@@ -8099,7 +8107,7 @@
                             </div>
                             <div id="ftthFiberStatus" style="display:none; margin-top: 12px; padding: 10px 12px; border-radius: 6px; font-size: 13px;"></div>
                             <textarea id="ftthFiberConfigOutput" readonly
-                                style="width:100%; min-height: 280px; margin-top:16px; padding:15px; border:1px solid var(--border-color); border-radius: 4px; background: var(--output-bg); color: var(--text-color); font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 12px; line-height: 1.5; white-space: pre; overflow-x: auto;"
+                                style="width:100%; min-height: 520px; margin-top:16px; padding:15px; border:1px solid var(--border-color); border-radius: 4px; background: var(--output-bg); color: var(--text-color); font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 12px; line-height: 1.5; white-space: pre; overflow-x: auto; resize: vertical;"
                                 placeholder="Generated fiber customer config will appear here..."></textarea>
                         </div>
                     </div>
@@ -27168,15 +27176,17 @@ Ready for translation!`);
             }
         };
 
-        window.generateFtthFiberCustomerConfig = function () {
+        window.generateFtthFiberCustomerConfig = async function () {
             const routerboard = (document.getElementById('ftthFiberRouterboard')?.value || 'ccr2004').trim();
             const routeros = (document.getElementById('ftthFiberRouteros')?.value || '7.19.4').trim();
             const provider = (document.getElementById('ftthFiberProvider')?.value || '').trim();
             const port = (document.getElementById('ftthFiberPort')?.value || window.getFtthFiberPreferredPort(routerboard)).trim();
             const address = (document.getElementById('ftthFiberAddress')?.value || '').trim();
             const network = (document.getElementById('ftthFiberNetwork')?.value || '').trim();
+            const loopbackIp = (document.getElementById('ftthFiberLoopback')?.value || '').trim();
             const vlanMode = (document.getElementById('ftthFiberVlanMode')?.value || 'none').trim();
             const vlanNum = (document.getElementById('ftthFiberVlanNum')?.value || '').trim();
+            const applyCompliance = !!document.getElementById('ftthFiberApplyCompliance')?.checked;
             const statusEl = document.getElementById('ftthFiberStatus');
             const outputEl = document.getElementById('ftthFiberConfigOutput');
 
@@ -27192,80 +27202,104 @@ Ready for translation!`);
                 setStatus('Provider, port, address, and network are required.', false);
                 return;
             }
+            if (applyCompliance && !loopbackIp) {
+                setStatus('Loopback /32 is required when compliance is enabled.', false);
+                return;
+            }
             if (vlanMode === 'tagged' && !vlanNum) {
                 setStatus('VLAN ID is required when VLAN mode is tagged.', false);
                 return;
             }
 
-            const cidr = address.split('/')[1];
-            if (!cidr) {
-                setStatus('Provider IP must include CIDR notation, for example 10.42.10.2/30.', false);
-                return;
-            }
-
-            let config = `# FIBER SITE SETTINGS\n# RouterBoard: ${routerboard.toUpperCase()}\n# RouterOS: ${routeros}\n# Provider: ${provider}\n\n/interface ethernet\n`;
-            config += `set [ find default-name="${port}" ] comment="${provider}"\n\n`;
-            if (vlanMode === 'tagged') {
-                const vlanName = `VLAN ${vlanNum}`;
-                config += '/interface vlan\n';
-                config += `add interface="${port}" name="${vlanName}" vlan-id="${vlanNum}"\n\n`;
-                config += '/ip address\n';
-                config += `add address=${address} comment="${provider} VLAN ${vlanNum}" interface="${vlanName}" network=${network.split('/')[0]}\n\n`;
-                config += '/routing ospf instance\nadd disabled=no name=default-v2 router-id=' + address.split('/')[0] + '\n\n';
-                config += '#OSPF Settings\n/routing ospf interface-template\n';
-                config += `add area=backbone-v2 auth=md5 auth-id=1 auth-key=m8M5JwvdYM cost=10 disabled=no interfaces="${vlanName}" networks=${network} priority=1 type=ptp comment="${provider} VLAN ${vlanNum}"\n`;
-            } else {
-                config += '/ip address\n';
-                config += `add address=${address} comment="${provider}" interface=${port} network=${network.split('/')[0]}\n\n`;
-                config += '/routing ospf instance\nadd disabled=no name=default-v2 router-id=' + address.split('/')[0] + '\n\n';
-                config += '#OSPF Settings\n/routing ospf interface-template\n';
-                config += `add area=backbone-v2 auth=md5 auth-id=1 auth-key=m8M5JwvdYM cost=10 disabled=no interfaces=${port} networks=${network} priority=1 type=ptp comment="${provider}"\n`;
-            }
-
-            const rendered = config.trim() + '\n';
-            if (outputEl) outputEl.value = rendered;
-            setStatus('Fiber customer configuration generated.', true);
-
-            if (typeof saveCompletedConfig === 'function') {
-                saveCompletedConfig({
-                    config_type: 'ftth-fiber-customer',
-                    device_name: provider,
-                    device_type: 'MikroTik Fiber Customer',
-                    customer_code: provider,
-                    loopback_ip: '',
-                    config_content: rendered,
-                    site_name: provider,
-                    metadata: {
+            try {
+                setStatus('Generating fiber customer configuration...', true);
+                const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : (window.AI_API_BASE || '/api');
+                const response = await fetch(`${apiBase.replace(/\/+$/, '')}/generate-ftth-fiber-customer`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
                         routerboard,
                         routeros,
                         provider,
                         port,
                         address,
                         network,
+                        loopback_ip: loopbackIp,
                         vlan_mode: vlanMode,
-                        vlan_id: vlanNum || ''
+                        vlan_id: vlanNum,
+                        apply_compliance: applyCompliance
+                    })
+                });
+
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok || !payload.success) {
+                    throw new Error(payload.error || `Request failed with status ${response.status}`);
+                }
+
+                const rendered = String(payload.config || '').trim() + '\n';
+                if (outputEl) outputEl.value = rendered;
+
+                const statusNotes = ['Fiber customer configuration generated.'];
+                if (applyCompliance) {
+                    const source = payload.compliance_source ? ` via ${payload.compliance_source}` : '';
+                    if (payload.compliance?.missing_items?.length) {
+                        statusNotes.push(`Compliance applied${source} with ${payload.compliance.missing_items.length} review item(s).`);
+                    } else {
+                        statusNotes.push(`Compliance applied${source}.`);
                     }
-                });
-            }
+                }
+                if (Array.isArray(payload.warnings) && payload.warnings.length) {
+                    statusNotes.push(payload.warnings.join(' '));
+                }
+                setStatus(statusNotes.join(' '), true);
 
-            if (typeof window.sendActivityToBackend === 'function') {
-                window.sendActivityToBackend({
-                    type: 'new-config',
-                    device: 'MikroTik Fiber Customer',
-                    siteName: provider,
-                    routeros,
-                    success: true
-                });
-            }
+                if (typeof saveCompletedConfig === 'function') {
+                    saveCompletedConfig({
+                        config_type: 'ftth-fiber-customer',
+                        device_name: provider,
+                        device_type: 'MikroTik Fiber Customer',
+                        customer_code: provider,
+                        loopback_ip: loopbackIp,
+                        config_content: rendered,
+                        site_name: provider,
+                        metadata: {
+                            routerboard,
+                            routeros,
+                            provider,
+                            port: payload.selected_port || port,
+                            address,
+                            network,
+                            loopback_ip: loopbackIp,
+                            vlan_mode: vlanMode,
+                            vlan_id: vlanNum || '',
+                            compliance_source: payload.compliance_source || '',
+                            compliance: payload.compliance || null
+                        }
+                    });
+                }
 
-            if (typeof window.saveConfigToHistory === 'function') {
-                window.saveConfigToHistory({
-                    type: 'ftth-fiber-customer',
-                    device: 'MikroTik Fiber Customer',
-                    siteName: provider,
-                    routeros,
-                    success: true
-                });
+                if (typeof window.sendActivityToBackend === 'function') {
+                    window.sendActivityToBackend({
+                        type: 'new-config',
+                        device: 'MikroTik Fiber Customer',
+                        siteName: provider,
+                        routeros,
+                        success: true
+                    });
+                }
+
+                if (typeof window.saveConfigToHistory === 'function') {
+                    window.saveConfigToHistory({
+                        type: 'ftth-fiber-customer',
+                        device: 'MikroTik Fiber Customer',
+                        siteName: provider,
+                        routeros,
+                        success: true
+                    });
+                }
+            } catch (error) {
+                console.error('[FTTH FIBER CUSTOMER] Generation failed:', error);
+                setStatus(error?.message || 'Failed to generate fiber customer configuration.', false);
             }
         };
 

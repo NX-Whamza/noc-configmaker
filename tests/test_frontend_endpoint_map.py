@@ -42,6 +42,7 @@ def test_frontend_endpoint_wiring_has_backend_routes():
         '/api/app-config',
         '/api/preview-ftth-bng',
         '/api/generate-ftth-bng',
+        '/api/generate-ftth-fiber-customer',
         '/api/ftth-home/mf2-package',
         '/api/compliance/blocks',
         '/api/apply-compliance',

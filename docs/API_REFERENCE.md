@@ -752,6 +752,61 @@ Returns parsed FTTH CIDR details for preview (no config generated).
 
 ---
 
+### `POST /api/generate-ftth-fiber-customer`
+
+Generate the FTTH Fiber Customer handoff block for MikroTik, with optional Nextlink compliance injection.
+
+**Request**
+```json
+{
+  "routerboard": "ccr2004",
+  "routeros": "7.19.4",
+  "provider": "ATT",
+  "port": "sfp-sfpplus1",
+  "address": "10.42.10.2/30",
+  "network": "10.42.10.0/30",
+  "loopback_ip": "10.26.0.7/32",
+  "vlan_mode": "tagged",
+  "vlan_id": "300",
+  "apply_compliance": true
+}
+```
+
+**Response `200`**
+```json
+{
+  "success": true,
+  "config": "# FIBER SITE SETTINGS\n...",
+  "base_config": "# FIBER SITE SETTINGS\n...",
+  "selected_port": "sfp-sfpplus1",
+  "compliance_source": "bundled-local",
+  "metadata": {
+    "routerboard": "ccr2004",
+    "routeros": "7.19.4",
+    "provider": "ATT",
+    "port": "sfp-sfpplus1",
+    "address": "10.42.10.2/30",
+    "network": "10.42.10.0/30",
+    "loopback_ip": "10.26.0.7/32",
+    "router_id": "10.26.0.7",
+    "vlan_mode": "tagged",
+    "vlan_id": "300"
+  },
+  "compliance": {
+    "compliant": true,
+    "missing_items": []
+  },
+  "warnings": []
+}
+```
+
+**Notes**
+- `loopback_ip` is required when `apply_compliance=true`.
+- The response `config` is the final rendered output shown in the FTTH Home Fiber Customer UI.
+- `base_config` is the pre-compliance handoff block, useful for debugging or future Swagger examples.
+
+---
+
 ### `POST /api/ftth-home/mf2-package`
 
 Generate MF2 ZIP package with updated gateway/primary IP in startup XML.

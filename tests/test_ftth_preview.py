@@ -39,8 +39,56 @@ def test_preview_ftth_bng_basic():
     assert "cgnat" in p and "network" in p["cgnat"]
 
 
+def test_generate_ftth_fiber_customer_with_compliance():
+    payload = {
+        "routerboard": "ccr2004",
+        "routeros": "7.19.4",
+        "provider": "ATT",
+        "port": "sfp-sfpplus1",
+        "address": "10.42.10.2/30",
+        "network": "10.42.10.0/30",
+        "loopback_ip": "10.26.0.7/32",
+        "vlan_mode": "tagged",
+        "vlan_id": "300",
+        "apply_compliance": True,
+    }
+
+    r = client.post("/api/generate-ftth-fiber-customer", data=json.dumps(payload), content_type="application/json")
+    assert r.status_code == 200
+    data = r.get_json() or {}
+    assert data.get("success") is True
+    assert data.get("selected_port") == "sfp-sfpplus1"
+    assert data.get("compliance_source") in {"gitlab", "bundled-local"}
+    text = data.get("config", "")
+    assert '/routing ospf area' in text
+    assert 'comment="ATT VLAN 300"' in text
+    assert 'add interface="sfp-sfpplus1" name="VLAN 300" vlan-id="300"' in text
+    assert "142.147.112.3" in text
+
+
+def test_generate_ftth_fiber_customer_requires_loopback_when_compliance_enabled():
+    payload = {
+        "routerboard": "ccr2004",
+        "routeros": "7.19.4",
+        "provider": "ATT",
+        "address": "10.42.10.2/30",
+        "network": "10.42.10.0/30",
+        "vlan_mode": "none",
+        "apply_compliance": True,
+    }
+
+    r = client.post("/api/generate-ftth-fiber-customer", data=json.dumps(payload), content_type="application/json")
+    assert r.status_code == 400
+    data = r.get_json() or {}
+    assert "loopback_ip" in (data.get("error") or "")
+
+
 if __name__ == "__main__":
-    tests = [test_preview_ftth_bng_basic]
+    tests = [
+        test_preview_ftth_bng_basic,
+        test_generate_ftth_fiber_customer_with_compliance,
+        test_generate_ftth_fiber_customer_requires_loopback_when_compliance_enabled,
+    ]
     ok = True
     for t in tests:
         try:
