@@ -1471,6 +1471,45 @@ def _all_device_ports(device_key):
     return ports
 
 
+def resolve_routerboard_model_key(device_name):
+    raw = (device_name or '').strip()
+    if not raw:
+        return raw
+    if raw in ROUTERBOARD_INTERFACES:
+        return raw
+
+    normalized = re.sub(r'[^a-z0-9]+', '', raw.lower())
+    aliases = {
+        'ccr1036': 'CCR1036-12G-4S',
+        'ccr1072': 'CCR1072-12G-4S+',
+        'ccr2004': 'CCR2004-1G-12S+2XS',
+        'ccr200416g2s': 'CCR2004-16G-2S+',
+        'ccr2004112s2xs': 'CCR2004-1G-12S+2XS',
+        'ccr2116': 'CCR2116-12G-4S+',
+        'ccr2216': 'CCR2216-1G-12XS-2XQ',
+        'rb5009': 'RB5009UG+S+',
+        'rb2011': 'RB2011UiAS',
+        'rb1009': 'RB1009UG+S+',
+        'crs326': 'CRS326-24G-2S+',
+        'crs354': 'CRS354-48G-4S+2Q+',
+        '2216': 'CCR2216-1G-12XS-2XQ',
+        '2116': 'CCR2116-12G-4S+',
+        '2004': 'CCR2004-1G-12S+2XS',
+        '1072': 'CCR1072-12G-4S+',
+        '1036': 'CCR1036-12G-4S',
+        '5009': 'RB5009UG+S+',
+        '2011': 'RB2011UiAS',
+        '1009': 'RB1009UG+S+',
+    }
+    if normalized in aliases:
+        return aliases[normalized]
+
+    for model_key in ROUTERBOARD_INTERFACES:
+        if re.sub(r'[^a-z0-9]+', '', model_key.lower()) == normalized:
+            return model_key
+    return raw
+
+
 def _extract_used_physical_interfaces(config_text, source_device):
     known_ports = set(_all_device_ports(source_device))
     if not known_ports:
@@ -4334,7 +4373,7 @@ def translate_config():
     try:
         data = request.json
         source_config = data.get('source_config', '')
-        target_device = data.get('target_device', '')
+        target_device = resolve_routerboard_model_key(data.get('target_device', ''))
         target_version = data.get('target_version', '')
         # Behavior flags:
         # - strict_preserve: preserve source structure/lines; only apply syntax + interface mapping (recommended for Upgrade Existing)
@@ -13502,7 +13541,7 @@ def migrate_config():
     try:
         data = request.json or {}
         config = data.get('config', '')
-        target_device = data.get('target_device', '')
+        target_device = resolve_routerboard_model_key(data.get('target_device', ''))
         target_version = data.get('target_version', '7')
         source_device = data.get('source_device', '')
         apply_compliance = bool(data.get('apply_compliance', True))
