@@ -1538,38 +1538,6 @@
             display: block;
         }
 
-        .testing-banner {
-            background: #fff3cd;
-            color: #856404;
-            padding: 12px;
-            text-align: center;
-            border-radius: 5px;
-            margin-bottom: 20px;
-            font-weight: bold;
-            font-size: 14px;
-        }
-
-        [data-theme="dark"] .testing-banner {
-            background: #856404;
-            color: #fff3cd;
-        }
-
-        .enterprise-testing-banner {
-            background: #d1ecf1;
-            color: #0c5460;
-            padding: 12px;
-            text-align: center;
-            border-radius: 5px;
-            margin-bottom: 20px;
-            font-weight: bold;
-            font-size: 14px;
-        }
-
-        [data-theme="dark"] .enterprise-testing-banner {
-            background: #0c5460;
-            color: #d1ecf1;
-        }
-
         /* Dark mode contrast fixes for inline "Policy Compliance" banners
            These banners were authored with light backgrounds inline, which
            reduces contrast in dark mode. We override them here using
@@ -2002,36 +1970,37 @@
         .announcements-section {
             background: linear-gradient(135deg, #2a1a4a 0%, #1a1a2a 100%);
             border-radius: 12px;
-            padding: 30px;
-            margin-bottom: 30px;
+            padding: 18px 20px;
+            margin: 0 auto 24px;
+            max-width: 760px;
             border: 1px solid rgba(230, 126, 34, 0.3);
         }
 
         .announcements-title {
-            font-size: 28px;
+            font-size: 20px;
             font-weight: bold;
             color: #e67e22;
             text-align: center;
-            margin-bottom: 25px;
+            margin-bottom: 14px;
             text-transform: none;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.3px;
         }
 
         .announcements-title::after {
             content: '';
             display: block;
-            width: 60px;
-            height: 3px;
+            width: 42px;
+            height: 2px;
             background: #e67e22;
-            margin: 10px auto 0;
+            margin: 8px auto 0;
         }
 
         .announcement-card {
             background: rgba(255, 255, 255, 0.03);
             border: 1px solid rgba(230, 126, 34, 0.2);
             border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 15px;
+            padding: 14px 16px;
+            margin-bottom: 10px;
         }
 
         .announcement-card:last-child {
@@ -2040,14 +2009,15 @@
 
         .announcement-card h3 {
             color: white;
-            font-size: 18px;
-            margin-bottom: 15px;
+            font-size: 16px;
+            margin-bottom: 8px;
         }
 
         .announcement-card p {
             color: #ccc;
-            line-height: 1.6;
-            margin-bottom: 10px;
+            line-height: 1.45;
+            margin-bottom: 6px;
+            font-size: 13px;
         }
 
         .announcement-meta {
@@ -3897,11 +3867,9 @@
                     <div class="announcements-section">
                         <h2 class="announcements-title">Current Announcements</h2>
                         <div class="announcement-card" id="announcementsContainer">
-                            <h3>Welcome! <span class="beta-badge">Beta Testing</span></h3>
+                            <h3>Welcome!</h3>
                             <p>Welcome to NOC Operations Config Suite (Multi-Use Configuration Generator)!</p>
-                            <p>This tool is currently in <strong>Beta Testing</strong> stage, so there might be some
-                                bugs or improvements needed. We appreciate your feedback as we work to make this the
-                                best configuration tool possible.</p>
+                            <p>Use the generators, helpers, and operational tools from the tabs below.</p>
                         </div>
                     </div>
 
@@ -4256,12 +4224,6 @@
             <!-- TOWER CONFIG TAB -->
             <div class="content-pane" id="tower-pane">
                 <div class="container">
-                    <div
-                        style="background: #2196F3; color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 5px solid #1565C0;">
-                        <strong>TESTING</strong>
-                        <p style="margin: 10px 0 0 0; font-size: 14px;">This feature is currently undergoing testing.
-                            Please review all generated configurations before deploying to production.</p>
-                    </div>
                     <h1> MikroTik Config Generator</h1>
                     <p style="text-align: center; color: var(--text-color); max-width: 900px; margin: 0 auto;">
                         This tool generates configuration files, along with corresponding port maps, for MikroTik routers.
@@ -5526,8 +5488,6 @@
             <!-- ENTERPRISE CONFIG TAB -->
             <div class="content-pane" id="enterprise-pane">
                 <div class="container">
-                    <div class="enterprise-testing-banner"> PRODUCTION READY - Non-MPLS Enterprise Configuration -
-                        Nextlink Policy Compliant</div>
                     <h1> Non-MPLS Enterprise Configuration Generator</h1>
                     <p style="text-align: center; color: var(--text-color);">Nextlink-compliant enterprise customer
                         configuration with standardized port assignments and simplified IP routing (no MPLS/BGP/OSPF).
@@ -5858,8 +5818,6 @@
             <!-- MPLS ENTERPRISE CONFIG TAB -->
             <div class="content-pane" id="enterprise-mpls-pane">
                 <div class="container">
-                    <div class="enterprise-testing-banner"> TESTING CONSISTENCY AND FUNCTIONALITY - MPLS Enterprise
-                        Config</div>
                     <h1> MPLS Enterprise Configuration Generator</h1>
                     <p style="text-align: center; color: var(--text-color);">Nextlink-compliant MPLS enterprise
                         configuration with OSPF, BGP, VPLS, and standardized port assignments.</p>
@@ -6011,8 +5969,6 @@
             <!-- 6GHz SWITCH CONFIG TAB -->
             <div class="content-pane" id="ccr2004-pane">
                 <div class="container">
-                    <div class="testing-banner"> PRODUCTION READY - 6GHz Switch Configuration - Nextlink Policy
-                        Compliant</div>
                     <h1> 6GHz Configuration Generator</h1>
                     <p style="text-align: center; color: var(--text-color);">Nextlink-compliant 6GHz switch
                         configuration with VLAN 3000/4000, standardized port assignments, bonding, and DHCP pools.</p>
@@ -6185,7 +6141,6 @@
             <!-- MIKROTIK SWITCH CONFIG MAKER TAB -->
             <div class="content-pane" id="switch-maker-pane">
                 <div class="container">
-                    <div class="testing-banner"> PRODUCTION REFINEMENT - MikroTik Switch Config Maker</div>
                     <h1> MikroTik Switch Config Maker</h1>
                     <p style="text-align: center; color: var(--text-color);">Backend-backed switch generator for the
                         real toolbox profiles: with BNG, no BNG, and CRS326 bonded switch builds.</p>
@@ -6450,8 +6405,6 @@
             <!-- TARANA SECTORS TAB -->
             <div class="content-pane" id="tarana-pane">
                 <div class="container">
-                    <div class="testing-banner"> PRODUCTION READY - Tarana Sector Configuration - Nextlink Policy
-                        Compliant</div>
                     <h1> Tarana Sector Configuration Generator</h1>
                     <p style="text-align: center; color: var(--text-color);">Nextlink-compliant Tarana sector
                         configuration with standardized port assignments for ALPHA/BETA/GAMMA/DELTA sectors.</p>
@@ -6636,8 +6589,6 @@
             <!-- ENTERPRISE FEEDING SIDE TAB -->
             <div class="content-pane" id="enterprise-feeding-pane">
                 <div class="container">
-                    <div class="testing-banner"> TESTING CONSISTENCY AND FUNCTIONALITY - Enterprise Feeding Side
-                        Configuration</div>
                     <h1> Enterprise Feeding Side Configuration</h1>
                     <p style="text-align: center; color: var(--text-color);">Nextlink-compliant enterprise uplink
                         provisioning with standardized port assignments and commercial/enterprise configurations.</p>
@@ -7524,7 +7475,6 @@
                     </p>
                     <!-- FTTH ID hooks retained for compatibility tests/tools -->
                     <div style="display:none;" aria-hidden="true">
-                        <button id="ftthPreviewBtn" type="button"></button>
                         <button id="ftth_add_olt_port_btn" type="button"></button>
                         <button id="ftth_add_backhaul_btn" type="button"></button>
                         <button id="ftth_open_portconfigs_btn" type="button"></button>
@@ -7982,14 +7932,25 @@
                 style="display: none; background: #dc3545; color: white; padding: 15px; border-radius: 5px; margin: 20px 0;">
                 <!-- Error messages will be displayed here -->
             </div>
+            <div id="ftthPreview"
+                style="display: none; background: var(--container-bg); color: var(--text-color); padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid var(--border-color);">
+            </div>
 
             <!-- Action Buttons -->
             <div class="button-group" style="margin-top: 30px;">
-                <button onclick="generateFtthBngConfig()"
+                <button id="ftthPreviewBtn" type="button"
+                    style="background: #1565C0; color: white; padding: 12px 30px; border: none; border-radius: 6px; cursor: pointer; font-size: 15px; font-weight: bold;">
+                     Preview CIDRs
+                </button>
+                <button id="ftthValidateBtn" type="button"
+                    style="background: #00897B; color: white; padding: 12px 30px; border: none; border-radius: 6px; cursor: pointer; font-size: 15px; font-weight: bold;">
+                     Validate Inputs
+                </button>
+                <button id="ftthGenerate" type="button"
                     style="background: #4CAF50; color: white; padding: 12px 30px; border: none; border-radius: 6px; cursor: pointer; font-size: 15px; font-weight: bold;">
                      Generate Configuration
                 </button>
-                <button onclick="resetFtthForm()"
+                <button id="ftthReset" type="button"
                     style="background: #6c757d; color: white; padding: 12px 30px; border: none; border-radius: 6px; cursor: pointer; font-size: 15px; font-weight: bold;">
                      Reset Form
                 </button>
@@ -10087,9 +10048,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
         // Get current time in CST/CDT (America/Chicago timezone) as ISO string
         function getCSTTimestamp() {
             const now = new Date();
-            // Use toLocaleString with America/Chicago timezone to get correct CST/CDT time
-            // Then convert back to ISO format
-            const cstString = now.toLocaleString('en-US', {
+            const formatter = new Intl.DateTimeFormat('en-US', {
                 timeZone: 'America/Chicago',
                 year: 'numeric',
                 month: '2-digit',
@@ -10099,18 +10058,17 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 second: '2-digit',
                 hour12: false
             });
-
-            // Parse the formatted string and create ISO timestamp
-            // Format: MM/DD/YYYY, HH:MM:SS
-            const [datePart, timePart] = cstString.split(', ');
-            const [month, day, year] = datePart.split('/');
-            const [hour, minute, second] = timePart.split(':');
-
-            // Create date object in CST/CDT
-            const cstDate = new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hour.padStart(2, '0')}:${minute.padStart(2, '0')}:${second.padStart(2, '0')}`);
-
-            // Return as ISO string (this will be in local time, but represents CST/CDT)
-            return cstDate.toISOString();
+            const parts = formatter.formatToParts(now).reduce((acc, part) => {
+                if (part.type !== 'literal') acc[part.type] = part.value;
+                return acc;
+            }, {});
+            const year = parts.year || '1970';
+            const month = parts.month || '01';
+            const day = parts.day || '01';
+            const hour = parts.hour || '00';
+            const minute = parts.minute || '00';
+            const second = parts.second || '00';
+            return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
         }
 
         // Format timestamp for display (CST/CDT)
@@ -10583,6 +10541,12 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
 
             console.log(`Enterprise Config - Device selected: ${deviceConfig.name}`);
             console.log(`Available ports: ${[...deviceConfig.ports, ...deviceConfig.sfpPorts].join(', ')}`);
+        }
+
+        function updateInterfacesForMigration() {
+            if (typeof updateDevicePorts === 'function') {
+                updateDevicePorts();
+            }
         }
 
         // Enterprise Config RouterOS Version Handler
@@ -13843,6 +13807,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             // Settings Modal Functions
             window.openSettingsModal = function () {
                 const modal = document.getElementById('settingsModal');
+                if (!modal) return;
                 modal.classList.add('show');
 
                 // Load current settings
@@ -13868,14 +13833,15 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             }
 
             window.closeSettingsModal = function () {
-                document.getElementById('settingsModal').classList.remove('show');
+                const modal = document.getElementById('settingsModal');
+                if (modal) modal.classList.remove('show');
             }
 
             window.updateSettingsSelection = function () {
                 // Update font option styling
                 document.querySelectorAll('.font-option').forEach(opt => {
                     const radio = opt.querySelector('input[type="radio"]');
-                    if (radio.checked) {
+                    if (radio?.checked) {
                         opt.classList.add('selected');
                     } else {
                         opt.classList.remove('selected');
@@ -13886,7 +13852,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             window.saveSettings = function () {
                 // Get selected values
                 const theme = document.getElementById('themeSelect')?.value || 'dark';
-                const fontSize = document.querySelector('input[name="fontSize"]:checked').value;
+                const fontSize = document.querySelector('input[name="fontSize"]:checked')?.value || localStorage.getItem('fontSize') || 'comfortable';
 
                 // Save to localStorage
                 localStorage.setItem('theme', theme);
@@ -18292,9 +18258,21 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             const dev = document.getElementById('ent_routerboard_device')?.value || '';
             // Map routerboard device to deviceType for naming
             const map = { ccr2004: 'CCR2004', ccr2216: 'CCR2216', ccr2116: 'CCR2116', ccr1036: 'CCR1036', rb5009: 'RB5009', ccr1072: 'CCR1072', rb2011: 'RB2011', rb1009: 'RB1009' };
+            const legacyModelMap = {
+                ccr2004: 'CCR2004-1G-12S+2XS',
+                ccr1036: 'CCR1036-12G-4S',
+                rb5009: 'RB5009UG+S+',
+                ccr2116: 'CCR2116-12G-4S+',
+                ccr2216: 'CCR2216-1G-12XS-2XQ',
+                rb1009: 'RB5009UG+S+',
+                rb2011: 'RB5009UG+S+',
+                ccr1072: 'CCR1036-12G-4S'
+            };
             const mappedType = map[dev] || '';
             const typeSel = document.getElementById('ent_deviceType');
             if (typeSel && mappedType) { typeSel.value = mappedType; updateEnterpriseDeviceName(); }
+            const legacyTarget = document.getElementById('ent_targetDeviceLegacy');
+            if (legacyTarget && legacyModelMap[dev]) legacyTarget.value = legacyModelMap[dev];
             updateEnterpriseInterfaces();
         }
 
@@ -18973,9 +18951,9 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             const uplinks = document.querySelectorAll('#ent_mpls_uplinksContainer .interface-item');
             const uplinkData = [];
             uplinks.forEach((uplink, index) => {
-                const uplinkInterface = uplink.querySelector('.ent_mpls_uplinkInterface').value;
-                const uplinkIP = uplink.querySelector('.ent_mpls_uplinkIP').value;
-                const uplinkComment = uplink.querySelector('.ent_mpls_uplinkComment').value;
+                const uplinkInterface = uplink.querySelector('.ent_mpls_uplinkInterface')?.value || '';
+                const uplinkIP = uplink.querySelector('.ent_mpls_uplinkIP')?.value || '';
+                const uplinkComment = uplink.querySelector('.ent_mpls_uplinkComment')?.value || '';
                 if (uplinkInterface && uplinkIP) {
                     uplinkData.push({
                         interface: uplinkInterface,
@@ -20722,22 +20700,25 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             const method = document.querySelector('input[name="upgradeMethod"]:checked')?.value || 'ssh';
             const fileMethod = document.getElementById('fileUploadMethod');
             const sshMethod = document.getElementById('sshFetchMethod');
+            const sshStatus = document.getElementById('sshStatus');
+            const uploadedFileName = document.getElementById('uploadedFileName');
+            const upgradeTargetSelection = document.getElementById('upgradeTargetSelection');
 
             if (method === 'file') {
-                fileMethod.style.display = 'block';
-                sshMethod.style.display = 'none';
+                if (fileMethod) fileMethod.style.display = 'block';
+                if (sshMethod) sshMethod.style.display = 'none';
                 // Clear SSH status
-                document.getElementById('sshStatus').style.display = 'none';
+                if (sshStatus) sshStatus.style.display = 'none';
                 uploadedConfigContent = null;
-                document.getElementById('uploadedFileName').style.display = 'none';
-                document.getElementById('upgradeTargetSelection').style.display = 'none';
+                if (uploadedFileName) uploadedFileName.style.display = 'none';
+                if (upgradeTargetSelection) upgradeTargetSelection.style.display = 'none';
             } else {
-                fileMethod.style.display = 'none';
-                sshMethod.style.display = 'block';
+                if (fileMethod) fileMethod.style.display = 'none';
+                if (sshMethod) sshMethod.style.display = 'block';
                 // Clear file upload status
                 uploadedConfigContent = null;
-                document.getElementById('uploadedFileName').style.display = 'none';
-                document.getElementById('upgradeTargetSelection').style.display = 'none';
+                if (uploadedFileName) uploadedFileName.style.display = 'none';
+                if (upgradeTargetSelection) upgradeTargetSelection.style.display = 'none';
             }
         }
 
@@ -21030,11 +21011,14 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 sshStatus.innerHTML = ` Config fetched successfully from ${deviceIP}${portInfo}<br><small>Config size: ${normalizedConfig.length} characters</small>`;
 
                 // Show file name (using device IP as identifier)
-                document.getElementById('fileName').textContent = `SSH-${deviceIP}-export.rsc`;
-                document.getElementById('uploadedFileName').style.display = 'block';
+                const fileNameEl = document.getElementById('fileName');
+                const uploadedFileName = document.getElementById('uploadedFileName');
+                const upgradeTargetSelection = document.getElementById('upgradeTargetSelection');
+                if (fileNameEl) fileNameEl.textContent = `SSH-${deviceIP}-export.rsc`;
+                if (uploadedFileName) uploadedFileName.style.display = 'block';
 
                 // Show target selection
-                document.getElementById('upgradeTargetSelection').style.display = 'block';
+                if (upgradeTargetSelection) upgradeTargetSelection.style.display = 'block';
 
                 // Show ready message
                 showUpgradeStatus(' Config loaded. Select target device/version and click "Start Upgrade" button.', 'success');
@@ -21081,11 +21065,14 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 uploadedConfigContent = normalizedContent;
 
                 // Show file name
-                document.getElementById('fileName').textContent = fileName;
-                document.getElementById('uploadedFileName').style.display = 'block';
+                const fileNameEl = document.getElementById('fileName');
+                const uploadedFileName = document.getElementById('uploadedFileName');
+                const upgradeTargetSelection = document.getElementById('upgradeTargetSelection');
+                if (fileNameEl) fileNameEl.textContent = fileName;
+                if (uploadedFileName) uploadedFileName.style.display = 'block';
 
                 // Show target selection
-                document.getElementById('upgradeTargetSelection').style.display = 'block';
+                if (upgradeTargetSelection) upgradeTargetSelection.style.display = 'block';
 
                 // Show ready message
                 showUpgradeStatus(' Config loaded. Select target device/version and click "Start Upgrade" button.', 'success');
@@ -24556,29 +24543,37 @@ Ready for translation!`);
             };
 
             // --- Collect table data from main pane ---
+            function getCellFieldValue(row, cellIndex, selector, fallback = '') {
+                const cell = row?.cells?.[cellIndex];
+                const field = cell?.querySelector(selector);
+                if (!field) return fallback;
+                if (field.type === 'checkbox') return !!field.checked;
+                return typeof field.value === 'string' ? field.value.trim() : (field.value ?? fallback);
+            }
+
             function nokia7250MainGetConnectors() {
                 return [...document.querySelectorAll('#nokia7250_conn_tbl tbody tr')].map(tr => ({
-                    port: tr.cells[0].querySelector('select').value,
-                    desc: tr.cells[1].querySelector('input').value.trim(),
-                    ip: tr.cells[2].querySelector('input').value.trim(),
-                    mtu: tr.cells[3].querySelector('input').value.trim()
+                    port: getCellFieldValue(tr, 0, 'select'),
+                    desc: getCellFieldValue(tr, 1, 'input'),
+                    ip: getCellFieldValue(tr, 2, 'input'),
+                    mtu: getCellFieldValue(tr, 3, 'input')
                 })).filter(c => c.desc);
             }
 
             function nokia7250MainGetUplinks() {
                 return [...document.querySelectorAll('#nokia7250_uplink_tbl tbody tr')].map(tr => ({
-                    port: tr.cells[0].querySelector('select').value,
-                    desc: tr.cells[1].querySelector('input').value.trim(),
-                    ip: tr.cells[2].querySelector('input').value.trim(),
-                    speed: tr.cells[3].querySelector('select').value,
-                    mtu: tr.cells[4].querySelector('input').value.trim()
+                    port: getCellFieldValue(tr, 0, 'select'),
+                    desc: getCellFieldValue(tr, 1, 'input'),
+                    ip: getCellFieldValue(tr, 2, 'input'),
+                    speed: getCellFieldValue(tr, 3, 'select'),
+                    mtu: getCellFieldValue(tr, 4, 'input')
                 })).filter(u => u.desc);
             }
 
             function nokia7250MainGetBgpNeighbors() {
                 return [...document.querySelectorAll('#nokia7250_bgp_tbl tbody tr')].map(tr => ({
-                    group: tr.cells[0].querySelector('input').value.trim(),
-                    ip: tr.cells[1].querySelector('input').value.trim()
+                    group: getCellFieldValue(tr, 0, 'input'),
+                    ip: getCellFieldValue(tr, 1, 'input')
                 })).filter(b => b.ip);
             }
 
@@ -26659,48 +26654,33 @@ Ready for translation!`);
 
             document.addEventListener('DOMContentLoaded', () => {
                 const previewBtn = document.getElementById('ftthPreviewBtn');
+                const validateBtn = document.getElementById('ftthValidateBtn');
                 const generateBtn = document.getElementById('ftthGenerate');
                 const resetBtn = document.getElementById('ftthReset');
 
                 previewBtn?.addEventListener('click', async () => { await doFtthPreview(); });
+                validateBtn?.addEventListener('click', () => {
+                    if (typeof window.validateFtthConfig === 'function') {
+                        window.validateFtthConfig({ showSuccessAlert: true });
+                    }
+                });
 
                 generateBtn?.addEventListener('click', async () => {
-                    if (generateBtn.disabled) {
-                        const errEl = document.getElementById('ftthError');
-                        errEl.textContent = 'Please run Preview and correct any errors before generating.';
-                        errEl.style.display = 'block';
-                        return;
-                    }
                     if (typeof window.generateFtthBngConfig === 'function') {
                         await window.generateFtthBngConfig();
                         return;
                     }
-                    const errEl = document.getElementById('ftthError');
-                    errEl.textContent = 'FTTH generator not available. Please reload the page.';
-                    errEl.style.display = 'block';
+                    const errEl = document.getElementById('ftthError') || document.getElementById('ftth_error');
+                    if (errEl) {
+                        errEl.textContent = 'FTTH generator not available. Please reload the page.';
+                        errEl.style.display = 'block';
+                    }
                 });
 
                 resetBtn?.addEventListener('click', () => {
-                    const sfx = _ftth_active_suffix();
-                    const ids = [
-                        `ftth_loopback_${sfx}`,
-                        `ftth_cpe_${sfx}`,
-                        `ftth_cgnat_private_${sfx}`,
-                        `ftth_cgnat_public_${sfx}`,
-                        `ftth_unauth_${sfx}`,
-                        `ftth_olt_network_${sfx}`,
-                        `ftth_olt_network2_${sfx}`,
-                        `ftth_identity_${sfx}`,
-                        `ftth_location_${sfx}`,
-                        `ftth_routeros_${sfx}`
-                    ];
-                    ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-                    const previewEl = document.getElementById('ftthPreview');
-                    const generateBtn = document.getElementById('ftthGenerate');
-                    const errEl = document.getElementById('ftthError') || document.getElementById('ftth_error');
-                    if (previewEl) { previewEl.style.display = 'none'; previewEl.textContent = ''; }
-                    if (generateBtn) generateBtn.disabled = true;
-                    if (errEl) errEl.style.display = 'none';
+                    if (typeof window.resetFtthForm === 'function') {
+                        window.resetFtthForm();
+                    }
                 });
 
                 // FTTH -> Port & Uplink helpers
@@ -26888,6 +26868,10 @@ Ready for translation!`);
         };
 
         function initCommandVaultTabs() {
+            const pane = document.getElementById('command-vault-pane');
+            if (!pane || pane.dataset.commandVaultInit === '1') return;
+            pane.dataset.commandVaultInit = '1';
+
             if (typeof window.showCommandVaultSubTab === 'function') {
                 window.showCommandVaultSubTab('nokia');
             }
@@ -26994,12 +26978,12 @@ Ready for translation!`);
         // Collect port rows
         function nokia7250psGetPorts() {
             return [...document.querySelectorAll('#nokia7250ps_port_table tbody tr')].map(tr => ({
-                port: tr.cells[0].querySelector('select').value,
-                desc: tr.cells[1].querySelector('input').value.trim(),
-                ip: tr.cells[2].querySelector('input').value.trim(),
-                mtu: tr.cells[3].querySelector('input').value.trim() || '1514',
-                speed: tr.cells[4].querySelector('select').value,
-                noShut: tr.cells[5].querySelector('input').checked
+                port: getCellFieldValue(tr, 0, 'select'),
+                desc: getCellFieldValue(tr, 1, 'input'),
+                ip: getCellFieldValue(tr, 2, 'input'),
+                mtu: getCellFieldValue(tr, 3, 'input') || '1514',
+                speed: getCellFieldValue(tr, 4, 'select'),
+                noShut: !!getCellFieldValue(tr, 5, 'input', false)
             })).filter(p => p.desc && p.ip);
         }
 
@@ -27148,6 +27132,10 @@ Ready for translation!`);
 
         function initFtthHomeTabs() {
             moveFtthPaneIntoHome();
+            const pane = document.getElementById('ftth-home-pane');
+            if (!pane || pane.dataset.ftthHomeInit === '1') return;
+            pane.dataset.ftthHomeInit = '1';
+
             const dropdown = document.getElementById('ftthHomeDropdown');
             const toggle = document.getElementById('ftthHomeDropdownToggle');
             const items = document.querySelectorAll('#ftth-home-pane .ftth-home-dropdown-item');
@@ -28153,7 +28141,8 @@ Ready for translation!`);
         }
 
         // Validate FTTH Configuration
-        window.validateFtthConfig = function () {
+        window.validateFtthConfig = function (options = {}) {
+            const { showSuccessAlert = true } = options;
             const suffix = getActiveStateSuffix();
             const isOutstate = suffix === 'out';
             const errorDiv = document.getElementById('ftth_error');
@@ -28248,13 +28237,19 @@ Ready for translation!`);
             }
 
             errorDiv.style.display = 'none';
-            alert('Validation passed! You can now generate the configuration.');
+            if (showSuccessAlert) {
+                alert('Validation passed! You can now generate the configuration.');
+            }
             return true;
         };
 
         // Generate FTTH BNG Configuration
         window.generateFtthBngConfig = async function () {
             console.log('[FTTH] Generate button clicked');
+
+            if (!window.validateFtthConfig || !window.validateFtthConfig({ showSuccessAlert: false })) {
+                return;
+            }
 
             const suffix = getActiveStateSuffix();
 
@@ -28560,6 +28555,11 @@ Ready for translation!`);
             // Hide output and error
             document.getElementById('ftth_output_section').style.display = 'none';
             document.getElementById('ftth_error').style.display = 'none';
+            const previewEl = document.getElementById('ftthPreview');
+            if (previewEl) {
+                previewEl.style.display = 'none';
+                previewEl.innerHTML = '';
+            }
 
             console.log('[FTTH] Form reset');
         };
@@ -30272,26 +30272,35 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
         // ── Mode Switching ──
         window.bulkSwitchMode = function (mode) {
             document.querySelectorAll('.bulk-mode-tab').forEach(t => t.classList.remove('active'));
-            document.querySelector(`.bulk-mode-tab[data-bulk-mode="${mode}"]`).classList.add('active');
-            document.getElementById('bulkModeGenerate').style.display = mode === 'generate' ? '' : 'none';
-            document.getElementById('bulkModeSshFetch').style.display = mode === 'ssh-fetch' ? '' : 'none';
-            document.getElementById('bulkModeMigration').style.display = mode === 'migration' ? '' : 'none';
+            const activeTab = document.querySelector(`.bulk-mode-tab[data-bulk-mode="${mode}"]`);
+            if (activeTab) activeTab.classList.add('active');
+            const generatePane = document.getElementById('bulkModeGenerate');
+            const sshPane = document.getElementById('bulkModeSshFetch');
+            const migrationPane = document.getElementById('bulkModeMigration');
+            if (generatePane) generatePane.style.display = mode === 'generate' ? '' : 'none';
+            if (sshPane) sshPane.style.display = mode === 'ssh-fetch' ? '' : 'none';
+            if (migrationPane) migrationPane.style.display = mode === 'migration' ? '' : 'none';
         };
 
         // ── Input type switching ──
         window.bulkGenInputChanged = function () {
-            const inputType = document.getElementById('bulkGenInputType').value;
-            document.getElementById('bulkDropzone').style.display = (inputType === 'csv' || inputType === 'json') ? '' : 'none';
-            document.getElementById('bulkManualEntry').style.display = inputType === 'manual' ? '' : 'none';
+            const inputType = document.getElementById('bulkGenInputType')?.value || 'csv';
+            const dropzone = document.getElementById('bulkDropzone');
+            const manualEntry = document.getElementById('bulkManualEntry');
+            if (dropzone) dropzone.style.display = (inputType === 'csv' || inputType === 'json') ? '' : 'none';
+            if (manualEntry) manualEntry.style.display = inputType === 'manual' ? '' : 'none';
             // Update dropzone text
+            const dropTitle = document.querySelector('#bulkDropzone .drop-title');
+            const dropSub = document.querySelector('#bulkDropzone .drop-sub');
+            const fileInput = document.getElementById('bulkFileInput');
             if (inputType === 'json') {
-                document.querySelector('#bulkDropzone .drop-title').textContent = 'Drop your JSON file here';
-                document.querySelector('#bulkDropzone .drop-sub').innerHTML = 'or click to browse &bull; Accepts .json files &bull; <a href="#" onclick="event.stopPropagation();bulkDownloadTemplate()" style="color:var(--accent-color)">Download template</a>';
-                document.getElementById('bulkFileInput').accept = '.json';
+                if (dropTitle) dropTitle.textContent = 'Drop your JSON file here';
+                if (dropSub) dropSub.innerHTML = 'or click to browse &bull; Accepts .json files &bull; <a href="#" onclick="event.stopPropagation();bulkDownloadTemplate()" style="color:var(--accent-color)">Download template</a>';
+                if (fileInput) fileInput.accept = '.json';
             } else {
-                document.querySelector('#bulkDropzone .drop-title').textContent = 'Drop your CSV file here';
-                document.querySelector('#bulkDropzone .drop-sub').innerHTML = 'or click to browse &bull; Accepts .csv files &bull; <a href="#" onclick="event.stopPropagation();bulkDownloadTemplate()" style="color:var(--accent-color)">Download template</a>';
-                document.getElementById('bulkFileInput').accept = '.csv';
+                if (dropTitle) dropTitle.textContent = 'Drop your CSV file here';
+                if (dropSub) dropSub.innerHTML = 'or click to browse &bull; Accepts .csv files &bull; <a href="#" onclick="event.stopPropagation();bulkDownloadTemplate()" style="color:var(--accent-color)">Download template</a>';
+                if (fileInput) fileInput.accept = '.csv';
             }
         };
 
@@ -30366,9 +30375,13 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
             }
             bulkResults = {};
             bulkRenderTable();
-            document.getElementById('bulkTableWrap').style.display = '';
-            document.getElementById('bulkGenerateBtn').disabled = false;
-            document.getElementById('bulkGenerateBtn').style.opacity = '1';
+            const bulkTableWrap = document.getElementById('bulkTableWrap');
+            const bulkGenerateBtn = document.getElementById('bulkGenerateBtn');
+            if (bulkTableWrap) bulkTableWrap.style.display = '';
+            if (bulkGenerateBtn) {
+                bulkGenerateBtn.disabled = false;
+                bulkGenerateBtn.style.opacity = '1';
+            }
             nocToast(`Parsed ${bulkSites.length} sites from CSV`, 'success');
         }
 
@@ -30379,9 +30392,13 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
                 bulkSites = arr.map((obj, i) => ({ ...obj, _idx: i, _status: 'pending' }));
                 bulkResults = {};
                 bulkRenderTable();
-                document.getElementById('bulkTableWrap').style.display = '';
-                document.getElementById('bulkGenerateBtn').disabled = false;
-                document.getElementById('bulkGenerateBtn').style.opacity = '1';
+                const bulkTableWrap = document.getElementById('bulkTableWrap');
+                const bulkGenerateBtn = document.getElementById('bulkGenerateBtn');
+                if (bulkTableWrap) bulkTableWrap.style.display = '';
+                if (bulkGenerateBtn) {
+                    bulkGenerateBtn.disabled = false;
+                    bulkGenerateBtn.style.opacity = '1';
+                }
                 nocToast(`Parsed ${bulkSites.length} sites from JSON`, 'success');
             } catch (e) {
                 nocToast('Invalid JSON: ' + e.message, 'error');
@@ -31431,7 +31448,8 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
         let _pushSource = ''; // 'compliance' | 'migration'
 
         window.closePushModal = function () {
-            document.getElementById('sshPushModal').classList.remove('show');
+            const modal = document.getElementById('sshPushModal');
+            if (modal) modal.classList.remove('show');
         };
 
         function openPushConfirmation(devices, source) {
