@@ -133,6 +133,34 @@ def main() -> int:
     id_block = re.search(r'(?m)^\s*/system identity\s*\n\s*set\s+name=([^\n]+)', translated)
     _assert(id_block and ("MT2216" not in id_block.group(1)) and ("CCR2004" in id_block.group(1) or "2004" in id_block.group(1)), "Identity not updated to target model/digits")
 
+    # Switch-maker backend: CCR2004 no-BNG profile should use proper uplink family.
+    r = client.post(
+        "/api/generate-mt-switch-config",
+        data=json.dumps(
+            {
+                "switch_type": "2004",
+                "profile": "no_bng",
+                "routeros": "7.19.4",
+                "switch_name": "SWT-CCR2004-1.TX-MARLIN-W-FC-2",
+                "gps": "31.306,-96.898",
+                "management_ip": "10.246.48.194/27",
+                "gateway": "10.246.48.193",
+                "uplink1": "sfp28-1",
+                "state_scope": "instate",
+                "apply_compliance": False,
+                "ports": [{"port": "sfp-sfpplus1", "comment": "AP1 Cambium 6ghz"}],
+            }
+        ),
+        content_type="application/json",
+    )
+    _assert(r.status_code == 200, f"/api/generate-mt-switch-config expected 200, got {r.status_code}")
+    data = r.get_json() or {}
+    _assert(data.get("success") is True, f"/api/generate-mt-switch-config success=true, got {data!r}")
+    switch_config = data.get("config") or ""
+    _assert("SWITCH PROFILE: CCR2004 NO BNG" in switch_config, "Switch config missing CCR2004 no-BNG profile header")
+    _assert("sfp28-1" in switch_config, "Switch config missing CCR2004 sfp28 uplink")
+    _assert("comment=\"AP1 Cambium 6ghz\"" in switch_config, "Switch config missing custom port comment")
+
     # Translate (strict): CCR2004 -> CCR2216 must preserve critical sections and map embedded VLAN names.
     export = (
         "# 2025-12-29 12:34:47 by RouterOS 7.19.4\n"

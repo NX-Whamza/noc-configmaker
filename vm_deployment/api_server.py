@@ -13103,6 +13103,7 @@ _API_REGISTRY = [
     # ── MikroTik Config Gen ──
     {"method": "POST", "path": "/api/gen-enterprise-non-mpls","category": "MikroTik Gen",     "summary": "Generate Non-MPLS Enterprise config",       "payload": {"device": "str", "target_version": "str", "public_cidr": "str", "bh_cidr": "str", "loopback_ip": "str"}},
     {"method": "POST", "path": "/api/gen-tarana-config",     "category": "MikroTik Gen",      "summary": "Generate/validate Tarana sector config",    "payload": {"config": "str", "device": "str", "routeros_version": "str"}},
+    {"method": "POST", "path": "/api/generate-mt-switch-config", "category": "MikroTik Gen",  "summary": "Generate MikroTik switch config from toolbox profiles", "payload": {"switch_type": "309|326|2004", "profile": "bng|no_bng|crs326", "switch_name": "str", "management_ip": "str", "gateway": "str"}},
     {"method": "POST", "path": "/api/mt/<type>/config",      "category": "MikroTik Gen",      "summary": "Generate MikroTik config (Netlaunch)"},
     {"method": "POST", "path": "/api/mt/<type>/portmap",     "category": "MikroTik Gen",      "summary": "Generate MikroTik port map (Netlaunch)"},
     # ── FTTH BNG ──
@@ -16930,6 +16931,396 @@ def _apply_optional_compliance_to_config(config_text: str, loopback_ip: str, app
     else:
         warnings.append('No compliance blocks were available to append.')
     return rendered, compliance_validation, compliance_source, warnings
+
+
+SWITCH_MAKER_PROFILES = {
+    '309': {
+        'label': 'CRS309',
+        'ports': ['ether1'] + [f'sfp-sfpplus{i}' for i in range(1, 9)],
+        'access_ports_bng': [f'sfp-sfpplus{i}' for i in range(1, 7)],
+        'access_ports_no_bng': [f'sfp-sfpplus{i}' for i in range(1, 8)],
+        'default_profile': 'bng',
+        'default_uplink1': 'sfp-sfpplus8',
+        'default_uplink2': '',
+    },
+    '2004': {
+        'label': 'CCR2004',
+        'ports': ['ether1'] + [f'sfp-sfpplus{i}' for i in range(1, 13)] + ['sfp28-1', 'sfp28-2'],
+        'access_ports_bng': [f'sfp-sfpplus{i}' for i in range(1, 7)],
+        'access_ports_no_bng': [f'sfp-sfpplus{i}' for i in range(1, 13)],
+        'default_profile': 'bng',
+        'default_uplink1': 'sfp28-1',
+        'default_uplink2': '',
+    },
+    '326': {
+        'label': 'CRS326',
+        'ports': ['ether1'] + [f'sfp-sfpplus{i}' for i in range(1, 25)],
+        'access_ports_bng': [],
+        'access_ports_no_bng': [],
+        'default_profile': 'crs326',
+        'default_uplink1': 'sfp-sfpplus23',
+        'default_uplink2': 'sfp-sfpplus24',
+    },
+}
+
+
+def _normalize_switch_type(value: str) -> str:
+    raw = str(value or '').strip().lower()
+    aliases = {
+        '309': '309',
+        'crs309': '309',
+        '326': '326',
+        'crs326': '326',
+        '2004': '2004',
+        'ccr2004': '2004',
+    }
+    return aliases.get(raw, raw)
+
+
+def _normalize_switch_profile(value: str, switch_type: str) -> str:
+    raw = str(value or '').strip().lower().replace('-', '_').replace(' ', '_')
+    aliases = {
+        'bng': 'bng',
+        'with_bng': 'bng',
+        'no_bng': 'no_bng',
+        'nobng': 'no_bng',
+        'without_bng': 'no_bng',
+        'crs326': 'crs326',
+        'crs_326': 'crs326',
+    }
+    profile = aliases.get(raw, '')
+    if not profile:
+        defaults = SWITCH_MAKER_PROFILES.get(switch_type, {})
+        return defaults.get('default_profile', '')
+    return profile
+
+
+def _switch_state_region(state_scope: str, switch_name: str) -> str:
+    name = str(switch_name or '').strip().upper()
+    inferred = ''
+    match = re.match(r'^([A-Z]{2})[-._]', name)
+    if match:
+        inferred = match.group(1)
+    if not inferred:
+        inferred = 'TX' if str(state_scope or '').strip().lower() == 'instate' else 'NX'
+    return f'{inferred}-MSTP'
+
+
+def _switch_comment_lines(custom_ports, access_ports, uplink_ports):
+    lines = []
+    seen = set()
+    for idx, port in enumerate(access_ports, start=1):
+        label = f'AP{idx}'
+        lines.append(f'set [ find default-name={port} ] comment={label}')
+        seen.add(port)
+    for idx, uplink in enumerate([p for p in uplink_ports if p], start=1):
+        if uplink in seen:
+            continue
+        lines.append(
+            f'set [ find default-name={uplink} ] comment="Router Uplink {idx}"'
+        )
+        seen.add(uplink)
+    for item in custom_ports:
+        port = item['port']
+        comment = item['comment']
+        if not comment:
+            continue
+        extra = ''
+        if port in uplink_ports:
+            extra = ' l2mtu=9212 loop-protect=off'
+        if port == 'sfp-sfpplus14' and 'ftth' in comment.lower():
+            extra += ' auto-negotiation=no speed=1G-baseX'
+        lines.append(
+            f'set [ find default-name={port} ] comment="{comment}"{extra}'
+        )
+        seen.add(port)
+    return lines
+
+
+def _sanitize_switch_ports(raw_ports, valid_ports):
+    ports = []
+    seen = set()
+    for item in raw_ports or []:
+        port = str((item or {}).get('port', '')).strip()
+        comment = str((item or {}).get('comment', '')).strip()
+        if not port:
+            continue
+        if port not in valid_ports:
+            raise ValueError(f'Invalid switch port for selected model: {port}')
+        if port in seen:
+            raise ValueError(f'Duplicate switch port entry: {port}')
+        seen.add(port)
+        ports.append({'port': port, 'comment': comment})
+    return ports
+
+
+def _build_switch_profile_config(data: dict):
+    switch_type = _normalize_switch_type(data.get('switch_type'))
+    if switch_type not in SWITCH_MAKER_PROFILES:
+        raise ValueError('switch_type must be one of 309, 326, or 2004')
+
+    profile_meta = SWITCH_MAKER_PROFILES[switch_type]
+    profile = _normalize_switch_profile(data.get('profile'), switch_type)
+    if switch_type == '326' and profile != 'crs326':
+        raise ValueError('CRS326 must use the CRS326 profile')
+    if switch_type in {'309', '2004'} and profile not in {'bng', 'no_bng'}:
+        raise ValueError('CRS309/CCR2004 must use BNG or No BNG profile')
+
+    switch_name = str(data.get('switch_name', '')).strip()
+    gps = str(data.get('gps', '')).strip()
+    routeros = str(data.get('routeros', '')).strip()
+    if not switch_name:
+        raise ValueError('switch_name is required')
+    if not gps:
+        raise ValueError('gps is required')
+    if not routeros:
+        raise ValueError('routeros is required')
+
+    try:
+        mgmt_if = ipaddress.ip_interface(str(data.get('management_ip', '')).strip())
+    except ValueError as exc:
+        raise ValueError(f'management_ip must be a valid IPv4 CIDR: {exc}') from exc
+    if mgmt_if.version != 4:
+        raise ValueError('management_ip must be IPv4')
+    try:
+        gateway = ipaddress.ip_address(str(data.get('gateway', '')).strip())
+    except ValueError as exc:
+        raise ValueError(f'gateway must be a valid IPv4 address: {exc}') from exc
+    if gateway.version != 4:
+        raise ValueError('gateway must be IPv4')
+
+    valid_ports = set(profile_meta['ports'])
+    uplink1 = str(data.get('uplink1') or profile_meta['default_uplink1']).strip()
+    uplink2 = str(data.get('uplink2') or profile_meta['default_uplink2']).strip()
+    if not uplink1:
+        raise ValueError('uplink1 is required')
+    if uplink1 not in valid_ports:
+        raise ValueError(f'Invalid uplink1 for selected model: {uplink1}')
+    if uplink2:
+        if uplink2 not in valid_ports:
+            raise ValueError(f'Invalid uplink2 for selected model: {uplink2}')
+        if uplink2 == uplink1:
+            raise ValueError('uplink1 and uplink2 must be different')
+    if profile == 'crs326' and not uplink2:
+        raise ValueError('CRS326 profile requires two uplink ports')
+
+    custom_ports = _sanitize_switch_ports(data.get('ports', []), valid_ports)
+    state_scope = str(data.get('state_scope', 'instate')).strip().lower()
+    region_name = _switch_state_region(state_scope, switch_name)
+    mgmt_ip = mgmt_if.with_prefixlen
+    mgmt_network = str(mgmt_if.network.network_address)
+    mgmt_ip_no_cidr = str(mgmt_if.ip)
+
+    if profile == 'bng':
+        access_ports = profile_meta['access_ports_bng']
+        bridge_name = 'bridge1'
+        bridge_ports = '\n'.join([
+            f'add bridge={bridge_name} interface={port} pvid=1000'
+            for port in access_ports
+        ] + [
+            f'add bridge={bridge_name} interface={uplink1} pvid=1000 trusted=yes',
+            'add bridge=bridge1 interface=ether1 pvid=3000',
+        ])
+        tagged = ','.join(access_ports + [uplink1])
+        config_lines = [
+            f'# SWITCH PROFILE: {profile_meta["label"]} WITH BNG',
+            f'# RouterOS: {routeros}',
+            '',
+            '/system identity',
+            f'set name={switch_name}',
+            '',
+            '/interface bridge',
+            f'add name={bridge_name} dhcp-snooping=yes protocol-mode=mstp pvid=1000 region-name={region_name} priority=0x7000 region-revision=1 vlan-filtering=yes',
+            '',
+            '/interface bridge msti',
+            f'add bridge={bridge_name} identifier=1 vlan-mapping=1000,2000,3000,4000 priority=0x8000',
+            '',
+            '/interface bridge port',
+            bridge_ports,
+            '/interface bridge settings',
+            'set use-ip-firewall-for-vlan=yes',
+            '/interface bridge vlan',
+            f'add bridge={bridge_name} tagged={tagged} vlan-ids=1000',
+            f'add bridge={bridge_name} tagged={tagged} vlan-ids=2000',
+            f'add bridge={bridge_name} tagged={tagged},{bridge_name} untagged=ether1 vlan-ids=3000',
+            f'add bridge={bridge_name} tagged={tagged} vlan-ids=4000',
+            '',
+            '/interface vlan',
+            'add interface=bridge1 name=vlan3000 vlan-id=3000',
+            '',
+            '/interface ethernet',
+            '\n'.join(_switch_comment_lines(custom_ports, access_ports, [uplink1])),
+            '',
+            '/ip address',
+            f'add address={mgmt_ip} interface=vlan3000 network={mgmt_network}',
+            '/ip route',
+            f'add disabled=no dst-address=0.0.0.0/0 gateway={gateway} routing-table=main suppress-hw-offload=no',
+            '',
+        ]
+    elif profile == 'no_bng':
+        access_ports = profile_meta['access_ports_no_bng']
+        tagged_ports = ','.join(access_ports + [uplink1, 'lan-bridge'])
+        bridge_ports = '\n'.join(
+            [f'add bridge=lan-bridge interface={port} pvid=1000' for port in access_ports] +
+            [f'add bridge=lan-bridge interface={uplink1} pvid=1000', f'set interface={uplink1} edge=yes', 'add bridge=lan-bridge interface=ether1 pvid=1000']
+        )
+        config_lines = [
+            f'# SWITCH PROFILE: {profile_meta["label"]} NO BNG',
+            f'# RouterOS: {routeros}',
+            '',
+            '/system identity',
+            f'set name={switch_name}',
+            '',
+            '/interface bridge',
+            f'add name=lan-bridge protocol-mode=mstp pvid=1000 region-name={region_name} priority=0x7000 region-revision=1 vlan-filtering=yes',
+            '',
+            '/interface bridge msti',
+            'add bridge=lan-bridge identifier=1 vlan-mapping=1000,2000,3000,4000 priority=0x8000',
+            '',
+            '/interface bridge port',
+            bridge_ports,
+            '',
+            '/interface vlan',
+            'add interface=lan-bridge name=vlan3000 vlan-id=3000',
+            '',
+            '/interface bridge settings',
+            'set use-ip-firewall-for-vlan=no',
+            f'/interface bridge vlan add bridge=lan-bridge tagged={tagged_ports} vlan-ids=1000',
+            f'/interface bridge vlan add bridge=lan-bridge tagged={tagged_ports} vlan-ids=2000',
+            f'/interface bridge vlan add bridge=lan-bridge tagged={tagged_ports} vlan-ids=3000',
+            f'/interface bridge vlan add bridge=lan-bridge tagged={tagged_ports} vlan-ids=4000',
+            '',
+            '/interface ethernet',
+            '\n'.join(_switch_comment_lines(custom_ports, access_ports, [uplink1])),
+            '',
+            '/ip address',
+            f'add address={mgmt_ip} interface=vlan3000 network={mgmt_network}',
+            '/ip route',
+            f'add disabled=no dst-address=0.0.0.0/0 gateway={gateway} routing-table=main suppress-hw-offload=no',
+            '',
+        ]
+    else:
+        access_ports = [f'sfp-sfpplus{i}' for i in range(1, 23)]
+        tagged_1000 = ','.join(access_ports + ['bonding1', 'lan-bridge'])
+        tagged_3000 = ','.join(['lan-bridge', 'bonding1', 'sfp-sfpplus15', 'sfp-sfpplus16', 'sfp-sfpplus17', 'sfp-sfpplus18', 'sfp-sfpplus19'])
+        bridge_ports = '\n'.join(
+            ['add bridge=lan-bridge interface=ether1 pvid=3000'] +
+            [f'add bridge=lan-bridge interface=sfp-sfpplus{i} pvid=1000' for i in range(1, 14)] +
+            ['add bridge=lan-bridge interface=sfp-sfpplus14 pvid=2000',
+             'add bridge=lan-bridge interface=sfp-sfpplus15 pvid=3000',
+             'add bridge=lan-bridge interface=sfp-sfpplus16 pvid=3000',
+             'add bridge=lan-bridge interface=bonding1',
+             'add bridge=lan-bridge interface=sfp-sfpplus17 pvid=3000',
+             'add bridge=lan-bridge interface=sfp-sfpplus18 pvid=3000',
+             'add bridge=lan-bridge interface=sfp-sfpplus19 pvid=3000',
+             'add bridge=lan-bridge interface=sfp-sfpplus20 pvid=1000',
+             'add bridge=lan-bridge interface=sfp-sfpplus21 pvid=1000',
+             'add bridge=lan-bridge interface=sfp-sfpplus22 pvid=1000']
+        )
+        config_lines = [
+            '# SWITCH PROFILE: CRS326',
+            f'# RouterOS: {routeros}',
+            '',
+            '/interface bridge add ingress-filtering=no name=lan-bridge protocol-mode=mstp region-name=MSTP region-revision=1 vlan-filtering=yes',
+            '/interface ethernet',
+            f'set [ find default-name={uplink1} ] comment="Router Uplink 1" l2mtu=9212 loop-protect=off',
+            f'set [ find default-name={uplink2} ] comment="Router Uplink 2" l2mtu=9212 loop-protect=off',
+            '\n'.join(_switch_comment_lines(custom_ports, [], [])),
+            '/interface vlan add interface=lan-bridge name=vlan3000 vlan-id=3000',
+            f'/interface bonding add lacp-user-key=1 mode=802.3ad name=bonding1 slaves={uplink1},{uplink2} transmit-hash-policy=layer-2-and-3',
+            '/port set 0 name=serial0',
+            '/snmp community set [ find default=yes ] read-access=no',
+            '/interface bridge msti add bridge=lan-bridge identifier=1 vlan-mapping=1000,2000,3000,4000,75,444',
+            '/interface bridge port',
+            bridge_ports,
+            '/ip neighbor discovery-settings set discover-interface-list=all',
+            f'/interface bridge vlan add bridge=lan-bridge tagged={tagged_1000} vlan-ids=4000',
+            '/interface bridge vlan add bridge=lan-bridge tagged=sfp-sfpplus3,bonding1,lan-bridge vlan-ids=75',
+            '/interface bridge vlan add bridge=lan-bridge tagged=sfp-sfpplus3,bonding1,lan-bridge vlan-ids=444',
+            f'/interface bridge vlan add bridge=lan-bridge tagged={tagged_1000} vlan-ids=1000',
+            f'/interface bridge vlan add bridge=lan-bridge tagged={tagged_1000} vlan-ids=2000',
+            f'/interface bridge vlan add bridge=lan-bridge tagged={tagged_3000} vlan-ids=3000',
+            f'/ip address add address={mgmt_ip} interface=vlan3000',
+            f'/ip route add disabled=no distance=1 dst-address=0.0.0.0/0 gateway={gateway} pref-src="" routing-table=main scope=30 suppress-hw-offload=no target-scope=10',
+            '/ip firewall service-port set sip disabled=yes',
+            '/ip service set telnet disabled=yes port=5023',
+            '/ip service set ftp disabled=yes port=5021',
+            '/ip service set www disabled=yes port=1234',
+            '/ip service set ssh port=5022',
+            '/ip service set www-ssl disabled=no',
+            '/ip service set api disabled=yes',
+            '/ip service set api-ssl disabled=yes',
+            f'/radius add address=10.30.10.70 comment="userRAD 1" service=login src-address={mgmt_ip_no_cidr}',
+            f'/radius add address=10.2.10.74 comment="userRAD 2" service=login src-address={mgmt_ip_no_cidr}',
+            f'/snmp set enabled=yes contact="netops@team.nxlink.com" location="{gps}" src-address={mgmt_ip_no_cidr}',
+            f'/system identity set name={switch_name}',
+            '/system ntp client set enabled=yes',
+            '/system ntp client servers add address=ntp-pool.nxlink.com',
+            '/system routerboard settings set boot-os=router-os enter-setup-on=delete-key',
+            '/tool sniffer set file-limit=10000KiB',
+            '/user set [find name=admin] password="CHANGE_ME"',
+            '/user aaa set use-radius=yes',
+            '',
+        ]
+
+    generic_lines = [
+        '# COMMON SWITCH HARDENING',
+        '/system watchdog set watchdog-timer=yes',
+        '/system routerboard settings set auto-upgrade=yes',
+        '/system logging action set [find name="disk"] disk-lines-per-file=10000',
+        '/system logging add action=disk topics=critical',
+        '/system logging add action=disk topics=error',
+        '/system logging add action=disk topics=info',
+        '/system logging add action=disk topics=warning',
+        f'/system logging action add name=syslog remote=142.147.116.215 src-address={mgmt_ip_no_cidr} target=remote',
+        '/system logging add action=syslog topics=critical',
+        '/system logging add action=syslog topics=error',
+        '/system logging add action=syslog topics=info',
+        '/system logging add action=syslog topics=warning',
+        '/system clock set time-zone-name=America/Chicago',
+        '/ip dns set max-udp-packet-size=512 servers=142.147.112.3,142.147.112.19',
+    ]
+
+    base_config = '\n'.join([line for line in config_lines if line is not None and line != '']).strip() + '\n\n' + '\n'.join(generic_lines).strip() + '\n'
+    rendered, compliance_validation, compliance_source, warnings = _apply_optional_compliance_to_config(
+        base_config,
+        f'{mgmt_ip_no_cidr}/32',
+        bool(data.get('apply_compliance', True)),
+    )
+    return rendered, base_config, {
+        'switch_type': switch_type,
+        'switch_label': profile_meta['label'],
+        'profile': profile,
+        'switch_name': switch_name,
+        'routeros': routeros,
+        'management_ip': mgmt_ip,
+        'gateway': str(gateway),
+        'uplink1': uplink1,
+        'uplink2': uplink2,
+        'state_scope': state_scope,
+        'ports': custom_ports,
+    }, compliance_validation, compliance_source, warnings
+
+
+@app.route('/api/generate-mt-switch-config', methods=['POST'])
+def generate_mt_switch_config():
+    data = request.get_json(silent=True) or {}
+    try:
+        rendered, base_config, metadata, compliance_validation, compliance_source, warnings = _build_switch_profile_config(data)
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        return jsonify({'error': f'Failed to generate MikroTik switch config: {exc}'}), 500
+
+    return jsonify({
+        'success': True,
+        'config': rendered,
+        'base_config': base_config,
+        'metadata': metadata,
+        'compliance': compliance_validation,
+        'compliance_source': compliance_source,
+        'warnings': warnings,
+    })
 
 
 def _build_ftth_1072_config(data: dict, backhauls):

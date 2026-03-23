@@ -94,6 +94,20 @@ def test_ftth_fiber_customer_and_cisco_generator_exist():
     assert 'Cisco Port Setup' in content, 'Missing Cisco Port Setup naming in NOC-configMaker.html'
 
 
+def test_switch_maker_uses_backend_profile_generator():
+    content = UI_FILE.read_text(encoding='utf-8')
+    assert 'PRODUCTION REFINEMENT - MikroTik Switch Config Maker' in content, 'Missing refined Switch Maker banner in NOC-configMaker.html'
+    assert 'id="switch_maker_profile"' in content, 'Missing in-state switch deployment profile selector in NOC-configMaker.html'
+    assert 'id="switch_outstate_profile"' in content, 'Missing out-of-state switch deployment profile selector in NOC-configMaker.html'
+    assert 'id="switch_maker_apply_compliance"' in content, 'Missing in-state switch compliance toggle in NOC-configMaker.html'
+    assert 'id="switch_outstate_apply_compliance"' in content, 'Missing out-of-state switch compliance toggle in NOC-configMaker.html'
+    assert 'const SWITCH_MAKER_DEVICE_PROFILES =' in content, 'Missing switch device profile inventory in NOC-configMaker.html'
+    assert 'updateSwitchProfileDefaults(state)' in content, 'Missing switch profile default helper in NOC-configMaker.html'
+    assert '/generate-mt-switch-config' in content, 'Missing backend switch generator endpoint wiring in NOC-configMaker.html'
+    assert 'sfp28-1' in content, 'Missing CCR2004 SFP28 uplink family in switch UI wiring'
+    assert 'sfp-sfpplus23' in content, 'Missing CRS326 bonded uplink default in switch UI wiring'
+
+
 def test_enterprise_uses_single_routerboard_source_of_truth():
     content = UI_FILE.read_text(encoding='utf-8')
     assert 'const ENTERPRISE_DEVICE_PROFILES =' in content, 'Missing shared enterprise device profile map in NOC-configMaker.html'

@@ -62,6 +62,7 @@ def test_frontend_endpoint_wiring_has_backend_routes():
         '/api/mt/X/portmap',
         '/api/suggest-config',
         '/api/gen-enterprise-non-mpls',
+        '/api/generate-mt-switch-config',
         '/api/validate-config',
         '/api/autofill-from-export',
         '/api/fetch-config-ssh',

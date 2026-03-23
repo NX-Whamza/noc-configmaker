@@ -807,6 +807,64 @@ Generate the FTTH Fiber Customer handoff block for MikroTik, with optional Nextl
 
 ---
 
+### `POST /api/generate-mt-switch-config`
+
+Generate MikroTik switch config from the old toolbox switch profiles, now backend-backed for the current UI.
+
+**Request**
+```json
+{
+  "switch_type": "2004",
+  "profile": "no_bng",
+  "routeros": "7.19.4",
+  "switch_name": "SWT-CCR2004-1.TX-MARLIN-W-FC-2",
+  "gps": "31.306,-96.898",
+  "management_ip": "10.246.48.194/27",
+  "gateway": "10.246.48.193",
+  "uplink1": "sfp28-1",
+  "uplink2": "",
+  "state_scope": "instate",
+  "apply_compliance": true,
+  "ports": [
+    { "port": "sfp-sfpplus1", "comment": "AP1 Cambium 6ghz" },
+    { "port": "sfp-sfpplus2", "comment": "AP2 Cambium 6ghz" }
+  ]
+}
+```
+
+**Response `200`**
+```json
+{
+  "success": true,
+  "config": "# SWITCH PROFILE: CCR2004 NO BNG\n...",
+  "base_config": "# SWITCH PROFILE: CCR2004 NO BNG\n...",
+  "metadata": {
+    "switch_type": "2004",
+    "switch_label": "CCR2004",
+    "profile": "no_bng",
+    "switch_name": "SWT-CCR2004-1.TX-MARLIN-W-FC-2",
+    "routeros": "7.19.4",
+    "management_ip": "10.246.48.194/27",
+    "gateway": "10.246.48.193",
+    "uplink1": "sfp28-1",
+    "uplink2": "",
+    "state_scope": "instate",
+    "ports": [
+      { "port": "sfp-sfpplus1", "comment": "AP1 Cambium 6ghz" }
+    ]
+  },
+  "compliance_source": "bundled-local",
+  "warnings": []
+}
+```
+
+**Notes**
+- `switch_type=326` must use `profile=crs326`.
+- `switch_type=309|2004` must use `profile=bng` or `profile=no_bng`.
+- `uplink2` is required for the `crs326` bonded profile.
+
+---
+
 ### `POST /api/generate-ftth-fiber-site`
 
 Generate the paired MikroTik `1072` and `1036` FTTH fiber-site configs and the backhaul IP / port map.
