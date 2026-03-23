@@ -6185,10 +6185,10 @@
             <!-- MIKROTIK SWITCH CONFIG MAKER TAB -->
             <div class="content-pane" id="switch-maker-pane">
                 <div class="container">
-                    <div class="testing-banner"> IN DEVELOPMENT - MikroTik Switch Config Maker - Testing Phase</div>
+                    <div class="testing-banner"> PRODUCTION REFINEMENT - MikroTik Switch Config Maker</div>
                     <h1> MikroTik Switch Config Maker</h1>
-                    <p style="text-align: center; color: var(--text-color);">Complete switch configuration generator for
-                        CRS309, CRS326, and CCR2004 switches with dynamic port management.</p>
+                    <p style="text-align: center; color: var(--text-color);">Backend-backed switch generator for the
+                        real toolbox profiles: with BNG, no BNG, and CRS326 bonded switch builds.</p>
 
                     <!-- IN-STATE / OUT-OF-STATE Toggle -->
                     <div style="display: flex; gap: 10px; margin-bottom: 20px; justify-content: center;">
@@ -6209,7 +6209,7 @@
                             <h2>MikroTik Switch Configuration (IN-STATE)</h2>
 
                             <!-- Switch Type and RouterOS Selection -->
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px;">
                                 <div>
                                     <label for="switch_maker_type">Switch Type:</label>
                                     <select id="switch_maker_type" onchange="updateSwitchPorts('instate')">
@@ -6219,6 +6219,15 @@
                                         <option value="2004">CCR2004 Switch</option>
                                     </select>
                                     <div class="hint">Select the switch model</div>
+                                </div>
+                                <div>
+                                    <label for="switch_maker_profile">Deployment Profile:</label>
+                                    <select id="switch_maker_profile">
+                                        <option value="bng">Switch With BNG</option>
+                                        <option value="no_bng">Switch Without BNG</option>
+                                        <option value="crs326">CRS326 Bonded Profile</option>
+                                    </select>
+                                    <div class="hint">Matches the old toolbox switch workflows</div>
                                 </div>
                                 <div>
                                     <label for="switch_maker_routeros">RouterOS Version:</label>
@@ -6231,6 +6240,13 @@
                                         <option value="7.19.4">7.19.4</option>
                                     </select>
                                 </div>
+                            </div>
+
+                            <div style="margin-bottom: 20px;">
+                                <label style="display:flex; align-items:center; gap:10px;">
+                                    <input type="checkbox" id="switch_maker_apply_compliance" checked>
+                                    Apply Nextlink compliance blocks
+                                </label>
                             </div>
 
                             <!-- Basic Information -->
@@ -6313,7 +6329,7 @@
                             <h2>MikroTik Switch Configuration (OUT-OF-STATE)</h2>
 
                             <!-- Switch Type and RouterOS Selection -->
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px;">
                                 <div>
                                     <label for="switch_outstate_type">Switch Type:</label>
                                     <select id="switch_outstate_type" onchange="updateSwitchPorts('outstate')">
@@ -6321,6 +6337,14 @@
                                         <option value="309">CRS309 (MT309)</option>
                                         <option value="326">CRS326 (MT326)</option>
                                         <option value="2004">CCR2004 Switch</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="switch_outstate_profile">Deployment Profile:</label>
+                                    <select id="switch_outstate_profile">
+                                        <option value="bng">Switch With BNG</option>
+                                        <option value="no_bng">Switch Without BNG</option>
+                                        <option value="crs326">CRS326 Bonded Profile</option>
                                     </select>
                                 </div>
                                 <div>
@@ -6334,6 +6358,13 @@
                                         <option value="7.19.4">7.19.4</option>
                                     </select>
                                 </div>
+                            </div>
+
+                            <div style="margin-bottom: 20px;">
+                                <label style="display:flex; align-items:center; gap:10px;">
+                                    <input type="checkbox" id="switch_outstate_apply_compliance" checked>
+                                    Apply Nextlink compliance blocks
+                                </label>
                             </div>
 
                             <!-- Basic Information -->
@@ -10695,23 +10726,61 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             }
         }
 
-        // Get available ports for switch type
+        const SWITCH_MAKER_DEVICE_PROFILES = {
+            '309': {
+                label: 'CRS309',
+                ports: ['ether1', 'sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4', 'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8'],
+                defaultProfile: 'bng',
+                defaultUplink1: 'sfp-sfpplus8',
+                defaultUplink2: ''
+            },
+            '326': {
+                label: 'CRS326',
+                ports: ['ether1', 'sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4', 'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8', 'sfp-sfpplus9', 'sfp-sfpplus10', 'sfp-sfpplus11', 'sfp-sfpplus12', 'sfp-sfpplus13', 'sfp-sfpplus14', 'sfp-sfpplus15', 'sfp-sfpplus16', 'sfp-sfpplus17', 'sfp-sfpplus18', 'sfp-sfpplus19', 'sfp-sfpplus20', 'sfp-sfpplus21', 'sfp-sfpplus22', 'sfp-sfpplus23', 'sfp-sfpplus24'],
+                defaultProfile: 'crs326',
+                defaultUplink1: 'sfp-sfpplus23',
+                defaultUplink2: 'sfp-sfpplus24'
+            },
+            '2004': {
+                label: 'CCR2004',
+                ports: ['ether1', 'sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4', 'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8', 'sfp-sfpplus9', 'sfp-sfpplus10', 'sfp-sfpplus11', 'sfp-sfpplus12', 'sfp28-1', 'sfp28-2'],
+                defaultProfile: 'bng',
+                defaultUplink1: 'sfp28-1',
+                defaultUplink2: ''
+            }
+        };
+
         function getSwitchPorts(switchType) {
-            const ports = {
-                '309': {
-                    ethernet: ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10'],
-                    sfp: ['sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4', 'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8', 'sfp-sfpplus9', 'sfp-sfpplus10']
-                },
-                '326': {
-                    ethernet: ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'ether13', 'ether14', 'ether15', 'ether16', 'ether17', 'ether18', 'ether19', 'ether20', 'ether21', 'ether22'],
-                    sfp: ['sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4', 'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8', 'sfp-sfpplus9', 'sfp-sfpplus10', 'sfp-sfpplus11', 'sfp-sfpplus12', 'sfp-sfpplus13', 'sfp-sfpplus14', 'sfp-sfpplus15', 'sfp-sfpplus16', 'sfp-sfpplus17', 'sfp-sfpplus18', 'sfp-sfpplus19', 'sfp-sfpplus20', 'sfp-sfpplus21', 'sfp-sfpplus22', 'sfp-sfpplus23', 'sfp-sfpplus24']
-                },
-                '2004': {
-                    ethernet: ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12', 'ether13', 'ether14', 'ether15', 'ether16', 'ether17', 'ether18', 'ether19', 'ether20', 'ether21', 'ether22'],
-                    sfp: ['sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4', 'sfp-sfpplus5', 'sfp-sfpplus6', 'sfp-sfpplus7', 'sfp-sfpplus8', 'sfp-sfpplus9', 'sfp-sfpplus10', 'sfp-sfpplus11', 'sfp-sfpplus12', 'sfp-sfpplus13', 'sfp-sfpplus14', 'sfp-sfpplus15', 'sfp-sfpplus16', 'sfp-sfpplus17', 'sfp-sfpplus18', 'sfp-sfpplus19', 'sfp-sfpplus20', 'sfp-sfpplus21', 'sfp-sfpplus22', 'sfp-sfpplus23', 'sfp-sfpplus24']
-                }
-            };
-            return ports[switchType] || { ethernet: [], sfp: [] };
+            return SWITCH_MAKER_DEVICE_PROFILES[switchType]?.ports || [];
+        }
+
+        function updateSwitchProfileDefaults(state) {
+            const switchType = state === 'instate'
+                ? document.getElementById('switch_maker_type')?.value
+                : document.getElementById('switch_outstate_type')?.value;
+            const profileSelect = state === 'instate'
+                ? document.getElementById('switch_maker_profile')
+                : document.getElementById('switch_outstate_profile');
+            const uplink1Select = state === 'instate'
+                ? document.getElementById('switch_maker_uplink1')
+                : document.getElementById('switch_outstate_uplink1');
+            const uplink2Select = state === 'instate'
+                ? document.getElementById('switch_maker_uplink2')
+                : document.getElementById('switch_outstate_uplink2');
+
+            const profile = SWITCH_MAKER_DEVICE_PROFILES[switchType];
+            if (!profile) return;
+
+            if (profileSelect) {
+                profileSelect.value = profile.defaultProfile;
+            }
+            if (uplink1Select && profile.defaultUplink1) {
+                uplink1Select.value = profile.defaultUplink1;
+            }
+            if (uplink2Select) {
+                uplink2Select.value = profile.defaultUplink2 || '';
+                uplink2Select.disabled = profile.defaultProfile !== 'crs326';
+            }
         }
 
         // Update port dropdowns based on switch type
@@ -10722,8 +10791,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
 
             if (!switchType) return;
 
-            const ports = getSwitchPorts(switchType);
-            const allPorts = [...ports.ethernet, ...ports.sfp];
+            const allPorts = getSwitchPorts(switchType);
 
             // Update uplink port dropdowns
             const uplink1Id = state === 'instate' ? 'switch_maker_uplink1' : 'switch_outstate_uplink1';
@@ -10769,6 +10837,8 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     });
                 });
             }
+
+            updateSwitchProfileDefaults(state);
         }
 
         // Add a new port row
@@ -10786,8 +10856,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 return;
             }
 
-            const ports = getSwitchPorts(switchType);
-            const allPorts = [...ports.ethernet, ...ports.sfp];
+            const allPorts = getSwitchPorts(switchType);
 
             const portRow = document.createElement('div');
             portRow.className = 'port-row';
@@ -10836,16 +10905,17 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
         // Generate switch configuration
         window.generateSwitchConfig = async function (state) {
             try {
-                // Show progress tracker
                 window.showProgressTracker('MikroTik Switch Configuration Generation');
                 window.updateProgressStep('Initializing switch configuration...');
                 window.updateProgressPercent(5);
                 await new Promise(resolve => setTimeout(resolve, 300));
 
-                // Get form values
                 const switchType = state === 'instate'
                     ? document.getElementById('switch_maker_type')?.value
                     : document.getElementById('switch_outstate_type')?.value;
+                const profile = state === 'instate'
+                    ? document.getElementById('switch_maker_profile')?.value
+                    : document.getElementById('switch_outstate_profile')?.value;
                 const routerOS = state === 'instate'
                     ? document.getElementById('switch_maker_routeros')?.value
                     : document.getElementById('switch_outstate_routeros')?.value;
@@ -10867,26 +10937,23 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 const uplink2 = state === 'instate'
                     ? document.getElementById('switch_maker_uplink2')?.value
                     : document.getElementById('switch_outstate_uplink2')?.value;
+                const applyCompliance = state === 'instate'
+                    ? !!document.getElementById('switch_maker_apply_compliance')?.checked
+                    : !!document.getElementById('switch_outstate_apply_compliance')?.checked;
 
-                // Debug logging
-                console.log('[SWITCH CONFIG] Form values:', {
-                    switchType, routerOS, switchName, gps, mgmtIP, gateway, uplink1, uplink2
-                });
-
-                // Validate required fields with detailed error messages
                 const missingFields = [];
                 if (!switchType || switchType === '') missingFields.push('Switch Type');
+                if (!profile || profile === '') missingFields.push('Deployment Profile');
                 if (!routerOS || routerOS === '') missingFields.push('RouterOS Version');
                 if (!switchName || switchName === '') missingFields.push('Switch Name');
                 if (!gps || gps === '') missingFields.push('GPS Coordinates');
                 if (!mgmtIP || mgmtIP === '') missingFields.push('Management IP (VLAN 3000)');
                 if (!gateway || gateway === '') missingFields.push('Default Gateway');
                 if (!uplink1 || uplink1 === '') missingFields.push('Router Uplink Port 1');
-                if (!uplink2 || uplink2 === '') missingFields.push('Router Uplink Port 2');
+                if (profile === 'crs326' && (!uplink2 || uplink2 === '')) missingFields.push('Router Uplink Port 2');
 
                 if (missingFields.length > 0) {
                     const errorMsg = `Please fill in the following required fields:\n\n${missingFields.join('\n')}`;
-                    console.warn('[SWITCH CONFIG] Validation failed. Missing fields:', missingFields);
                     window.addProgressLog('error', `Missing required fields: ${missingFields.join(', ')}`);
                     window.completeProgressTracker(false);
                     alert(errorMsg);
@@ -10897,7 +10964,6 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 window.updateProgressPercent(10);
                 await new Promise(resolve => setTimeout(resolve, 200));
 
-                // Collect dynamic ports
                 const containerId = state === 'instate' ? 'switch_ports_container' : 'switch_outstate_ports_container';
                 const container = document.getElementById(containerId);
                 const ports = [];
@@ -10915,207 +10981,45 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     });
                 }
 
-                window.updateProgressStep('Generating base configuration...');
-                window.updateProgressPercent(20);
-                await new Promise(resolve => setTimeout(resolve, 300));
-
-                // Extract IP and prefix from mgmtIP
-                const ipParts = mgmtIP.split('/');
-                const ipAddress = ipParts[0];
-                const prefix = ipParts[1] || '27';
-
-                // Determine if in-state or out-of-state (based on IP range)
-                const isInState = state === 'instate';
-
-                // Generate configuration
-                let config = '';
-
-                // Bridge configuration
-                config += '/interface bridge add ingress-filtering=no name=lan-bridge protocol-mode=mstp region-name=MSTP region-revision=1 vlan-filtering=yes\n\n';
-
-                window.updateProgressStep('Configuring interfaces...');
+                window.updateProgressStep('Generating switch profile from backend...');
                 window.updateProgressPercent(30);
                 await new Promise(resolve => setTimeout(resolve, 200));
 
-                // Interface ethernet settings with comments
-                ports.forEach(port => {
-                    let line = `/interface ethernet set [ find default-name=${port.port} ]`;
-                    if (port.comment) {
-                        line += ` comment="${port.comment}"`;
-                    }
-                    // Special handling for sfp-sfpplus14 (FTTH site host)
-                    if (port.port === 'sfp-sfpplus14' && port.comment && port.comment.toLowerCase().includes('ftth')) {
-                        line += ` auto-negotiation=no speed=1G-baseT-full`;
-                    }
-                    // Special handling for uplink ports
-                    if (port.port === uplink1 || port.port === uplink2) {
-                        line += ` l2mtu=9212 loop-protect=off`;
-                    }
-                    config += line + '\n';
+                const apiBase = (typeof getApiBase === 'function')
+                    ? getApiBase()
+                    : (window.AI_API_BASE || 'http://127.0.0.1:5000/api');
+                const targetUrl = `${apiBase.replace(/\/+$/, '')}/generate-mt-switch-config`;
+                const response = await fetch(targetUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        switch_type: switchType,
+                        profile,
+                        routeros: routerOS,
+                        switch_name: switchName,
+                        gps,
+                        management_ip: mgmtIP,
+                        gateway,
+                        uplink1,
+                        uplink2,
+                        state_scope: state,
+                        ports,
+                        apply_compliance: applyCompliance
+                    })
                 });
 
-                // Add uplink ports if not already in ports list
-                if (uplink1 && !ports.find(p => p.port === uplink1)) {
-                    config += `/interface ethernet set [ find default-name=${uplink1} ] comment="Router Uplink 1" l2mtu=9212 loop-protect=off\n`;
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok || result.error) {
+                    throw new Error(result.error || `HTTP ${response.status}`);
                 }
-                if (uplink2 && !ports.find(p => p.port === uplink2)) {
-                    config += `/interface ethernet set [ find default-name=${uplink2} ] comment="Router Uplink 2" l2mtu=9212 loop-protect=off\n`;
-                }
+                const config = result.config || '';
+                const metadata = result.metadata || {};
 
-                config += '\n';
-
-                window.updateProgressStep('Configuring VLANs and bonding...');
-                window.updateProgressPercent(40);
+                window.updateProgressStep('Finalizing switch output...');
+                window.updateProgressPercent(90);
                 await new Promise(resolve => setTimeout(resolve, 200));
-
-                // VLAN 3000
-                config += `/interface vlan add interface=lan-bridge name=vlan3000 vlan-id=3000\n\n`;
-
-                // Bonding
-                config += `/interface bonding add lacp-user-key=1 mode=802.3ad name=bonding1 slaves=${uplink1},${uplink2} transmit-hash-policy=layer-2-and-3\n\n`;
-
-                // Port configuration
-                config += `/port set 0 name=serial0\n\n`;
-
-                window.updateProgressStep('Configuring bridge MSTI and ports...');
-                window.updateProgressPercent(50);
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                // Bridge MSTI
-                config += `/interface bridge msti add bridge=lan-bridge identifier=1 vlan-mapping=1000,2000,3000,4000,75,444\n\n`;
-
-                // Bridge ports - collect all ports for PVID assignment
-                const allPortsForBridge = [...ports.map(p => p.port), uplink1, uplink2].filter(Boolean);
-
-                // Default PVID assignments based on port patterns
-                allPortsForBridge.forEach(port => {
-                    let pvid = 1000; // Default
-                    if (port === 'ether1') pvid = 3000;
-                    else if (port === 'sfp-sfpplus14') pvid = 2000;
-                    else if (port === 'sfp-sfpplus15' || port === 'sfp-sfpplus16' || port === 'sfp-sfpplus17' || port === 'sfp-sfpplus18' || port === 'sfp-sfpplus19') pvid = 3000;
-                    else if (port === uplink1 || port === uplink2) {
-                        // Bonding ports don't have PVID
-                        return;
-                    }
-
-                    if (port !== uplink1 && port !== uplink2) {
-                        config += `/interface bridge port add bridge=lan-bridge interface=${port} pvid=${pvid}\n`;
-                    }
-                });
-
-                // Add bonding interface to bridge
-                config += `/interface bridge port add bridge=lan-bridge interface=bonding1\n\n`;
-
-                window.updateProgressStep('Configuring bridge VLANs...');
-                window.updateProgressPercent(80);
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                // Bridge VLANs - collect tagged ports
-                const taggedPorts1000 = allPortsForBridge.filter(p => p !== 'sfp-sfpplus14' && p !== 'ether1' && p !== uplink1 && p !== uplink2 && !['sfp-sfpplus15', 'sfp-sfpplus16', 'sfp-sfpplus17', 'sfp-sfpplus18', 'sfp-sfpplus19'].includes(p));
-                const taggedPorts2000 = allPortsForBridge.filter(p => p === 'sfp-sfpplus14' || p === 'sfp-sfpplus1' || p === 'sfp-sfpplus2');
-                const taggedPorts3000 = allPortsForBridge.filter(p => ['ether1', 'sfp-sfpplus15', 'sfp-sfpplus16', 'sfp-sfpplus17', 'sfp-sfpplus18', 'sfp-sfpplus19'].includes(p));
-
-                // VLAN 4000
-                config += `/interface bridge vlan add bridge=lan-bridge tagged=${taggedPorts1000.join(',')},bonding1,lan-bridge vlan-ids=4000\n`;
-                // VLAN 75
-                config += `/interface bridge vlan add bridge=lan-bridge tagged=sfp-sfpplus3,bonding1,lan-bridge vlan-ids=75\n`;
-                // VLAN 444
-                config += `/interface bridge vlan add bridge=lan-bridge tagged=sfp-sfpplus3,bonding1,lan-bridge vlan-ids=444\n`;
-                // VLAN 1000
-                config += `/interface bridge vlan add bridge=lan-bridge tagged=${taggedPorts1000.join(',')},bonding1,lan-bridge vlan-ids=1000\n`;
-                // VLAN 2000
-                config += `/interface bridge vlan add bridge=lan-bridge tagged=${taggedPorts1000.join(',')},bonding1,lan-bridge vlan-ids=2000\n`;
-                // VLAN 3000
-                config += `/interface bridge vlan add bridge=lan-bridge tagged=lan-bridge,bonding1,${taggedPorts3000.join(',')} vlan-ids=3000\n\n`;
-
-                window.updateProgressStep('Configuring IP and routing...');
-                window.updateProgressPercent(70);
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                // IP address
-                config += `/ip address add address=${mgmtIP} interface=vlan3000\n\n`;
-
-                // Route
-                config += `/ip route add disabled=no distance=1 dst-address=0.0.0.0/0 gateway=${gateway} pref-src="" routing-table=main scope=30 suppress-hw-offload=no target-scope=10\n\n`;
-
-                // System identity
-                config += `/system identity set name=${switchName}\n\n`;
-
-                // Device-specific settings (switch OS, routerboard)
-                config += `/system routerboard settings set boot-os=router-os enter-setup-on=delete-key\n`;
-                config += `/system swos set address-acquisition-mode=static allow-from-ports=p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19,p20,p21,p22,p23,p24,p25,p26,p27,p28,p29,p30,p31,p32 identity=${switchName} static-ip-address=${ipAddress}\n\n`;
-                config += `/tool sniffer set file-limit=10000KiB\n\n`;
-
-                // ========================================
-                // DYNAMIC COMPLIANCE FROM GITLAB
-                // ========================================
-                window.updateProgressStep('Fetching compliance from GitLab...');
-                window.updateProgressPercent(85);
-                await new Promise(resolve => setTimeout(resolve, 200));
-
-                // Use backend /api/apply-compliance for verbatim GitLab compliance injection
-                const beforeCompliance = config;
-                config = await applyBackendCompliance(config, mgmtIP);
-                if (config !== beforeCompliance) {
-                    window.addProgressLog('success', 'Verbatim GitLab compliance applied via backend');
-                } else {
-                    // Fallback: try parsed compliance blocks
-                    const complianceBlocks = await fetchComplianceBlocks(mgmtIP);
-                    if (complianceBlocks) {
-                        config += '# Set LoopIP for compliance block references\n';
-                        config += ':global LoopIP "' + mgmtIP + '"\n';
-                        config += ':global curDate [/system clock get date]\n';
-                        config += ':global curTime [/system clock get time]\n';
-                        config += ':global CurDT ($curDate . " " . $curTime)\n\n';
-                        config = appendComplianceBlocks(config, complianceBlocks, SWITCH_COMPLIANCE_BLOCKS);
-                        window.addProgressLog('warning', 'Parsed compliance blocks applied (verbatim unavailable)');
-                    } else {
-                        window.addProgressLog('warning', 'Compliance blocks unavailable from backend - config generated without compliance overlay');
-                    }
-                }
-
-                // ========================================
-                // SWITCH-SPECIFIC OVERRIDES (after compliance)
-                // ========================================
-                config += `\n# SWITCH-SPECIFIC CONFIGURATION\n`;
-
-                // Switches use RADIUS for login authentication (override compliance user_aaa)
-                config += `/user aaa\nset use-radius=yes\n\n`;
-
-                // Login RADIUS servers (switch-specific, sourced from infrastructure config)
-                const switchRadiusServers = (typeof getRADIUSLoginServers === 'function') ? getRADIUSLoginServers() : [];
-                if (switchRadiusServers.length > 0) {
-                    config += `/radius\n`;
-                    switchRadiusServers.forEach(server => {
-                        if (server.address && server.secret) {
-                            const comment = server.comment ? ` comment="${server.comment}"` : ' comment="RADIUS Login"';
-                            config += `add address=${server.address} secret=${server.secret} service=login src-address=${ipAddress}${comment}\n`;
-                        }
-                    });
-                    config += `\n`;
-                } else {
-                    // Fallback if infrastructure RADIUS not configured
-                    config += `/radius\nadd address=10.30.10.70 comment="userRAD 1" service=login src-address=${ipAddress}\n`;
-                    config += `add address=10.2.10.74 comment="userRAD 2" service=login src-address=${ipAddress}\n\n`;
-                }
-
-                // SNMP location override (switch-specific with GPS coordinates)
-                const snmpContact = (typeof getInfrastructureValue === 'function') ? getInfrastructureValue('snmp.contact', 'netops@team.nxlink.com') : 'netops@team.nxlink.com';
-                config += `/snmp\nset enabled=yes contact="${snmpContact}" location="${gps}" src-address=${ipAddress}\n\n`;
-
-                // User accounts
-                config += `/user set [find name=admin] password="CHANGE_ME"\n`;
-                config += `/user add name="root" password="CHANGE_ME" group=full\n`;
-                config += `/user add name="deployment" password="CHANGE_ME" group=full\n`;
-                config += `/user add name="infra" password="CHANGE_ME" group=full\n`;
-                config += `/user add name="ido" password="CHANGE_ME" group=full\n`;
-                config += `/user add name="sts" password="CHANGE_ME" group=full\n`;
-                config += `/user add name="eng" password="CHANGE_ME" group=full\n`;
-                config += `/user add name="noc" password="CHANGE_ME" group=full\n`;
-                config += `/user add name="devops" password="CHANGE_ME" group=full\n`;
-                config += `/user add name="comeng" password="CHANGE_ME" group=full\n`;
-                config += `/user add name="acq" password="CHANGE_ME" group=full\n`;
-                config += `/user set [find name=admin] group=read\n`;
 
                 window.updateProgressStep('Configuration generation complete!');
                 window.updateProgressPercent(100);
@@ -11144,7 +11048,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 await saveCompletedConfig({
                     config_type: 'switch-config',
                     device_name: switchName,
-                    device_type: `CRS${switchType}`,
+                    device_type: metadata.switch_label || switchType,
                     customer_code: '',
                     loopback_ip: mgmtIP.split('/')[0],
                     routeros_version: routerOS,
@@ -11154,29 +11058,30 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     metadata: {
                         state: state,
                         type: 'switch',
-                        gateway: gateway
+                        gateway: gateway,
+                        profile: profile,
+                        switch_type: switchType,
+                        uplink1: uplink1,
+                        uplink2: uplink2 || ''
                     }
                 });
                 console.log('[SWITCH CONFIG] Saved to Completed Configs database');
-                // --- FIX END ---
 
-                // Save to activity log
                 const userInfo = JSON.parse(localStorage.getItem('user_info') || '{}');
                 const username = userInfo.email || 'unknown';
 
                 await window.sendActivityToBackend({
                     type: 'new-config',
-                    description: `Generated ${state === 'instate' ? 'IN-STATE' : 'OUT-OF-STATE'} MikroTik switch configuration: ${switchName}`,
-                    device: `CRS${switchType}`,
+                    description: `Generated ${state === 'instate' ? 'IN-STATE' : 'OUT-OF-STATE'} ${profile.toUpperCase().replace('_', ' ')} MikroTik switch configuration: ${switchName}`,
+                    device: metadata.switch_label || switchType,
                     routeros: routerOS,
                     site: switchName,
                     username: username
                 });
 
-                // Save config to history
                 await window.saveConfigToHistory({
                     site: switchName,
-                    device: `CRS${switchType}`,
+                    device: metadata.switch_label || switchType,
                     routeros: routerOS,
                     config: config,
                     type: 'switch-config',
