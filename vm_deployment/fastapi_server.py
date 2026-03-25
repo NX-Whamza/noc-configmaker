@@ -14,9 +14,11 @@ import threading
 import time
 import sqlite3
 import shutil
+import importlib
 from contextlib import asynccontextmanager
 from datetime import datetime
 from urllib.parse import urljoin
+import httpx
 import requests
 from pathlib import Path
 from typing import Any, Dict, Type
@@ -51,11 +53,11 @@ from api_v2 import router as api_v2_router
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    _maybe_purge_bad_aviat_logs_on_startup()
+    _schedule_startup_maintenance()
     yield
 
 
-app = FastAPI(title="NOC Config Maker API", version="1.0", lifespan=lifespan)
+app = FastAPI(title="NEXUS API", version="2.6.0", lifespan=lifespan)
 
 # Match current permissive CORS behavior from Flask setup.
 app.add_middleware(
@@ -70,6 +72,17 @@ app.include_router(api_v2_router)
 
 def _str_to_bool(value: str) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _startup_maintenance_delay_seconds(default: float = 2.0) -> float:
+    raw = (os.getenv("STARTUP_MAINTENANCE_DELAY_SECONDS") or "").strip()
+    if not raw:
+        return default
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        print(f"[STARTUP] Invalid STARTUP_MAINTENANCE_DELAY_SECONDS={raw!r}; using {default}s")
+        return default
 
 
 def _maybe_purge_bad_aviat_logs_on_startup() -> None:
@@ -135,6 +148,26 @@ def _maybe_purge_bad_aviat_logs_on_startup() -> None:
         print(f"[ACTIVITY] Auto-purge failed: {exc}")
 
 
+def _run_startup_maintenance() -> None:
+    delay_seconds = _startup_maintenance_delay_seconds()
+    if delay_seconds > 0:
+        time.sleep(delay_seconds)
+    _maybe_purge_bad_aviat_logs_on_startup()
+
+
+def _schedule_startup_maintenance() -> None:
+    mode = (os.getenv("STARTUP_MAINTENANCE_MODE") or "background").strip().lower()
+    if mode == "blocking":
+        print("[STARTUP] Running startup maintenance in blocking mode")
+        _run_startup_maintenance()
+        return
+
+    print("[STARTUP] Scheduling startup maintenance in background mode")
+    threading.Thread(
+        target=_run_startup_maintenance,
+        name="startup-maintenance",
+        daemon=True,
+    ).start()
 @app.get("/api/runtime")
 def runtime_info():
     return JSONResponse(
@@ -189,6 +222,20 @@ def _ido_backend_url() -> str:
                 return str(p)
         return ""
 
+    def _ido_local_base_config_path() -> str:
+        candidates = [
+            (os.getenv("BASE_CONFIG_PATH") or "").strip(),
+            (os.getenv("NEXTLINK_BASE_CONFIG_PATH") or "").strip(),
+            str(Path(__file__).resolve().parent / "base_configs"),
+        ]
+        for candidate in candidates:
+            if not candidate:
+                continue
+            p = Path(candidate)
+            if (p / "Cambium").is_dir():
+                return str(p)
+        return ""
+
     local_proc = getattr(_ido_backend_url, "_local_proc", None)
     local_lock = getattr(_ido_backend_url, "_local_lock", None)
     if local_lock is None:
@@ -200,9 +247,10 @@ def _ido_backend_url() -> str:
         if str(os.getenv("ENABLE_LOCAL_IDO_BACKEND_AUTOSTART", "true")).strip().lower() in {"0", "false", "no"}:
             return ""
 
-        base_path = _ido_local_backend_path()
-        if not base_path:
+        backend_path = _ido_local_backend_path()
+        if not backend_path:
             return ""
+        base_config_path = _ido_local_base_config_path() or backend_path
 
         host = (os.getenv("LOCAL_IDO_BACKEND_HOST") or "127.0.0.1").strip()
         port = int((os.getenv("LOCAL_IDO_BACKEND_PORT") or "18081").strip())
@@ -234,8 +282,8 @@ def _ido_backend_url() -> str:
             ]
             try:
                 env = os.environ.copy()
-                env.setdefault("BASE_CONFIG_PATH", base_path)
-                env.setdefault("FIRMWARE_PATH", base_path)
+                env.setdefault("BASE_CONFIG_PATH", base_config_path)
+                env.setdefault("FIRMWARE_PATH", base_config_path)
                 # Field Config Studio device defaults (netlaunch backend modules use these env vars).
                 # If explicit module vars are not set, fall back to NEXTLINK_SSH_PASSWORD.
                 ssh_pw = (env.get("NEXTLINK_SSH_PASSWORD") or "").strip()
@@ -251,7 +299,7 @@ def _ido_backend_url() -> str:
                 if configured_stub:
                     env.setdefault("BNG_SSH_SERVER_CONFIG", configured_stub)
                 else:
-                    backend_stub = Path(base_path) / ".bng_ssh_servers.json"
+                    backend_stub = Path(backend_path) / ".bng_ssh_servers.json"
                     if backend_stub.exists():
                         env.setdefault("BNG_SSH_SERVER_CONFIG", str(backend_stub))
                     else:
@@ -296,6 +344,30 @@ def _ido_backend_url() -> str:
                 value = f"http://{value}"
             return value.rstrip("/")
     return _ensure_local_ido_backend()
+
+
+def _ido_inprocess_module():
+    try:
+        return importlib.import_module("ido_local_backend")
+    except Exception:
+        try:
+            return importlib.import_module("vm_deployment.ido_local_backend")
+        except Exception:
+            return None
+
+
+def _ido_inprocess_health(module) -> Dict[str, Any]:
+    if not module:
+        return {"ok": False, "checked": False, "error": "in-process backend unavailable"}
+    return {
+        "ok": not bool(getattr(module, "_MISSING_REQUIRED", [])),
+        "checked": True,
+        "mode": "inprocess",
+        "backend_path": getattr(module, "BACKEND_PATH", ""),
+        "loaded_modules": getattr(module, "_LOADED", {}),
+        "required_modules": list(getattr(module, "_REQUIRED_MODULE_KEYS", [])),
+        "missing_required_modules": getattr(module, "_MISSING_REQUIRED", []),
+    }
 
 
 def _ido_target_allowed(target_path: str) -> bool:
@@ -364,6 +436,7 @@ def _ido_local_generic(ip_address: str, run_tests: bool = False) -> Dict[str, An
 @app.get("/api/ido/capabilities")
 def ido_capabilities():
     backend = _ido_backend_url()
+    inprocess_module = None if backend else _ido_inprocess_module()
     backend_health: Dict[str, Any] = {"ok": False, "checked": False, "error": None}
     if backend:
         try:
@@ -379,12 +452,15 @@ def ido_capabilities():
         except Exception as exc:
             backend_health["checked"] = True
             backend_health["error"] = str(exc)
+    elif inprocess_module:
+        backend = "inprocess://ido-local"
+        backend_health = _ido_inprocess_health(inprocess_module)
     return JSONResponse(
         content={
             "configured": bool(backend),
             "backend_url": backend,
             "backend_health": backend_health,
-            "fallback_mode": "embedded-partial" if not backend else "external",
+            "fallback_mode": ("embedded-partial" if not backend else ("inprocess-local" if backend.startswith("inprocess://") else "external")),
             "embedded_endpoints": ["/api/ping", "/api/generic/device_info"],
             "excluded": ["/api/sites"],
             "allowed_prefixes": list(IDO_PROXY_ALLOWED_PREFIXES),
@@ -395,11 +471,47 @@ def ido_capabilities():
 @app.api_route("/api/ido/proxy/{target_path:path}", methods=["GET", "POST"])
 async def ido_proxy(target_path: str, request: Request):
     backend_url = _ido_backend_url()
+    inprocess_module = None if backend_url else _ido_inprocess_module()
     if not _ido_target_allowed(target_path):
         raise HTTPException(
             status_code=403,
             detail=f"Target path '/{target_path.lstrip('/')}' is not allowed",
         )
+    if not backend_url and inprocess_module:
+        rel = "/" + target_path.lstrip("/")
+        try:
+            transport = httpx.ASGITransport(app=inprocess_module.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://ido-local") as client:
+                if request.method.upper() == "GET":
+                    upstream = await client.get(rel, params=dict(request.query_params))
+                else:
+                    raw_body = await request.body()
+                    headers = {}
+                    content_type = request.headers.get("content-type", "")
+                    if content_type:
+                        headers["content-type"] = content_type
+                    upstream = await client.post(rel, params=dict(request.query_params), content=raw_body or None, headers=headers or None)
+                if upstream.status_code == 404 and target_path.startswith("api/"):
+                    fallback_rel = "/" + target_path[4:].lstrip("/")
+                    if request.method.upper() == "GET":
+                        upstream = await client.get(fallback_rel, params=dict(request.query_params))
+                    else:
+                        raw_body = await request.body()
+                        headers = {}
+                        content_type = request.headers.get("content-type", "")
+                        if content_type:
+                            headers["content-type"] = content_type
+                        upstream = await client.post(fallback_rel, params=dict(request.query_params), content=raw_body or None, headers=headers or None)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"IDO in-process request failed: {exc}") from exc
+
+        content_type = (upstream.headers.get("content-type") or "").lower()
+        if "application/json" in content_type:
+            try:
+                return JSONResponse(content=upstream.json(), status_code=upstream.status_code)
+            except Exception:
+                return PlainTextResponse(content=upstream.text, status_code=upstream.status_code)
+        return PlainTextResponse(content=upstream.text, status_code=upstream.status_code)
     if not backend_url:
         rel = "/" + target_path.lstrip("/")
         qp = dict(request.query_params)

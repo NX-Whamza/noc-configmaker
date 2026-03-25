@@ -54,6 +54,7 @@ import threading
 import queue
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from ftth_renderer import render_ftth_config
 from typing import Optional
 try:
@@ -189,6 +190,142 @@ def get_utc_timestamp():
 
 def get_unix_timestamp():
     return int(get_utc_now().timestamp())
+
+
+def _health_check_secure_data():
+    secure_dir = ensure_secure_data_dir()
+    result = {
+        'name': 'secure_data',
+        'ok': True,
+        'path': str(secure_dir),
+        'detail': 'secure_data directory is writable',
+    }
+    probe_name = f".healthcheck_{os.getpid()}_{int(time.time())}"
+    probe_path = secure_dir / probe_name
+    try:
+        with open(probe_path, 'w', encoding='utf-8') as handle:
+            handle.write('ok')
+        probe_path.unlink(missing_ok=True)
+    except Exception as exc:
+        result['ok'] = False
+        result['detail'] = f'secure_data directory is not writable: {exc}'
+    return result
+
+
+def _health_check_ido_backend():
+    backend_url = _ido_backend_url()
+    result = {
+        'name': 'ido_backend',
+        'ok': True,
+        'configured': bool(backend_url),
+        'backend_url': backend_url,
+        'detail': 'IDO backend reachable',
+    }
+    if not backend_url:
+        result['ok'] = False
+        result['detail'] = 'IDO backend URL is not configured'
+        return result
+    try:
+        resp = requests.get(urljoin(backend_url.rstrip('/') + '/', 'health/full'), timeout=1.5)
+        result['status_code'] = resp.status_code
+        if resp.headers.get('content-type', '').lower().startswith('application/json'):
+            payload = resp.json()
+            result['payload'] = payload
+            result['ok'] = bool(payload.get('ok', resp.status_code == 200))
+            if not result['ok']:
+                result['detail'] = payload.get('missing_required_modules') or payload.get('detail') or 'IDO backend reported unhealthy'
+        else:
+            result['ok'] = resp.status_code == 200
+            if not result['ok']:
+                result['detail'] = f'IDO backend returned HTTP {resp.status_code}'
+    except Exception as exc:
+        result['ok'] = False
+        result['detail'] = f'IDO backend health check failed: {exc}'
+    return result
+
+
+APP_VERSION_CONFIG_PATH = Path(__file__).parent / 'assets' / 'app-version.json'
+DEFAULT_APP_VERSION_CONFIG = {
+    'product': 'NEXUS',
+    'version_base': '2.6',
+    'build_offset': 0,
+    'release_date': 'Mar 2026',
+}
+
+
+def _load_app_version_config():
+    config = dict(DEFAULT_APP_VERSION_CONFIG)
+    try:
+        if APP_VERSION_CONFIG_PATH.exists():
+            payload = json.loads(APP_VERSION_CONFIG_PATH.read_text(encoding='utf-8'))
+            if isinstance(payload, dict):
+                config.update(payload)
+    except Exception as exc:
+        print(f"[APP] Failed to load app-version.json: {exc}")
+    return config
+
+
+def _git_metadata():
+    repo_root = Path(__file__).resolve().parent.parent
+    result = {'sha': None, 'count': None}
+    try:
+        sha = subprocess.run(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        if sha:
+            result['sha'] = sha
+    except Exception:
+        pass
+    try:
+        count_raw = subprocess.run(
+            ['git', 'rev-list', '--count', 'HEAD'],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        if count_raw:
+            result['count'] = int(count_raw)
+    except Exception:
+        pass
+    return result
+
+
+def get_app_version_meta():
+    config = _load_app_version_config()
+    git_meta = _git_metadata()
+    product = os.getenv('NEXUS_APP_PRODUCT') or str(config.get('product') or 'NEXUS')
+    base = (os.getenv('NEXUS_APP_VERSION_BASE') or str(config.get('version_base') or '2.6')).strip().lstrip('v')
+    release_date = (os.getenv('NEXUS_APP_RELEASE_DATE') or str(config.get('release_date') or get_cst_now().strftime('%b %Y'))).strip()
+
+    explicit_version = (os.getenv('NEXUS_APP_VERSION') or '').strip()
+    build_number_raw = os.getenv('NEXUS_APP_BUILD_NUMBER')
+    if build_number_raw not in (None, ''):
+        try:
+            build_number = max(int(build_number_raw), 0)
+        except ValueError:
+            build_number = 0
+    else:
+        git_count = git_meta.get('count')
+        build_offset = int(config.get('build_offset', 0) or 0)
+        build_number = max((git_count or build_offset) - build_offset, 0)
+
+    version = explicit_version or f"v{base}.{build_number}"
+    git_sha = (os.getenv('NEXUS_APP_GIT_SHA') or git_meta.get('sha') or '').strip() or None
+
+    return {
+        'product': product,
+        'version': version,
+        'version_base': base,
+        'build_number': build_number,
+        'release_date': release_date,
+        'git_sha': git_sha,
+        'environment': os.getenv('NOC_ENVIRONMENT', 'production'),
+    }
 
 
 from pathlib import Path
@@ -1386,14 +1523,14 @@ ROUTERBOARD_INTERFACES = {
             'ethernet_1g': ['ether1'],
             'sfp28_25g': ['sfp28-1', 'sfp28-2', 'sfp28-3', 'sfp28-4', 'sfp28-5', 'sfp28-6',
                          'sfp28-7', 'sfp28-8', 'sfp28-9', 'sfp28-10', 'sfp28-11', 'sfp28-12'],
-            'qsfp28_100g': ['qsfpplus1-1', 'qsfpplus2-1']
+            'qsfp28_100g': ['qsfp28-1-1', 'qsfp28-2-1']
         },
         'total_ports': 15,
         'management_port': 'ether1',
         'typical_use': {
             'ether1': 'Management',
             'sfp28-1-12': 'High-speed customer/sector connections (25G)',
-            'qsfpplus1-1, qsfpplus2-1': 'Ultra high-speed uplinks (100G)'
+            'qsfp28-1-1, qsfp28-2-1': 'Ultra high-speed uplinks (100G)'
         }
     },
 
@@ -1675,6 +1812,45 @@ def get_enterprise_device_profile(device_name: str):
         if series in ENTERPRISE_DEVICE_PROFILES:
             return ENTERPRISE_DEVICE_PROFILES[series].copy()
     return ENTERPRISE_DEVICE_PROFILES['rb5009'].copy()
+
+
+def get_mikrotik_identity_prefix(device_name: str, compact: bool = False) -> str:
+    normalized = (device_name or '').strip().lower()
+    if normalized not in ENTERPRISE_DEVICE_PROFILES:
+        model_key = resolve_routerboard_model_key(device_name)
+        if model_key:
+            normalized = (ROUTERBOARD_MODELS.get(model_key, {}).get('series') or '').lower() or normalized
+
+    family_tokens = {
+        'ccr1036': 'MTCCR1036',
+        'ccr1072': 'MTCCR1072',
+        'ccr2004': 'MTCCR2004',
+        'ccr2116': 'MTCCR2116',
+        'ccr2216': 'MTCCR2216',
+        'rb1009': 'MTRB1009',
+        'rb2011': 'MTRB2011',
+        'rb5009': 'MTRB5009',
+    }
+    compact_tokens = {
+        'ccr1036': 'MT1036',
+        'ccr1072': 'MT1072',
+        'ccr2004': 'MT2004',
+        'ccr2116': 'MT2116',
+        'ccr2216': 'MT2216',
+        'rb1009': 'MT1009',
+        'rb2011': 'MT2011',
+        'rb5009': 'MT5009',
+    }
+    mapping = compact_tokens if compact else family_tokens
+    if normalized in mapping:
+        return mapping[normalized]
+
+    raw = re.sub(r'[^A-Z0-9]+', '', (device_name or '').strip().upper())
+    digits_match = re.search(r'(\d{3,4})', raw)
+    digits = digits_match.group(1) if digits_match else '2004'
+    if compact:
+        return f'MT{digits}'
+    return f"MT{raw or digits}"
 
 
 def _extract_used_physical_interfaces(config_text, source_device):
@@ -9143,7 +9319,7 @@ def gen_enterprise_non_mpls():
         snmp_community = data.get('snmp_community', 'CHANGE_ME')
         syslog_ip = data.get('syslog_ip')
         coords = data.get('coords')
-        identity = data.get('identity', f"RTR-{device}.AUTO-GEN")
+        identity = data.get('identity', f"RTR-{get_mikrotik_identity_prefix(device)}.AUTO-GEN")
         uplink_comment = data.get('uplink_comment', '').strip()  # Uplink comment/location for backhaul
 
         interface_roles = {
@@ -10212,7 +10388,10 @@ def gen_tarana_config():
         # BNG1 MUST use bridge3000 interface (not UNICORNMGMT)
         # Pattern: add address=IP/prefix comment=... interface=bridge3000 network=...
         # ============================================================
-        unicorn_cidr_match = re.search(r'add address=(\d+\.\d+\.\d+\.\d+)/(\d+)\s+comment=([^\s]+)\s+interface=bridge3000\s+network=(\d+\.\d+\.\d+\.\d+)', raw_config)
+        unicorn_cidr_match = re.search(
+            r'add address=(\d+\.\d+\.\d+\.\d+)/(\d+)\s+comment=([^\s"]+|"[^"]+")\s+interface=bridge3000\s+network=(\d+\.\d+\.\d+\.\d+)',
+            raw_config
+        )
         
         # CRITICAL: Reject if UNICORNMGMT interface is found (should be bridge3000)
         if re.search(r'interface=UNICORNMGMT', raw_config):
@@ -10246,7 +10425,7 @@ def gen_tarana_config():
                     # Fix /ip address line - replace only the network parameter
                     raw_config = re.sub(
                         r'(add address=' + re.escape(user_ip) + r'/' + str(prefix_len) + r'\s+comment=' + re.escape(comment) + r'\s+interface=' + re.escape(interface_name) + r'\s+network=)' + re.escape(existing_network),
-                        r'\1' + correct_network,
+                        r'\g<1>' + correct_network,
                         raw_config
                     )
                 else:
@@ -10265,7 +10444,7 @@ def gen_tarana_config():
                         print(f"[TARANA] OSPF network incorrect, fixing from {ospf_network} to {expected_ospf_network}")
                         raw_config = re.sub(
                             r'(/routing ospf interface-template.*?network=)' + re.escape(ospf_network),
-                            r'\1' + expected_ospf_network,
+                            r'\g<1>' + expected_ospf_network,
                             raw_config,
                             flags=re.DOTALL
                         )
@@ -10329,8 +10508,8 @@ Return the corrected configuration with proper network calculations and formatti
                     cleaned = ai_result.replace('```routeros', '').replace('```', '').strip()
                     # Only use AI result if it's substantial and contains the required elements
                     if cleaned and len(cleaned) > 100:
-                        # Verify AI result has the required UNICORNMGMT line
-                        if 'UNICORNMGMT' in cleaned and '/ip address' in cleaned:
+                        # Accept AI output only when it preserves the BNG1 bridge3000 format.
+                        if '/ip address' in cleaned and ('interface=bridge3000' in cleaned or 'interfaces=bridge3000' in cleaned):
                             corrected_config = cleaned
                             print(f"[TARANA] AI validation successful ({len(corrected_config)} chars)")
                         else:
@@ -10665,6 +10844,7 @@ def nokia7250_defaults():
         'nlroot_pw':      os.getenv('NOKIA7250_NLROOT_PW', '').strip(),
         'admin_pw':       os.getenv('NOKIA7250_ADMIN_PW', '').strip(),
         'bgp_auth_key':   os.getenv('NOKIA7250_BGP_AUTH_KEY', '').strip(),
+        'ospf_auth_key':  os.getenv('NOKIA7250_OSPF_AUTH_KEY', '').strip() or os.getenv('NOKIA7250_BGP_AUTH_KEY', '').strip(),
     })
 
 
@@ -10679,6 +10859,7 @@ def _get_nokia_configurator_creds():
         'nlroot_pw': os.getenv('NOKIA7250_NLROOT_PW', '').strip(),
         'admin_pw': os.getenv('NOKIA7250_ADMIN_PW', '').strip(),
         'bgp_auth_key': os.getenv('NOKIA7250_BGP_AUTH_KEY', '').strip(),
+        'ospf_auth_key': os.getenv('NOKIA7250_OSPF_AUTH_KEY', '').strip() or os.getenv('NOKIA7250_BGP_AUTH_KEY', '').strip(),
     }
 
 
@@ -10881,6 +11062,12 @@ def generate_nokia7250():
         fiber_ip = data.get('fiber_ip', '').strip()
         backhauls = data.get('backhauls', [])
         
+        creds = _get_nokia_configurator_creds()
+        snmp_community = creds.get('snmp_community') or 'public'
+        nlroot_pw = creds.get('nlroot_pw') or 'changeme'
+        bgp_auth_key = creds.get('bgp_auth_key') or 'changeme'
+        ospf_auth_key = creds.get('ospf_auth_key') or bgp_auth_key
+
         if not system_name or not system_ip:
             return jsonify({'error': 'System name and system IP are required'}), 400
         
@@ -10888,10 +11075,30 @@ def generate_nokia7250():
         if not backhauls or len(backhauls) == 0:
             return jsonify({'error': 'At least one backhaul is required'}), 400
         
-        # Validate each backhaul has name and ip
-        for bh in backhauls:
-            if not bh.get('name') or not bh.get('ip'):
-                return jsonify({'error': 'Each backhaul must have both name and IP/netmask'}), 400
+        # Validate and normalize backhauls.
+        reserved_backhaul_ports = {'1/1/1', '1/1/2'}
+        if enable_fiber and fiber_ip:
+            reserved_backhaul_ports.add('1/1/24')
+        default_backhaul_ports = [f'1/1/{port}' for port in range(3, 24)]
+        used_backhaul_ports = set()
+        normalized_backhauls = []
+        for idx, bh in enumerate(backhauls, start=1):
+            bh_name = str(bh.get('description') or bh.get('name') or '').strip()
+            bh_ip = str(bh.get('ip') or '').strip()
+            if not bh_name or not bh_ip:
+                return jsonify({'error': 'Each backhaul must have a description/name and IP/netmask'}), 400
+            bh_port = str(bh.get('port') or '').strip()
+            if not bh_port:
+                try:
+                    bh_port = next(port for port in default_backhaul_ports if port not in used_backhaul_ports)
+                except StopIteration:
+                    return jsonify({'error': 'No Nokia 7250 backhaul ports remain available for automatic assignment'}), 400
+            if bh_port in reserved_backhaul_ports:
+                return jsonify({'error': f'Backhaul port {bh_port} is reserved by the base Nokia 7250 layout'}), 400
+            if bh_port in used_backhaul_ports:
+                return jsonify({'error': f'Backhaul port {bh_port} is used more than once'}), 400
+            used_backhaul_ports.add(bh_port)
+            normalized_backhauls.append({'name': bh_name, 'ip': bh_ip, 'port': bh_port})
         
         # Extract IP and netmask
         ip_parts = system_ip.split('/')
@@ -10915,7 +11122,7 @@ def generate_nokia7250():
         config_lines.append("")
         config_lines.append("# SNMP")
         config_lines.append("/configure system snmp no shutdown")
-        config_lines.append("/configure system security snmp community \"FBZ1yYdphf\" r version both")
+        config_lines.append(f"/configure system security snmp community \"{snmp_community}\" r version both")
         config_lines.append("")
         config_lines.append("# NTP")
         config_lines.append("/configure system time ntp server 52.128.59.240")
@@ -10929,7 +11136,7 @@ def generate_nokia7250():
         config_lines.append("# USERS")
         config_lines.append("/configure system security user nlroot access ftp snmp console netconf grpc")
         config_lines.append("/configure system security user nlroot console member \"administrative\"")
-        config_lines.append("/configure system security user nlroot password XAgYqY8jig!d")
+        config_lines.append(f"/configure system security user nlroot password {nlroot_pw}")
         config_lines.append("/configure system security no user admin")
         config_lines.append("")
         config_lines.append("# IDLE TIMEOUT")
@@ -10948,7 +11155,7 @@ def generate_nokia7250():
             config_lines.append(f"/configure system security management-access-filter ip-filter entry {idx} src-ip {acl_ip}")
             config_lines.append(f"/configure system security management-access-filter ip-filter entry {idx} dst-port 22 65535")
             config_lines.append(f"/configure system security management-access-filter ip-filter entry {idx} action permit")
-        config_lines.append("/configure system security management-access-filter ip-filter no shut")
+        config_lines.append("/configure system security management-access-filter ip-filter no shutdown")
         config_lines.append("")
         config_lines.append("# CARD CONFIGURATION")
         config_lines.append("/configure card 1 card-type imm24-sfp++8-sfp28+2-qsfp28")
@@ -10964,7 +11171,7 @@ def generate_nokia7250():
         config_lines.append("##################################")
         config_lines.append("# SYSTEM IP")
         config_lines.append(f"/configure router interface \"system\" address {system_ip}")
-        config_lines.append("/configure router interface \"system\" no shut")
+        config_lines.append("/configure router interface \"system\" no shutdown")
         config_lines.append("/configure router autonomous-system 26077")
         config_lines.append(f"/configure router router-id {system_ip_addr}")
         config_lines.append("")
@@ -10991,21 +11198,21 @@ def generate_nokia7250():
         
         if enable_ospf:
             config_lines.append("# OSPF")
-            config_lines.append(f"/configure router ospf 1 {system_ip_addr} area 0.0.0.0 interface \"system\" no shut")
-            config_lines.append("/configure router ospf 1 no shut")
+            config_lines.append(f"/configure router ospf 1 {system_ip_addr} area 0.0.0.0 interface \"system\" no shutdown")
+            config_lines.append("/configure router ospf 1 no shutdown")
             config_lines.append("")
         
         if enable_bgp:
             config_lines.append("# BGP")
             config_lines.append(f"/configure router bgp router-id {system_ip_addr}")
             config_lines.append(f"/configure router bgp group \"{bgp_group}\" description \"{bgp_group}\"")
-            config_lines.append(f"/configure router bgp group \"{bgp_group}\" authentication-key nvla8Z")
+            config_lines.append(f"/configure router bgp group \"{bgp_group}\" authentication-key \"{bgp_auth_key}\"")
             config_lines.append(f"/configure router bgp group \"{bgp_group}\" peer-as 26077")
             config_lines.append(f"/configure router bgp group \"{bgp_group}\" local-address {system_ip_addr}")
             for neighbor in bgp_neighbors:
                 if neighbor and neighbor.strip():
                     config_lines.append(f"/configure router bgp group \"{bgp_group}\" neighbor {neighbor.strip()}")
-            config_lines.append("/configure router bgp no shut")
+            config_lines.append("/configure router bgp no shutdown")
             config_lines.append("")
         
         if vpls_services and sdp_farend1:
@@ -11013,21 +11220,21 @@ def generate_nokia7250():
             config_lines.append("/configure service sdp 101 mpls create")
             config_lines.append(f"/configure service sdp 101 far-end {sdp_farend1}")
             config_lines.append("/configure service sdp 101 ldp")
-            config_lines.append("/configure service sdp 101 no shut")
+            config_lines.append("/configure service sdp 101 no shutdown")
             if sdp_farend2 and sdp_farend2.strip():
                 config_lines.append("/configure service sdp 102 mpls create")
                 config_lines.append(f"/configure service sdp 102 far-end {sdp_farend2}")
                 config_lines.append("/configure service sdp 102 ldp")
-                config_lines.append("/configure service sdp 102 no shut")
+                config_lines.append("/configure service sdp 102 no shutdown")
             else:
                 # SDP 102 without far-end (as shown in example)
                 config_lines.append("/configure service sdp 102 mpls create")
                 config_lines.append("/configure service sdp 102 far-end")
                 config_lines.append("/configure service sdp 102 ldp")
-                config_lines.append("/configure service sdp 102 no shut")
+                config_lines.append("/configure service sdp 102 no shutdown")
             config_lines.append("")
             config_lines.append("#MPLS")
-            config_lines.append("/configure router mpls no shut")
+            config_lines.append("/configure router mpls no shutdown")
             for vpls_id in vpls_services:
                 if vpls_id and str(vpls_id).strip():
                     vpls_num = str(vpls_id).strip()
@@ -11067,7 +11274,7 @@ def generate_nokia7250():
             config_lines.append("# FIBER OSPF CONFIGURATION")
             config_lines.append(f"/configure router ospf 1 area 0.0.0.0 interface \"{fiber_interface}\" interface-type point-to-point")
             config_lines.append(f"/configure router ospf 1 area 0.0.0.0 interface \"{fiber_interface}\" authentication-type message-digest")
-            config_lines.append(f"/configure router ospf 1 area 0.0.0.0 interface \"{fiber_interface}\" message-digest-key 1 md5 \"m8M5JwvdYM\"")
+            config_lines.append(f"/configure router ospf 1 area 0.0.0.0 interface \"{fiber_interface}\" message-digest-key 1 md5 \"{ospf_auth_key}\"")
             config_lines.append(f"/configure router ospf 1 area 0.0.0.0 interface \"{fiber_interface}\" no shutdown")
             config_lines.append("")
         
@@ -11078,25 +11285,26 @@ def generate_nokia7250():
             config_lines.append("##################################")
             config_lines.append("        ")
             config_lines.append("")
-            for backhaul in backhauls:
-                bh_name = backhaul.get('name', '').strip()
-                bh_ip = backhaul.get('ip', '').strip()
+            for backhaul in normalized_backhauls:
+                bh_name = backhaul['name']
+                bh_ip = backhaul['ip']
+                bh_port = backhaul['port']
                 if bh_name and bh_ip:
                     config_lines.append("")
                     config_lines.append(f"# {bh_name}")
-                    config_lines.append(f"/config port 1/1/1 no shut")
-                    config_lines.append(f"/config port 1/1/1 ethernet mode network")
-                    config_lines.append(f"/config port 1/1/1 description \"{bh_name}\"")
-                    config_lines.append(f"/config router interface \"{bh_name}\" address {bh_ip}")
-                    config_lines.append(f"/config router interface \"{bh_name}\" port 1/1/1")
-                    config_lines.append(f"/config router interface \"{bh_name}\" no shut")
-                    config_lines.append(f"/config router mpls interface \"{bh_name}\" no shut")
-                    config_lines.append(f"/config router rsvp interface \"{bh_name}\" no shut")
-                    config_lines.append(f"/config router ldp interface-parameters interface \"{bh_name}\" no shut")
-                    config_lines.append(f"/config router ospf 1 area 0.0.0.0 interface \"{bh_name}\" interface-type point-to-point")
-                    config_lines.append(f"/config router ospf 1 area 0.0.0.0 interface \"{bh_name}\" authentication-type message-digest")
-                    config_lines.append(f"/config router ospf 1 area 0.0.0.0 interface \"{bh_name}\" message-digest-key 1 md5 \"m8M5JwvdYM\"")
-                    config_lines.append(f"/config router ospf 1 area 0.0.0.0 interface \"{bh_name}\" no shut")
+                    config_lines.append(f"/configure port {bh_port} no shutdown")
+                    config_lines.append(f"/configure port {bh_port} ethernet mode network")
+                    config_lines.append(f"/configure port {bh_port} description \"{bh_name}\"")
+                    config_lines.append(f"/configure router interface \"{bh_name}\" address {bh_ip}")
+                    config_lines.append(f"/configure router interface \"{bh_name}\" port {bh_port}")
+                    config_lines.append(f"/configure router interface \"{bh_name}\" no shutdown")
+                    config_lines.append(f"/configure router mpls interface \"{bh_name}\" no shutdown")
+                    config_lines.append(f"/configure router rsvp interface \"{bh_name}\" no shutdown")
+                    config_lines.append(f"/configure router ldp interface-parameters interface \"{bh_name}\" no shutdown")
+                    config_lines.append(f"/configure router ospf 1 area 0.0.0.0 interface \"{bh_name}\" interface-type point-to-point")
+                    config_lines.append(f"/configure router ospf 1 area 0.0.0.0 interface \"{bh_name}\" authentication-type message-digest")
+                    config_lines.append(f"/configure router ospf 1 area 0.0.0.0 interface \"{bh_name}\" message-digest-key 1 md5 \"{ospf_auth_key}\"")
+                    config_lines.append(f"/configure router ospf 1 area 0.0.0.0 interface \"{bh_name}\" no shutdown")
                     config_lines.append("    ")
         
         config_text = '\n'.join(config_lines)
@@ -13063,13 +13271,29 @@ def health():
     Backend is considered 'online' if this endpoint responds.
     The backend will handle AI provider availability and fallbacks internally.
     """
-    # Backend is always 'online' if this endpoint responds
+    checks = [
+        _health_check_secure_data(),
+        _health_check_ido_backend(),
+    ]
+    degraded = any(not check.get('ok') for check in checks)
     return jsonify({
         'status': 'online',
+        'degraded': degraded,
+        'app': get_app_version_meta(),
         'ai_provider': AI_PROVIDER,
         'api_key_configured': bool(OPENAI_API_KEY) if AI_PROVIDER == 'openai' else None,
         'timestamp': get_cst_timestamp(),
-        'message': 'Unified backend (api_server.py) is online and ready'
+        'message': 'Unified backend (api_server.py) is online and ready',
+        'checks': checks,
+    })
+
+
+@app.route('/api/version', methods=['GET'])
+def app_version():
+    return jsonify({
+        'success': True,
+        **get_app_version_meta(),
+        'timestamp': get_cst_timestamp(),
     })
 
 
@@ -13081,6 +13305,7 @@ def health():
 _API_REGISTRY = [
     # ── Health & System ──
     {"method": "GET",  "path": "/api/health",               "category": "Health & System",   "summary": "Server alive + AI provider status"},
+    {"method": "GET",  "path": "/api/version",              "category": "Health & System",   "summary": "Resolved app version metadata"},
     {"method": "GET",  "path": "/api/app-config",            "category": "Health & System",   "summary": "Runtime config (BNG peers, defaults)"},
     {"method": "GET",  "path": "/api/infrastructure",        "category": "Health & System",   "summary": "Infrastructure defaults (DNS, RADIUS, SNMP)", "auth": True},
     {"method": "POST", "path": "/api/reload-training",       "category": "Health & System",   "summary": "Hot-reload AI training rules"},
@@ -13208,7 +13433,7 @@ def api_docs():
 
     return jsonify({
         'success': True,
-        'version': '1.0.0',
+        'version': '2.6.0',
         'total_endpoints': len(_API_REGISTRY),
         'filtered': len(endpoints),
         'categories': categories,

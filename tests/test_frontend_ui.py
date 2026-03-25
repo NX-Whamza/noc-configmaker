@@ -117,6 +117,17 @@ def test_switch_maker_uses_backend_profile_generator():
     assert 'sfp-sfpplus23' in content, 'Missing CRS326 bonded uplink default in switch UI wiring'
 
 
+def test_routerboard_identity_prefixes_are_normalized():
+    content = UI_FILE.read_text(encoding='utf-8')
+    assert 'function getMikroTikIdentityPrefix(modelValue, options = {})' in content, 'Missing shared MikroTik identity prefix helper in NOC-configMaker.html'
+    assert 'placeholder="RTR-MT2004.HALLETTSVILLE-NW-1"' in content, 'Missing MT-prefixed tower identity placeholder in NOC-configMaker.html'
+    assert 'RTR-${getMikroTikIdentityPrefix(deviceConfig.name, { style: \'family\' })}-1.${siteName}' in content, 'Missing RouterBOARD system identity auto-fill normalization in NOC-configMaker.html'
+    assert 'RTR-${getMikroTikIdentityPrefix(deviceConfig.name, { style: \'family\' })}-1.${this.value}' in content, 'Missing site-change RouterBOARD identity normalization in NOC-configMaker.html'
+    assert 'RTR-MTCCR-2004' not in content, 'Found stale malformed CCR2004 identity prefix in NOC-configMaker.html'
+    assert 'RTR-MTRB-5009' not in content, 'Found stale malformed RB5009 identity prefix in NOC-configMaker.html'
+    assert 'placeholder="RTR-2004.HALLETTSVILLE-NW-1"' not in content, 'Found stale tower identity placeholder without MT prefix in NOC-configMaker.html'
+
+
 def test_enterprise_uses_single_routerboard_source_of_truth():
     content = UI_FILE.read_text(encoding='utf-8')
     assert 'const ENTERPRISE_DEVICE_PROFILES =' in content, 'Missing shared enterprise device profile map in NOC-configMaker.html'
@@ -182,12 +193,60 @@ def test_sidebar_and_nokia_7250_layout_updates_exist():
     assert 'Uplink ${index + 1} IP/CIDR is invalid' in content, 'Missing Nokia 7250 uplink CIDR validation message'
 
 
+def test_nokia_7250_port_setup_uses_safe_field_reader_and_clean_labels():
+    content = UI_FILE.read_text(encoding='utf-8')
+    assert 'function getCellFieldValue(tr, cellIndex, selector, options = {})' in content, 'Missing shared Nokia 7250 port-table field reader helper'
+    assert "ospfKey = creds.ospf_auth_key || creds.bgp_auth_key || '';" in content, 'Missing Nokia 7250 OSPF key fallback wiring'
+    assert 'Please enter an OSPF MD5 Auth Key, or configure NOKIA7250_OSPF_AUTH_KEY on the server.' in content, 'Missing Nokia 7250 OSPF env guidance'
+    assert 'Port ${duplicatePort.port} is selected more than once. Each Nokia port can only be configured once.' in content, 'Missing duplicate Nokia 7250 port guard'
+    assert 'Interface description "${duplicateDesc.desc}" is duplicated. Use a unique interface name per port.' in content, 'Missing duplicate Nokia 7250 interface-name guard'
+    assert '`<option value="1/1/${i}">1/1/${i}</option>`' in content, 'Missing clean Nokia 7250 SFP+ port label'
+    assert '`<option value="1/1/c${i}/1">1/1/c${i}/1</option>`' in content, 'Missing clean Nokia 7250 breakout port label'
+    assert '`<option value="1/1/${i}">1/1/${i} (SFP+)</option>`' not in content, 'Found stale Nokia 7250 SFP+ bracket label'
+    assert '`<option value="1/1/c${i}/1">1/1/c${i}/1 (QSFP28)</option>`' not in content, 'Found stale Nokia 7250 QSFP28 bracket label'
+    assert '`/configure port ${p.port} no shutdown`' in content, 'Missing normalized Nokia 7250 port command prefix'
+    assert '`/configure router ospf 1 area "${ospfArea}" interface "${p.desc}" no shutdown`' in content, 'Missing normalized Nokia 7250 OSPF shutdown command'
+
+
+def test_mikrotik_migration_target_device_change_handler_exists():
+    content = UI_FILE.read_text(encoding='utf-8')
+    assert 'onchange="updateInterfacesForMigration()"' in content, 'Missing MikroTik migration target-device onchange hook'
+    assert 'window.updateInterfacesForMigration = function () {' in content, 'Missing MikroTik migration onchange handler implementation'
+    assert 'updateDevicePorts();' in content, 'Missing MikroTik migration device-port refresh delegation'
+
+
+def test_vpls_helpers_are_not_shadowed_by_duplicate_definitions():
+    content = UI_FILE.read_text(encoding='utf-8')
+    assert content.count('function addVpls(') == 1, 'Found duplicate addVpls() definitions shadowing VPLS preset support'
+    assert content.count('function updateVplsCount(') == 1, 'Found duplicate updateVplsCount() definitions shadowing VPLS count handling'
+
+
+def test_routeros_ui_baseline_is_7194_or_newer():
+    content = UI_FILE.read_text(encoding='utf-8')
+    assert 'option value="7.11.2"' not in content, 'Found stale RouterOS 7.11.2 option in NOC-configMaker.html'
+    assert 'option value="7.16.2"' not in content, 'Found stale RouterOS 7.16.2 option in NOC-configMaker.html'
+    assert 'option value="7.18.2"' not in content, 'Found stale RouterOS 7.18.2 option in NOC-configMaker.html'
+    assert 'option value="6.49.2"' not in content, 'Found stale RouterOS 6.49.2 option in NOC-configMaker.html'
+    assert 'option value="6.45.2"' not in content, 'Found stale RouterOS 6.45.2 option in NOC-configMaker.html'
+    assert 'RouterOS generation baseline: 7.19.4 or newer' in content, 'Missing updated RouterOS baseline guidance in NOC-configMaker.html'
+
+
+def test_mikrotik_device_lookup_and_tarana_defaults_are_normalized():
+    content = UI_FILE.read_text(encoding='utf-8')
+    assert "function getDeviceConfig(deviceValue, fallbackKey = 'ccr2004')" in content, 'Missing shared normalized device-config helper in NOC-configMaker.html'
+    assert "const selectedDevice = getNormalizedDeviceKey(targetDevice || currentDevice, '');" in content, 'Missing normalized migration device key selection in NOC-configMaker.html'
+    assert "const targetDeviceConfig = getDeviceConfig(targetDevice, '');" in content, 'Missing normalized migration target-device config lookup in NOC-configMaker.html'
+    assert "function getTaranaRecommendedPortsForDevice(deviceValue)" in content, 'Missing shared Tarana default-port helper in NOC-configMaker.html'
+    assert "alpha: 'sfp28-8'" in content and "delta: 'sfp28-11'" in content, 'Missing consistent CCR2216 Tarana default ports in NOC-configMaker.html'
+
+
 
 if __name__ == '__main__':
     try:
         test_ftth_modal_exists()
         test_ftth_speed_controls_and_backend_payload_hooks_exist()
         test_ftth_fiber_customer_and_cisco_generator_exist()
+        test_routerboard_identity_prefixes_are_normalized()
         test_enterprise_uses_single_routerboard_source_of_truth()
         test_tarana_tab_uses_shared_port_population_and_validates_bng1_inputs()
         test_nokia_configurator_is_truly_unified()
