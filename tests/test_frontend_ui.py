@@ -145,6 +145,8 @@ def test_enterprise_uses_single_routerboard_source_of_truth():
 
 def test_tarana_tab_uses_shared_port_population_and_validates_bng1_inputs():
     content = UI_FILE.read_text(encoding='utf-8')
+    assert 'function normalizeTaranaDeviceKey(deviceKey, fallbackKey = \'\')' in content, 'Missing Tarana-local device normalization helper in NOC-configMaker.html'
+    assert 'function getTaranaRecommendedPorts(deviceValue)' in content, 'Missing Tarana-local recommended port helper in NOC-configMaker.html'
     assert 'function getTaranaPortOptions(deviceKey)' in content, 'Missing shared Tarana port inventory helper in NOC-configMaker.html'
     assert 'function populateTaranaPortSelects(options)' in content, 'Missing shared Tarana port select population helper in NOC-configMaker.html'
     assert 'function resolveTaranaMgmtCidr(cidrInput)' in content, 'Missing Tarana BNG1 CIDR normalization helper in NOC-configMaker.html'
@@ -155,6 +157,7 @@ def test_tarana_tab_uses_shared_port_population_and_validates_bng1_inputs():
     assert 'Each Tarana sector must use a different port.' in content, 'Missing Tarana duplicate-port validation in NOC-configMaker.html'
     assert 'const speedSyntax = getTaranaSpeedSyntax(routerosVersion);' in content, 'Missing Tarana RouterOS-aware speed syntax wiring in NOC-configMaker.html'
     assert 'Tarana BNG1 supports only CCR2004 and CCR2216.' in content, 'Missing explicit Tarana BNG1 device guard in NOC-configMaker.html'
+    assert "const selectedDeviceKey = normalizeTaranaDeviceKey(selectedDevice, '');" in content, 'Tarana handlers should use the local device normalization fallback'
 
 
 def test_nokia_configurator_is_truly_unified():
