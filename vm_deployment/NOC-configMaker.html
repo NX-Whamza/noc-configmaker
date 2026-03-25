@@ -11723,10 +11723,82 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             }
         }
 
+        function normalizeTaranaDeviceKey(deviceKey, fallbackKey = '') {
+            if (typeof getNormalizedDeviceKey === 'function') {
+                return getNormalizedDeviceKey(deviceKey, fallbackKey);
+            }
+
+            const raw = String(deviceKey || '').trim().toLowerCase();
+            if (!raw) return fallbackKey || '';
+            if (raw.includes('ccr2004') || raw.includes('mt2004')) return 'ccr2004';
+            if (raw.includes('ccr2116')) return 'ccr2116';
+            if (raw.includes('ccr2216') || raw.includes('mt2216')) return 'ccr2216';
+            if (raw.includes('ccr1036') || raw.includes('mt1036')) return 'ccr1036';
+            if (raw.includes('ccr1072')) return 'ccr1072';
+            if (raw.includes('rb5009')) return 'rb5009';
+            if (raw.includes('rb1009') || raw.includes('mt1009')) return 'rb1009';
+            if (raw.includes('rb2011')) return 'rb2011';
+            return raw || fallbackKey || '';
+        }
+
+        function getTaranaRecommendedPorts(deviceValue) {
+            if (typeof getTaranaRecommendedPortsForDevice === 'function') {
+                return getTaranaRecommendedPortsForDevice(deviceValue);
+            }
+
+            const deviceKey = normalizeTaranaDeviceKey(deviceValue, 'ccr2004');
+            if (deviceKey === 'ccr2216') {
+                return {
+                    alpha: 'sfp28-8',
+                    beta: 'sfp28-9',
+                    gamma: 'sfp28-10',
+                    delta: 'sfp28-11',
+                    speed: '10G-baseSR-LR',
+                    mtu: 1500
+                };
+            }
+            if (deviceKey === 'ccr1036' || deviceKey === 'ccr1072') {
+                return {
+                    alpha: 'sfp1',
+                    beta: 'sfp2',
+                    gamma: 'sfp3',
+                    delta: 'sfp4',
+                    speed: '1G-baseT-full',
+                    mtu: 1500
+                };
+            }
+            if (deviceKey === 'rb5009') {
+                return {
+                    alpha: 'sfp-sfpplus6',
+                    beta: 'sfp-sfpplus7',
+                    gamma: 'sfp-sfpplus8',
+                    delta: '',
+                    speed: '10G-baseSR-LR',
+                    mtu: 1500
+                };
+            }
+            if (deviceKey === 'rb1009') {
+                return {
+                    alpha: 'ether7',
+                    beta: 'ether8',
+                    gamma: 'ether9',
+                    delta: '',
+                    speed: '1G-baseT-full',
+                    mtu: 1500
+                };
+            }
+            return {
+                alpha: 'sfp-sfpplus8',
+                beta: 'sfp-sfpplus9',
+                gamma: 'sfp-sfpplus10',
+                delta: 'sfp-sfpplus11',
+                speed: '10G-baseSR-LR',
+                mtu: 1500
+            };
+        }
+
         function getTaranaDeviceConfig(deviceKey) {
-            const normalized = typeof getNormalizedDeviceKey === 'function'
-                ? getNormalizedDeviceKey(deviceKey, '')
-                : String(deviceKey || '').trim().toLowerCase();
+            const normalized = normalizeTaranaDeviceKey(deviceKey, '');
             if (!normalized || typeof DEVICE_CONFIGS === 'undefined') return null;
             if (typeof getDeviceConfig === 'function') {
                 return getDeviceConfig(normalized, '') || null;
@@ -11735,9 +11807,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
         }
 
         function getTaranaPortOptions(deviceKey) {
-            const normalized = typeof getNormalizedDeviceKey === 'function'
-                ? getNormalizedDeviceKey(deviceKey, '')
-                : String(deviceKey || '').trim().toLowerCase();
+            const normalized = normalizeTaranaDeviceKey(deviceKey, '');
             if (!normalized) return [];
 
             const config = getTaranaDeviceConfig(normalized);
@@ -11791,7 +11861,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             const placeholder = settings.placeholder || 'Select Port';
             const defaults = settings.defaults || {};
             const preserveSelection = settings.preserveSelection !== false;
-            const deviceKey = String(settings.deviceKey || '').trim().toLowerCase();
+            const deviceKey = normalizeTaranaDeviceKey(settings.deviceKey, '');
             const deviceConfig = getTaranaDeviceConfig(deviceKey);
             const allPorts = getTaranaPortOptions(deviceKey);
             const deviceLabel = deviceConfig ? ` (${deviceConfig.name})` : '';
@@ -11885,8 +11955,8 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             }
 
             const selectedDevice = deviceSelect.value;
-            const selectedDeviceKey = getNormalizedDeviceKey(selectedDevice, '');
-            const defaultPorts = getTaranaRecommendedPortsForDevice(selectedDeviceKey);
+            const selectedDeviceKey = normalizeTaranaDeviceKey(selectedDevice, '');
+            const defaultPorts = getTaranaRecommendedPorts(selectedDeviceKey);
             const defaultsByDevice = {
                 ccr2004: {
                     tarana_bng2_alphaPort: defaultPorts.alpha,
@@ -12052,7 +12122,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 }
 
                 const selectedDevice = deviceSelect.value;
-                const selectedDeviceKey = getNormalizedDeviceKey(selectedDevice, '');
+                const selectedDeviceKey = normalizeTaranaDeviceKey(selectedDevice, '');
                 if (!selectedDevice) {
                     populateTaranaPortSelects({
                         deviceKey: '',
@@ -12075,7 +12145,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     return;
                 }
 
-                const defaultPorts = getTaranaRecommendedPortsForDevice(selectedDeviceKey);
+                const defaultPorts = getTaranaRecommendedPorts(selectedDeviceKey);
                 const defaultsByDevice = {
                     ccr2004: {
                         tarana_alphaPort: defaultPorts.alpha,
