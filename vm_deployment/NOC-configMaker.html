@@ -22178,6 +22178,14 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             const panel = document.getElementById('upgradeMigrationAnalysis');
             const body = document.getElementById('upgradeMigrationAnalysisBody');
             if (!panel || !body) return;
+            const escapeHtml = (typeof window !== 'undefined' && typeof window.escHtml === 'function')
+                ? window.escHtml
+                : function (value) {
+                    return String(value ?? '')
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;');
+                };
 
             const analysis = data?.migration_analysis || {};
             const summary = data?.migration_summary || {};
@@ -22196,7 +22204,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 mapHtml = `<div style="margin-top:12px"><strong style="color:var(--accent-color)">Interface Migration Map</strong>
                     <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px">
                         <thead><tr><th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border-color)">Source Port</th><th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border-color)">Target Port</th></tr></thead>
-                        <tbody>${Object.entries(imap).map(([s, t]) => `<tr><td style="padding:3px 8px;font-family:'JetBrains Mono',monospace">${escHtml(s)}</td><td style="padding:3px 8px;font-family:'JetBrains Mono',monospace">${escHtml(t)}</td></tr>`).join('')}</tbody>
+                        <tbody>${Object.entries(imap).map(([s, t]) => `<tr><td style="padding:3px 8px;font-family:'JetBrains Mono',monospace">${escapeHtml(s)}</td><td style="padding:3px 8px;font-family:'JetBrains Mono',monospace">${escapeHtml(t)}</td></tr>`).join('')}</tbody>
                     </table></div>`;
             }
 
@@ -22204,7 +22212,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             if (warnings.length) {
                 warningsHtml = `<div style="margin-top:12px;padding:8px 12px;background:#fff3cd;border-left:4px solid #ff9800;border-radius:4px">
                     <strong style="color:#e65100">Warnings</strong>
-                    <div style="margin-top:4px">${warnings.map(w => `<div>${escHtml(w)}</div>`).join('')}</div>
+                    <div style="margin-top:4px">${warnings.map(w => `<div>${escapeHtml(w)}</div>`).join('')}</div>
                 </div>`;
             }
 
@@ -22212,11 +22220,11 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             if (portAnalysis.length) {
                 portTableHtml = `<div style="margin-top:12px"><strong style="color:var(--accent-color)">Port Role Analysis</strong>
                     <div style="font-size:12px;color:var(--text-color-secondary);margin:4px 0 6px">
-                        Management: ${escHtml((policySummary.management_port || 'ether1'))} |
-                        Switch: ${escHtml((policySummary.switch_ports || []).join(', ') || 'n/a')} |
-                        Reserved: ${escHtml((policySummary.reserved_ports || []).join(', ') || 'n/a')} |
-                        Backhaul: ${escHtml((policySummary.backhaul_ports || []).join(', ') || 'n/a')} |
-                        Radio: ${escHtml((policySummary.radio_ports || []).join(', ') || 'n/a')}
+                        Management: ${escapeHtml((policySummary.management_port || 'ether1'))} |
+                        Switch: ${escapeHtml((policySummary.switch_ports || []).join(', ') || 'n/a')} |
+                        Reserved: ${escapeHtml((policySummary.reserved_ports || []).join(', ') || 'n/a')} |
+                        Backhaul: ${escapeHtml((policySummary.backhaul_ports || []).join(', ') || 'n/a')} |
+                        Radio: ${escapeHtml((policySummary.radio_ports || []).join(', ') || 'n/a')}
                     </div>
                     <table style="width:100%;border-collapse:collapse;font-size:12px">
                         <thead><tr>
@@ -22226,10 +22234,10 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                             <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border-color)">Evidence</th>
                         </tr></thead>
                         <tbody>${portAnalysis.map(row => `<tr>
-                            <td style="padding:4px 8px;font-family:'JetBrains Mono',monospace">${escHtml(row.source_port || '')}${row.policy_conflict ? ' <span style="color:#e74c3c;font-weight:700">!</span>' : ''}</td>
-                            <td style="padding:4px 8px">${escHtml(row.detected_role || 'unknown')} (${escHtml(row.confidence || 'low')})</td>
-                            <td style="padding:4px 8px;font-family:'JetBrains Mono',monospace">${escHtml(row.target_port || 'manual review')}</td>
-                            <td style="padding:4px 8px">${escHtml((row.role_evidence || []).join(', ') || row.policy_slot || '')}</td>
+                            <td style="padding:4px 8px;font-family:'JetBrains Mono',monospace">${escapeHtml(row.source_port || '')}${row.policy_conflict ? ' <span style="color:#e74c3c;font-weight:700">!</span>' : ''}</td>
+                            <td style="padding:4px 8px">${escapeHtml(row.detected_role || 'unknown')} (${escapeHtml(row.confidence || 'low')})</td>
+                            <td style="padding:4px 8px;font-family:'JetBrains Mono',monospace">${escapeHtml(row.target_port || 'manual review')}</td>
+                            <td style="padding:4px 8px">${escapeHtml((row.role_evidence || []).join(', ') || row.policy_slot || '')}</td>
                         </tr>`).join('')}</tbody>
                     </table></div>`;
             }
@@ -22240,9 +22248,9 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     <div>
                         <strong style="color:var(--accent-color)">Migration Breakdown</strong>
                         <div style="margin-top:6px">
-                            <strong>Type:</strong> ${escHtml(analysis.migration_type || 'config-audit')}<br>
-                            <strong>Device Migration:</strong> ${data?.device_migrated ? `Yes (${escHtml(sourceDevice)} → ${escHtml(targetDevice)})` : 'No'}<br>
-                            <strong>Version Migration:</strong> ${data?.syntax_migrated ? `Yes (ROS ${escHtml(sourceVersion)} → ${escHtml(targetVersion)})` : 'No'}<br>
+                            <strong>Type:</strong> ${escapeHtml(analysis.migration_type || 'config-audit')}<br>
+                            <strong>Device Migration:</strong> ${data?.device_migrated ? `Yes (${escapeHtml(sourceDevice)} → ${escapeHtml(targetDevice)})` : 'No'}<br>
+                            <strong>Version Migration:</strong> ${data?.syntax_migrated ? `Yes (ROS ${escapeHtml(sourceVersion)} → ${escapeHtml(targetVersion)})` : 'No'}<br>
                             <strong>Interfaces Remapped:</strong> ${data?.interfaces_mapped || 0}<br>
                             <strong>ether1 Preserved:</strong> ${summary.ether1_preserved ? 'Yes' : 'No'}
                         </div>

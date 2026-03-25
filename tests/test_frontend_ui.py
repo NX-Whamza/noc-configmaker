@@ -216,6 +216,8 @@ def test_mikrotik_migration_target_device_change_handler_exists():
     assert 'onchange="updateInterfacesForMigration()"' in content, 'Missing MikroTik migration target-device onchange hook'
     assert 'window.updateInterfacesForMigration = function () {' in content, 'Missing MikroTik migration onchange handler implementation'
     assert 'updateDevicePorts();' in content, 'Missing MikroTik migration device-port refresh delegation'
+    assert "const escapeHtml = (typeof window !== 'undefined' && typeof window.escHtml === 'function')" in content, 'Missing local HTML escaping fallback for Upgrade Existing migration preview'
+    assert '${escapeHtml(analysis.migration_type || \'config-audit\')}' in content, 'Migration preview should use the local escapeHtml fallback instead of raw escHtml'
 
 
 def test_vpls_helpers_are_not_shadowed_by_duplicate_definitions():
