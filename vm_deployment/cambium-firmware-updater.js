@@ -125,7 +125,8 @@
     function normalizeRadio(radio) {
         return {
             ip: radio.ip || radio.host || radio.address || '',
-            model: radio.model || radio.platform || radio.device_type || radio.family || '',
+            device_type: radio.device_type || radio.deviceType || '',
+            model: radio.model || radio.platform || radio.device_type || radio.deviceType || radio.family || '',
             family: String(radio.family || radio.device_family || '').toLowerCase(),
             provider: String(radio.provider || 'cambium').toLowerCase(),
             currentVersion: radio.currentVersion || radio.current_version || radio.version || radio.firmware || '',
@@ -296,6 +297,21 @@
     }
 
     function normalizeCatalog(payload) {
+        // Handle backend format: { devices: { CNEP3K: { label, family, available_versions, ... } } }
+        if (payload?.devices && typeof payload.devices === 'object' && !Array.isArray(payload.devices)) {
+            return Object.entries(payload.devices).flatMap(([deviceType, meta]) => {
+                const versions = Array.isArray(meta.available_versions) && meta.available_versions.length
+                    ? meta.available_versions
+                    : meta.default_version ? [meta.default_version] : [];
+                return versions.map(version => ({
+                    device_type: deviceType,
+                    family: String(meta.family || deviceType).toLowerCase(),
+                    channel: '',
+                    version: String(version),
+                    label: `${meta.label || deviceType} v${version}`
+                }));
+            }).filter(e => e.version);
+        }
         const raw = Array.isArray(payload)
             ? payload
             : Array.isArray(payload?.catalog)
@@ -307,10 +323,11 @@
                         : [];
         return raw.map((entry, index) => {
             if (typeof entry === 'string') {
-                return { family: '', channel: '', version: entry, label: entry };
+                return { device_type: '', family: '', channel: '', version: entry, label: entry };
             }
             const version = String(entry.version || entry.target_version || entry.release || entry.name || `version-${index}`).trim();
             return {
+                device_type: String(entry.device_type || entry.deviceType || ''),
                 family: String(entry.family || entry.device_family || entry.platform || '').toLowerCase(),
                 channel: String(entry.channel || entry.track || entry.stream || '').toLowerCase(),
                 version,
@@ -337,7 +354,9 @@
         const family = String(familySelect.value || '').toLowerCase();
         const channel = String(sourceSelect.value || '').toLowerCase();
         const filtered = cambiumState.catalog.filter(entry => {
-            const familyOk = !family || !entry.family || entry.family === family;
+            const familyOk = !family || !entry.family ||
+                entry.family === family ||
+                (entry.device_type && entry.device_type.toLowerCase() === family.toLowerCase());
             const channelOk = !channel || channel === 'manual' || !entry.channel || entry.channel === channel;
             return familyOk && channelOk;
         });
@@ -398,9 +417,11 @@
     }
 
     function selectedProfile() {
+        const deviceType = document.getElementById('cambiumFamily')?.value || 'CNEP3K';
         return {
             provider: document.getElementById('cambiumProvider')?.value || 'cambium',
-            family: document.getElementById('cambiumFamily')?.value || 'epmp',
+            device_type: deviceType,
+            family: deviceType,
             firmware_source: document.getElementById('cambiumFirmwareSource')?.value || 'stable',
             target_version: (document.getElementById('cambiumTargetVersion')?.value || '').trim(),
             activation_mode: document.getElementById('cambiumActivationMode')?.value || 'immediate',
@@ -439,10 +460,12 @@
         const results = [];
         for (const ip of ips) {
             try {
+                const existingRadio = cambiumState.radios.find(r => r.ip === ip);
+                const deviceType = (existingRadio && (existingRadio.device_type || existingRadio.model)) || selectedProfile().device_type || '';
                 const response = await cambiumFetch('/device-info', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ip, host: ip, username: cambiumGetUsername() })
+                    body: JSON.stringify({ ip, device_type: deviceType, username: cambiumGetUsername() })
                 });
                 const data = await parseJson(response);
                 if (!response.ok) throw new Error(data.error || `Device info failed (${response.status})`);
@@ -465,8 +488,9 @@
         if (ips.length === 0) return;
         const radios = ips.map(ip => ({
             ip,
+            device_type: profile.device_type,
             provider: profile.provider,
-            family: profile.family,
+            family: profile.device_type,
             targetVersion: profile.target_version,
             status: 'pending',
             firmwareStatus: 'pending',
@@ -493,8 +517,9 @@
         const ips = parseIps(input.value);
         const radios = ips.map(ip => ({
             ip,
+            device_type: profile.device_type,
             provider: profile.provider,
-            family: profile.family,
+            family: profile.device_type,
             targetVersion: profile.target_version,
             status: 'pending',
             firmwareStatus: 'pending',
@@ -697,8 +722,10 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     provider: profile.provider,
-                    family: profile.family,
+                    device_type: profile.device_type,
+                    family: profile.device_type,
                     target_version: profile.target_version,
+                    update_version: profile.target_version,
                     activation_mode: profile.activation_mode,
                     activation_time: profile.activation_time,
                     tasks: profile.tasks,
