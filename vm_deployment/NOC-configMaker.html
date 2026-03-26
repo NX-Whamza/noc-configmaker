@@ -6901,6 +6901,9 @@
                                     <option value="upgrade">Upgrade</option>
                                     <option value="aviat-upgrade">Aviat Backhaul Upgrade</option>
                                     <option value="cambium-upgrade">Cambium Radio Upgrade</option>
+                                    <option value="field-config">Device Config Studio</option>
+                                    <option value="config-diff">Config Diff Viewer</option>
+                                    <option value="bulk-config">Bulk Operations</option>
                                     <option value="maintenance-scheduled">Maintenance Scheduled</option>
                                     <option value="maintenance-started">Maintenance Started</option>
                                     <option value="maintenance-completed">Maintenance Completed</option>
@@ -10490,6 +10493,9 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             'enterprise-feeding-outstate-config': TOOL_ROUTE_DEFINITIONS['enterprise-feeding'],
             'aviat-upgrade': TOOL_ROUTE_DEFINITIONS['device-firmware-updater:aviat'],
             'cambium-upgrade': TOOL_ROUTE_DEFINITIONS['device-firmware-updater:cambium'],
+            'field-config': TOOL_ROUTE_DEFINITIONS['field-config-studio'],
+            'config-diff': TOOL_ROUTE_DEFINITIONS['config-diff'],
+            'bulk-config': TOOL_ROUTE_DEFINITIONS['bulk-config'],
             'nokia-7250-config': TOOL_ROUTE_DEFINITIONS['nokia7250-maker'],
             'ftth-bng': TOOL_ROUTE_DEFINITIONS['ftth-home:bng'],
             'ftth-fiber-customer': TOOL_ROUTE_DEFINITIONS['ftth-home:fiber'],
@@ -10586,6 +10592,9 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 'generated enterprise config': { icon: '\u{1F3E2}', label: 'Non-MPLS Enterprise' },
                 'generated mpls enterprise config': { icon: '\u{1F4C8}', label: 'MPLS Enterprise' },
                 'switch':               { icon: '\u{1F5A7}', label: 'Switch Config' },
+                'field-config':         { icon: '\u{1F527}', label: 'Device Config Studio' },
+                'config-diff':          { icon: '\u{1F4CB}', label: 'Config Diff Viewer' },
+                'bulk-config':          { icon: '\u26A1',    label: 'Bulk Operations' },
                 'maintenance-scheduled':{ icon: '\u{1F4C5}', label: 'Maintenance Scheduled' },
                 'maintenance-started':  { icon: '\u{26A0}',  label: 'Maintenance Started' },
                 'maintenance-completed':{ icon: '\u2705',     label: 'Maintenance Completed' },
@@ -16853,6 +16862,14 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     setFieldConfigStatus(`Completed ${tool.label} -> ${actionKey} | Reboot still required on device`);
                 } else {
                     setFieldConfigStatus(`Completed ${tool.label} -> ${actionKey}`);
+                }
+                if (typeof window.sendActivityToBackend === 'function') {
+                    window.sendActivityToBackend({
+                        type: 'field-config',
+                        device: inputs.ip || '',
+                        siteName: `${tool.label} \u2014 ${actionKey}`,
+                        success: true
+                    });
                 }
             }
 
@@ -31063,6 +31080,9 @@ Ready for translation!`);
                     const lineCount = data.config.split('\n').length;
                     if (statusEl) { statusEl.style.background = 'rgba(39,174,96,.1)'; statusEl.style.color = '#27ae60'; statusEl.style.border = '1px solid rgba(39,174,96,.3)'; statusEl.innerHTML = ` Config fetched via port ${data.port || '?'} — ${lineCount} lines`; }
                     nocToast(`Config fetched from ${ip}:${data.port || '?'} (${lineCount} lines)`, 'success');
+                    if (typeof window.sendActivityToBackend === 'function') {
+                        window.sendActivityToBackend({ type: 'config-diff', device: ip, siteName: `SSH Fetch Side ${side} \u2014 ${lineCount} lines`, success: true, countsTowardMetrics: false });
+                    }
                 } else {
                     const errMsg = data.error || 'No config returned from device';
                     if (statusEl) { statusEl.style.background = 'rgba(231,76,60,.1)'; statusEl.style.color = '#e74c3c'; statusEl.style.border = '1px solid rgba(231,76,60,.3)'; statusEl.innerHTML = ` ${errMsg}`; }
@@ -31120,6 +31140,12 @@ Ready for translation!`);
             renderDiff(diff, linesA, linesB);
             document.getElementById('diffOutput').style.display = '';
             nocToast(`Diff complete: ${diff.added} added, ${diff.removed} removed`, 'success');
+            if (typeof window.sendActivityToBackend === 'function') {
+                const ipA = (document.getElementById('diffSshIpA')?.value || '').trim();
+                const ipB = (document.getElementById('diffSshIpB')?.value || '').trim();
+                const device = [ipA, ipB].filter(Boolean).join(' vs ') || 'pasted';
+                window.sendActivityToBackend({ type: 'config-diff', device, siteName: `Diff \u2014 ${diff.added} added, ${diff.removed} removed`, success: true, countsTowardMetrics: false });
+            }
         };
 
         function computeDiff(a, b) {
@@ -31551,6 +31577,9 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
                 bulkRenderTable();
                 const sc = data.succeeded || 0;
                 nocToast(`Bulk generation: ${sc}/${data.total} succeeded`, sc === data.total ? 'success' : 'warning');
+                if (typeof window.sendActivityToBackend === 'function') {
+                    window.sendActivityToBackend({ type: 'bulk-config', device: configType, siteName: `Bulk Generate \u2014 ${sc}/${data.total} sites`, success: sc === data.total, countsTowardMetrics: false });
+                }
 
                 if (sc > 0) {
                     document.getElementById('bulkDownloadBtn').disabled = false;
@@ -31656,6 +31685,10 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
                 bulkSshRenderTable();
                 document.getElementById('bulkSshResults').style.display = '';
                 nocToast(`Bulk SSH: ${data.succeeded}/${data.total} devices fetched`, data.failed === 0 ? 'success' : 'warning');
+                if (typeof window.sendActivityToBackend === 'function') {
+                    const sample = hosts.slice(0, 3).join(', ') + (hosts.length > 3 ? ` +${hosts.length - 3} more` : '');
+                    window.sendActivityToBackend({ type: 'bulk-config', device: sample, siteName: `Bulk SSH Fetch \u2014 ${data.succeeded}/${data.total} devices`, success: data.failed === 0, countsTowardMetrics: false });
+                }
             } catch (err) {
                 nocToast('Bulk SSH fetch failed: ' + err.message, 'error');
                 document.getElementById('bulkSshProgressText').textContent = 'Failed: ' + err.message;
