@@ -8293,13 +8293,8 @@
     <div class="content-pane" id="device-firmware-updater-pane">
         <div class="container aviat-tool device-firmware-shell">
             <div class="aviat-header">
-                <h1>Devices Firmware Updater</h1>
-                <p>Unified firmware workspace for Aviat backhaul maintenance and Cambium radio upgrades.</p>
-            </div>
-
-            <div class="device-firmware-tabs">
-                <button type="button" class="device-firmware-tab active" data-device-firmware-tab="aviat" onclick="showDeviceFirmwareUpdaterSubTab('aviat')">Aviat Backhaul Firmware Updater</button>
-                <button type="button" class="device-firmware-tab" data-device-firmware-tab="cambium" onclick="showDeviceFirmwareUpdaterSubTab('cambium')">Cambium Radio Updater</button>
+                <h1 id="deviceFirmwarePaneTitle">Aviat Backhaul Firmware Updater</h1>
+                <p id="deviceFirmwarePaneDesc">Manage firmware upgrades and maintenance windows for Aviat backhaul radios.</p>
             </div>
 
             <div id="device-firmware-aviat-section" class="device-firmware-section active">
@@ -27754,17 +27749,17 @@ Ready for translation!`);
         function setDeviceFirmwareUpdaterSubTabState(tabKey) {
             const resolvedTab = tabKey === 'cambium' ? 'cambium' : 'aviat';
             const sections = document.querySelectorAll('#device-firmware-updater-pane .device-firmware-section');
-            const tabs = document.querySelectorAll('#device-firmware-updater-pane .device-firmware-tab');
             sections.forEach(section => {
                 const isActive = section.id === `device-firmware-${resolvedTab}-section`;
                 section.classList.toggle('active', isActive);
                 section.style.display = isActive ? 'block' : 'none';
             });
-            tabs.forEach(tab => {
-                const isActive = tab.dataset.deviceFirmwareTab === resolvedTab;
-                tab.classList.toggle('active', isActive);
-                tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
-            });
+            const titleEl = document.getElementById('deviceFirmwarePaneTitle');
+            const descEl = document.getElementById('deviceFirmwarePaneDesc');
+            if (titleEl) titleEl.textContent = resolvedTab === 'cambium' ? 'Cambium Radio Updater' : 'Aviat Backhaul Firmware Updater';
+            if (descEl) descEl.textContent = resolvedTab === 'cambium'
+                ? 'Stage, verify, and activate firmware for Cambium radio devices.'
+                : 'Manage firmware upgrades and maintenance windows for Aviat backhaul radios.';
         }
 
         window.showDeviceFirmwareUpdaterSubTab = function (tabKey) {
