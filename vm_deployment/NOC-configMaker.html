@@ -8522,11 +8522,6 @@
                                     <option value="CNEP3K">ePMP 3000 (CNEP3K)</option>
                                     <option value="CNEP3KL">ePMP 3000 Lite (CNEP3KL)</option>
                                     <option value="CN4600">ePMP 4600 (CN4600)</option>
-                                    <option value="F4600C">Force 4600C</option>
-                                    <option value="F300-13">Force 300-13</option>
-                                    <option value="F300-16">Force 300-16</option>
-                                    <option value="F300-25">Force 300-25</option>
-                                    <option value="F300-CSM">Force 300-CSM</option>
                                 </select>
                             </div>
                             <div>
@@ -8537,10 +8532,7 @@
                                     <option value="manual">Manual File / URL</option>
                                 </select>
                             </div>
-                            <div>
-                                <label style="display: block; font-size: 12px; margin-bottom: 6px;">Target Version</label>
-                                <input type="text" id="cambiumTargetVersion" placeholder="e.g., 5.9.1 or 4.4.1">
-                            </div>
+
                             <div>
                                 <label style="display: block; font-size: 12px; margin-bottom: 6px;">Catalog Version</label>
                                 <select id="cambiumCatalogVersion">
@@ -8555,11 +8547,11 @@
                                     <option value="stage-only">Stage Only</option>
                                 </select>
                             </div>
-                            <div>
+                            <div id="cambiumActivationTimeRow" style="display: none;">
                                 <label style="display: block; font-size: 12px; margin-bottom: 6px;">Activation Time</label>
-                                <input type="time" id="cambiumActivationTime" value="02:00" disabled>
+                                <input type="time" id="cambiumActivationTime" value="02:00">
                             </div>
-                            <div>
+                            <div style="display: none;">
                                 <label style="display: block; font-size: 12px; margin-bottom: 6px;">API Endpoint</label>
                                 <input type="text" id="cambiumEndpointHint" value="/api/cambium" readonly>
                             </div>

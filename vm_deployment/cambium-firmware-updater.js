@@ -364,6 +364,10 @@
         versionSelect.innerHTML = ['<option value="">Select from catalog</option>']
             .concat(versions.map(entry => `<option value="${cambiumEscapeHtml(entry.version)}">${cambiumEscapeHtml(entry.label)}</option>`))
             .join('');
+        // Auto-select first real version so field is never blank after catalog loads
+        if (versions.length && !versionSelect.value) {
+            versionSelect.value = versions[0].version;
+        }
         setCatalogMeta(cambiumState.catalog.length ? `${cambiumState.catalog.length} catalog entries loaded` : 'Catalog not loaded');
     }
 
@@ -423,7 +427,7 @@
             device_type: deviceType,
             family: deviceType,
             firmware_source: document.getElementById('cambiumFirmwareSource')?.value || 'stable',
-            target_version: (document.getElementById('cambiumTargetVersion')?.value || '').trim(),
+            target_version: (document.getElementById('cambiumCatalogVersion')?.value || '').trim(),
             activation_mode: document.getElementById('cambiumActivationMode')?.value || 'immediate',
             activation_time: document.getElementById('cambiumActivationTime')?.value || '',
             tasks: selectedTasks()
@@ -786,9 +790,7 @@
     }
 
     function handleCatalogVersionChange() {
-        const versionSelect = document.getElementById('cambiumCatalogVersion');
-        const targetInput = document.getElementById('cambiumTargetVersion');
-        if (versionSelect && targetInput && versionSelect.value) targetInput.value = versionSelect.value;
+        // catalog version drives the run payload directly — no extra sync needed
     }
 
     function handleCatalogFilterChange() {
@@ -838,13 +840,16 @@
         });
 
         const activationMode = document.getElementById('cambiumActivationMode');
-        const activationTime = document.getElementById('cambiumActivationTime');
-        if (activationMode && activationTime) {
-            activationMode.addEventListener('change', () => {
-                activationTime.disabled = activationMode.value !== 'scheduled';
-            });
-            activationTime.disabled = activationMode.value !== 'scheduled';
+        const activationTimeRow = document.getElementById('cambiumActivationTimeRow');
+        function syncActivationTimeVisibility() {
+            if (activationTimeRow) {
+                activationTimeRow.style.display = (activationMode && activationMode.value === 'scheduled') ? '' : 'none';
+            }
         }
+        if (activationMode) {
+            activationMode.addEventListener('change', syncActivationTimeVisibility);
+        }
+        syncActivationTimeVisibility();
 
         const catalogVersion = document.getElementById('cambiumCatalogVersion');
         if (catalogVersion) catalogVersion.addEventListener('change', handleCatalogVersionChange);
