@@ -3051,6 +3051,57 @@
             font-size: 12px;
         }
 
+        /* Device Firmware Updater (shared Aviat/Cambium workspace) */
+        .device-firmware-shell {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .device-firmware-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .device-firmware-tab {
+            background: var(--input-bg);
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            border-radius: 999px;
+            padding: 10px 18px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+            transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+        }
+
+        .device-firmware-tab:hover,
+        .device-firmware-tab.active {
+            border-color: var(--button-bg);
+            background: rgba(255, 255, 255, 0.06);
+            color: #fff;
+        }
+
+        .device-firmware-section {
+            display: none;
+        }
+
+        .device-firmware-section.active {
+            display: block;
+        }
+
+        .device-firmware-intro {
+            margin-bottom: 16px;
+        }
+
+        .device-firmware-intro p {
+            margin: 6px 0 0 0;
+            color: var(--text-color-secondary);
+            font-size: 13px;
+        }
+
         /* Aviat Backhaul Firmware Updater (NOC themed) */
         .aviat-tool {
             --aviat-card: var(--container-bg);
@@ -3334,7 +3385,7 @@
                 grid-template-columns: 1fr;
             }
 
-            #aviat-backhaul-pane .aviat-card {
+            #device-firmware-updater-pane .aviat-card {
                 padding: 14px;
             }
 
@@ -3349,36 +3400,36 @@
             }
         }
 
-        #aviat-backhaul-pane {
+        #device-firmware-updater-pane {
             overflow-x: hidden;
         }
 
-        #aviat-backhaul-pane * {
+        #device-firmware-updater-pane * {
             box-sizing: border-box;
         }
 
-        #aviat-backhaul-pane .container {
+        #device-firmware-updater-pane .container {
             max-width: 100%;
             width: 100%;
             box-sizing: border-box;
             padding: 24px;
         }
 
-        #aviat-backhaul-pane .aviat-grid,
-        #aviat-backhaul-pane .aviat-card,
-        #aviat-backhaul-pane .aviat-queue-item,
-        #aviat-backhaul-pane .aviat-log {
+        #device-firmware-updater-pane .aviat-grid,
+        #device-firmware-updater-pane .aviat-card,
+        #device-firmware-updater-pane .aviat-queue-item,
+        #device-firmware-updater-pane .aviat-log {
             min-width: 0;
         }
 
-        #aviat-backhaul-pane textarea,
-        #aviat-backhaul-pane input,
-        #aviat-backhaul-pane select {
+        #device-firmware-updater-pane textarea,
+        #device-firmware-updater-pane input,
+        #device-firmware-updater-pane select {
             max-width: 100%;
         }
 
         @media (max-width: 900px) {
-            #aviat-backhaul-pane .container {
+            #device-firmware-updater-pane .container {
                 padding: 18px;
             }
 
@@ -3695,9 +3746,22 @@
                     </div>
                 </div>
 
-                <div class="sb-item" data-sb-tab="aviat-backhaul" data-tooltip="Aviat Backhaul">
-                    <span class="sb-item-icon">&#128225;</span>
-                    <span class="sb-item-label">Aviat Backhaul</span>
+                <div class="sb-group" data-sb-group="firmware-updater">
+                    <div class="sb-item sb-item-header" data-tooltip="Devices Firmware Updater">
+                        <span class="sb-item-icon">&#128225;</span>
+                        <span class="sb-item-label">Devices Firmware Updater</span>
+                        <span class="sb-item-arrow">&#9654;</span>
+                    </div>
+                    <div class="sb-group-children">
+                        <div class="sb-item" data-sb-tab="device-firmware-updater" data-sb-subtab="aviat">
+                            <span class="sb-item-icon">&#128225;</span>
+                            <span class="sb-item-label">Aviat Backhaul</span>
+                        </div>
+                        <div class="sb-item" data-sb-tab="device-firmware-updater" data-sb-subtab="cambium">
+                            <span class="sb-item-icon">&#128246;</span>
+                            <span class="sb-item-label">Cambium Radio</span>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- FTTH group -->
@@ -3862,7 +3926,12 @@
                         <a data-tab="mikrotik-to-nokia">NOKIA MIGRATION</a>
                     </div>
                 </div>
-                <button class="nav-item" data-tab="aviat-backhaul">AVIAT BACKHAUL UPDATER</button>
+                <div class="nav-item dropdown" data-default-tab="device-firmware-updater"><button>DEVICES FIRMWARE UPDATER</button>
+                    <div class="dropdown-menu">
+                        <a data-tab="device-firmware-updater" data-device-firmware-tab="aviat">AVIAT BACKHAUL UPDATER</a>
+                        <a data-tab="device-firmware-updater" data-device-firmware-tab="cambium">CAMBIUM RADIO UPDATER</a>
+                    </div>
+                </div>
                 <div class="nav-item dropdown" data-tab="ftth-home"><button>FTTH CONFIGURATOR</button>
                     <div class="dropdown-menu">
                         <a data-tab="ftth-home" data-ftth-home-tab="olt">OLT CONFIGURATION</a>
@@ -6831,6 +6900,7 @@
                                     <option value="migration">Migration</option>
                                     <option value="upgrade">Upgrade</option>
                                     <option value="aviat-upgrade">Aviat Backhaul Upgrade</option>
+                                    <option value="cambium-upgrade">Cambium Radio Upgrade</option>
                                     <option value="maintenance-scheduled">Maintenance Scheduled</option>
                                     <option value="maintenance-started">Maintenance Started</option>
                                     <option value="maintenance-completed">Maintenance Completed</option>
@@ -8216,13 +8286,20 @@
                 </div>
             </div>
 
-    <!-- AVIAT BACKHAUL TAB -->
-    <div class="content-pane" id="aviat-backhaul-pane">
-        <div class="container aviat-tool">
+    <!-- DEVICE FIRMWARE UPDATER TAB -->
+    <div class="content-pane" id="device-firmware-updater-pane">
+        <div class="container aviat-tool device-firmware-shell">
             <div class="aviat-header">
-                <h1>Aviat Backhaul Firmware Updater</h1>
-                <p>Backhaul firmware upgrades, buffer policy, and SOP checks in one flow.</p>
+                <h1>Devices Firmware Updater</h1>
+                <p>Unified firmware workspace for Aviat backhaul maintenance and Cambium radio upgrades.</p>
             </div>
+
+            <div class="device-firmware-tabs">
+                <button type="button" class="device-firmware-tab active" data-device-firmware-tab="aviat" onclick="showDeviceFirmwareUpdaterSubTab('aviat')">Aviat Backhaul Firmware Updater</button>
+                <button type="button" class="device-firmware-tab" data-device-firmware-tab="cambium" onclick="showDeviceFirmwareUpdaterSubTab('cambium')">Cambium Radio Updater</button>
+            </div>
+
+            <div id="device-firmware-aviat-section" class="device-firmware-section active">
 
             <div id="maintenanceBanner" class="aviat-maintenance-banner aviat-maintenance-off">
                 OUTSIDE MAINTENANCE WINDOW (2:00 AM - 6:00 AM) | Activation allowed 2:00 AM - 5:00 AM
@@ -8357,6 +8434,159 @@
                 </div>
                 <div id="logBox" class="aviat-log" style="margin-top: 10px;">
                     <div class="aviat-log-entry"><span class="aviat-log-time">[--:--:--]</span> Ready. Add radio IPs to begin.</div>
+                </div>
+            </div>
+
+            </div>
+
+            <div id="device-firmware-cambium-section" class="device-firmware-section">
+                <div class="aviat-card device-firmware-intro">
+                    <h2>Cambium Radio Updater</h2>
+                    <p>Queue ePMP and cnWave radios, select a firmware profile, and run upgrade and verification flows from the same workspace.</p>
+                </div>
+
+                <div class="aviat-grid">
+                    <div class="aviat-card">
+                        <h2>Tasks to Execute</h2>
+                        <label class="checkbox-item">
+                            <input type="checkbox" id="cambiumTaskFirmware" checked>
+                            <div>
+                                <div class="aviat-task-title">
+                                    <span class="aviat-task-name">Push Firmware</span>
+                                    <span class="aviat-task-step">Step 1</span>
+                                </div>
+                                <div class="aviat-task-desc">Download image, stage it, and trigger the upgrade workflow.</div>
+                            </div>
+                        </label>
+                        <label class="checkbox-item">
+                            <input type="checkbox" id="cambiumTaskBackup" checked>
+                            <div>
+                                <div class="aviat-task-title">
+                                    <span class="aviat-task-name">Capture Backup / Health Snapshot</span>
+                                    <span class="aviat-task-step">Step 2</span>
+                                </div>
+                                <div class="aviat-task-desc">Save current state before changing firmware.</div>
+                            </div>
+                        </label>
+                        <label class="checkbox-item">
+                            <input type="checkbox" id="cambiumTaskVerify" checked>
+                            <div>
+                                <div class="aviat-task-title">
+                                    <span class="aviat-task-name">Verify Services After Upgrade</span>
+                                    <span class="aviat-task-step">Step 3</span>
+                                </div>
+                                <div class="aviat-task-desc">Confirm target version, reachability, and management access.</div>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div class="aviat-card">
+                        <h2>Add Radios</h2>
+                        <textarea id="cambiumQueueInput" placeholder="Enter Cambium management IPs (comma or newline separated)&#10;e.g., 10.248.20.17"></textarea>
+                        <div style="display: flex; gap: 10px; margin-top: 10px;">
+                            <button id="cambiumAddBtn" class="aviat-btn">Add</button>
+                            <button id="cambiumReplaceBtn" class="aviat-btn secondary">Replace</button>
+                        </div>
+
+                        <div id="cambiumStatsBar" class="aviat-stat-row" style="margin-top: 14px; display: none;">
+                            <div>Total: <span id="cambiumStatTotal">0</span></div>
+                            <div>Pending: <span id="cambiumStatPending">0</span></div>
+                            <div>Running: <span id="cambiumStatProcessing">0</span></div>
+                            <div>Queued: <span id="cambiumStatQueued">0</span></div>
+                            <div>Done: <span id="cambiumStatSuccess">0</span></div>
+                            <div>Failed: <span id="cambiumStatError">0</span></div>
+                        </div>
+
+                        <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
+                            <button id="cambiumClearDoneBtn" class="aviat-btn secondary">Clear Done</button>
+                            <button id="cambiumClearAllBtn" class="aviat-btn secondary">Clear All</button>
+                            <button id="cambiumRefreshBtn" class="aviat-btn secondary">Refresh</button>
+                            <button id="cambiumCheckStatusBtn" class="aviat-btn secondary">Check Status</button>
+                            <button id="cambiumAbortBtn" class="aviat-btn danger" disabled>Abort</button>
+                            <button id="cambiumRunBtn" class="aviat-btn success">Run All</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="aviat-grid" style="margin-top: 16px;">
+                    <div class="aviat-card">
+                        <h2>Firmware Profile</h2>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                            <div>
+                                <label style="display: block; font-size: 12px; margin-bottom: 6px;">Provider</label>
+                                <select id="cambiumProvider">
+                                    <option value="cambium">Cambium</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="display: block; font-size: 12px; margin-bottom: 6px;">Radio Family</label>
+                                <select id="cambiumFamily">
+                                    <option value="epmp">ePMP</option>
+                                    <option value="cnwave">cnWave</option>
+                                    <option value="pmp">PMP</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="display: block; font-size: 12px; margin-bottom: 6px;">Firmware Channel</label>
+                                <select id="cambiumFirmwareSource">
+                                    <option value="stable">Stable</option>
+                                    <option value="lts">LTS</option>
+                                    <option value="manual">Manual File / URL</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="display: block; font-size: 12px; margin-bottom: 6px;">Target Version</label>
+                                <input type="text" id="cambiumTargetVersion" placeholder="e.g., 5.9.1 or 4.4.1">
+                            </div>
+                            <div>
+                                <label style="display: block; font-size: 12px; margin-bottom: 6px;">Catalog Version</label>
+                                <select id="cambiumCatalogVersion">
+                                    <option value="">Select from catalog</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="display: block; font-size: 12px; margin-bottom: 6px;">Activation Mode</label>
+                                <select id="cambiumActivationMode">
+                                    <option value="immediate">Activate Now</option>
+                                    <option value="scheduled">Scheduled</option>
+                                    <option value="stage-only">Stage Only</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="display: block; font-size: 12px; margin-bottom: 6px;">Activation Time</label>
+                                <input type="time" id="cambiumActivationTime" value="02:00" disabled>
+                            </div>
+                            <div>
+                                <label style="display: block; font-size: 12px; margin-bottom: 6px;">API Endpoint</label>
+                                <input type="text" id="cambiumEndpointHint" value="/api/cambium" readonly>
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
+                            <button id="cambiumReloadProvidersBtn" class="aviat-btn secondary" type="button">Reload Providers</button>
+                            <button id="cambiumReloadCatalogBtn" class="aviat-btn secondary" type="button">Reload Catalog</button>
+                            <span id="cambiumCatalogMeta" class="aviat-pill">Catalog not loaded</span>
+                        </div>
+                    </div>
+
+                    <div class="aviat-card" id="cambiumRadioListCard" style="display: none;">
+                        <h2>Radio Queue</h2>
+                        <div id="cambiumRadioList" class="aviat-queue"></div>
+                    </div>
+                </div>
+
+                <div class="aviat-card" style="margin-top: 16px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                        <h2 style="margin: 0;">Activity Log</h2>
+                        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                            <button id="cambiumLogRefreshBtn" class="aviat-btn secondary">Refresh</button>
+                            <button id="cambiumLogStatusBtn" class="aviat-btn secondary">Check Status</button>
+                            <button id="cambiumReloadUiBtn" class="aviat-btn secondary">Reload UI</button>
+                            <button id="cambiumClearLogBtn" class="aviat-btn secondary">Clear</button>
+                        </div>
+                    </div>
+                    <div id="cambiumLogBox" class="aviat-log" style="margin-top: 10px;">
+                        <div class="aviat-log-entry"><span class="aviat-log-time">[--:--:--]</span> Ready. Add Cambium radio IPs to begin.</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -10196,7 +10426,11 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             'field-config-studio': { tabId: 'field-config-studio', label: 'Device Config Studio', desc: 'Field device configuration workspace' },
             'nokia7250-maker': { tabId: 'nokia7250-maker', label: 'Nokia Configurator', desc: 'Unified Nokia configuration workspace' },
             'mikrotik-to-nokia': { tabId: 'mikrotik-to-nokia', label: 'Nokia Migration', desc: 'MikroTik to Nokia conversion' },
-            'aviat-backhaul': { tabId: 'aviat-backhaul', label: 'Aviat Backhaul Updater', desc: 'Firmware upgrade and maintenance workflow' },
+            'device-firmware-updater': { tabId: 'device-firmware-updater', label: 'Devices Firmware Updater', desc: 'Firmware workflows for Aviat backhaul and Cambium radios' },
+            'device-firmware-updater:aviat': { tabId: 'device-firmware-updater', subtab: 'aviat', label: 'Aviat Backhaul Updater', desc: 'Firmware upgrade and maintenance workflow' },
+            'device-firmware-updater:cambium': { tabId: 'device-firmware-updater', subtab: 'cambium', label: 'Cambium Radio Updater', desc: 'Cambium radio firmware staging and verification' },
+            'aviat-backhaul': { tabId: 'device-firmware-updater', subtab: 'aviat', label: 'Aviat Backhaul Updater', desc: 'Firmware upgrade and maintenance workflow' },
+            'cambium-upgrade': { tabId: 'device-firmware-updater', subtab: 'cambium', label: 'Cambium Radio Updater', desc: 'Cambium radio firmware staging and verification' },
             'ftth-home': { tabId: 'ftth-home', label: 'FTTH Configurator', desc: 'FTTH OLT and BNG workspaces' },
             'ftth-home:olt': { tabId: 'ftth-home', subtab: 'olt', label: 'FTTH OLT Configuration', desc: 'OLT configuration workspace' },
             'ftth-home:bng': { tabId: 'ftth-home', subtab: 'bng', label: 'FTTH BNG Configuration', desc: 'BNG configuration workspace' },
@@ -10224,7 +10458,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             'mpls-enterprise': TOOL_ROUTE_DEFINITIONS['enterprise-mpls'],
             'tarana': TOOL_ROUTE_DEFINITIONS['tarana'],
             'switch-config': TOOL_ROUTE_DEFINITIONS['switch-maker'],
-            'upgrade': TOOL_ROUTE_DEFINITIONS['aviat-backhaul'],
+            'upgrade': TOOL_ROUTE_DEFINITIONS['device-firmware-updater:aviat'],
             'migration': TOOL_ROUTE_DEFINITIONS['mikrotik-to-nokia'],
             'nokia-7250': TOOL_ROUTE_DEFINITIONS['nokia7250-maker'],
             'ftth-bng': TOOL_ROUTE_DEFINITIONS['ftth-home:bng'],
@@ -10237,7 +10471,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
 
         const ACTIVITY_TYPE_ROUTE_MAP = {
             'migration': TOOL_ROUTE_DEFINITIONS['mikrotik-to-nokia'],
-            'upgrade': TOOL_ROUTE_DEFINITIONS['aviat-backhaul'],
+            'upgrade': TOOL_ROUTE_DEFINITIONS['device-firmware-updater:aviat'],
             'new-config': TOOL_ROUTE_DEFINITIONS['completed-configs'],
             'tower': TOOL_ROUTE_DEFINITIONS['tower'],
             'bng2': TOOL_ROUTE_DEFINITIONS['tower'],
@@ -10254,7 +10488,8 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             'tarana-config': TOOL_ROUTE_DEFINITIONS['tarana'],
             'enterprise-feeding-config': TOOL_ROUTE_DEFINITIONS['enterprise-feeding'],
             'enterprise-feeding-outstate-config': TOOL_ROUTE_DEFINITIONS['enterprise-feeding'],
-            'aviat-upgrade': TOOL_ROUTE_DEFINITIONS['aviat-backhaul'],
+            'aviat-upgrade': TOOL_ROUTE_DEFINITIONS['device-firmware-updater:aviat'],
+            'cambium-upgrade': TOOL_ROUTE_DEFINITIONS['device-firmware-updater:cambium'],
             'nokia-7250-config': TOOL_ROUTE_DEFINITIONS['nokia7250-maker'],
             'ftth-bng': TOOL_ROUTE_DEFINITIONS['ftth-home:bng'],
             'ftth-fiber-customer': TOOL_ROUTE_DEFINITIONS['ftth-home:fiber'],
@@ -10316,6 +10551,9 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             if (route.tabId === 'command-vault' && route.subtab && typeof window.showCommandVaultSubTab === 'function') {
                 window.showCommandVaultSubTab(route.subtab);
             }
+            if (route.tabId === 'device-firmware-updater' && route.subtab && typeof window.showDeviceFirmwareUpdaterSubTab === 'function') {
+                window.showDeviceFirmwareUpdaterSubTab(route.subtab);
+            }
             return true;
         }
         window.navigateToToolRoute = navigateToToolRoute;
@@ -10338,6 +10576,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 'enterprise-feeding-config': { icon: '\u{1F3E2}', label: 'Enterprise Feeding Config' },
                 'enterprise-feeding-outstate-config': { icon: '\u{1F3E2}', label: 'Enterprise Feeding Out-of-State' },
                 'aviat-upgrade':        { icon: '\u{2B06}', label: 'Aviat Backhaul Upgrade' },
+                'cambium-upgrade':      { icon: '\u{1F4F6}', label: 'Cambium Radio Upgrade' },
                 'ftth-bng':             { icon: '\u{1F310}', label: 'FTTH BNG Config' },
                 'ftth-fiber-customer':  { icon: '\u{1F9F5}', label: 'FTTH Fiber Customer' },
                 'ftth-fiber-site':      { icon: '\u{1F3D7}', label: 'FTTH Fiber Site' },
@@ -13529,6 +13768,15 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
 
             // Navigation helper function (GLOBAL) - Define BEFORE initializeEventHandlers
             window.navigateToTab = async function (tabId) {
+                let requestedSubtab = null;
+                if (tabId === 'aviat-backhaul') {
+                    tabId = 'device-firmware-updater';
+                    requestedSubtab = 'aviat';
+                } else if (tabId === 'cambium-upgrade') {
+                    tabId = 'device-firmware-updater';
+                    requestedSubtab = 'cambium';
+                }
+
                 const contentPanes = document.querySelectorAll('.content-pane');
                 const navItems = document.querySelectorAll('.nav-item');
                 const dropdownLinks = document.querySelectorAll('.dropdown-menu a');
@@ -13561,13 +13809,19 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     window.scrollTo(0, 0);
                 }
 
+                if (tabId === 'device-firmware-updater' && typeof window.showDeviceFirmwareUpdaterSubTab === 'function') {
+                    window.showDeviceFirmwareUpdaterSubTab(requestedSubtab || 'aviat');
+                }
+
                 // Highlight the active nav item
                 const activeNavItem = document.querySelector(`.nav-item[data-tab="${tabId}"]`);
                 if (activeNavItem) {
                     activeNavItem.classList.add('active');
                 } else {
                     // Check if it's in a dropdown
-                    const activeDropdownLink = document.querySelector(`.dropdown-menu a[data-tab="${tabId}"]`);
+                    const activeDropdownLink = requestedSubtab
+                        ? document.querySelector(`.dropdown-menu a[data-tab="${tabId}"][data-device-firmware-tab="${requestedSubtab}"]`)
+                        : document.querySelector(`.dropdown-menu a[data-tab="${tabId}"]`);
                     if (activeDropdownLink) {
                         activeDropdownLink.classList.add('active');
                         // Highlight the dropdown button (Mikrotik Config) when a sub-tab is selected
@@ -13790,17 +14044,17 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                             // Calculate ACTUAL success rate from ALL activities
                             const successCount = allActivities.filter(e => e.success === true || e.success === 1).length;
                             const failCount = allActivities.filter(e => e.success === false || e.success === 0).length;
-                            const nonAviatActivities = allActivities.filter(entry =>
+                            const nonFirmwareActivities = allActivities.filter(entry =>
                                 entry.countsTowardMetrics !== false &&
-                                entry.type !== 'aviat-upgrade' &&
+                                !['aviat-upgrade', 'cambium-upgrade'].includes(entry.type) &&
                                 !(entry.type || '').startsWith('maintenance')
                             );
-                            const totalCount = nonAviatActivities.length;
-                            const successCountFiltered = nonAviatActivities.filter(e => e.success === true).length;
+                            const totalCount = nonFirmwareActivities.length;
+                            const successCountFiltered = nonFirmwareActivities.filter(e => e.success === true).length;
                             const successRate = totalCount > 0 ?
                                 Math.round((successCountFiltered / totalCount) * 100) : 100;
                             const firmwareUpgradeCount = allActivities.filter(entry =>
-                                entry.type === 'aviat-upgrade'
+                                ['aviat-upgrade', 'cambium-upgrade'].includes(entry.type)
                             ).length;
 
                             // Update UI elements
@@ -13815,12 +14069,12 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                             if (migrationsEl) migrationsEl.textContent = migrationCount;
                             if (firmwareEl) firmwareEl.textContent = firmwareUpgradeCount;
                             if (successEl) successEl.textContent = successRate + '%';
-                            if (todayEl) todayEl.textContent = nonAviatActivities.filter(entry => {
+                            if (todayEl) todayEl.textContent = nonFirmwareActivities.filter(entry => {
                                 const entryDate = new Date(entry.timestamp);
                                 return entryDate >= todayStart;
                             }).length;
 
-                            console.log(`[METRICS]  Backend: Total=${totalCount} (ALL TIME), Today=${nonAviatActivities.filter(entry => {
+                            console.log(`[METRICS]  Backend: Total=${totalCount} (ALL TIME), Today=${nonFirmwareActivities.filter(entry => {
                                 const entryDate = new Date(entry.timestamp);
                                 return entryDate >= todayStart;
                             }).length}, Success=${successCountFiltered}/${totalCount} (${successRate}%), Migrations=${migrationCount}, FirmwareUpgrades=${firmwareUpgradeCount}`);
@@ -13843,12 +14097,12 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
                 // Calculate TODAY's configs (since midnight) - resets every 24 hours
-                const nonAviatHistory = history.filter(entry =>
+                const nonFirmwareHistory = history.filter(entry =>
                     entry.countsTowardMetrics !== false &&
-                    entry.type !== 'aviat-upgrade' &&
+                    !['aviat-upgrade', 'cambium-upgrade'].includes(entry.type) &&
                     !(entry.type || '').startsWith('maintenance')
                 );
-                const todayCount = nonAviatHistory.filter(entry => {
+                const todayCount = nonFirmwareHistory.filter(entry => {
                     const entryDate = new Date(entry.timestamp);
                     return entryDate >= todayStart;
                 }).length;
@@ -13859,12 +14113,12 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 ).length;
 
                 // Calculate success rate from ALL activities
-                const successCount = nonAviatHistory.filter(e => e.success === true).length;
-                const totalCount = nonAviatHistory.length;
+                const successCount = nonFirmwareHistory.filter(e => e.success === true).length;
+                const totalCount = nonFirmwareHistory.length;
                 const successRate = totalCount > 0 ?
                     Math.round((successCount / totalCount) * 100) : 100;
                 const firmwareUpgradeCount = history.filter(entry =>
-                    entry.type === 'aviat-upgrade'
+                    ['aviat-upgrade', 'cambium-upgrade'].includes(entry.type)
                 ).length;
 
                 // Update UI elements
@@ -14413,12 +14667,16 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                             const tabId = link.getAttribute('data-tab');
                             const ftthHomeTab = link.getAttribute('data-ftth-home-tab');
                             const commandVaultTab = link.getAttribute('data-command-vault-tab');
+                            const deviceFirmwareTab = link.getAttribute('data-device-firmware-tab');
                             navigateToTab(tabId);
                             if (tabId === 'ftth-home' && ftthHomeTab && typeof window.showFtthHomeSubTab === 'function') {
                                 window.showFtthHomeSubTab(ftthHomeTab);
                             }
                             if (tabId === 'command-vault' && commandVaultTab && typeof window.showCommandVaultSubTab === 'function') {
                                 window.showCommandVaultSubTab(commandVaultTab);
+                            }
+                            if (tabId === 'device-firmware-updater' && deviceFirmwareTab && typeof window.showDeviceFirmwareUpdaterSubTab === 'function') {
+                                window.showDeviceFirmwareUpdaterSubTab(deviceFirmwareTab);
                             }
                         }
                     });
@@ -27476,6 +27734,26 @@ Ready for translation!`);
             setCommandVaultSubTabState(tabKey);
         };
 
+        function setDeviceFirmwareUpdaterSubTabState(tabKey) {
+            const resolvedTab = tabKey === 'cambium' ? 'cambium' : 'aviat';
+            const sections = document.querySelectorAll('#device-firmware-updater-pane .device-firmware-section');
+            const tabs = document.querySelectorAll('#device-firmware-updater-pane .device-firmware-tab');
+            sections.forEach(section => {
+                const isActive = section.id === `device-firmware-${resolvedTab}-section`;
+                section.classList.toggle('active', isActive);
+                section.style.display = isActive ? 'block' : 'none';
+            });
+            tabs.forEach(tab => {
+                const isActive = tab.dataset.deviceFirmwareTab === resolvedTab;
+                tab.classList.toggle('active', isActive);
+                tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+            });
+        }
+
+        window.showDeviceFirmwareUpdaterSubTab = function (tabKey) {
+            setDeviceFirmwareUpdaterSubTabState(tabKey);
+        };
+
         window.filterNokiaVaultCommands = function () {
             const query = (document.getElementById('nokiaCommandSearch')?.value || '').trim().toLowerCase();
             const cards = document.querySelectorAll('#command-vault-nokia-section .nokia-command-card');
@@ -30470,6 +30748,8 @@ Ready for translation!`);
         })();
     </script>
 
+    <script src="cambium-firmware-updater.js"></script>
+
     <!-- ═══════════════════════════════════════════════════════════════
          POWER TOOLS: Toast, Command Palette, Config Diff, Bulk Gen,
                       Scheduled Maintenance
@@ -30508,7 +30788,8 @@ Ready for translation!`);
             { cat: 'Navigate', icon: '', label: 'Device Config Studio', desc: 'AP/SM/Switch/UPS/RPC/Aviat/Wave/7250', action: () => window.navigateToTab('field-config-studio') },
             { cat: 'Navigate', icon: '', label: 'Nokia Configurator', desc: 'Unified Nokia configuration workspace', action: () => window.navigateToTab('nokia7250-maker') },
             { cat: 'Navigate', icon: '', label: 'Nokia Migration', desc: 'MikroTik → Nokia conversion', action: () => window.navigateToTab('mikrotik-to-nokia') },
-            { cat: 'Navigate', icon: '', label: 'Aviat Backhaul Updater', desc: 'Firmware upgrade for WTM4200', action: () => window.navigateToTab('aviat-backhaul') },
+            { cat: 'Navigate', icon: '', label: 'Devices Firmware Updater', desc: 'Firmware workspace for Aviat and Cambium', action: () => window.navigateToTab('device-firmware-updater') },
+            { cat: 'Navigate', icon: '', label: 'Cambium Radio Updater', desc: 'Firmware staging for Cambium radios', action: () => window.navigateToTab('cambium-upgrade') },
             { cat: 'Navigate', icon: '', label: 'FTTH Configurator', desc: 'FTTH OLT and BNG workspaces', action: () => window.navigateToTab('ftth-home') },
             { cat: 'Navigate', icon: '', label: 'Command Vault', desc: 'Nokia/Cisco/MikroTik quick commands', action: () => window.navigateToTab('command-vault') },
             { cat: 'Navigate', icon: '', label: 'Cisco Port Setup', desc: 'Cisco port and OSPF handoff generator', action: () => window.navigateToTab('cisco-config') },
@@ -32625,6 +32906,10 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
                 subtab = document.querySelector('#command-vault-pane .command-vault-tab.active')?.dataset.commandVaultTab
                     || document.querySelector('#command-vault-pane .command-vault-section.active')?.id?.replace('command-vault-', '').replace('-section', '')
                     || 'nokia';
+            } else if (tabId === 'device-firmware-updater') {
+                subtab = document.querySelector('#device-firmware-updater-pane .device-firmware-tab.active')?.dataset.deviceFirmwareTab
+                    || document.querySelector('#device-firmware-updater-pane .device-firmware-section.active')?.id?.replace('device-firmware-', '').replace('-section', '')
+                    || 'aviat';
             }
 
             return { tabId, subtab };
@@ -32684,6 +32969,9 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
             if (tabId === 'command-vault' && subtab && typeof window.showCommandVaultSubTab === 'function') {
                 window.showCommandVaultSubTab(subtab);
             }
+            if (tabId === 'device-firmware-updater' && subtab && typeof window.showDeviceFirmwareUpdaterSubTab === 'function') {
+                window.showDeviceFirmwareUpdaterSubTab(subtab);
+            }
             updateSidebarActive(tabId, subtab);
         }
 
@@ -32737,9 +33025,12 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
         if (typeof origNavigateToTab === 'function' && !origNavigateToTab.__sidebarSyncWrapped) {
             const wrappedNavigateToTab = async function(tabId) {
                 const result = await origNavigateToTab(tabId);
-                updateSidebarActive(tabId);
-                if (tabId && tabId !== 'ftth-home' && tabId !== 'command-vault') {
-                    storeLastRoute(tabId);
+                const route = getToolRouteDefinition(tabId) || { tabId, subtab: null };
+                updateSidebarActive(route.tabId, route.subtab || null);
+                if (route.tabId === 'ftth-home' || route.tabId === 'command-vault' || route.tabId === 'device-firmware-updater') {
+                    storeLastRoute(route.tabId, route.subtab || null);
+                } else if (route.tabId) {
+                    storeLastRoute(route.tabId);
                 }
                 return result;
             };
@@ -32769,6 +33060,18 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
             };
             wrappedCommandVaultSubTab.__sidebarSyncWrapped = true;
             window.showCommandVaultSubTab = wrappedCommandVaultSubTab;
+        }
+
+        const origShowDeviceFirmwareUpdaterSubTab = window.showDeviceFirmwareUpdaterSubTab;
+        if (typeof origShowDeviceFirmwareUpdaterSubTab === 'function' && !origShowDeviceFirmwareUpdaterSubTab.__sidebarSyncWrapped) {
+            const wrappedDeviceFirmwareUpdaterSubTab = function(tabKey) {
+                const result = origShowDeviceFirmwareUpdaterSubTab(tabKey);
+                updateSidebarActive('device-firmware-updater', tabKey);
+                storeLastRoute('device-firmware-updater', tabKey);
+                return result;
+            };
+            wrappedDeviceFirmwareUpdaterSubTab.__sidebarSyncWrapped = true;
+            window.showDeviceFirmwareUpdaterSubTab = wrappedDeviceFirmwareUpdaterSubTab;
         }
 
         window.addEventListener('hashchange', () => updateSidebarActive());
