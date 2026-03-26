@@ -25,22 +25,14 @@ DEFAULT_PASSWORD = (
     or "admin"
 )
 
-DEVICE_TYPE_ALIASES = {
-    "CNF300-13": "F300-13",
-    "CNF300-16": "F300-16",
-    "CNF300-25": "F300-25",
-    "CNF300-CSM": "F300-CSM",
-}
+DEVICE_TYPE_ALIASES = {}
 
+# Only AP types deployed at Nextlink towers.
+# CNEP3KL shares the same firmware images as CNEP3K (both use the EP3K folder).
 DEVICE_FIRMWARE_FAMILIES = {
     "CNEP3K": {"family": "EP3K", "label": "Cambium ePMP 3000"},
-    "CNEP3KL": {"family": "EP3KL", "label": "Cambium ePMP 3000 Lite"},
+    "CNEP3KL": {"family": "EP3K", "label": "Cambium ePMP 3000 Lite"},
     "CN4600": {"family": "4600", "label": "Cambium ePMP 4600"},
-    "F4600C": {"family": "F4600C", "label": "Cambium ePMP Force 4600C"},
-    "F300-13": {"family": "F300-13", "label": "Cambium ePMP Force 300-13"},
-    "F300-16": {"family": "F300-16", "label": "Cambium ePMP Force 300-16"},
-    "F300-25": {"family": "F300-25", "label": "Cambium ePMP Force 300-25"},
-    "F300-CSM": {"family": "F300-CSM", "label": "Cambium ePMP Force 300-CSM"},
 }
 
 
@@ -76,6 +68,7 @@ def resolve_device_type(device_type: str) -> str:
 def _firmware_root() -> Path:
     candidates = [
         (os.getenv("FIRMWARE_PATH") or "").strip(),
+        "/opt/firmware",
         (os.getenv("BASE_CONFIG_PATH") or "").strip(),
         _default_base_config_path(),
     ]

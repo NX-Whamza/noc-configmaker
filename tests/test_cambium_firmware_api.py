@@ -155,14 +155,15 @@ def test_cambium_run_completes_and_updates_status(monkeypatch):
 
 
 def test_cambium_resolve_device_type_aliases():
-    assert resolve_device_type("CNF300-13") == "F300-13"
-    assert resolve_device_type("CNF300-16") == "F300-16"
-    assert resolve_device_type("CNF300-25") == "F300-25"
-    assert resolve_device_type("CNF300-CSM") == "F300-CSM"
-    # canonical names pass through unchanged
+    # Only AP types — canonical names pass through unchanged
     assert resolve_device_type("CNEP3K") == "CNEP3K"
-    assert resolve_device_type("F4600C") == "F4600C"
-    # unsupported type raises
+    assert resolve_device_type("CNEP3KL") == "CNEP3KL"
+    assert resolve_device_type("CN4600") == "CN4600"
+    # removed device types now raise
+    with pytest.raises(ValueError, match="Unsupported Cambium device_type"):
+        resolve_device_type("F4600C")
+    with pytest.raises(ValueError, match="Unsupported Cambium device_type"):
+        resolve_device_type("F300-13")
     with pytest.raises(ValueError, match="Unsupported Cambium device_type"):
         resolve_device_type("BOGUS")
     with pytest.raises(ValueError, match="device_type is required"):
@@ -180,13 +181,23 @@ def test_cambium_catalog_endpoint(monkeypatch):
             "default_password_configured": True,
             "devices": {
                 "CNEP3K": {
-                    "device_type": "CNEP3K",
-                    "family": "EP3K",
+                    "device_type": "CNEP3K", "family": "EP3K",
                     "label": "Cambium ePMP 3000",
                     "default_version": "5.10.4",
-                    "available_versions": ["5.10.4"],
-                    "images": [],
-                }
+                    "available_versions": ["5.10.4"], "images": [],
+                },
+                "CNEP3KL": {
+                    "device_type": "CNEP3KL", "family": "EP3K",
+                    "label": "Cambium ePMP 3000 Lite",
+                    "default_version": "5.10.4",
+                    "available_versions": ["5.10.4"], "images": [],
+                },
+                "CN4600": {
+                    "device_type": "CN4600", "family": "4600",
+                    "label": "Cambium ePMP 4600",
+                    "default_version": "5.10.4",
+                    "available_versions": ["5.10.4"], "images": [],
+                },
             },
         },
     )
@@ -194,7 +205,7 @@ def test_cambium_catalog_endpoint(monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["success"] is True
-    assert "CNEP3K" in body["devices"]
+    assert set(body["devices"].keys()) == {"CNEP3K", "CNEP3KL", "CN4600"}
     assert body["devices"]["CNEP3K"]["default_version"] == "5.10.4"
 
 
