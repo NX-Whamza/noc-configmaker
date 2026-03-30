@@ -70,10 +70,46 @@ def test_docs_openapi_includes_typed_job_models():
     assert "JobDetailEnvelope" in components
     assert "JobEventsEnvelope" in components
     assert "CancelJobEnvelope" in components
+    assert "FtthGenerateBngJobRequest" in components
+    assert "FtthGenerateBngPayload" in components
+    assert "AviatRunJobRequest" in components
+    assert "NokiaGenerate7250JobRequest" in components
+    assert "ConfigsSaveJobRequest" in components
+    assert "ConfigsGetJobRequest" in components
+    assert "DeviceFetchConfigSshJobRequest" in components
+    assert "ComplianceApplyJobRequest" in components
+    assert "FeedbackSubmitJobRequest" in components
+    assert "IdoPingJobRequest" in components
+    assert "IdoGenericDeviceInfoJobRequest" in components
+    assert "NokiaConfiguratorJobRequest" in components
+    assert "FtthFiberCustomerJobRequest" in components
+    assert "FtthFiberSiteJobRequest" in components
+    assert "FtthIsdFiberJobRequest" in components
+    assert "BulkGenerateJobRequest" in components
+    assert "BulkSshFetchJobRequest" in components
+    assert "BulkComplianceScanJobRequest" in components
+    assert "CambiumRunJobRequest" in components
 
     submit_post = schema["paths"]["/api/v2/omni/jobs"]["post"]
     request_schema = submit_post["requestBody"]["content"]["application/json"]["schema"]
-    assert request_schema["$ref"].endswith("/SubmitJobRequest")
+    assert "anyOf" in request_schema
+    request_refs = {
+        item["$ref"].rsplit("/", 1)[-1]
+        for item in request_schema["anyOf"]
+        if "$ref" in item
+    }
+    assert "FtthGenerateBngJobRequest" in request_refs
+    assert "AviatRunJobRequest" in request_refs
+    assert "NokiaGenerate7250JobRequest" in request_refs
+    assert "ConfigsSaveJobRequest" in request_refs
+    assert "DeviceFetchConfigSshJobRequest" in request_refs
+    assert "FeedbackSubmitJobRequest" in request_refs
+    assert "IdoPingJobRequest" in request_refs
+    assert "NokiaConfiguratorJobRequest" in request_refs
+    assert "FtthFiberCustomerJobRequest" in request_refs
+    assert "BulkGenerateJobRequest" in request_refs
+    assert "CambiumRunJobRequest" in request_refs
+    assert "SubmitJobRequest" in request_refs
 
     security_schemes = schema["components"]["securitySchemes"]
     assert "ApiKeyAuth" in security_schemes
