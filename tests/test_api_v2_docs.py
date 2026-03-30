@@ -89,6 +89,8 @@ def test_docs_openapi_includes_typed_job_models():
     assert "BulkSshFetchJobRequest" in components
     assert "BulkComplianceScanJobRequest" in components
     assert "CambiumRunJobRequest" in components
+    assert "CiscoPortSetupJobRequest" in components
+    assert "ConfigDiffCompareJobRequest" in components
 
     submit_post = schema["paths"]["/api/v2/omni/jobs"]["post"]
     request_schema = submit_post["requestBody"]["content"]["application/json"]["schema"]
@@ -109,6 +111,8 @@ def test_docs_openapi_includes_typed_job_models():
     assert "FtthFiberCustomerJobRequest" in request_refs
     assert "BulkGenerateJobRequest" in request_refs
     assert "CambiumRunJobRequest" in request_refs
+    assert "CiscoPortSetupJobRequest" in request_refs
+    assert "ConfigDiffCompareJobRequest" in request_refs
     assert "SubmitJobRequest" in request_refs
 
     security_schemes = schema["components"]["securitySchemes"]

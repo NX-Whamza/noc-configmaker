@@ -11,9 +11,9 @@ This maps current NOC ConfigMaker UI workflows to `/api/v2` job actions for OMNI
 | Field Config Studio | IDO-backed device interrogation and generation | `ido.*` typed start for ping/generic info, more subflows remain | Partial |
 | Devices Firmware Updater | Aviat and Cambium workflows | `aviat.*` typed start, `cambium.run` typed start | Partial |
 | FTTH Configurator | Preview/generate BNG plus FTTH site/customer tools | `ftth.preview_bng`, `ftth.generate_bng`, `ftth.fiber_customer`, `ftth.fiber_site`, `ftth.isd_fiber` | Partial |
-| Command Vault | Nokia/Cisco/MikroTik references | Not yet promoted as first-class published contract | Gap |
-| Cisco Port Setup | Cisco-specific config helper | Not yet promoted as first-class published contract | Gap |
-| Power Tools | Diff, bulk ops, maintenance, compliance | `compliance.*` typed start, `bulk.*` typed start, diff still pending | Partial |
+| Command Vault | Nokia/Cisco/MikroTik references | Content/reference surface rather than job API; should be packaged intentionally for OMNI | Content |
+| Cisco Port Setup | Cisco-specific config helper | `cisco.generate_port_setup` | Typed |
+| Power Tools | Diff, bulk ops, maintenance, compliance | `compliance.*` typed start, `bulk.*` typed start, `config.diff_compare` | Partial |
 | History | Saved configs and log history | `configs.*`, `activity.*` typed start | Partial |
 | Feedback / Admin | Feedback submission and review/admin actions | `feedback.submit`, `admin.feedback.*` | Partial |
 
@@ -21,6 +21,7 @@ Status meaning:
 - `Typed`: explicit Swagger schema/examples exist for the primary action payloads
 - `Partial`: action exists and is callable, but more sub-workflows still need explicit published schemas
 - `Gap`: UI exists but the workflow is not yet promoted into the OMNI contract
+- `Content`: workflow is primarily reference/content and should be packaged deliberately rather than forced into async job APIs
 
 ## How OMNI should call
 
@@ -115,6 +116,12 @@ Use API key + HMAC signing + Idempotency-Key (for POST).
 | `config.explain` | Explain config sections | `{"config": "...", "question": "What does this OSPF block do?"}` |
 | `config.translate` | Translate config between formats | `{"config": "...", "from_format": "mikrotik", "to_format": "nokia"}` |
 | `config.autofill_from_export` | Autofill form from exported config | `{"config_export": "/export\n/ip address\nadd ..."}` |
+
+## Cisco Port Setup
+
+| Action | Description | Payload |
+|--------|-------------|---------|
+| `cisco.generate_port_setup` | Generate Cisco port and OSPF handoff configuration | `{"port_description": "BH-TO-SITE-A", "port_type": "TenGigE", "port_number": "0/0/0/1", "interface_ip": "10.42.10.1", "subnet_mask": "255.255.255.252", "ospf_cost": 10, "ospf_process": 1, "ospf_area": "0", "mtu": 9216, "passive": false}` |
 
 ## SSH Config Fetch
 
@@ -232,6 +239,7 @@ Use API key + HMAC signing + Idempotency-Key (for POST).
 | `bulk.migration_execute` | Execute prepared bulk migration rows | `{"rows": [{"site_name": "WEST-HUB", "source_config": "/interface bridge add name=bridge1"}], "save_completed": true}` |
 | `bulk.compliance_scan` | Scan many configs for compliance issues | `{"rows": [{"site_name": "WEST-HUB", "config": "/routing ospf instance set default"}]}` |
 | `device.ssh_push_config` | Push generated configs to devices over SSH | `{"rows": [{"host": "10.x.x.x", "username": "admin", "password": "...", "config": "/system identity set name=RTR-EDGE-01"}], "dry_run": false}` |
+| `config.diff_compare` | Compare two config texts using the backend diff engine | `{"label_a": "Before", "label_b": "After", "text_a": "/system identity set name=RTR-EDGE-OLD", "text_b": "/system identity set name=RTR-EDGE-NEW"}` |
 
 ## Feedback
 
