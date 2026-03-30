@@ -70,10 +70,23 @@ def test_docs_openapi_includes_typed_job_models():
     assert "JobDetailEnvelope" in components
     assert "JobEventsEnvelope" in components
     assert "CancelJobEnvelope" in components
+    assert "FtthGenerateBngJobRequest" in components
+    assert "FtthGenerateBngPayload" in components
+    assert "AviatRunJobRequest" in components
+    assert "NokiaGenerate7250JobRequest" in components
 
     submit_post = schema["paths"]["/api/v2/omni/jobs"]["post"]
     request_schema = submit_post["requestBody"]["content"]["application/json"]["schema"]
-    assert request_schema["$ref"].endswith("/SubmitJobRequest")
+    assert "anyOf" in request_schema
+    request_refs = {
+        item["$ref"].rsplit("/", 1)[-1]
+        for item in request_schema["anyOf"]
+        if "$ref" in item
+    }
+    assert "FtthGenerateBngJobRequest" in request_refs
+    assert "AviatRunJobRequest" in request_refs
+    assert "NokiaGenerate7250JobRequest" in request_refs
+    assert "SubmitJobRequest" in request_refs
 
     security_schemes = schema["components"]["securitySchemes"]
     assert "ApiKeyAuth" in security_schemes

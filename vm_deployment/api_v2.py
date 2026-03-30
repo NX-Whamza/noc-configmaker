@@ -22,7 +22,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple, Union
 from urllib.parse import urljoin
 
 import requests
@@ -258,6 +258,7 @@ class SubmitJobRequest(BaseModel):
     )
 
     model_config = ConfigDict(
+        extra="allow",
         json_schema_extra={
             "examples": [
                 {
@@ -280,6 +281,243 @@ class SubmitJobRequest(BaseModel):
             ]
         }
     )
+
+
+class LegacyProxyPayload(BaseModel):
+    method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"] = Field(
+        ..., description="HTTP verb used when calling the whitelisted legacy backend route."
+    )
+    path: str = Field(..., description="Whitelisted legacy backend path beginning with /api/.")
+    params: Optional[Dict[str, Any]] = Field(default=None, description="Optional query parameters.")
+    headers: Optional[Dict[str, str]] = Field(default=None, description="Optional request headers.")
+    body: Optional[Dict[str, Any]] = Field(default=None, description="Optional JSON request body.")
+    timeout: int = Field(default=120, ge=1, le=600, description="Upstream timeout in seconds.")
+
+
+class HealthGetJobRequest(BaseModel):
+    action: Literal["health.get"] = Field(..., description="Run a health check against the published service surface.")
+    payload: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Health requests do not require a payload.",
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "health.get",
+                "payload": {},
+            }
+        }
+    )
+
+
+class LegacyProxyJobRequest(BaseModel):
+    action: Literal["legacy.proxy"] = Field(..., description="Generic legacy proxy for approved internal routes.")
+    payload: LegacyProxyPayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "legacy.proxy",
+                "payload": {
+                    "method": "GET",
+                    "path": "/api/health",
+                    "params": {},
+                    "timeout": 120,
+                },
+            }
+        }
+    )
+
+
+class FtthGenerateBngPayload(BaseModel):
+    deployment_type: str = Field(..., description="Template/deployment profile identifier selected by the tenant.")
+    router_identity: str = Field(..., description="Target router identity/hostname.")
+    loopback_ip: str = Field(..., description="Loopback address with prefix.")
+    olt_network: str = Field(..., description="Assigned OLT network block.")
+    olt_name_primary: str = Field(..., description="Primary OLT name.")
+    cpe_network: Optional[str] = Field(default=None, description="Subscriber-facing CPE network block.")
+    cgnat_private: Optional[str] = Field(default=None, description="Private CGNAT address space.")
+    access_policy: Optional[str] = Field(default=None, description="Tenant-defined policy/template reference.")
+    tenant_code: Optional[str] = Field(default=None, description="Tenant identifier for downstream automation.")
+
+
+class FtthGenerateBngJobRequest(BaseModel):
+    action: Literal["ftth.generate_bng"] = Field(..., description="Generate FTTH BNG configuration output.")
+    payload: FtthGenerateBngPayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "ftth.generate_bng",
+                "payload": {
+                    "deployment_type": "standard-bng",
+                    "router_identity": "RTR-EDGE-01",
+                    "loopback_ip": "10.249.7.137/32",
+                    "olt_network": "10.249.180.0/29",
+                    "olt_name_primary": "OLT-WEST-01",
+                    "cpe_network": "100.64.32.0/19",
+                    "cgnat_private": "100.64.0.0/10",
+                    "access_policy": "fiber-default",
+                    "tenant_code": "tenant-a",
+                },
+            }
+        }
+    )
+
+
+class FtthPreviewBngPayload(BaseModel):
+    loopback_ip: str = Field(..., description="Loopback address with prefix.")
+    cpe_cidr: str = Field(..., description="Subscriber/CPE CIDR block.")
+    cgnat_cidr: str = Field(..., description="CGNAT CIDR block.")
+
+
+class FtthPreviewBngJobRequest(BaseModel):
+    action: Literal["ftth.preview_bng"] = Field(..., description="Preview FTTH address plan outputs without generating config.")
+    payload: FtthPreviewBngPayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "ftth.preview_bng",
+                "payload": {
+                    "loopback_ip": "10.249.7.137/32",
+                    "cpe_cidr": "10.249.184.0/21",
+                    "cgnat_cidr": "100.64.0.0/10",
+                },
+            }
+        }
+    )
+
+
+class NokiaBackhaulItem(BaseModel):
+    name: str = Field(..., description="Backhaul interface or logical service name.")
+    peer_ip: Optional[str] = Field(default=None, description="Peer address when applicable.")
+    vlan: Optional[int] = Field(default=None, description="VLAN id when applicable.")
+    description: Optional[str] = Field(default=None, description="Tenant-facing description.")
+
+
+class NokiaGenerate7250Payload(BaseModel):
+    system_name: str = Field(..., description="Router hostname/system name.")
+    system_ip: str = Field(..., description="System loopback address.")
+    location: str = Field(..., description="Site or market label.")
+    backhauls: List[NokiaBackhaulItem] = Field(..., description="Backhaul definitions for the node.")
+    tenant_code: Optional[str] = Field(default=None, description="Tenant identifier for generated artifacts.")
+
+
+class NokiaGenerate7250JobRequest(BaseModel):
+    action: Literal["nokia.generate_7250"] = Field(..., description="Generate Nokia 7250 configuration output.")
+    payload: NokiaGenerate7250Payload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "nokia.generate_7250",
+                "payload": {
+                    "system_name": "PE1-WEST-01",
+                    "system_ip": "10.10.10.1",
+                    "location": "West Hub",
+                    "backhauls": [
+                        {"name": "to-core-a", "peer_ip": "10.10.20.1", "vlan": 2100, "description": "Primary uplink"}
+                    ],
+                    "tenant_code": "tenant-a",
+                },
+            }
+        }
+    )
+
+
+class TaranaGeneratePayload(BaseModel):
+    config: str = Field(..., description="Source configuration text or normalized device input.")
+    device: str = Field(..., description="Device or sector identifier.")
+    routeros_version: str = Field(..., description="Target RouterOS version.")
+    tenant_code: Optional[str] = Field(default=None, description="Tenant identifier for downstream automation.")
+
+
+class TaranaGenerateJobRequest(BaseModel):
+    action: Literal["tarana.generate"] = Field(..., description="Generate tenant-neutral Tarana configuration output.")
+    payload: TaranaGeneratePayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "tarana.generate",
+                "payload": {
+                    "config": "set interface ge-1/1/1 description backhaul",
+                    "device": "tarana-sector-a",
+                    "routeros_version": "7.16.2",
+                    "tenant_code": "tenant-a",
+                },
+            }
+        }
+    )
+
+
+class AviatRunPayload(BaseModel):
+    ips: List[str] = Field(..., description="Target radio management IP addresses.")
+    tasks: List[str] = Field(..., description="Requested maintenance tasks.")
+    firmware: Optional[str] = Field(default=None, description="Optional firmware target or package identifier.")
+    username: Optional[str] = Field(default=None, description="Device login username when required.")
+    password: Optional[str] = Field(default=None, description="Device login password when required.")
+    requested_by: Optional[str] = Field(default=None, description="Operator or calling system identity.")
+
+
+class AviatRunJobRequest(BaseModel):
+    action: Literal["aviat.run"] = Field(..., description="Run Aviat radio maintenance workflow.")
+    payload: AviatRunPayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "aviat.run",
+                "payload": {
+                    "ips": ["10.247.180.66"],
+                    "tasks": ["backup", "upgrade", "verify"],
+                    "firmware": "CTR-4.2.0",
+                    "requested_by": "omni-automation",
+                },
+            }
+        }
+    )
+
+
+class MikrotikToNokiaMigrationPayload(BaseModel):
+    source_config: str = Field(..., description="Source MikroTik configuration text.")
+    preserve_ips: bool = Field(default=True, description="Preserve source IP addressing during conversion.")
+    tenant_code: Optional[str] = Field(default=None, description="Tenant identifier for template/policy lookups.")
+
+
+class MikrotikToNokiaMigrationJobRequest(BaseModel):
+    action: Literal["migration.mikrotik_to_nokia"] = Field(
+        ..., description="Convert MikroTik configuration to Nokia SR OS format."
+    )
+    payload: MikrotikToNokiaMigrationPayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "migration.mikrotik_to_nokia",
+                "payload": {
+                    "source_config": "/interface bridge add name=bridge1",
+                    "preserve_ips": True,
+                    "tenant_code": "tenant-a",
+                },
+            }
+        }
+    )
+
+
+PublishedSubmitJobRequest = Union[
+    HealthGetJobRequest,
+    LegacyProxyJobRequest,
+    FtthGenerateBngJobRequest,
+    FtthPreviewBngJobRequest,
+    NokiaGenerate7250JobRequest,
+    TaranaGenerateJobRequest,
+    AviatRunJobRequest,
+    MikrotikToNokiaMigrationJobRequest,
+    SubmitJobRequest,
+]
 
 
 class JobAcceptedData(BaseModel):
@@ -518,6 +756,18 @@ COMMON_ERROR_RESPONSES = {
             }
         },
     },
+}
+
+
+PUBLIC_ACTION_NOTES: Dict[str, str] = {
+    "health.get": "Tenant-neutral health probe for the published service.",
+    "ftth.generate_bng": "Generate FTTH BNG artifacts using tenant-selected templates and policy references.",
+    "ftth.preview_bng": "Preview FTTH address planning output before generation.",
+    "nokia.generate_7250": "Generate Nokia 7250 artifacts from tenant-neutral structured input.",
+    "tarana.generate": "Generate Tarana-related configuration output.",
+    "aviat.run": "Run Aviat maintenance workflow for backup, status, verification, and upgrade operations.",
+    "migration.mikrotik_to_nokia": "Convert MikroTik configuration into Nokia SR OS format.",
+    "legacy.proxy": "Escape hatch for approved internal routes while native contract coverage is completed.",
 }
 
 
@@ -1513,6 +1763,30 @@ def _job_to_dict(job: JobRecord, include_payload: bool = False, include_events: 
     return out
 
 
+def _request_model_to_action_payload(payload: BaseModel) -> Tuple[str, Dict[str, Any]]:
+    payload_dict = payload.model_dump(exclude_none=True)
+    action = str(payload_dict.get("action") or "").strip()
+    if not action:
+        raise HTTPException(status_code=422, detail="Missing 'action'")
+
+    job_payload = payload_dict.get("payload")
+    if isinstance(job_payload, BaseModel):
+        job_payload = job_payload.model_dump(exclude_none=True)
+
+    if isinstance(job_payload, dict):
+        return action, job_payload
+
+    extra_payload: Dict[str, Any] = {}
+    model_extra = getattr(payload, "model_extra", None) or {}
+    if isinstance(model_extra, dict):
+        extra_payload.update({k: v for k, v in model_extra.items() if k != "action"})
+
+    for key, value in payload_dict.items():
+        if key != "action":
+            extra_payload.setdefault(key, value)
+    return action, extra_payload
+
+
 def _normalize_idempotency_key(value: Optional[str]) -> str:
     return (value or "").strip()
 
@@ -1555,9 +1829,9 @@ def v2_actions(_: Dict[str, Any] = Depends(_require_scope("actions.read"))):
         data={
             "actions": sorted(_ACTION_HANDLERS.keys()),
             "notes": {
-                "mt.*": "Native renderer actions",
-                "legacy.proxy": "Whitelisted generic proxy to legacy /api/* endpoint",
-                "activity.list/configs.list": "Convenience wrappers for common list endpoints",
+                **PUBLIC_ACTION_NOTES,
+                "mt.*": "Native renderer actions for MikroTik-oriented configuration workflows.",
+                "activity.list/configs.list": "Convenience wrappers for common list endpoints.",
             },
         },
     )
@@ -1619,8 +1893,9 @@ def v2_omni_bootstrap(auth: Dict[str, Any] = Depends(_require_scope("actions.rea
             },
             "notes": {
                 "read_method": "READ maps to GET in HTTP semantics",
-                "auth": "X-API-Key + HMAC signature headers",
+                "auth": "Use X-API-Key or Authorization: Bearer <key>; signing headers are optional unless tenant policy requires them.",
                 "idempotency": "Mutating endpoints require Idempotency-Key",
+                "tenant_model": "Public payloads should reference tenant templates/policies instead of provider-specific hardcoded behavior.",
             },
         },
         message="OMNI bootstrap contract",
@@ -1670,13 +1945,7 @@ def v2_submit_job(
             status_code, body = existing
             return JSONResponse(status_code=status_code, content=body)
 
-    payload_dict = payload.model_dump(exclude_none=True)
-    action = (payload.action or "").strip()
-    if not action:
-        raise HTTPException(status_code=422, detail="Missing 'action'")
-    job_payload = payload.payload
-    if not isinstance(job_payload, dict):
-        job_payload = {k: v for k, v in payload_dict.items() if k != "action"}
+    action, job_payload = _request_model_to_action_payload(payload)
     rid = request.headers.get("X-Request-ID") or _request_id()
     job = _JOBS.submit(action=action, payload=job_payload, submitted_by=auth["api_key"], request_id=rid)
     response_body = _envelope(
@@ -1713,13 +1982,19 @@ def v2_submit_job(
 )
 def v2_omni_submit_job(
     request: Request,
-    payload: SubmitJobRequest = Body(...),
+    payload: PublishedSubmitJobRequest = Body(
+        ...,
+        description=(
+            "Curated published job contract. High-value actions use explicit tenant-neutral payload schemas; "
+            "the generic action+payload fallback remains available for actions not yet modeled."
+        ),
+    ),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
     auth: Dict[str, Any] = Depends(_require_scope("job.submit")),
 ):
     return v2_submit_job(
         request=request,
-        payload=payload,
+        payload=SubmitJobRequest.model_validate(payload.model_dump(exclude_none=True)),
         idempotency_key=idempotency_key,
         auth=auth,
     )
