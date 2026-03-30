@@ -8,12 +8,12 @@ This maps current NOC ConfigMaker UI workflows to `/api/v2` job actions for OMNI
 |-------------|---------------------|--------------------------------------------|--------|
 | Home / Dashboard | Health, activity, app defaults, infrastructure | `health.get`, `activity.list`, `configs.list`, `legacy.proxy` | Partial |
 | MikroTik Config | Router/generator workflows, enterprise, Tarana | `mt.*`, `enterprise.generate_non_mpls`, `tarana.generate` | Partial |
-| Field Config Studio | IDO-backed device interrogation and generation | `ido.*` actions | Partial |
-| Devices Firmware Updater | Aviat and Cambium workflows | `aviat.*` typed start, Cambium not yet promoted into v2 | Partial |
-| FTTH Configurator | Preview/generate BNG plus FTTH site/customer tools | `ftth.preview_bng`, `ftth.generate_bng`, `ftth.mf2_package` | Partial |
+| Field Config Studio | IDO-backed device interrogation and generation | `ido.*` typed start for ping/generic info, more subflows remain | Partial |
+| Devices Firmware Updater | Aviat and Cambium workflows | `aviat.*` typed start, `cambium.run` typed start | Partial |
+| FTTH Configurator | Preview/generate BNG plus FTTH site/customer tools | `ftth.preview_bng`, `ftth.generate_bng`, `ftth.fiber_customer`, `ftth.fiber_site`, `ftth.isd_fiber` | Partial |
 | Command Vault | Nokia/Cisco/MikroTik references | Not yet promoted as first-class published contract | Gap |
 | Cisco Port Setup | Cisco-specific config helper | Not yet promoted as first-class published contract | Gap |
-| Power Tools | Diff, bulk ops, maintenance, compliance | `compliance.*` typed start, bulk/diff not yet promoted | Partial |
+| Power Tools | Diff, bulk ops, maintenance, compliance | `compliance.*` typed start, `bulk.*` typed start, diff still pending | Partial |
 | History | Saved configs and log history | `configs.*`, `activity.*` typed start | Partial |
 | Feedback / Admin | Feedback submission and review/admin actions | `feedback.submit`, `admin.feedback.*` | Partial |
 
@@ -67,6 +67,7 @@ Use API key + HMAC signing + Idempotency-Key (for POST).
 |--------|-------------|---------|
 | `nokia.defaults` | Get Nokia 7250 credentials from env vars | `{}` |
 | `nokia.generate_7250` | Generate Nokia 7250 IN-STATE config (legacy builder) | `{"system_name": "RTR-7250-SITE", "system_ip": "10.42.12.88/32", "location": "32.7767,-96.7970", "port1_desc": "Switch", "port2_desc": "Switch", "port2_shutdown": false, "enable_ospf": true, "enable_bgp": true, "enable_fiber": false, "fiber_interface": "FIBERCOMM", "fiber_ip": "", "backhauls": [{"name": "BH-EAST", "ip": "10.42.12.1/30"}]}` |
+| `nokia.configurator.generate` | Generate unified Nokia configurator output | `{"model": "7750", "profile": "edge-standard", "system_name": "PE1-WEST-01", "system_ip": "10.10.10.1", "tenant_code": "tenant-a"}` |
 | `ido.nokia7250.generate` | Generate Nokia 7250 config via IDO/Jinja2 templates (returns file) | `{"hostname": "RTR-7250-SITE", "system_ip": "10.42.12.88/32", "backhauls": [{"name": "BH-EAST", "ip": "10.42.12.1/30"}], "uplinks": [{"name": "uplink1"}]}` |
 
 **Response for `nokia.generate_7250`:**
@@ -98,12 +99,16 @@ Use API key + HMAC signing + Idempotency-Key (for POST).
 | `ftth.preview_bng` | Preview FTTH BNG CIDR details | `{"loopback_ip": "10.x.x.x/32", "cpe_cidr": "10.x.x.0/22", "cgnat_cidr": "100.64.x.0/22", "olt_cidr": "10.x.x.0/29"}` |
 | `ftth.generate_bng` | Generate full FTTH BNG config | `{"deployment_type": "outstate", "router_identity": "RTR-MT2216-AR1.SITE", "loopback_ip": "10.x.x.x/32", "cpe_network": "10.x.x.0/22", "cgnat_private": "100.64.x.0/22", "cgnat_public": "132.147.x.x/32", "unauth_network": "10.x.x.0/22", "olt_network": "10.x.x.0/29", "olt_name_primary": "OLT-GW", "routeros_version": "7.19.4"}` |
 | `ftth.mf2_package` | Generate FTTH MF2 OLT package | `{"olt_name": "OLT-1", "olt_ip": "10.x.x.2", "gateway_ip": "10.x.x.1", "vlan_id": 100}` |
+| `ftth.fiber_customer` | Generate FTTH fiber customer handoff config | `{"routerboard": "CCR2004", "routeros": "7.19.4", "provider": "tenant-a", "address": "132.147.10.2/30", "network": "132.147.10.0/30", "port": "sfp-sfpplus1", "vlan_mode": "tagged", "vlan_id": "2100"}` |
+| `ftth.fiber_site` | Generate paired FTTH fiber site configs | `{"tower_name": "WEST-HUB", "loopback_1072": "10.249.50.1/32", "loopback_1036": "10.249.50.2/32", "bh1_subnet": "10.249.60.0/30", "link_1072_1036_a": "10.249.61.0/31", "link_1072_1036_b": "10.249.61.2/31", "fiber_port_ip": "10.249.62.1/30"}` |
+| `ftth.isd_fiber` | Generate ISD fiber config + port map | `{"router_type": "CCR1036", "tower_name": "WEST-HUB", "loopback_subnet": "10.249.70.1/32", "private_ip": "10.249.71.1/30", "public_ip": "132.147.20.1/30", "fiber_port_ip": "10.249.72.1/30"}` |
 
 ## Migration / Translation
 
 | Action | Description | Payload |
 |--------|-------------|---------|
 | `migration.config` | Generic config migration | `{"source_config": "...", "source_type": "mikrotik", "target_type": "nokia"}` |
+| `migration.parse_mikrotik_for_nokia` | Parse MikroTik config for Nokia migration helper | `{"config": "/interface bridge\nadd name=..."}` |
 | `migration.mikrotik_to_nokia` | MikroTik -> Nokia migration | `{"source_config": "/interface bridge\nadd name=...", "preserve_ips": true}` |
 | `config.validate` | Validate config | `{"config": "...", "device_type": "ccr2004", "routeros_version": "7.19.4"}` |
 | `config.suggest` | Suggest config improvements | `{"config": "...", "context": "tower router"}` |
@@ -210,6 +215,23 @@ Use API key + HMAC signing + Idempotency-Key (for POST).
 | `aviat.fix_stp` | Fix STP on device | `{"ip": "10.x.x.x"}` |
 | `aviat.stream.global` | Stream global log (SSE) | `{}` |
 | `aviat.abort` | Abort a running task | `{"task_id": "uuid-here"}` |
+
+## Cambium Radio Updater
+
+| Action | Description | Payload |
+|--------|-------------|---------|
+| `cambium.run` | Run Cambium queue workflow for backup, firmware, and verify tasks | `{"radios": [{"ip": "10.247.180.66", "username": "admin", "password": "..."}], "tasks": ["backup", "firmware", "verify"], "firmware_version": "5.10.4-13433", "firmware_source": "stable", "requested_by": "omni-automation"}` |
+
+## Bulk Operations Center
+
+| Action | Description | Payload |
+|--------|-------------|---------|
+| `bulk.generate` | Run bulk config generation | `{"config_type": "tower", "rows": [{"site_name": "WEST-HUB", "loopback_subnet": "10.249.7.137/32"}], "save_completed": true}` |
+| `bulk.ssh_fetch` | Fetch configs from many devices over SSH | `{"rows": [{"host": "10.x.x.x", "username": "admin", "password": "..."}], "command": "/export terse"}` |
+| `bulk.migration_analyze` | Analyze many migration inputs before generation | `{"rows": [{"site_name": "WEST-HUB", "source_config": "/interface bridge add name=bridge1"}]}` |
+| `bulk.migration_execute` | Execute prepared bulk migration rows | `{"rows": [{"site_name": "WEST-HUB", "source_config": "/interface bridge add name=bridge1"}], "save_completed": true}` |
+| `bulk.compliance_scan` | Scan many configs for compliance issues | `{"rows": [{"site_name": "WEST-HUB", "config": "/routing ospf instance set default"}]}` |
+| `device.ssh_push_config` | Push generated configs to devices over SSH | `{"rows": [{"host": "10.x.x.x", "username": "admin", "password": "...", "config": "/system identity set name=RTR-EDGE-01"}], "dry_run": false}` |
 
 ## Feedback
 

@@ -621,6 +621,349 @@ class FeedbackSubmitJobRequest(BaseModel):
     )
 
 
+class IdoPingPayload(BaseModel):
+    host: str = Field(..., description="Device management IP or hostname.")
+
+
+class IdoPingJobRequest(BaseModel):
+    action: Literal["ido.ping"] = Field(..., description="Ping a device through the IDO backend.")
+    payload: IdoPingPayload
+
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"action": "ido.ping", "payload": {"host": "10.249.10.10"}}}
+    )
+
+
+class IdoDeviceInfoPayload(BaseModel):
+    host: str = Field(..., description="Device management IP or hostname.")
+    username: str = Field(..., description="Device login username.")
+    password: str = Field(..., description="Device login password.")
+
+
+class IdoGenericDeviceInfoJobRequest(BaseModel):
+    action: Literal["ido.generic.device_info"] = Field(..., description="Fetch generic device facts through IDO.")
+    payload: IdoDeviceInfoPayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "ido.generic.device_info",
+                "payload": {"host": "10.249.10.10", "username": "admin", "password": "redacted"},
+            }
+        }
+    )
+
+
+class NokiaConfiguratorPayload(BaseModel):
+    model: str = Field(..., description="Target Nokia platform or model.")
+    profile: str = Field(..., description="Tenant profile or template name.")
+    system_name: str = Field(..., description="Router/system hostname.")
+    system_ip: str = Field(..., description="System loopback IP address.")
+    tenant_code: Optional[str] = Field(default=None, description="Tenant identifier used for policy/template lookup.")
+
+
+class NokiaConfiguratorJobRequest(BaseModel):
+    action: Literal["nokia.configurator.generate"] = Field(
+        ..., description="Generate Nokia configurator output for the unified Nokia workflow."
+    )
+    payload: NokiaConfiguratorPayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "nokia.configurator.generate",
+                "payload": {
+                    "model": "7750",
+                    "profile": "edge-standard",
+                    "system_name": "PE1-WEST-01",
+                    "system_ip": "10.10.10.1",
+                    "tenant_code": "tenant-a",
+                },
+            }
+        }
+    )
+
+
+class ParseMikrotikForNokiaPayload(BaseModel):
+    config: str = Field(..., description="Raw MikroTik configuration or export text.")
+
+
+class ParseMikrotikForNokiaJobRequest(BaseModel):
+    action: Literal["migration.parse_mikrotik_for_nokia"] = Field(
+        ..., description="Parse MikroTik config into Nokia migration helper output."
+    )
+    payload: ParseMikrotikForNokiaPayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "migration.parse_mikrotik_for_nokia",
+                "payload": {"config": "/interface bridge\nadd name=bridge1"},
+            }
+        }
+    )
+
+
+class FtthFiberCustomerPayload(BaseModel):
+    routerboard: str = Field(..., description="Target routerboard model.")
+    routeros: str = Field(..., description="Target RouterOS version.")
+    provider: str = Field(..., description="Tenant/provider profile name.")
+    address: str = Field(..., description="Customer/service IP address.")
+    network: str = Field(..., description="Customer/service network block.")
+    port: Optional[str] = Field(default=None, description="Access port label.")
+    loopback_ip: Optional[str] = Field(default=None, description="Router loopback IP.")
+    vlan_mode: Optional[str] = Field(default=None, description="VLAN mode such as none or tagged.")
+    vlan_id: Optional[str] = Field(default=None, description="VLAN id when tagged.")
+    apply_compliance: bool = Field(default=True, description="Apply compliance overlays before returning output.")
+
+
+class FtthFiberCustomerJobRequest(BaseModel):
+    action: Literal["ftth.fiber_customer"] = Field(..., description="Generate FTTH fiber customer handoff configuration.")
+    payload: FtthFiberCustomerPayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "ftth.fiber_customer",
+                "payload": {
+                    "routerboard": "CCR2004",
+                    "routeros": "7.19.4",
+                    "provider": "tenant-a",
+                    "address": "132.147.10.2/30",
+                    "network": "132.147.10.0/30",
+                    "port": "sfp-sfpplus1",
+                    "vlan_mode": "tagged",
+                    "vlan_id": "2100",
+                    "apply_compliance": True,
+                },
+            }
+        }
+    )
+
+
+class FtthFiberSitePayload(BaseModel):
+    tower_name: str = Field(..., description="Site/tower name.")
+    loopback_1072: str = Field(..., description="Loopback for the 1072 node.")
+    loopback_1036: str = Field(..., description="Loopback for the 1036 node.")
+    bh1_subnet: str = Field(..., description="Primary backhaul subnet.")
+    link_1072_1036_a: str = Field(..., description="Link A between 1072 and 1036.")
+    link_1072_1036_b: str = Field(..., description="Link B between 1072 and 1036.")
+    fiber_port_ip: str = Field(..., description="Fiber uplink IP address.")
+    backhauls: Optional[List[Dict[str, Any]]] = Field(default=None, description="Optional additional backhaul definitions.")
+    apply_compliance: bool = Field(default=True, description="Apply compliance overlays before returning output.")
+
+
+class FtthFiberSiteJobRequest(BaseModel):
+    action: Literal["ftth.fiber_site"] = Field(..., description="Generate paired FTTH fiber site configurations.")
+    payload: FtthFiberSitePayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "ftth.fiber_site",
+                "payload": {
+                    "tower_name": "WEST-HUB",
+                    "loopback_1072": "10.249.50.1/32",
+                    "loopback_1036": "10.249.50.2/32",
+                    "bh1_subnet": "10.249.60.0/30",
+                    "link_1072_1036_a": "10.249.61.0/31",
+                    "link_1072_1036_b": "10.249.61.2/31",
+                    "fiber_port_ip": "10.249.62.1/30",
+                    "apply_compliance": True,
+                },
+            }
+        }
+    )
+
+
+class FtthIsdFiberPayload(BaseModel):
+    router_type: str = Field(..., description="Target router type.")
+    tower_name: str = Field(..., description="Site/tower name.")
+    loopback_subnet: str = Field(..., description="Loopback subnet or IP.")
+    private_ip: str = Field(..., description="Private service IP.")
+    public_ip: str = Field(..., description="Public service IP.")
+    fiber_port_ip: str = Field(..., description="Fiber port IP.")
+    backhauls: Optional[List[Dict[str, Any]]] = Field(default=None, description="Optional backhaul definitions.")
+    apply_compliance: bool = Field(default=True, description="Apply compliance overlays before returning output.")
+
+
+class FtthIsdFiberJobRequest(BaseModel):
+    action: Literal["ftth.isd_fiber"] = Field(..., description="Generate ISD fiber configuration and port map.")
+    payload: FtthIsdFiberPayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "ftth.isd_fiber",
+                "payload": {
+                    "router_type": "CCR1036",
+                    "tower_name": "WEST-HUB",
+                    "loopback_subnet": "10.249.70.1/32",
+                    "private_ip": "10.249.71.1/30",
+                    "public_ip": "132.147.20.1/30",
+                    "fiber_port_ip": "10.249.72.1/30",
+                    "apply_compliance": True,
+                },
+            }
+        }
+    )
+
+
+class BulkGeneratePayload(BaseModel):
+    config_type: str = Field(..., description="Generator/config type to run in bulk.")
+    rows: List[Dict[str, Any]] = Field(..., description="Normalized bulk input rows.")
+    save_completed: bool = Field(default=True, description="Persist generated configs after successful execution.")
+
+
+class BulkGenerateJobRequest(BaseModel):
+    action: Literal["bulk.generate"] = Field(..., description="Generate multiple configs in a single batch.")
+    payload: BulkGeneratePayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "bulk.generate",
+                "payload": {
+                    "config_type": "tower",
+                    "rows": [{"site_name": "WEST-HUB", "loopback_subnet": "10.249.7.137/32"}],
+                    "save_completed": True,
+                },
+            }
+        }
+    )
+
+
+class BulkSshFetchPayload(BaseModel):
+    rows: List[Dict[str, Any]] = Field(..., description="Bulk SSH fetch targets with host and credential fields.")
+    command: Optional[str] = Field(default=None, description="Optional override command used for each target.")
+
+
+class BulkSshFetchJobRequest(BaseModel):
+    action: Literal["bulk.ssh_fetch"] = Field(..., description="Fetch configs from multiple devices over SSH.")
+    payload: BulkSshFetchPayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "bulk.ssh_fetch",
+                "payload": {
+                    "rows": [{"host": "10.249.10.10", "username": "admin", "password": "redacted"}],
+                    "command": "/export terse",
+                },
+            }
+        }
+    )
+
+
+class BulkMigrationAnalyzePayload(BaseModel):
+    rows: List[Dict[str, Any]] = Field(..., description="Bulk migration source rows.")
+
+
+class BulkMigrationAnalyzeJobRequest(BaseModel):
+    action: Literal["bulk.migration_analyze"] = Field(..., description="Analyze multiple migration inputs before execution.")
+    payload: BulkMigrationAnalyzePayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "bulk.migration_analyze",
+                "payload": {"rows": [{"site_name": "WEST-HUB", "source_config": "/interface bridge add name=bridge1"}]},
+            }
+        }
+    )
+
+
+class BulkMigrationExecutePayload(BaseModel):
+    rows: List[Dict[str, Any]] = Field(..., description="Prepared migration execution rows.")
+    save_completed: bool = Field(default=True, description="Persist generated outputs after successful execution.")
+
+
+class BulkMigrationExecuteJobRequest(BaseModel):
+    action: Literal["bulk.migration_execute"] = Field(..., description="Execute a prepared bulk migration batch.")
+    payload: BulkMigrationExecutePayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "bulk.migration_execute",
+                "payload": {
+                    "rows": [{"site_name": "WEST-HUB", "source_config": "/interface bridge add name=bridge1"}],
+                    "save_completed": True,
+                },
+            }
+        }
+    )
+
+
+class BulkComplianceScanPayload(BaseModel):
+    rows: List[Dict[str, Any]] = Field(..., description="Configs or devices to scan in bulk.")
+    mode: Optional[str] = Field(default=None, description="Optional scan mode/profile.")
+
+
+class BulkComplianceScanJobRequest(BaseModel):
+    action: Literal["bulk.compliance_scan"] = Field(..., description="Run bulk compliance scanning workflow.")
+    payload: BulkComplianceScanPayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "bulk.compliance_scan",
+                "payload": {"rows": [{"site_name": "WEST-HUB", "config": "/routing ospf instance set default"}]},
+            }
+        }
+    )
+
+
+class SshPushConfigPayload(BaseModel):
+    rows: List[Dict[str, Any]] = Field(..., description="Target devices plus config content to push.")
+    dry_run: bool = Field(default=False, description="Validate connectivity without applying config.")
+
+
+class SshPushConfigJobRequest(BaseModel):
+    action: Literal["device.ssh_push_config"] = Field(..., description="Push prepared configs to multiple devices over SSH.")
+    payload: SshPushConfigPayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "device.ssh_push_config",
+                "payload": {
+                    "rows": [{"host": "10.249.10.10", "username": "admin", "password": "redacted", "config": "/system identity set name=RTR-EDGE-01"}],
+                    "dry_run": False,
+                },
+            }
+        }
+    )
+
+
+class CambiumRunPayload(BaseModel):
+    radios: List[Dict[str, Any]] = Field(..., description="Cambium radios queued for maintenance or upgrade.")
+    tasks: List[str] = Field(..., description="Requested task list such as backup, firmware, or verify.")
+    firmware_version: Optional[str] = Field(default=None, description="Target firmware version when applicable.")
+    firmware_source: Optional[str] = Field(default=None, description="Firmware catalog/source selector.")
+    requested_by: Optional[str] = Field(default=None, description="Operator or calling system identity.")
+
+
+class CambiumRunJobRequest(BaseModel):
+    action: Literal["cambium.run"] = Field(..., description="Run Cambium radio workflow for backup, firmware, and verification.")
+    payload: CambiumRunPayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "cambium.run",
+                "payload": {
+                    "radios": [{"ip": "10.247.180.66", "username": "admin", "password": "redacted"}],
+                    "tasks": ["backup", "firmware", "verify"],
+                    "firmware_version": "5.10.4-13433",
+                    "firmware_source": "stable",
+                    "requested_by": "omni-automation",
+                },
+            }
+        }
+    )
+
+
 class MikrotikToNokiaMigrationPayload(BaseModel):
     source_config: str = Field(..., description="Source MikroTik configuration text.")
     preserve_ips: bool = Field(default=True, description="Preserve source IP addressing during conversion.")
@@ -661,6 +1004,20 @@ PublishedSubmitJobRequest = Union[
     ComplianceApplyJobRequest,
     CompliancePolicyGetJobRequest,
     FeedbackSubmitJobRequest,
+    IdoPingJobRequest,
+    IdoGenericDeviceInfoJobRequest,
+    NokiaConfiguratorJobRequest,
+    ParseMikrotikForNokiaJobRequest,
+    FtthFiberCustomerJobRequest,
+    FtthFiberSiteJobRequest,
+    FtthIsdFiberJobRequest,
+    BulkGenerateJobRequest,
+    BulkSshFetchJobRequest,
+    BulkMigrationAnalyzeJobRequest,
+    BulkMigrationExecuteJobRequest,
+    BulkComplianceScanJobRequest,
+    SshPushConfigJobRequest,
+    CambiumRunJobRequest,
     MikrotikToNokiaMigrationJobRequest,
     SubmitJobRequest,
 ]
@@ -918,6 +1275,20 @@ PUBLIC_ACTION_NOTES: Dict[str, str] = {
     "compliance.apply": "Apply compliance overlays or normalization rules to configuration text.",
     "compliance.policies.get": "Retrieve a named tenant policy/template definition.",
     "feedback.submit": "Submit operator feedback, bug reports, or feature requests.",
+    "ido.ping": "Probe device reachability through the IDO backend.",
+    "ido.generic.device_info": "Retrieve generic device facts through the IDO backend.",
+    "nokia.configurator.generate": "Generate Nokia configurator output for the unified Nokia workflow.",
+    "migration.parse_mikrotik_for_nokia": "Parse MikroTik exports into Nokia migration helper structures.",
+    "ftth.fiber_customer": "Generate FTTH customer handoff configuration.",
+    "ftth.fiber_site": "Generate paired FTTH fiber site configurations.",
+    "ftth.isd_fiber": "Generate ISD fiber configuration output.",
+    "bulk.generate": "Execute batch config generation workflow.",
+    "bulk.ssh_fetch": "Fetch device configs in bulk over SSH.",
+    "bulk.migration_analyze": "Analyze bulk migration inputs before execution.",
+    "bulk.migration_execute": "Execute bulk migration jobs.",
+    "bulk.compliance_scan": "Run compliance scan across a bulk input set.",
+    "device.ssh_push_config": "Push prepared configs to devices over SSH.",
+    "cambium.run": "Run Cambium backup, firmware, and verify workflow.",
     "migration.mikrotik_to_nokia": "Convert MikroTik configuration into Nokia SR OS format.",
     "legacy.proxy": "Escape hatch for approved internal routes while native contract coverage is completed.",
 }
@@ -1716,6 +2087,7 @@ _ACTION_HANDLERS: Dict[str, Callable[[Dict[str, Any]], Any]] = {
     "configs.portmap.extract": _legacy_post("/api/extract-port-map"),
 
     # Migration / translation
+    "migration.parse_mikrotik_for_nokia": _legacy_post("/api/parse-mikrotik-for-nokia"),
     "migration.mikrotik_to_nokia": _legacy_post("/api/migrate-mikrotik-to-nokia"),
     "migration.config": _legacy_post("/api/migrate-config"),
     "compliance.apply": _legacy_post("/api/apply-compliance"),
@@ -1729,9 +2101,13 @@ _ACTION_HANDLERS: Dict[str, Callable[[Dict[str, Any]], Any]] = {
     "ftth.preview_bng": _legacy_post("/api/preview-ftth-bng"),
     "ftth.generate_bng": _legacy_post("/api/generate-ftth-bng"),
     "ftth.mf2_package": _legacy_post("/api/ftth-home/mf2-package"),
+    "ftth.fiber_customer": _legacy_post("/api/generate-ftth-fiber-customer"),
+    "ftth.fiber_site": _legacy_post("/api/generate-ftth-fiber-site"),
+    "ftth.isd_fiber": _legacy_post("/api/generate-ftth-isd-fiber"),
 
     # Nokia
     "nokia.generate_7250": _legacy_post("/api/generate-nokia7250"),
+    "nokia.configurator.generate": _legacy_post("/api/generate-nokia-configurator"),
     "nokia.defaults": _legacy_get("/api/nokia7250-defaults"),
 
     # Enterprise
@@ -1745,6 +2121,14 @@ _ACTION_HANDLERS: Dict[str, Callable[[Dict[str, Any]], Any]] = {
 
     # Feedback
     "feedback.submit": _legacy_post("/api/feedback"),
+
+    # Bulk / orchestration
+    "bulk.generate": _legacy_post("/api/bulk-generate"),
+    "bulk.ssh_fetch": _legacy_post("/api/bulk-ssh-fetch"),
+    "bulk.migration_analyze": _legacy_post("/api/bulk-migration-analyze"),
+    "bulk.migration_execute": _legacy_post("/api/bulk-migration-execute"),
+    "bulk.compliance_scan": _legacy_post("/api/bulk-compliance-scan"),
+    "device.ssh_push_config": _legacy_post("/api/ssh-push-config"),
 
     # Admin
     "admin.feedback.list": _legacy_get("/api/admin/feedback"),
@@ -1809,6 +2193,9 @@ _ACTION_HANDLERS: Dict[str, Callable[[Dict[str, Any]], Any]] = {
     "aviat.abort": _aviat_abort,
     "aviat.status": _aviat_status,
     "aviat.precheck_recheck": _legacy_post("/api/aviat/precheck/recheck"),
+
+    # Cambium
+    "cambium.run": _legacy_post("/api/cambium/run"),
 }
 
 
@@ -1827,7 +2214,9 @@ _OMNI_WORKFLOWS: Dict[str, Any] = {
     "nokia_7250": {
         "defaults": "nokia.defaults",
         "generate": "nokia.generate_7250",
+        "configurator_generate": "nokia.configurator.generate",
         "generate_ido": "ido.nokia7250.generate",
+        "parse_mikrotik": "migration.parse_mikrotik_for_nokia",
         "migrate_from_mikrotik": "migration.mikrotik_to_nokia",
     },
     "enterprise": {
@@ -1838,6 +2227,8 @@ _OMNI_WORKFLOWS: Dict[str, Any] = {
     },
     "field_config_studio": {
         "capabilities": "ido.capabilities",
+        "ping": "ido.ping",
+        "generic_device_info": "ido.generic.device_info",
         "ap": ["ido.ap.device_info", "ido.ap.running_config", "ido.ap.standard_config", "ido.ap.generate"],
         "bh": ["ido.bh.device_info", "ido.bh.running_config", "ido.bh.standard_config", "ido.bh.generate"],
         "switch": ["ido.swt.device_info", "ido.swt.running_config", "ido.swt.standard_config", "ido.swt.generate"],
@@ -1865,6 +2256,20 @@ _OMNI_WORKFLOWS: Dict[str, Any] = {
         "preview_bng": "ftth.preview_bng",
         "generate_bng": "ftth.generate_bng",
         "mf2_package": "ftth.mf2_package",
+        "fiber_customer": "ftth.fiber_customer",
+        "fiber_site": "ftth.fiber_site",
+        "isd_fiber": "ftth.isd_fiber",
+    },
+    "bulk_operations": {
+        "generate": "bulk.generate",
+        "ssh_fetch": "bulk.ssh_fetch",
+        "migration_analyze": "bulk.migration_analyze",
+        "migration_execute": "bulk.migration_execute",
+        "compliance_scan": "bulk.compliance_scan",
+        "ssh_push_config": "device.ssh_push_config",
+    },
+    "cambium": {
+        "run": "cambium.run",
     },
     "compliance": {
         "apply": "compliance.apply",

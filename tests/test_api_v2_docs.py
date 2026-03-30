@@ -79,6 +79,16 @@ def test_docs_openapi_includes_typed_job_models():
     assert "DeviceFetchConfigSshJobRequest" in components
     assert "ComplianceApplyJobRequest" in components
     assert "FeedbackSubmitJobRequest" in components
+    assert "IdoPingJobRequest" in components
+    assert "IdoGenericDeviceInfoJobRequest" in components
+    assert "NokiaConfiguratorJobRequest" in components
+    assert "FtthFiberCustomerJobRequest" in components
+    assert "FtthFiberSiteJobRequest" in components
+    assert "FtthIsdFiberJobRequest" in components
+    assert "BulkGenerateJobRequest" in components
+    assert "BulkSshFetchJobRequest" in components
+    assert "BulkComplianceScanJobRequest" in components
+    assert "CambiumRunJobRequest" in components
 
     submit_post = schema["paths"]["/api/v2/omni/jobs"]["post"]
     request_schema = submit_post["requestBody"]["content"]["application/json"]["schema"]
@@ -94,6 +104,11 @@ def test_docs_openapi_includes_typed_job_models():
     assert "ConfigsSaveJobRequest" in request_refs
     assert "DeviceFetchConfigSshJobRequest" in request_refs
     assert "FeedbackSubmitJobRequest" in request_refs
+    assert "IdoPingJobRequest" in request_refs
+    assert "NokiaConfiguratorJobRequest" in request_refs
+    assert "FtthFiberCustomerJobRequest" in request_refs
+    assert "BulkGenerateJobRequest" in request_refs
+    assert "CambiumRunJobRequest" in request_refs
     assert "SubmitJobRequest" in request_refs
 
     security_schemes = schema["components"]["securitySchemes"]
