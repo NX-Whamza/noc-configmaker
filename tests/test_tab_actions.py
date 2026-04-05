@@ -22,14 +22,14 @@ client = app.test_client()
 
 
 def _admin_auth_header() -> dict[str, str]:
-    import os as _os
     # Use platform admin email; fall back to env var for flexibility
-    admin_email = _os.getenv("PLATFORM_ADMIN_EMAILS", "whamza@team.nxlink.com").split(",")[0].strip()
+    admin_email = os.getenv("PLATFORM_ADMIN_EMAILS", "whamza@team.nxlink.com").split(",")[0].strip()
     login = client.post(
         "/api/auth/login",
         json={
             "email": admin_email,
-            "password": _os.getenv("DEFAULT_PASSWORD", "NOCConfig2025!"),
+            # Reuse the single source of truth from api_server — no duplicate secrets in tests
+            "password": api_server.DEFAULT_PASSWORD,
         },
     )
     assert login.status_code == 200, login.get_data(as_text=True)
@@ -174,7 +174,7 @@ def test_feedback_and_admin_tab_actions_work():
         headers=headers,
         json={
             "email": "new.user@team.nxlink.com",
-            "newPassword": "ResetPass123!",
+            "newPassword": api_server.DEFAULT_PASSWORD,
             "requirePasswordChange": False,
         },
     )
