@@ -380,6 +380,46 @@ def test_migrate_config_strips_unmapped_source_only_sfp_defaults_on_target() -> 
     assert "default-name=sfp-sfpplus" in translated
 
 
+def test_migrate_config_uses_dynamic_compliance_strip_and_reports_source() -> None:
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
+
+    export = (
+        "# 2026-04-06 12:49:34 by RouterOS 7.19.4\n"
+        "# model = CCR2004-1G-12S+2XS\n"
+        "/ip service\n"
+        "set telnet disabled=yes port=5023\n"
+        "set ssh port=5022\n"
+        "/system logging action\n"
+        "add name=syslog remote=10.1.1.1 src-address=10.46.2.21 target=remote\n"
+        "/ip address\n"
+        "add address=10.46.2.21/32 interface=loop0 comment=loop0 network=10.46.2.21\n"
+    )
+
+    response = client.post(
+        "/api/migrate-config",
+        headers=headers,
+        data=json.dumps(
+            {
+                "config": export,
+                "source_device": "CCR2004-1G-12S+2XS",
+                "target_device": "CCR2216-1G-12XS-2XQ",
+                "target_version": "7.19.4",
+                "apply_compliance": True,
+            }
+        ),
+        content_type="application/json",
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    data = response.get_json() or {}
+    translated = data.get("translated_config", "")
+    assert data.get("compliance_applied") is True
+    assert data.get("compliance_source")
+    assert "set ssh port=5022" not in translated
+    assert "remote=10.1.1.1" not in translated
+    assert "# ENGINEERING-COMPLIANCE-APPLIED" in translated or "RFC-09-10-25 COMPLIANCE STANDARDS" in translated
+
+
 def test_supported_routerboard_pairs_do_not_leave_invalid_target_port_references() -> None:
     client, api_server = _load_app()
     headers = _auth_headers(client, api_server)
@@ -636,12 +676,57 @@ def test_migrate_config_normalizes_existing_target_family_ports_and_identity() -
     assert ports["sfp28-6"]["detected_role"] == "backhaul"
     assert ports["sfp28-6"]["target_port"] == "sfp28-4"
     assert ports["qsfp28-1-1"]["target_port"] in {"sfp28-5", "sfp28-6"}
+    assert data.get("allow_qsfp_ports") is False
     assert "set name=RTR-MT2216-AR1.TX-STRANGER-NE-1" in translated
     assert "# model =CCR2216-1G-12XS-2XQ" in translated
     assert "default-name=sfp28-1" in translated
     assert "default-name=sfp28-2" in translated
     assert "default-name=sfp28-5 ] auto-negotiation=no comment=TX-KOSSE-EA-1" in translated
     assert "default-name=qsfp28-1-1 ] auto-negotiation=no comment=TX-KOSSE-EA-1" not in translated
+    assert "set [ find default-name=qsfp28-1-1 ] disabled=yes" in translated
+    assert "set [ find default-name=qsfp28-2-1 ] disabled=yes" in translated
+
+
+def test_ccr2216_qsfp_ports_can_be_enabled_explicitly_for_overflow_mapping() -> None:
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
+    export_lines = [
+        "# 2026-04-06 12:10:25 by RouterOS 7.19.4",
+        "# model = CCR2004-1G-12S+2XS",
+        "/interface ethernet",
+    ]
+    source_ports = [f"sfp-sfpplus{i}" for i in range(1, 13)] + ["sfp28-1", "sfp28-2"]
+    for idx, port in enumerate(source_ports, start=1):
+        export_lines.append(f"set [ find default-name={port} ] comment=LINK-{idx}")
+    export_lines.append("/ip address")
+    export_lines.append("add address=10.255.0.1/32 interface=loop0 comment=Loopback network=10.255.0.1")
+    for idx, port in enumerate(source_ports, start=1):
+        export_lines.append(f"add address=10.250.{idx}.1/30 interface={port} comment=PTP{idx} network=10.250.{idx}.0")
+    export_lines.extend([
+        "/system identity",
+        "set name=RTR-MT2004-OVERFLOW.TEST",
+    ])
+    response = client.post(
+        "/api/migrate-config",
+        data=json.dumps(
+            {
+                "config": "\n".join(export_lines) + "\n",
+                "target_device": "CCR2216-1G-12XS-2XQ",
+                "target_version": "7.19.4",
+                "allow_qsfp_ports": True,
+                "apply_compliance": False,
+            }
+        ),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    data = response.get_json() or {}
+    assert data.get("allow_qsfp_ports") is True
+    analysis = data.get("migration_analysis") or {}
+    assert analysis.get("policy_summary", {}).get("allow_qsfp_ports") is True
+    targets = {row.get("target_port") for row in analysis.get("port_analysis", [])}
+    assert "qsfp28-1-1" in targets or "qsfp28-2-1" in targets
 
 
 def test_generic_logical_labels_do_not_override_physical_port_mapping() -> None:

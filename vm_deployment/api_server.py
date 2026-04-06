@@ -735,6 +735,12 @@ CAMBIUM_SHARED_QUEUE_STORE = Path(__file__).resolve().parent / "cambium_shared_q
 CAMBIUM_GLOBAL_LOG_LIMIT = 2000
 CAMBIUM_MAX_WORKERS = int(os.getenv("CAMBIUM_MAX_WORKERS", "4"))
 
+# ========================================
+# SSH FETCH TASK STATE
+# ========================================
+ssh_fetch_tasks = {}
+ssh_fetch_tasks_lock = threading.Lock()
+
 
 def _cambium_load_shared_queue():
     if not CAMBIUM_SHARED_QUEUE_STORE.exists():
@@ -2319,7 +2325,52 @@ def audit_target_interface_consistency(config_text, target_device):
     }
 
 
-def analyze_nextlink_port_mapping(config_text, source_device, target_device):
+def _set_target_qsfp_state(config_text, target_device, allow_qsfp_ports):
+    if target_device != 'CCR2216-1G-12XS-2XQ':
+        return config_text
+
+    qsfp_ports = ['qsfp28-1-1', 'qsfp28-2-1']
+    lines = (config_text or '').splitlines()
+    out_lines = []
+    in_ethernet_section = False
+    seen_ports = set()
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('/'):
+            in_ethernet_section = stripped == '/interface ethernet'
+            out_lines.append(line)
+            continue
+        if in_ethernet_section:
+            matched_port = next((port for port in qsfp_ports if re.search(rf'\bdefault-name={re.escape(port)}\b', line)), None)
+            if matched_port:
+                seen_ports.add(matched_port)
+                if allow_qsfp_ports:
+                    out_lines.append(line)
+                else:
+                    out_lines.append(f"set [ find default-name={matched_port} ] disabled=yes")
+                continue
+        out_lines.append(line)
+
+    if not allow_qsfp_ports:
+        desired_lines = [f"set [ find default-name={port} ] disabled=yes" for port in qsfp_ports if port not in seen_ports]
+        if desired_lines:
+            try:
+                ethernet_idx = next(i for i, line in enumerate(out_lines) if line.strip() == '/interface ethernet')
+            except StopIteration:
+                ethernet_idx = None
+            if ethernet_idx is None:
+                out_lines.extend(['/interface ethernet', *desired_lines])
+            else:
+                insert_at = ethernet_idx + 1
+                for desired in desired_lines:
+                    out_lines.insert(insert_at, desired)
+                    insert_at += 1
+
+    return '\n'.join(out_lines)
+
+
+def analyze_nextlink_port_mapping(config_text, source_device, target_device, allow_qsfp_ports=None):
     """
     Analyze source interfaces against Nextlink target port policy and build a deterministic map.
 
@@ -2343,6 +2394,8 @@ def analyze_nextlink_port_mapping(config_text, source_device, target_device):
     config_text = config_text or ''
     source_specs = ROUTERBOARD_INTERFACES[source_device]
     target_specs = ROUTERBOARD_INTERFACES[target_device]
+    if allow_qsfp_ports is None:
+        allow_qsfp_ports = target_device != 'CCR2216-1G-12XS-2XQ'
     source_mgmt = source_specs.get('management_port', 'ether1')
     target_mgmt = target_specs.get('management_port', 'ether1')
     source_ports = set(_all_device_ports(source_device))
@@ -2584,7 +2637,8 @@ def analyze_nextlink_port_mapping(config_text, source_device, target_device):
         if family_name != primary_family_name:
             secondary_ports.extend(family_ports)
     ordered_policy_ports = primary_family_ports + secondary_ports
-    qsfp_ports = sorted([p for p in target_ports if p.startswith('qsfp')], key=_port_sort_key)
+    all_qsfp_ports = sorted([p for p in target_ports if p.startswith('qsfp')], key=_port_sort_key)
+    qsfp_ports = list(all_qsfp_ports) if allow_qsfp_ports else []
 
     switch_pool = ordered_policy_ports[0:2]
     reserved_pool = ordered_policy_ports[2:3]
@@ -2736,6 +2790,8 @@ def analyze_nextlink_port_mapping(config_text, source_device, target_device):
             'radio_ports': radio_pool,
             'overflow_ports': overflow_pool,
             'primary_family': primary_family_name,
+            'allow_qsfp_ports': bool(allow_qsfp_ports),
+            'qsfp_ports': all_qsfp_ports,
         },
         'manual_review_required': manual_review_required,
     }
@@ -11240,6 +11296,206 @@ Return the corrected configuration with proper network calculations and formatti
 # SSH CONFIG FETCH
 # ========================================
 
+def _ssh_fetch_update_task(task_id: str, **fields) -> None:
+    with ssh_fetch_tasks_lock:
+        task = ssh_fetch_tasks.get(task_id)
+        if not task:
+            return
+        task.update(fields)
+
+
+def _run_mikrotik_ssh_fetch(
+    host: str,
+    ssh_username: str,
+    ssh_password: str,
+    ssh_ports: list[int],
+    command: str,
+    *,
+    should_abort=None,
+    progress_callback=None,
+):
+    try:
+        import paramiko
+    except ImportError:
+        return {'success': False, 'error': 'paramiko library not installed. Run: pip install paramiko', 'status_code': 500}
+
+    client = None
+    last_error = None
+    ports_tried = []
+    connection_errors = []
+
+    def _emit(message: str, **extra):
+        if callable(progress_callback):
+            try:
+                progress_callback(message, **extra)
+            except Exception:
+                pass
+
+    def _aborted_result():
+        return {
+            'success': False,
+            'aborted': True,
+            'error': 'SSH fetch aborted by user',
+            'status_code': 499,
+            'ports_tried': list(dict.fromkeys(ports_tried)) or list(ssh_ports),
+        }
+
+    def _close_client():
+        nonlocal client
+        if client:
+            try:
+                client.close()
+            except Exception:
+                pass
+            client = None
+
+    print(f"[SSH] Attempting connection to {host}, trying ports: {ssh_ports}")
+
+    for port in ssh_ports:
+        if callable(should_abort) and should_abort():
+            _emit('Abort requested before next port attempt', phase='aborting')
+            _close_client()
+            return _aborted_result()
+        try:
+            _emit(f'Trying SSH port {port}', phase='connecting', current_port=port)
+            print(f"[SSH] Trying port {port}...")
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            client.connect(
+                hostname=host,
+                port=port,
+                username=ssh_username,
+                password=ssh_password,
+                timeout=10,
+                banner_timeout=10,
+                auth_timeout=10
+            )
+
+            print(f"[SSH] Successfully connected on port {port}")
+            ports_tried.append(port)
+            _emit(f'Connected on port {port}', phase='connected', current_port=port)
+
+            if callable(should_abort) and should_abort():
+                _emit('Abort requested after connect', phase='aborting', current_port=port)
+                _close_client()
+                return _aborted_result()
+
+            stdin, stdout, stderr = client.exec_command(command, timeout=30)
+            channel = stdout.channel
+            channel.settimeout(1.0)
+            deadline = time.time() + 30
+            output_chunks = []
+            error_chunks = []
+            _emit('Running export command', phase='executing', current_port=port)
+
+            while True:
+                if callable(should_abort) and should_abort():
+                    _emit('Abort requested while reading command output', phase='aborting', current_port=port)
+                    try:
+                        channel.close()
+                    except Exception:
+                        pass
+                    _close_client()
+                    return _aborted_result()
+
+                drained = False
+                while channel.recv_ready():
+                    output_chunks.append(channel.recv(65535).decode('utf-8', errors='replace'))
+                    drained = True
+                while channel.recv_stderr_ready():
+                    error_chunks.append(channel.recv_stderr(65535).decode('utf-8', errors='replace'))
+                    drained = True
+
+                if channel.exit_status_ready():
+                    if not channel.recv_ready() and not channel.recv_stderr_ready():
+                        break
+
+                if time.time() > deadline:
+                    raise TimeoutError(f'Export command timed out on port {port}')
+
+                if not drained:
+                    time.sleep(0.1)
+
+            output = ''.join(output_chunks)
+            error_output = ''.join(error_chunks)
+
+            if error_output and 'error' in error_output.lower():
+                _close_client()
+                return {
+                    'success': False,
+                    'error': f'Device returned error on port {port}: {error_output[:200]}',
+                    'status_code': 500,
+                    'ports_tried': list(dict.fromkeys(ports_tried)),
+                }
+
+            if not output or not output.strip():
+                _close_client()
+                return {
+                    'success': False,
+                    'error': f'Device returned empty configuration on port {port}. Check RouterOS version and command.',
+                    'status_code': 500,
+                    'ports_tried': list(dict.fromkeys(ports_tried)),
+                }
+
+            normalized_output = normalize_line_breaks(output)
+            print(f"[SSH] Successfully fetched config from {host}:{port}")
+            _close_client()
+            return {
+                'success': True,
+                'config': normalized_output,
+                'host': host,
+                'port': port,
+                'command': command,
+                'message': f'Successfully connected on port {port}',
+                'ports_tried': list(dict.fromkeys(ports_tried)),
+                'status_code': 200,
+            }
+
+        except paramiko.AuthenticationException as e:
+            error_msg = f'SSH authentication failed on port {port}'
+            print(f"[SSH] {error_msg}: {str(e)}")
+            _close_client()
+            return {
+                'success': False,
+                'error': f'{error_msg}. Check credentials. Tried ports: {", ".join(map(str, ssh_ports))}',
+                'status_code': 401,
+                'ports_tried': list(dict.fromkeys(ports_tried)) or list(ssh_ports),
+            }
+        except paramiko.SSHException as e:
+            error_msg = f'SSH error on port {port}: {str(e)}'
+            print(f"[SSH] {error_msg}")
+            last_error = error_msg
+            connection_errors.append(f"Port {port}: {str(e)}")
+            ports_tried.append(port)
+            _close_client()
+            continue
+        except (OSError, ConnectionError, TimeoutError) as e:
+            error_msg = f'Connection error on port {port}: {str(e)}'
+            print(f"[SSH] {error_msg}")
+            last_error = error_msg
+            connection_errors.append(f"Port {port}: {str(e)}")
+            ports_tried.append(port)
+            _close_client()
+            continue
+        except Exception as e:
+            error_msg = f'Unexpected error on port {port}: {str(e)}'
+            print(f"[SSH] {error_msg}")
+            last_error = error_msg
+            connection_errors.append(f"Port {port}: {str(e)}")
+            ports_tried.append(port)
+            _close_client()
+            continue
+
+    ports_str = ', '.join(map(str, dict.fromkeys(ports_tried))) if ports_tried else ', '.join(map(str, ssh_ports))
+    error_details = '; '.join(connection_errors) if connection_errors else (last_error or "Unable to connect")
+    print(f"[SSH] All ports failed for {host}. Tried: {ports_str}. Errors: {error_details}")
+    return {
+        'success': False,
+        'error': f'Connection failed on all ports ({ports_str}). Errors: {error_details}',
+        'ports_tried': list(dict.fromkeys(ports_tried)) if ports_tried else list(ssh_ports),
+        'status_code': 502,
+    }
+
 @app.route('/api/fetch-config-ssh', methods=['POST'])
 def fetch_config_ssh():
     """
@@ -11259,17 +11515,11 @@ def fetch_config_ssh():
         return jsonify({'error': 'Invalid or expired token'}), 401
 
     try:
-        import paramiko
-    except ImportError:
-        return jsonify({
-            'error': 'paramiko library not installed. Run: pip install paramiko'
-        }), 500
-
-    try:
         data = request.get_json(force=True)
         host = data.get('host', '').strip()
         ros_version = data.get('ros_version', '7')
         command = data.get('command', '').strip()
+        async_task = bool(data.get('async_task'))
         
         if not host:
             return jsonify({'error': 'Device IP address is required'}), 400
@@ -11360,139 +11610,97 @@ def fetch_config_ssh():
         if command not in allowed_commands:
             return jsonify({'error': f'Invalid command. Allowed: {", ".join(allowed_commands)}'}), 400
         
-        # Try connecting via SSH - attempt both ports with detailed logging
-        client = None
-        last_error = None
-        ports_tried = []
-        connection_errors = []
-        
-        print(f"[SSH] Attempting connection to {host}, trying ports: {SSH_PORTS}")
-        
-        for port in SSH_PORTS:
-            try:
-                print(f"[SSH] Trying port {port}...")
-                client = paramiko.SSHClient()
-                client.set_missing_host_key_policy(paramiko.AutoAddPolicy())  # Auto-accept host key for convenience
-                
-                # Connection with timeout
-                client.connect(
-                    hostname=host,
-                    port=port,
-                    username=SSH_USERNAME,
-                    password=SSH_PASSWORD,
-                    timeout=10,
-                    banner_timeout=10,
-                    auth_timeout=10
-                )
-                
-                print(f"[SSH] Successfully connected on port {port}")
-                ports_tried.append(port)
-                
-                # Execute export command
-                stdin, stdout, stderr = client.exec_command(command, timeout=30)
-                
-                # Read output
-                output = stdout.read().decode('utf-8', errors='replace')
-                error_output = stderr.read().decode('utf-8', errors='replace')
-                
-                # Check for errors
-                if error_output and 'error' in error_output.lower():
-                    if client:
-                        try:
-                            client.close()
-                        except:
-                            pass
-                    return jsonify({
-                        'error': f'Device returned error on port {port}: {error_output[:200]}'
-                    }), 500
-                
-                if not output or not output.strip():
-                    if client:
-                        try:
-                            client.close()
-                        except:
-                            pass
-                    return jsonify({
-                        'error': f'Device returned empty configuration on port {port}. Check RouterOS version and command.'
-                    }), 500
-                
-                # Normalize line breaks (remove \ continuations) before returning
-                normalized_output = normalize_line_breaks(output)
-                
-                print(f"[SSH] Successfully fetched config from {host}:{port}")
-                
-                # Success! Return config (do not log sensitive data)
-                return jsonify({
-                    'config': normalized_output,
+        if async_task:
+            task_id = str(uuid.uuid4())
+            with ssh_fetch_tasks_lock:
+                ssh_fetch_tasks[task_id] = {
+                    'task_id': task_id,
+                    'status': 'queued',
                     'host': host,
-                    'port': port,
                     'command': command,
-                    'message': f'Successfully connected on port {port}'
-                })
-                
-            except paramiko.AuthenticationException as e:
-                # Auth failure - don't try other ports, credentials are wrong
-                error_msg = f'SSH authentication failed on port {port}'
-                print(f"[SSH] {error_msg}: {str(e)}")
-                if client:
-                    try:
-                        client.close()
-                    except:
-                        pass
-                return jsonify({
-                    'error': f'{error_msg}. Check credentials. Tried ports: {", ".join(map(str, SSH_PORTS))}'
-                }), 401
-            except paramiko.SSHException as e:
-                # SSH-specific error - try next port
-                error_msg = f'SSH error on port {port}: {str(e)}'
-                print(f"[SSH] {error_msg}")
-                last_error = error_msg
-                connection_errors.append(f"Port {port}: {str(e)}")
-                ports_tried.append(port)
-                if client:
-                    try:
-                        client.close()
-                    except:
-                        pass
-                client = None
-                continue  # Try next port
-            except (OSError, ConnectionError, TimeoutError) as e:
-                # Network/connection error - try next port
-                error_msg = f'Connection error on port {port}: {str(e)}'
-                print(f"[SSH] {error_msg}")
-                last_error = error_msg
-                connection_errors.append(f"Port {port}: {str(e)}")
-                ports_tried.append(port)
-                if client:
-                    try:
-                        client.close()
-                    except:
-                        pass
-                client = None
-                continue  # Try next port
-            except Exception as e:
-                # Other error - try next port
-                error_msg = f'Unexpected error on port {port}: {str(e)}'
-                print(f"[SSH] {error_msg}")
-                last_error = error_msg
-                connection_errors.append(f"Port {port}: {str(e)}")
-                ports_tried.append(port)
-                if client:
-                    try:
-                        client.close()
-                    except:
-                        pass
-                client = None
-                continue  # Try next port
-        
-        # All ports failed
-        ports_str = ', '.join(map(str, set(ports_tried))) if ports_tried else ', '.join(map(str, SSH_PORTS))
-        error_details = '; '.join(connection_errors) if connection_errors else (last_error or "Unable to connect")
-        print(f"[SSH] All ports failed for {host}. Tried: {ports_str}. Errors: {error_details}")
-        return jsonify({
-            'error': f'Connection failed on all ports ({ports_str}). Errors: {error_details}',
-            'ports_tried': list(set(ports_tried)) if ports_tried else SSH_PORTS
-        }), 502
+                    'ports': SSH_PORTS,
+                    'current_port': None,
+                    'message': 'Queued for SSH fetch',
+                    'abort': False,
+                    'started_at': get_utc_timestamp(),
+                    'completed_at': None,
+                }
+
+            def _worker():
+                _ssh_fetch_update_task(task_id, status='running', message='Starting SSH fetch')
+
+                def _should_abort():
+                    return ssh_fetch_tasks.get(task_id, {}).get('abort') is True
+
+                def _progress(message, **extra):
+                    payload = {'message': message}
+                    payload.update(extra)
+                    _ssh_fetch_update_task(task_id, **payload)
+
+                result = _run_mikrotik_ssh_fetch(
+                    host,
+                    SSH_USERNAME,
+                    SSH_PASSWORD,
+                    SSH_PORTS,
+                    command,
+                    should_abort=_should_abort,
+                    progress_callback=_progress,
+                )
+                if result.get('aborted'):
+                    _ssh_fetch_update_task(
+                        task_id,
+                        status='aborted',
+                        error=result.get('error'),
+                        completed_at=get_utc_timestamp(),
+                    )
+                    return
+                if result.get('success'):
+                    _ssh_fetch_update_task(
+                        task_id,
+                        status='completed',
+                        completed_at=get_utc_timestamp(),
+                        config=result.get('config'),
+                        port=result.get('port'),
+                        message=result.get('message'),
+                        ports_tried=result.get('ports_tried'),
+                    )
+                    return
+                _ssh_fetch_update_task(
+                    task_id,
+                    status='failed',
+                    error=result.get('error'),
+                    completed_at=get_utc_timestamp(),
+                    ports_tried=result.get('ports_tried'),
+                )
+
+            threading.Thread(target=_worker, daemon=True).start()
+            return jsonify({
+                'success': True,
+                'task_id': task_id,
+                'status': 'queued',
+                'message': 'SSH fetch task started',
+            }), 202
+
+        result = _run_mikrotik_ssh_fetch(
+            host,
+            SSH_USERNAME,
+            SSH_PASSWORD,
+            SSH_PORTS,
+            command,
+        )
+        if result.get('success'):
+            return jsonify({
+                'config': result.get('config'),
+                'host': result.get('host'),
+                'port': result.get('port'),
+                'command': result.get('command'),
+                'message': result.get('message'),
+            }), 200
+        status_code = int(result.get('status_code') or 500)
+        payload = {'error': result.get('error') or 'Backend error while fetching config'}
+        if result.get('ports_tried'):
+            payload['ports_tried'] = result.get('ports_tried')
+        return jsonify(payload), status_code
                     
     except Exception as e:
         # Do not expose internal errors or credentials
@@ -11500,6 +11708,27 @@ def fetch_config_ssh():
         return jsonify({
             'error': 'Backend error while fetching config'
         }), 500
+
+
+@app.route('/api/fetch-config-ssh/status/<task_id>', methods=['GET'])
+@require_auth
+def fetch_config_ssh_status(task_id):
+    task = ssh_fetch_tasks.get(task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    return jsonify(task)
+
+
+@app.route('/api/fetch-config-ssh/abort/<task_id>', methods=['POST'])
+@require_auth
+def fetch_config_ssh_abort(task_id):
+    task = ssh_fetch_tasks.get(task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    if task.get('status') in {'completed', 'failed', 'aborted'}:
+        return jsonify({'status': task.get('status')}), 200
+    _ssh_fetch_update_task(task_id, abort=True, status='aborting', message='Abort requested')
+    return jsonify({'status': 'aborting'})
 
 # ========================================
 # NOKIA 7250 CONFIG GENERATION
@@ -14069,7 +14298,9 @@ _API_REGISTRY = [
     {"method": "GET",  "path": "/api/get-routerboards",      "category": "Device Migration",  "summary": "List all supported RouterBoard models"},
     {"method": "GET",  "path": "/api/toolbox-inventory",     "category": "Device Migration",  "summary": "Toolbox feature inventory used for backend refinement"},
     # ── SSH / Remote ──
-    {"method": "POST", "path": "/api/fetch-config-ssh",      "category": "SSH / Remote",      "summary": "SSH into device and fetch config",          "payload": {"host": "str", "ros_version?": "6|7", "command?": "str"}},
+    {"method": "POST", "path": "/api/fetch-config-ssh",      "category": "SSH / Remote",      "summary": "SSH into device and fetch config",          "payload": {"host": "str", "ros_version?": "6|7", "command?": "str", "async_task?": "bool"}},
+    {"method": "GET",  "path": "/api/fetch-config-ssh/status/<task_id>", "category": "SSH / Remote", "summary": "Get SSH fetch task status"},
+    {"method": "POST", "path": "/api/fetch-config-ssh/abort/<task_id>",  "category": "SSH / Remote", "summary": "Abort a running SSH fetch task"},
     # ── Compliance & Policy ──
     {"method": "GET",  "path": "/api/compliance-status",     "category": "Compliance",        "summary": "GitLab health, active source, cache state"},
     {"method": "POST", "path": "/api/reload-compliance",     "category": "Compliance",        "summary": "Clear compliance TTL cache"},
@@ -15349,6 +15580,11 @@ def migrate_config():
         target_version = data.get('target_version', '7')
         source_device = resolve_routerboard_model_key(data.get('source_device', ''))
         apply_compliance = bool(data.get('apply_compliance', True))
+        allow_qsfp_ports = data.get('allow_qsfp_ports')
+        if allow_qsfp_ports is None:
+            allow_qsfp_ports = target_device != 'CCR2216-1G-12XS-2XQ'
+        else:
+            allow_qsfp_ports = bool(allow_qsfp_ports)
         
         if not config:
             return jsonify({'error': 'No configuration provided'}), 400
@@ -15400,7 +15636,12 @@ def migrate_config():
         needs_device_migration = (source_device != target_device)
 
         migrated_config = config
-        mapping_analysis = analyze_nextlink_port_mapping(config, effective_source_device, target_device)
+        mapping_analysis = analyze_nextlink_port_mapping(
+            config,
+            effective_source_device,
+            target_device,
+            allow_qsfp_ports=allow_qsfp_ports,
+        )
         interface_map = mapping_analysis.get('interface_map') or {}
         port_analysis = mapping_analysis.get('port_analysis') or []
         policy_summary = mapping_analysis.get('policy_summary') or {}
@@ -15441,10 +15682,17 @@ def migrate_config():
             target_device,
             target_version,
         )
+        migrated_config = _set_target_qsfp_state(migrated_config, target_device, allow_qsfp_ports)
         
-        if apply_compliance and HAS_ENGINEERING_COMPLIANCE:
-            loopback_ip = extract_loopback_ip(migrated_config)
-            migrated_config = apply_engineering_compliance(migrated_config, loopback_ip)
+        compliance_source = None
+        if apply_compliance:
+            loopback_ip = extract_loopback_ip(migrated_config) or "10.0.0.1"
+            compliance_blocks, compliance_source = _get_dynamic_compliance_blocks(loopback_ip, return_source=True)
+            migrated_config = inject_compliance_blocks(
+                migrated_config,
+                compliance_blocks,
+                loopback_ip=loopback_ip,
+            )
 
         validation = validate_translation(config, migrated_config)
         target_interface_audit = audit_target_interface_consistency(migrated_config, target_device)
@@ -15502,7 +15750,9 @@ def migrate_config():
             'syntax_migrated': needs_syntax_migration,
             'device_migrated': needs_device_migration or needs_interface_normalization,
             'interfaces_mapped': len(interface_map) if interface_map else 0,
-            'compliance_applied': bool(apply_compliance and HAS_ENGINEERING_COMPLIANCE),
+            'compliance_applied': bool(apply_compliance),
+            'compliance_source': compliance_source,
+            'allow_qsfp_ports': bool(allow_qsfp_ports),
             'validation': validation,
             'target_interface_audit': target_interface_audit,
             'migration_analysis': migration_analysis,
