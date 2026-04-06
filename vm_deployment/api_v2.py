@@ -971,6 +971,72 @@ class CambiumRunJobRequest(BaseModel):
     )
 
 
+class CiscoPortSetupPayload(BaseModel):
+    port_description: str = Field(..., description="Human-readable interface description.")
+    port_type: str = Field(default="TenGigE", description="Cisco interface family.")
+    port_number: str = Field(..., description="Cisco interface identifier such as 0/0/0/1.")
+    interface_ip: str = Field(..., description="Interface IPv4 address.")
+    subnet_mask: str = Field(default="255.255.255.252", description="IPv4 netmask.")
+    ospf_cost: int = Field(default=10, ge=1, le=65535, description="OSPF interface cost.")
+    ospf_process: int = Field(default=1, ge=1, le=65535, description="OSPF process number.")
+    ospf_area: str = Field(default="0", description="OSPF area identifier.")
+    mtu: int = Field(default=9216, ge=1500, le=9216, description="Interface MTU.")
+    passive: bool = Field(default=False, description="Whether to mark the OSPF interface passive.")
+
+
+class CiscoPortSetupJobRequest(BaseModel):
+    action: Literal["cisco.generate_port_setup"] = Field(
+        ..., description="Generate Cisco port and OSPF handoff configuration."
+    )
+    payload: CiscoPortSetupPayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "cisco.generate_port_setup",
+                "payload": {
+                    "port_description": "BH-TO-SITE-A",
+                    "port_type": "TenGigE",
+                    "port_number": "0/0/0/1",
+                    "interface_ip": "10.42.10.1",
+                    "subnet_mask": "255.255.255.252",
+                    "ospf_cost": 10,
+                    "ospf_process": 1,
+                    "ospf_area": "0",
+                    "mtu": 9216,
+                    "passive": False,
+                },
+            }
+        }
+    )
+
+
+class ConfigDiffComparePayload(BaseModel):
+    text_a: str = Field(..., description="First configuration text.")
+    text_b: str = Field(..., description="Second configuration text.")
+    label_a: Optional[str] = Field(default=None, description="Optional label for source A.")
+    label_b: Optional[str] = Field(default=None, description="Optional label for source B.")
+
+
+class ConfigDiffCompareJobRequest(BaseModel):
+    action: Literal["config.diff_compare"] = Field(..., description="Compare two configuration texts line-by-line.")
+    payload: ConfigDiffComparePayload
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "action": "config.diff_compare",
+                "payload": {
+                    "label_a": "Before",
+                    "label_b": "After",
+                    "text_a": "/system identity set name=RTR-EDGE-OLD",
+                    "text_b": "/system identity set name=RTR-EDGE-NEW",
+                },
+            }
+        }
+    )
+
+
 class MikrotikToNokiaMigrationPayload(BaseModel):
     source_config: str = Field(..., description="Source MikroTik configuration text.")
     preserve_ips: bool = Field(default=True, description="Preserve source IP addressing during conversion.")
@@ -1025,6 +1091,8 @@ PublishedSubmitJobRequest = Union[
     BulkComplianceScanJobRequest,
     SshPushConfigJobRequest,
     CambiumRunJobRequest,
+    CiscoPortSetupJobRequest,
+    ConfigDiffCompareJobRequest,
     MikrotikToNokiaMigrationJobRequest,
     SubmitJobRequest,
 ]
@@ -1297,6 +1365,8 @@ PUBLIC_ACTION_NOTES: Dict[str, str] = {
     "bulk.compliance_scan": "Run compliance scan across a bulk input set.",
     "device.ssh_push_config": "Push prepared configs to devices over SSH.",
     "cambium.run": "Run Cambium backup, firmware, and verify workflow.",
+    "cisco.generate_port_setup": "Generate Cisco port and OSPF handoff configuration.",
+    "config.diff_compare": "Compare two config texts using a backend diff engine.",
     "migration.mikrotik_to_nokia": "Convert MikroTik configuration into Nokia SR OS format.",
     "legacy.proxy": "Escape hatch for approved internal routes while native contract coverage is completed.",
 }
@@ -1828,6 +1898,184 @@ def _require_int(payload: Dict[str, Any], key: str) -> int:
         return int(payload.get(key))
     except Exception:
         raise ValueError(f"Missing or invalid '{key}'")
+
+
+def _validate_ipv4(value: str, field_name: str) -> str:
+    try:
+        return str(ipaddress.IPv4Address(str(value).strip()))
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid {field_name}: {value}") from exc
+
+
+def _validate_netmask(value: str) -> str:
+    mask = str(value).strip()
+    try:
+        ipaddress.IPv4Network(f"0.0.0.0/{mask}")
+        return mask
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid subnet_mask: {value}") from exc
+
+
+def _generate_cisco_port_setup(payload: Dict[str, Any]) -> Any:
+    desc = str(payload.get("port_description") or payload.get("desc") or "").strip()
+    port_type = str(payload.get("port_type") or "TenGigE").strip() or "TenGigE"
+    port_number = str(payload.get("port_number") or payload.get("port") or "").strip()
+    interface_ip = _validate_ipv4(payload.get("interface_ip") or payload.get("ip") or "", "interface_ip")
+    subnet_mask = _validate_netmask(payload.get("subnet_mask") or payload.get("mask") or "255.255.255.252")
+    ospf_cost = int(payload.get("ospf_cost") or 10)
+    ospf_process = int(payload.get("ospf_process") or 1)
+    ospf_area = str(payload.get("ospf_area") or "0").strip() or "0"
+    mtu = int(payload.get("mtu") or 9216)
+    passive = bool(payload.get("passive") or False)
+    ospf_key = "0456532B5A0B5B580D2028"
+
+    if not desc or not port_number:
+        raise HTTPException(status_code=422, detail="port_description and port_number are required")
+
+    passive_line = "passive" if passive else "no passive"
+    lines = [
+        "configure terminal",
+        "",
+        f"interface {port_type} {port_number}",
+        f"description {desc}",
+        f"mtu {mtu}",
+        f"ipv4 address {interface_ip} {subnet_mask}",
+        "no shutdown",
+        "!",
+        "",
+        f"router ospf {ospf_process} area {ospf_area}",
+        f" interface {port_type} {port_number}",
+        f"  cost {ospf_cost}",
+        "  authentication message-digest",
+        f"  message-digest-key 1 md5 encrypted {ospf_key}",
+        "  network point-to-point",
+        f"  {passive_line}",
+        " !",
+        "",
+        "commit",
+        "end",
+    ]
+    config = "\n".join(
+        line for index, line in enumerate(lines) if line or (index > 0 and lines[index - 1])
+    ).strip() + "\n"
+    return {
+        "config": config,
+        "metadata": {
+            "port_description": desc,
+            "port_type": port_type,
+            "port_number": port_number,
+            "interface_ip": interface_ip,
+            "subnet_mask": subnet_mask,
+            "ospf_cost": ospf_cost,
+            "ospf_process": ospf_process,
+            "ospf_area": ospf_area,
+            "mtu": mtu,
+            "passive": passive,
+        },
+    }
+
+
+def _config_diff_compare(payload: Dict[str, Any]) -> Any:
+    text_a = str(payload.get("text_a") or "")
+    text_b = str(payload.get("text_b") or "")
+    label_a = str(payload.get("label_a") or "A")
+    label_b = str(payload.get("label_b") or "B")
+    lines_a = text_a.splitlines()
+    lines_b = text_b.splitlines()
+    matcher = difflib.SequenceMatcher(a=lines_a, b=lines_b)
+
+    rows: List[Dict[str, Any]] = []
+    added = removed = unchanged = 0
+    a_no = 0
+    b_no = 0
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            for offset in range(i2 - i1):
+                a_no += 1
+                b_no += 1
+                unchanged += 1
+                rows.append(
+                    {
+                        "a_line_no": a_no,
+                        "a_text": lines_a[i1 + offset],
+                        "a_type": "unchanged",
+                        "b_line_no": b_no,
+                        "b_text": lines_b[j1 + offset],
+                        "b_type": "unchanged",
+                    }
+                )
+        elif tag == "delete":
+            for idx in range(i1, i2):
+                a_no += 1
+                removed += 1
+                rows.append(
+                    {
+                        "a_line_no": a_no,
+                        "a_text": lines_a[idx],
+                        "a_type": "removed",
+                        "b_line_no": None,
+                        "b_text": "",
+                        "b_type": "pad",
+                    }
+                )
+        elif tag == "insert":
+            for idx in range(j1, j2):
+                b_no += 1
+                added += 1
+                rows.append(
+                    {
+                        "a_line_no": None,
+                        "a_text": "",
+                        "a_type": "pad",
+                        "b_line_no": b_no,
+                        "b_text": lines_b[idx],
+                        "b_type": "added",
+                    }
+                )
+        elif tag == "replace":
+            max_len = max(i2 - i1, j2 - j1)
+            for offset in range(max_len):
+                a_text = lines_a[i1 + offset] if i1 + offset < i2 else ""
+                b_text = lines_b[j1 + offset] if j1 + offset < j2 else ""
+                a_line_no = None
+                b_line_no = None
+                a_type = "pad"
+                b_type = "pad"
+                if a_text != "":
+                    a_no += 1
+                    removed += 1
+                    a_line_no = a_no
+                    a_type = "removed"
+                if b_text != "":
+                    b_no += 1
+                    added += 1
+                    b_line_no = b_no
+                    b_type = "added"
+                rows.append(
+                    {
+                        "a_line_no": a_line_no,
+                        "a_text": a_text,
+                        "a_type": a_type,
+                        "b_line_no": b_line_no,
+                        "b_text": b_text,
+                        "b_type": b_type,
+                    }
+                )
+
+    return {
+        "label_a": label_a,
+        "label_b": label_b,
+        "summary": {
+            "added": added,
+            "removed": removed,
+            "unchanged": unchanged,
+            "lines_a": len(lines_a),
+            "lines_b": len(lines_b),
+            "rows": len(rows),
+        },
+        "rows": rows,
+    }
 
 
 def _configs_get(payload: Dict[str, Any]) -> Any:
@@ -2885,6 +3133,7 @@ _ACTION_HANDLERS: Dict[str, Callable[[Dict[str, Any]], Any]] = {
     "migration.parse_mikrotik": _legacy_post("/api/parse-mikrotik-for-nokia"),
     "migration.mikrotik_to_nokia": _legacy_post("/api/migrate-mikrotik-to-nokia"),
     "migration.config": _legacy_post("/api/migrate-config"),
+    "config.diff_compare": _config_diff_compare,
     "compliance.apply": _legacy_post("/api/apply-compliance"),
     "config.validate": _legacy_post("/api/validate-config"),
     "config.suggest": _legacy_post("/api/suggest-config"),
@@ -2912,6 +3161,9 @@ _ACTION_HANDLERS: Dict[str, Callable[[Dict[str, Any]], Any]] = {
 
     # Enterprise
     "enterprise.generate_non_mpls": _legacy_post("/api/gen-enterprise-non-mpls"),
+
+    # Cisco
+    "cisco.generate_port_setup": _generate_cisco_port_setup,
 
     # Tarana
     "tarana.generate": _legacy_post("/api/gen-tarana-config"),
@@ -3061,6 +3313,12 @@ _NEXUS_WORKFLOWS: Dict[str, Any] = {
         "delivery": "api",
         "actions": ["enterprise.generate_mpls"],
     },
+    "cisco": {
+        "generate_port_setup": "cisco.generate_port_setup",
+    },
+    "tarana": {
+        "generate": "tarana.generate",
+    },
     "tarana_sectors": {
         "label": "Tarana Sectors",
         "delivery": "api",
@@ -3148,6 +3406,7 @@ _NEXUS_WORKFLOWS: Dict[str, Any] = {
         "migration_execute": "bulk.migration_execute",
         "compliance_scan": "bulk.compliance_scan",
         "ssh_push_config": "device.ssh_push_config",
+        "config_diff": "config.diff_compare",
     },
     "cambium": {
         "run": "cambium.run",

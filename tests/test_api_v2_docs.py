@@ -77,7 +77,7 @@ def test_docs_openapi_includes_published_nexus_models():
 
     submit_post = schema["paths"]["/api/v2/nexus/jobs"]["post"]
     request_schema = submit_post["requestBody"]["content"]["application/json"]["schema"]
-    assert request_schema.get("type") == "object" or "$ref" in request_schema
+    assert request_schema.get("type") == "object" or "$ref" in request_schema or "anyOf" in request_schema
 
     request_examples = submit_post["requestBody"]["content"]["application/json"]["examples"]
     assert "enterprise_generate_mpls" in request_examples

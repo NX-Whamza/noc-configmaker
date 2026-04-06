@@ -22833,6 +22833,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                         headers: getAuthHeaders('application/json'),
                         body: JSON.stringify({
                             config: uploadedConfigContent,
+                            source_device: sourceDevice !== 'unknown' ? sourceDevice : undefined,
                             target_device: targetDevice,
                             target_version: targetVersion,
                             apply_compliance: true
@@ -35181,5 +35182,4 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
 </body>
 
 </html>
-
 

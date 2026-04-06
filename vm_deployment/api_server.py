@@ -2217,7 +2217,7 @@ def get_enterprise_device_profile(device_name: str):
         return ENTERPRISE_DEVICE_PROFILES[normalized].copy()
     model_key = resolve_routerboard_model_key(device_name)
     if model_key:
-        series = (ROUTERBOARD_MODELS.get(model_key, {}).get('series') or '').lower()
+        series = (ROUTERBOARD_INTERFACES.get(model_key, {}).get('series') or '').lower()
         if series in ENTERPRISE_DEVICE_PROFILES:
             return ENTERPRISE_DEVICE_PROFILES[series].copy()
     return ENTERPRISE_DEVICE_PROFILES['rb5009'].copy()
@@ -2228,7 +2228,7 @@ def get_mikrotik_identity_prefix(device_name: str, compact: bool = False) -> str
     if normalized not in ENTERPRISE_DEVICE_PROFILES:
         model_key = resolve_routerboard_model_key(device_name)
         if model_key:
-            normalized = (ROUTERBOARD_MODELS.get(model_key, {}).get('series') or '').lower() or normalized
+            normalized = (ROUTERBOARD_INTERFACES.get(model_key, {}).get('series') or '').lower() or normalized
 
     family_tokens = {
         'ccr1036': 'MTCCR1036',
@@ -2275,6 +2275,48 @@ def _extract_used_physical_interfaces(config_text, source_device):
             seen.add(port)
             physical.append(port)
     return physical
+
+
+def _extract_physical_interface_references(config_text):
+    refs = []
+    patterns = [
+        r'\bdefault-name=([^\s\]]+)',
+        r'\binterface=([^\s,]+)',
+        r'\bin-interface=([^\s,]+)',
+        r'\bout-interface=([^\s,]+)',
+        r'\binterfaces=([^\s]+)',
+        r'\bslaves=([^\s]+)',
+    ]
+    for pattern in patterns:
+        for match in re.finditer(pattern, config_text or '', re.MULTILINE):
+            raw = (match.group(1) or '').strip().strip('"')
+            if not raw:
+                continue
+            for token in [part.strip().strip('"') for part in raw.split(',') if part.strip()]:
+                if re.fullmatch(r'(?:ether\d+|sfp\d+(?:-\d+)?|sfp-sfpplus\d+|sfp28-\d+|qsfpplus\d+-\d+|qsfp28-\d+-\d+|qsfp\d+(?:-\d+)?|combo\d+)', token):
+                    refs.append(token)
+    return refs
+
+
+def audit_target_interface_consistency(config_text, target_device):
+    if target_device not in ROUTERBOARD_INTERFACES:
+        return {
+            'valid': False,
+            'target_device': target_device,
+            'invalid_interfaces': [],
+            'invalid_reference_count': 0,
+            'warnings': ['Unknown target device'],
+        }
+    target_ports = set(_all_device_ports(target_device))
+    invalid = sorted({port for port in _extract_physical_interface_references(config_text) if port not in target_ports})
+    return {
+        'valid': len(invalid) == 0,
+        'target_device': target_device,
+        'target_ports': sorted(target_ports, key=_port_sort_key),
+        'invalid_interfaces': invalid,
+        'invalid_reference_count': len(invalid),
+        'warnings': [] if not invalid else [f"Config references ports not present on {target_device}: {', '.join(invalid[:10])}"],
+    }
 
 
 def analyze_nextlink_port_mapping(config_text, source_device, target_device):
@@ -2794,7 +2836,7 @@ def find_best_target_port(source_port, source_type, target_device, used_ports):
     
     return None
 
-def migrate_interface_config(config_text, interface_map):
+def migrate_interface_config(config_text, interface_map, source_device=None, target_device=None):
     """
     Migrate all interface-related configuration
     
@@ -2826,6 +2868,33 @@ def migrate_interface_config(config_text, interface_map):
 
     for placeholder, new_interface in placeholders.items():
         migrated_config = migrated_config.replace(placeholder, new_interface)
+
+    # Remove stale ethernet defaults for source-only ports that cannot exist on the target.
+    # This avoids outputs like `default-name=sfp1` on targets such as CCR2004/CCR2216.
+    if source_device in ROUTERBOARD_INTERFACES and target_device in ROUTERBOARD_INTERFACES:
+        source_ports = set(_all_device_ports(source_device))
+        target_ports = set(_all_device_ports(target_device))
+        stale_source_ports = sorted(
+            port for port in source_ports
+            if port not in target_ports and port not in interface_map
+        )
+        if stale_source_ports:
+            stale_patterns = [
+                re.compile(rf'\bdefault-name={re.escape(port)}\b')
+                for port in stale_source_ports
+            ]
+            lines = []
+            in_ethernet_section = False
+            for line in migrated_config.splitlines():
+                stripped = line.strip()
+                if stripped.startswith('/'):
+                    in_ethernet_section = stripped == '/interface ethernet'
+                    lines.append(line)
+                    continue
+                if in_ethernet_section and any(pattern.search(line) for pattern in stale_patterns):
+                    continue
+                lines.append(line)
+            migrated_config = '\n'.join(lines)
     
     return migrated_config
 
@@ -2839,49 +2908,81 @@ def detect_device_from_config(config_text):
     3. Board name in comments
     """
     import re
+
+    text = str(config_text or "")
+    if not text.strip():
+        return None
+    text_lower = text.lower()
+
+    # Prefer explicit model metadata from RouterOS exports.
+    explicit_patterns = [
+        r'(?mi)^\s*#\s*model\s*=\s*([^\r\n#]+)',
+        r'(?mi)^\s*#\s*board-name\s*:\s*([^\r\n#]+)',
+        r'(?mi)^\s*#\s*board-name\s*=\s*([^\r\n#]+)',
+    ]
+    for pattern in explicit_patterns:
+        match = re.search(pattern, text)
+        if match:
+            resolved = resolve_routerboard_model_key(match.group(1).strip())
+            if resolved in ROUTERBOARD_INTERFACES:
+                return resolved
+
+    # Handle common identity patterns like RTR-MT1072-AR1 or MTRB5009-FOO.
+    identity_match = re.search(
+        r'(?mi)^\s*set\s+name=(?:"([^"]+)"|([^\s\r\n]+))',
+        text,
+    )
+    if identity_match:
+        identity = (identity_match.group(1) or identity_match.group(2) or "").strip()
+        alias_patterns = [
+            r'\bmt(ccr\d{4}|rb\d{4})\b',
+            r'\b(ccr\d{4}|rb\d{4})\b',
+        ]
+        for pattern in alias_patterns:
+            alias_match = re.search(pattern, identity, re.IGNORECASE)
+            if alias_match:
+                resolved = resolve_routerboard_model_key(alias_match.group(1))
+                if resolved in ROUTERBOARD_INTERFACES:
+                    return resolved
     
-    # Try to find explicit device model mentions
+    # Try to find explicit device model mentions anywhere, case-insensitive.
     for model in ROUTERBOARD_INTERFACES.keys():
-        if model in config_text:
+        if model.lower() in text_lower:
             return model
     
     # Detect by interface pattern
     # CCR2004-1G-12S+2XS has sfp-sfpplus1-12 and sfp28-1-2
-    if 'sfp-sfpplus12' in config_text and 'sfp28-' in config_text:
+    if 'sfp-sfpplus12' in text and 'sfp28-' in text:
         return 'CCR2004-1G-12S+2XS'
     
     # CCR2004-16G-2S+ has ether1-16 and sfp-sfpplus1-2
-    if 'ether16' in config_text and 'sfp-sfpplus2' in config_text and 'sfp-sfpplus3' not in config_text:
+    if 'ether16' in text and 'sfp-sfpplus2' in text and 'sfp-sfpplus3' not in text:
         return 'CCR2004-16G-2S+'
     
     # CCR1036-12G-4S has ether1-12 and sfp1-4
-    if 'ether12' in config_text and 'sfp4' in config_text and 'sfp-sfpplus' not in config_text:
+    if 'ether12' in text and 'sfp4' in text and 'sfp-sfpplus' not in text:
         return 'CCR1036-12G-4S'
     
     # CCR2116-12G-4S+ has ether1-12 and sfp-sfpplus1-4
-    if 'ether12' in config_text and 'sfp-sfpplus4' in config_text and 'sfp-sfpplus5' not in config_text:
+    if 'ether12' in text and 'sfp-sfpplus4' in text and 'sfp-sfpplus5' not in text:
         return 'CCR2116-12G-4S+'
 
     # RB1009UG+S+ has ether1-9 and a single SFP+/combo port
-    if ('RB1009' in config_text or 'MT1009' in config_text or
-            ('ether9' in config_text and 'sfp-sfpplus1' in config_text and 'ether10' not in config_text)):
+    if ('rb1009' in text_lower or 'mt1009' in text_lower or
+            ('ether9' in text and ('sfp-sfpplus1' in text or 'combo1' in text) and 'ether10' not in text)):
         return 'RB1009UG+S+'
     
     # CCR2216 has sfp28-1 through sfp28-12
-    if 'sfp28-12' in config_text:
+    if 'sfp28-12' in text:
         return 'CCR2216-1G-12XS-2XQ'
 
     # RB5009UG+S+ has ether1-10 and sfp-sfpplus1
-    if 'RB5009' in config_text or ('ether10' in config_text and 'sfp-sfpplus1' in config_text and 'ether11' not in config_text):
+    if 'rb5009' in text_lower or 'mt5009' in text_lower or ('ether10' in text and 'sfp-sfpplus1' in text and 'ether11' not in text):
         return 'RB5009UG+S+'
 
     # RB2011UiAS has ether1-10 and sfp1
-    if 'RB2011' in config_text or 'MT2011' in config_text or ('ether10' in config_text and 'sfp1' in config_text and 'sfp2' not in config_text and 'sfp-sfpplus' not in config_text):
+    if 'rb2011' in text_lower or 'mt2011' in text_lower or ('ether10' in text and 'sfp1' in text and 'sfp2' not in text and 'sfp-sfpplus' not in text):
         return 'RB2011UiAS'
-
-    # RB1009UG+S+ has ether1-9 and sfp-sfpplus1 (combo)
-    if 'RB1009' in config_text or 'MT1009' in config_text or ('ether9' in config_text and 'sfp-sfpplus1' in config_text and 'ether10' not in config_text):
-        return 'RB1009UG+S+'
     
     return None
 
@@ -15246,7 +15347,7 @@ def migrate_config():
         config = data.get('config', '')
         target_device = resolve_routerboard_model_key(data.get('target_device', ''))
         target_version = data.get('target_version', '7')
-        source_device = data.get('source_device', '')
+        source_device = resolve_routerboard_model_key(data.get('source_device', ''))
         apply_compliance = bool(data.get('apply_compliance', True))
         
         if not config:
@@ -15295,7 +15396,7 @@ def migrate_config():
                 )
 
         # Determine what migrations are needed
-        needs_syntax_migration = (source_version == 6 and target_version == '7')
+        needs_syntax_migration = (source_version == 6 and str(target_version).startswith('7'))
         needs_device_migration = (source_device != target_device)
 
         migrated_config = config
@@ -15318,10 +15419,13 @@ def migrate_config():
                 return jsonify({
                     'error': f'No migration path available from {effective_source_device} to {target_device}'
                 }), 400
-
             if interface_map:
-                migrated_config = migrate_interface_config(migrated_config, interface_map)
-
+                migrated_config = migrate_interface_config(
+                    migrated_config,
+                    interface_map,
+                    source_device=effective_source_device,
+                    target_device=target_device,
+                )
             safe_print(f"[MIGRATION] Mapped {len(interface_map)} interfaces")
             for old, new in list(interface_map.items())[:5]:
                 safe_print(f"[MIGRATION]   {old} → {new}")
@@ -15343,6 +15447,10 @@ def migrate_config():
             migrated_config = apply_engineering_compliance(migrated_config, loopback_ip)
 
         validation = validate_translation(config, migrated_config)
+        target_interface_audit = audit_target_interface_consistency(migrated_config, target_device)
+        if not target_interface_audit.get('valid'):
+            migration_warnings.extend(target_interface_audit.get('warnings') or [])
+            manual_review_required = True
         migration_analysis = {
             'migration_type': ' + '.join([
                 item for item in (
@@ -15396,6 +15504,7 @@ def migrate_config():
             'interfaces_mapped': len(interface_map) if interface_map else 0,
             'compliance_applied': bool(apply_compliance and HAS_ENGINEERING_COMPLIANCE),
             'validation': validation,
+            'target_interface_audit': target_interface_audit,
             'migration_analysis': migration_analysis,
             'source_info': {
                 'model': effective_source_device,

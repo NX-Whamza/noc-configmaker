@@ -280,6 +280,178 @@ def test_migrate_config_returns_analysis_and_validation() -> None:
     assert "validation" in data
 
 
+def test_migrate_config_accepts_source_device_alias_from_client_payload() -> None:
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
+    export = (
+        "# 2026-04-05 09:10:00 by RouterOS 7.19.4\n"
+        "/interface ethernet\n"
+        "set [ find default-name=ether2 ] comment=UPLINK\n"
+        "/ip address\n"
+        "add address=10.42.2.57/29 interface=ether2 comment=BH network=10.42.2.56\n"
+        "/system identity\n"
+        "set name=RTR-MT1072-AR1.TEST\n"
+    )
+    response = client.post(
+        "/api/migrate-config",
+        headers=headers,
+        data=json.dumps(
+            {
+                "config": export,
+                "source_device": "ccr1072",
+                "target_device": "CCR2216-1G-12XS-2XQ",
+                "target_version": "7.19.4",
+                "apply_compliance": False,
+            }
+        ),
+        content_type="application/json",
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    data = response.get_json() or {}
+    assert data.get("success") is True
+    assert data.get("source_device") == "CCR1072-12G-4S+"
+
+
+def test_detect_device_from_config_uses_identity_alias_when_model_comment_missing() -> None:
+    _, api_server = _load_app()
+    export = (
+        "# 2026-04-05 09:10:00 by RouterOS 7.19.4\n"
+        "/interface ethernet\n"
+        "set [ find default-name=ether2 ] comment=UPLINK\n"
+        "/system identity\n"
+        "set name=RTR-MT1009-LAB\n"
+    )
+    assert api_server.detect_device_from_config(export) == "RB1009UG+S+"
+
+
+def test_target_interface_audit_flags_ports_not_present_on_selected_target() -> None:
+    _, api_server = _load_app()
+    audit = api_server.audit_target_interface_consistency(
+        "/interface ethernet\n"
+        "set [ find default-name=sfp1 ] disabled=yes\n"
+        "/ip address\n"
+        "add address=10.0.0.1/30 interface=sfp1 network=10.0.0.0\n",
+        "CCR2004-1G-12S+2XS",
+    )
+    assert audit["valid"] is False
+    assert "sfp1" in audit["invalid_interfaces"]
+
+
+def test_migrate_config_strips_unmapped_source_only_sfp_defaults_on_target() -> None:
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
+    export = (
+        "# 2026-04-06 12:10:25 by RouterOS 7.19.4\n"
+        "# model = CCR1036-12G-4S\n"
+        "/interface ethernet\n"
+        "set [ find default-name=sfp1 ] disabled=yes\n"
+        "set [ find default-name=sfp2 ] disabled=yes\n"
+        "set [ find default-name=sfp3 ] disabled=yes\n"
+        "set [ find default-name=sfp4 ] disabled=yes\n"
+        "set [ find default-name=ether2 ] comment=Netonix\n"
+        "set [ find default-name=ether3 ] comment=ALPHA\n"
+        "set [ find default-name=ether4 ] comment=GrahamWest\n"
+        "/ip address\n"
+        "add address=10.21.0.5/32 interface=loop0 comment=Loopback network=10.21.0.5\n"
+        "add address=10.15.1.57/29 interface=ether4 comment=GrahamWest network=10.15.1.56\n"
+        "/system identity\n"
+        "set name=RTR-MT1036-GrahamEast\n"
+    )
+    response = client.post(
+        "/api/migrate-config",
+        headers=headers,
+        data=json.dumps(
+            {
+                "config": export,
+                "target_device": "CCR2004-1G-12S+2XS",
+                "target_version": "7.19.4",
+                "apply_compliance": False,
+            }
+        ),
+        content_type="application/json",
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    data = response.get_json() or {}
+    translated = data.get("translated_config", "")
+    assert "default-name=sfp1 " not in translated
+    assert "default-name=sfp2 " not in translated
+    assert "default-name=sfp3 " not in translated
+    assert "default-name=sfp4 " not in translated
+    assert "default-name=sfp-sfpplus" in translated
+
+
+def test_supported_routerboard_pairs_do_not_leave_invalid_target_port_references() -> None:
+    client, api_server = _load_app()
+    headers = _auth_headers(client, api_server)
+    models = [
+        "CCR1036-12G-4S",
+        "CCR1072-12G-4S+",
+        "CCR2004-1G-12S+2XS",
+        "CCR2004-16G-2S+",
+        "CCR2116-12G-4S+",
+        "CCR2216-1G-12XS-2XQ",
+        "RB1009UG+S+",
+        "RB2011UiAS",
+        "RB5009UG+S+",
+    ]
+
+    def _sample_export(source_model: str) -> str:
+        ports = api_server._all_device_ports(source_model)
+        mgmt = api_server.ROUTERBOARD_INTERFACES[source_model]["management_port"]
+        non_mgmt = [p for p in ports if p != mgmt]
+        chosen = non_mgmt[:2]
+        sfp_like = [p for p in non_mgmt if p.startswith("sfp") or p.startswith("combo")]
+        for port in sfp_like[:2]:
+            if port not in chosen:
+                chosen.append(port)
+
+        lines = [
+            "# 2026-04-06 12:10:25 by RouterOS 7.19.4",
+            f"# model = {source_model}",
+            "/interface ethernet",
+        ]
+        role_comments = ["BACKHAUL_MAIN", "NETONIX_SWITCH", "ALPHA_RADIO", "GRAHAMWEST_BH"]
+        for idx, port in enumerate(chosen):
+            lines.append(f"set [ find default-name={port} ] comment={role_comments[idx % len(role_comments)]}")
+        lines.extend([
+            "/ip address",
+            "add address=10.255.0.1/32 interface=loop0 comment=Loopback network=10.255.0.1",
+        ])
+        for idx, port in enumerate(chosen):
+            lines.append(f"add address=10.255.{idx}.1/30 interface={port} comment=PTP{idx} network=10.255.{idx}.0")
+        lines.extend([
+            "/routing ospf interface-template",
+        ])
+        for idx, port in enumerate(chosen[:2]):
+            lines.append(f"add area=backbone-v2 interfaces={port} networks=10.255.{idx}.0/30 type=ptp")
+        lines.extend([
+            "/system identity",
+            f"set name={api_server.get_mikrotik_identity_prefix(source_model, compact=True)}-PAIRTEST",
+        ])
+        return "\n".join(lines) + "\n"
+
+    for source_model in models:
+        export = _sample_export(source_model)
+        for target_model in models:
+            response = client.post(
+                "/api/migrate-config",
+                headers=headers,
+                data=json.dumps(
+                    {
+                        "config": export,
+                        "target_device": target_model,
+                        "target_version": "7.19.4",
+                        "apply_compliance": False,
+                    }
+                ),
+                content_type="application/json",
+            )
+            assert response.status_code == 200, f"{source_model} -> {target_model}: {response.get_data(as_text=True)}"
+            data = response.get_json() or {}
+            audit = data.get("target_interface_audit") or {}
+            assert audit.get("valid") is True, f"{source_model} -> {target_model}: {audit}"
+
+
 def test_nextlink_policy_detects_roles_and_keeps_target_ether1_management_only() -> None:
     client, api_mod = _load_app()
     headers = _auth_headers(client, api_mod)
