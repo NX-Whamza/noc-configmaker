@@ -571,9 +571,11 @@ class MTBNG2Config:
             if any(fragment in line for fragment in banned_fragments):
                 continue
             normalized = line.strip()
-            if normalized and normalized in seen:
+            # Never deduplicate RouterOS section headers (/interface vlan, /ip address, etc.)
+            # They must repeat to switch context and are always valid multiple times.
+            if normalized and not normalized.startswith('/') and normalized in seen:
                 continue
-            if normalized:
+            if normalized and not normalized.startswith('/'):
                 seen.add(normalized)
             kept.append(line)
         return "\n".join(kept).strip() + "\n"
