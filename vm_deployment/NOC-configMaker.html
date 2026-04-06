@@ -25634,10 +25634,15 @@ Ready for translation!`);
                 }
 
                 feedbackList.innerHTML = data.feedback.map(fb => {
-                    const statusBadge = fb.status === 'new' ? '<span style="background: #ff4444; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;">NEW</span>' :
-                        fb.status === 'reviewed' ? '<span style="background: #ffaa00; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;">REVIEWED</span>' :
-                            fb.status === 'resolved' ? '<span style="background: #4CAF50; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;">RESOLVED</span>' :
-                                '<span style="background: #888; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;">CLOSED</span>';
+                    const _statusMap = {
+                        new:         ['#ff4444', 'NEW'],
+                        reviewed:    ['#ffaa00', 'REVIEWED'],
+                        in_progress: ['#2196F3', 'IN PROGRESS'],
+                        resolved:    ['#4CAF50', 'RESOLVED'],
+                        closed:      ['#888',    'CLOSED'],
+                    };
+                    const [_sc, _sl] = _statusMap[fb.status] || ['#888', (fb.status || 'UNKNOWN').toUpperCase()];
+                    const statusBadge = `<span style="background: ${_sc}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;">${_sl}</span>`;
 
                     return `
                         <div style="border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 15px; background: var(--container-bg);">
