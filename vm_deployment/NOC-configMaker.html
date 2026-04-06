@@ -25666,11 +25666,12 @@ Ready for translation!`);
                                 <select id="statusSelect_${fb.id}" style="padding: 5px; margin-right: 10px;">
                                     <option value="new" ${fb.status === 'new' ? 'selected' : ''}>New</option>
                                     <option value="reviewed" ${fb.status === 'reviewed' ? 'selected' : ''}>Reviewed</option>
+                                    <option value="in_progress" ${fb.status === 'in_progress' ? 'selected' : ''}>In Progress</option>
                                     <option value="resolved" ${fb.status === 'resolved' ? 'selected' : ''}>Resolved</option>
                                     <option value="closed" ${fb.status === 'closed' ? 'selected' : ''}>Closed</option>
                                 </select>
-                                <input type="text" id="adminNotes_${fb.id}" placeholder="Admin notes..." style="padding: 5px; width: 300px; margin-right: 10px;">
-                                <button onclick="updateFeedbackStatus(${fb.id})" style="background: #2196F3; color: white; padding: 5px 15px; border: none; border-radius: 4px; cursor: pointer;">Update Status</button>
+                                <input type="text" id="adminNotes_${fb.id}" placeholder="Admin notes..." value="${(fb.admin_notes || '').replace(/"/g, '&quot;')}" style="padding: 5px; width: 300px; margin-right: 10px;">
+                                <button onclick="window.updateFeedbackStatus(${fb.id})" style="background: #2196F3; color: white; padding: 5px 15px; border: none; border-radius: 4px; cursor: pointer;">Update Status</button>
                             </div>
                         </div>
                     `;
@@ -25685,8 +25686,9 @@ Ready for translation!`);
         window.updateFeedbackStatus = async function (feedbackId) {
             try {
                 const token = localStorage.getItem('auth_token');
+                if (!token) { alert('You must be logged in to update feedback status.'); return; }
                 const status = document.getElementById(`statusSelect_${feedbackId}`)?.value;
-                const notes = document.getElementById(`adminNotes_${feedbackId}`)?.value;
+                const notes = document.getElementById(`adminNotes_${feedbackId}`)?.value || '';
 
                 // Use relative URL so it works through the launcher proxy
                 const apiBase = (typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api';
@@ -25700,7 +25702,9 @@ Ready for translation!`);
                 });
 
                 if (!response.ok) {
-                    throw new Error('Failed to update status');
+                    let errMsg = `HTTP ${response.status}`;
+                    try { const e = await response.json(); errMsg += ': ' + (e.error || JSON.stringify(e)); } catch {}
+                    throw new Error(errMsg);
                 }
 
                 alert('Feedback status updated successfully');
