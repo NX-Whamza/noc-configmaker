@@ -4727,6 +4727,42 @@
                                     <label for="mtBng2BbuMgmt">BBU Mgmt Subnet (LTE)</label>
                                     <input type="text" id="mtBng2BbuMgmt" placeholder="10.248.86.8/29">
                                 </div>
+                                <div id="mtBng2BgpAsnRow">
+                                    <label for="mtBng2Asn">BGP ASN</label>
+                                    <input type="text" id="mtBng2Asn" value="26077" placeholder="26077">
+                                </div>
+                                <div id="mtBng2BgpPeer1NameRow">
+                                    <label for="mtBng2Peer1Name">BGP Peer 1 Name</label>
+                                    <input type="text" id="mtBng2Peer1Name" value="CR7" placeholder="CR7">
+                                </div>
+                                <div id="mtBng2BgpPeer1AddrRow">
+                                    <label for="mtBng2Peer1Addr">BGP Peer 1 Address</label>
+                                    <input type="text" id="mtBng2Peer1Addr" value="10.2.0.107" placeholder="10.2.0.107">
+                                </div>
+                                <div id="mtBng2BgpPeer2NameRow">
+                                    <label for="mtBng2Peer2Name">BGP Peer 2 Name</label>
+                                    <input type="text" id="mtBng2Peer2Name" value="CR8" placeholder="CR8">
+                                </div>
+                                <div id="mtBng2BgpPeer2AddrRow">
+                                    <label for="mtBng2Peer2Addr">BGP Peer 2 Address</label>
+                                    <input type="text" id="mtBng2Peer2Addr" value="10.2.0.108" placeholder="10.2.0.108">
+                                </div>
+                                <div id="mtBng2Crs326SubnetRow" style="display:none;">
+                                    <label for="mtBng2Crs326Subnet">CRS326 Mgmt Subnet (/29)</label>
+                                    <input type="text" id="mtBng2Crs326Subnet" placeholder="10.248.90.0/29">
+                                </div>
+                                <div id="mtBng2Crs326Port1Row" style="display:none;">
+                                    <label for="mtBng2Crs326Port1">CRS326 Bond Port 1</label>
+                                    <input type="text" id="mtBng2Crs326Port1" value="sfp-sfpplus8" placeholder="sfp-sfpplus8">
+                                </div>
+                                <div id="mtBng2Crs326Port2Row" style="display:none;">
+                                    <label for="mtBng2Crs326Port2">CRS326 Bond Port 2</label>
+                                    <input type="text" id="mtBng2Crs326Port2" value="sfp-sfpplus9" placeholder="sfp-sfpplus9">
+                                </div>
+                                <div id="mtBng2TachyonSubnetRow" style="display:none;">
+                                    <label for="mtBng2TachyonSubnet">Tachyon Mgmt Subnet (/29)</label>
+                                    <input type="text" id="mtBng2TachyonSubnet" placeholder="10.248.90.8/29">
+                                </div>
                             </div>
                         </div>
 
@@ -16890,6 +16926,15 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 if (bbuS1Row) bbuS1Row.style.display = (isBng2 && is6ghz) ? 'block' : 'none';
                 if (bbuMgmtRow) bbuMgmtRow.style.display = (isBng2 && is6ghz) ? 'block' : 'none';
                 if (switchSection) switchSection.style.display = (isBng2 && isTachyon) ? 'none' : 'block';
+                const is326 = !!document.getElementById('mtFeatureCrs326')?.checked;
+                const crs326SubnetRow = document.getElementById('mtBng2Crs326SubnetRow');
+                const crs326Port1Row = document.getElementById('mtBng2Crs326Port1Row');
+                const crs326Port2Row = document.getElementById('mtBng2Crs326Port2Row');
+                const tachyonSubnetRow = document.getElementById('mtBng2TachyonSubnetRow');
+                if (crs326SubnetRow) crs326SubnetRow.style.display = (isBng2 && is326) ? 'block' : 'none';
+                if (crs326Port1Row) crs326Port1Row.style.display = (isBng2 && is326) ? 'block' : 'none';
+                if (crs326Port2Row) crs326Port2Row.style.display = (isBng2 && is326) ? 'block' : 'none';
+                if (tachyonSubnetRow) tachyonSubnetRow.style.display = (isBng2 && isTachyon) ? 'block' : 'none';
             }
 
             function syncMtConfigTypeUI() {
@@ -18025,6 +18070,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 const isTachyon = !!document.getElementById('mtFeatureTachyon')?.checked;
                 const is6ghz = !!document.getElementById('mtFeature6ghz')?.checked;
                 const isTarana = !!document.getElementById('mtFeatureTarana')?.checked;
+                const is326 = !!document.getElementById('mtFeatureCrs326')?.checked;
                 const taranaSubnet = ensureCIDR((document.getElementById('mtBng2TaranaSubnet')?.value || '').trim(), 29);
                 if (isTarana && !taranaSubnet) {
                     throw new Error('Tarana is enabled. Please provide a valid Tarana Subnet.');
@@ -18035,6 +18081,10 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     if (!bbuS1 || !bbuMgmt) {
                         throw new Error('6 GHz is enabled. Please provide BBU S1 and BBU Mgmt subnets.');
                     }
+                }
+                if (is326) {
+                    const crs326Sub = ensureCIDR((document.getElementById('mtBng2Crs326Subnet')?.value || '').trim(), 29);
+                    if (!crs326Sub) throw new Error('CRS326 is enabled. Please provide a valid CRS326 Mgmt Subnet (/29).');
                 }
                 const derivedGatewayDefault = `10.${area}.80.208/30`;
                 const derivedSwitchDefault = `10.${area}.249.8/29`;
@@ -18067,7 +18117,16 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     tarana_subnet: taranaSubnet,
                     tarana_sector_count: parseInt(document.getElementById('mtBng2TaranaSectors')?.value || '3', 10),
                     tarana_sector_start: 0,
-                    is_326: !!document.getElementById('mtFeatureCrs326')?.checked,
+                    is_326: is326,
+                    '326_mgmt_subnet': is326 ? ensureCIDR((document.getElementById('mtBng2Crs326Subnet')?.value || '').trim(), 29) : undefined,
+                    crs_326_port_1: is326 ? ((document.getElementById('mtBng2Crs326Port1')?.value || 'sfp-sfpplus8').trim()) : undefined,
+                    crs_326_port_2: is326 ? ((document.getElementById('mtBng2Crs326Port2')?.value || 'sfp-sfpplus9').trim()) : undefined,
+                    asn: (document.getElementById('mtBng2Asn')?.value || '26077').trim(),
+                    peer_1_name: (document.getElementById('mtBng2Peer1Name')?.value || 'CR7').trim(),
+                    peer_1_address: (document.getElementById('mtBng2Peer1Addr')?.value || '10.2.0.107').trim(),
+                    peer_2_name: (document.getElementById('mtBng2Peer2Name')?.value || 'CR8').trim(),
+                    peer_2_address: (document.getElementById('mtBng2Peer2Addr')?.value || '10.2.0.108').trim(),
+                    tachyon_mgmt_subnet: isTachyon ? ensureCIDR((document.getElementById('mtBng2TachyonSubnet')?.value || '').trim(), 29) : undefined,
                     is_6ghz: is6ghz,
                     enable_contractor_login: !!document.getElementById('mtFeatureContractor')?.checked,
                     switches,

@@ -24,6 +24,10 @@ set [ find default-name={{ sw.port }} ] comment="{{ sw.comment or sw.name }}" l2
 {% for bh in backhauls %}
 set [ find default-name={{ bh.port }} ] comment={{ bh.bhname }} l2mtu=9212 mtu=9198
 {% endfor %}
+{% if is_326 %}
+set [ find default-name={{ crs_326_port_1 }} ] comment="SWT-CRS326 Uplink #1 - BONDED"
+set [ find default-name={{ crs_326_port_2 }} ] comment="SWT-CRS326 Uplink #2 - BONDED"
+{% endif %}
 {% if is_tarana %}
 {% for s in tarana_sectors %}
 set [ find default-name={{ s.port }} ] comment="{{ s.name }} {{ s.azimuth }} deg" l2mtu=9212 mtu=9198
@@ -67,6 +71,23 @@ add bridge=bridge1000 edge=yes horizon=1 ingress-filtering=no interface=vpls1000
 add bridge=bridge2000 edge=yes horizon=1 ingress-filtering=no interface=vpls2000-bng1 internal-path-cost=10 path-cost=10
 add bridge=bridge3000 edge=yes horizon=1 ingress-filtering=no interface=vpls3000-bng1 internal-path-cost=10 path-cost=10
 add bridge=bridge4000 edge=yes horizon=1 ingress-filtering=no interface=vpls4000-bng1 internal-path-cost=10 path-cost=10
+
+{% if is_326 %}
+/interface bonding
+add lacp-user-key=1 mode=802.3ad name=bonding1 slaves={{ crs_326_port_1 }},{{ crs_326_port_2 }} transmit-hash-policy=layer-2-and-3
+
+/interface vlan
+add interface=bonding1 name=vlan1000-bonding1 vlan-id=1000
+add interface=bonding1 name=vlan2000-bonding1 vlan-id=2000
+add interface=bonding1 name=vlan3000-bonding1 vlan-id=3000
+add interface=bonding1 name=vlan4000-bonding1 vlan-id=4000
+
+/interface bridge port
+add bridge=bridge1000 interface=vlan1000-bonding1 internal-path-cost=10 path-cost=10
+add bridge=bridge2000 interface=vlan2000-bonding1 internal-path-cost=10 path-cost=10
+add bridge=bridge3000 interface=vlan3000-bonding1 internal-path-cost=10 path-cost=10
+add bridge=bridge4000 interface=vlan4000-bonding1 internal-path-cost=10 path-cost=10
+{% endif %}
 
 /ip address
 add address={{ loopip }} comment=loop0 interface=loop0 network={{ loopip }}

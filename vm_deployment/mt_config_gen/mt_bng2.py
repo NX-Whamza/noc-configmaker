@@ -172,6 +172,8 @@ class MTBNG2Config:
             self.is_326 = params.get("is_326", False)
             if self.is_326:
                 self.crs_326_mgmt_subnet = IPNetwork(params["326_mgmt_subnet"])
+                self.crs_326_port_1 = str(params.get("crs_326_port_1", "sfp-sfpplus8")).strip()
+                self.crs_326_port_2 = str(params.get("crs_326_port_2", "sfp-sfpplus9")).strip()
 
             self.is_6ghz = params.get("is_6ghz", False)
             if self.is_6ghz:
@@ -493,6 +495,8 @@ class MTBNG2Config:
             self.crs_326_mgmt_subnet.netmask.netmask_bits()
         )
         params["crs_326_mgmt_address"] = self.crs_326_mgmt_subnet
+        params["crs_326_port_1"] = self.crs_326_port_1
+        params["crs_326_port_2"] = self.crs_326_port_2
 
         return params
 
