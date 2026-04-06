@@ -506,7 +506,8 @@ class MTBNG2Config:
         params["crs_326_mgmt_mask_bits"] = (
             self.crs_326_mgmt_subnet.netmask.netmask_bits()
         )
-        params["crs_326_mgmt_address"] = self.crs_326_mgmt_subnet
+        # Use first usable host (.1) as the bridge3000 gateway address
+        params["crs_326_mgmt_address"] = str(self.crs_326_mgmt_subnet.network + 1)
         params["crs_326_port_1"] = self.crs_326_port_1
         params["crs_326_port_2"] = self.crs_326_port_2
 

@@ -17883,15 +17883,29 @@ def extract_port_mapping(config_content):
         interface_to_bridge[interface_clean] = bridge_clean
     
     # Step 6: Map bridge IPs to their member interfaces
-    # If an IP is assigned to a bridge, assign it to all member interfaces
-    # This handles: public-bridge (CX HANDOFF), nat-bridge (NAT), and other bridges
+    # If an IP is assigned to a bridge, assign it to physical member interfaces only.
+    # Skip virtual/logical members (vlan*, vpls*, bridge*) to avoid flooding the port map
+    # with management IPs on every sub-interface (e.g. CRS326-MGMT on all bridge3000 members).
+    def _is_physical_port(name: str) -> bool:
+        n = (name or '').strip().lower()
+        return (
+            n.startswith('ether') or
+            n.startswith('sfp28') or
+            n.startswith('sfp-sfp') or
+            n.startswith('qsfp28') or
+            (n.startswith('sfp') and not n.startswith('sfp-sfpplus') and not n.startswith('sfpplus'))
+            or re.match(r'^sfp\d', n) is not None
+        )
+
     for bridge_name, member_interfaces in bridge_to_interfaces.items():
         # Find IPs assigned to this bridge
         for ip_cidr, interface_name, ip_comment in all_ip_matches:
             if interface_name.strip() == bridge_name:
                 ip_comment_clean = ip_comment.strip().strip('"').strip("'") if ip_comment else None
-                # Assign this IP to all member interfaces
+                # Assign this IP only to physical member interfaces (not vlan/vpls/bridge)
                 for member_if in member_interfaces:
+                    if not _is_physical_port(member_if):
+                        continue
                     if member_if not in port_mapping:
                         port_mapping[member_if] = {}
                         # Infer type from interface name
