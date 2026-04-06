@@ -10773,13 +10773,20 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
 
         // Robust fetch wrapper with retry logic
         async function robustFetch(url, options = {}, retries = 3, delay = 1000) {
+            // Auto-inject auth headers so all callers get the Bearer token without
+            // having to remember to call getAuthHeaders() themselves.
+            const authHeaders = (typeof getAuthHeaders === 'function') ? getAuthHeaders() : {};
+            const merged = {
+                ...options,
+                headers: Object.assign({}, authHeaders, options.headers || {})
+            };
             for (let i = 0; i < retries; i++) {
                 try {
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
                     const response = await fetch(url, {
-                        ...options,
+                        ...merged,
                         signal: controller.signal
                     });
                     clearTimeout(timeoutId);
@@ -12088,9 +12095,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 const targetUrl = `${apiBase.replace(/\/+$/, '')}/generate-mt-switch-config`;
                 const response = await fetch(targetUrl, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: getAuthHeaders('application/json'),
                     body: JSON.stringify({
                         switch_type: switchType,
                         profile,
@@ -17450,10 +17455,13 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 const url = `${apiBase}/ido/proxy/${targetPath}${query.toString() ? `?${query}` : ''}`;
                 const req = { method };
                 if (options.body instanceof FormData) {
+                    req.headers = getAuthHeaders();
                     req.body = options.body;
                 } else if (options.body !== undefined && options.body !== null) {
-                    req.headers = { 'Content-Type': 'application/json' };
+                    req.headers = getAuthHeaders('application/json');
                     req.body = JSON.stringify(options.body);
+                } else {
+                    req.headers = getAuthHeaders();
                 }
                 const resp = await fetch(url, req);
                 const text = await resp.text();
@@ -21001,7 +21009,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
 
                     return fetch(`${AI_API_BASE}/validate-config`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: getAuthHeaders('application/json'),
                         body: JSON.stringify({ config: config, type: 'mpls-enterprise' }),
                         signal: controller.signal
                     }).then(function (r) {
@@ -23604,7 +23612,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
         async function callAI(endpoint, body) {
             const response = await robustFetch(`${AI_API_BASE}/${endpoint}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders('application/json'),
                 body: JSON.stringify(body)
             });
 
@@ -28073,7 +28081,7 @@ Ready for translation!`);
                 // Fetch credentials securely from backend
                 let snmpCommunity, nlrootPw, adminPw, bgpKey;
                 try {
-                    const credsResp = await fetch(`${AI_API_BASE}/nokia7250-defaults`);
+                    const credsResp = await fetch(`${AI_API_BASE}/nokia7250-defaults`, { headers: getAuthHeaders() });
                     if (!credsResp.ok) throw new Error(`HTTP ${credsResp.status}`);
                     const creds = await credsResp.json();
                     snmpCommunity = creds.snmp_community;
@@ -28145,7 +28153,7 @@ Ready for translation!`);
                     try {
                         const backendResp = await fetch(`${AI_API_BASE}/generate-nokia-configurator`, {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: getAuthHeaders('application/json'),
                             body: JSON.stringify(backendPayload)
                         });
                         const backendData = await backendResp.json();
@@ -29054,7 +29062,7 @@ Ready for translation!`);
 
                     const response = await fetch(`${AI_API_BASE}/parse-mikrotik-for-nokia`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: getAuthHeaders('application/json'),
                         body: JSON.stringify({ source_config: sourceConfig })
                     });
 
@@ -29268,7 +29276,7 @@ Ready for translation!`);
 
                     const response = await fetch(`${AI_API_BASE}/migrate-mikrotik-to-nokia`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: getAuthHeaders('application/json'),
                         body: JSON.stringify({
                             source_config: sourceConfig,
                             preserve_ips: preserveIPs,
@@ -30117,7 +30125,7 @@ Ready for translation!`);
             let ospfKey = (document.getElementById('nokia7250ps_ospf_key')?.value || '').trim();
             if (!ospfKey) {
                 try {
-                    const resp = await fetch(`${AI_API_BASE}/nokia7250-defaults`);
+                    const resp = await fetch(`${AI_API_BASE}/nokia7250-defaults`, { headers: getAuthHeaders() });
                     if (resp.ok) {
                         const creds = await resp.json();
                         ospfKey = creds.ospf_auth_key || creds.bgp_auth_key || '';
