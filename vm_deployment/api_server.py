@@ -16796,6 +16796,13 @@ def init_feedback_db():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_feedback_type ON feedback(feedback_type)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_feedback_timestamp ON feedback(timestamp)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status)')
+
+    # Migrate: add tenant_id column before creating its index (existing DBs may not have it)
+    cursor.execute("PRAGMA table_info(feedback)")
+    existing_cols = {row[1] for row in cursor.fetchall()}
+    if 'tenant_id' not in existing_cols:
+        cursor.execute("ALTER TABLE feedback ADD COLUMN tenant_id INTEGER")
+
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_feedback_tenant_id ON feedback(tenant_id)')
 
     cursor.execute('''
@@ -16811,11 +16818,6 @@ def init_feedback_db():
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_notif_email ON notifications(user_email)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_notif_read ON notifications(is_read)')
-
-    cursor.execute("PRAGMA table_info(feedback)")
-    existing_cols = {row[1] for row in cursor.fetchall()}
-    if 'tenant_id' not in existing_cols:
-        cursor.execute("ALTER TABLE feedback ADD COLUMN tenant_id INTEGER")
 
     default_tenant = _get_default_tenant_context()
     if default_tenant.get('id') is not None:
@@ -16852,17 +16854,18 @@ def init_configs_db():
         )
     ''')
     
+    # Migrate: add tenant_id before creating its index (existing DBs may not have it)
+    cursor.execute("PRAGMA table_info(completed_configs)")
+    existing_cols = {row[1] for row in cursor.fetchall()}
+    if 'tenant_id' not in existing_cols:
+        cursor.execute("ALTER TABLE completed_configs ADD COLUMN tenant_id INTEGER")
+
     # Create indexes for faster searching
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_config_type ON completed_configs(config_type)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_customer_code ON completed_configs(customer_code)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON completed_configs(created_at)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_device_type ON completed_configs(device_type)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_completed_configs_tenant_id ON completed_configs(tenant_id)')
-
-    cursor.execute("PRAGMA table_info(completed_configs)")
-    existing_cols = {row[1] for row in cursor.fetchall()}
-    if 'tenant_id' not in existing_cols:
-        cursor.execute("ALTER TABLE completed_configs ADD COLUMN tenant_id INTEGER")
 
     default_tenant = _get_default_tenant_context()
     if default_tenant.get('id') is not None:

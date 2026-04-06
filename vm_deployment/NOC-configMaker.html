@@ -25622,7 +25622,9 @@ Ready for translation!`);
                         }
                         return;
                     }
-                    throw new Error(`HTTP ${response.status}`);
+                    let errMsg = `HTTP ${response.status}`;
+                    try { const errData = await response.json(); errMsg += ': ' + (errData.error || JSON.stringify(errData)); } catch {}
+                    throw new Error(errMsg);
                 }
 
                 const data = await response.json();
