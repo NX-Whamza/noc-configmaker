@@ -70,6 +70,8 @@ def test_frontend_endpoint_wiring_has_backend_routes():
         '/api/validate-config',
         '/api/autofill-from-export',
         '/api/fetch-config-ssh',
+        '/api/fetch-config-ssh/status/X',
+        '/api/fetch-config-ssh/abort/X',
         '/api/translate-config',
         '/api/save-completed-config',
         '/api/get-completed-configs',

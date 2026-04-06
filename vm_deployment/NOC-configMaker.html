@@ -4727,6 +4727,22 @@
                                     <label for="mtBng2BbuMgmt">BBU Mgmt Subnet (LTE)</label>
                                     <input type="text" id="mtBng2BbuMgmt" placeholder="10.248.86.8/29">
                                 </div>
+                                <div id="mtBng2Crs326SubnetRow" style="display:none;">
+                                    <label for="mtBng2Crs326Subnet">CRS326 Mgmt Subnet (/29)</label>
+                                    <input type="text" id="mtBng2Crs326Subnet" placeholder="10.248.90.0/29">
+                                </div>
+                                <div id="mtBng2Crs326Port1Row" style="display:none;">
+                                    <label for="mtBng2Crs326Port1">CRS326 Bond Port 1</label>
+                                    <input type="text" id="mtBng2Crs326Port1" value="sfp-sfpplus8" placeholder="sfp-sfpplus8">
+                                </div>
+                                <div id="mtBng2Crs326Port2Row" style="display:none;">
+                                    <label for="mtBng2Crs326Port2">CRS326 Bond Port 2</label>
+                                    <input type="text" id="mtBng2Crs326Port2" value="sfp-sfpplus9" placeholder="sfp-sfpplus9">
+                                </div>
+                                <div id="mtBng2TachyonSubnetRow" style="display:none;">
+                                    <label for="mtBng2TachyonSubnet">Tachyon Mgmt Subnet (/29)</label>
+                                    <input type="text" id="mtBng2TachyonSubnet" placeholder="10.248.90.8/29">
+                                </div>
                             </div>
                         </div>
 
@@ -4930,10 +4946,16 @@
                                         </select>
                                     </div>
 
-                                    <button id="sshFetchBtn" onclick="fetchConfigViaSSH()"
-                                        style="width: 100%; background: #4CAF50; color: white; padding: 12px; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; transition: all 0.3s;">
-                                         Fetch Config via SSH
-                                    </button>
+                                    <div style="display:flex; gap:10px;">
+                                        <button id="sshFetchBtn" onclick="fetchConfigViaSSH()"
+                                            style="flex:1; background: #4CAF50; color: white; padding: 12px; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; transition: all 0.3s;">
+                                             Fetch Config via SSH
+                                        </button>
+                                        <button id="sshStopBtn" onclick="abortSshFetch()" disabled
+                                            style="min-width: 120px; background: #c62828; color: white; padding: 12px; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: not-allowed; opacity: 0.6; transition: all 0.3s;">
+                                            Stop
+                                        </button>
+                                    </div>
 
                                     <div id="sshStatus"
                                         style="margin-top: 15px; padding: 12px; border-radius: 4px; display: none;">
@@ -4954,7 +4976,7 @@
                                     <div>
                                         <label style="font-weight: bold; display: block; margin-bottom: 5px;">Target
                                             Device:</label>
-                                        <select id="upgradeTargetDevice" style="width: 100%; padding: 8px;">
+                                        <select id="upgradeTargetDevice" style="width: 100%; padding: 8px;" onchange="updateUpgradeQsfpOptionVisibility()">
                                             <option value="ccr2004">CCR2004-1G-12S+2XS (12 SFP+, 2 SFP28)</option>
                                             <option value="ccr2004-16g-2s+">CCR2004-16G-2S+ (16 Ethernet, 2 SFP+)</option>
                                             <option value="ccr1036">CCR1036-12G-4S (4 SFP, 12 Ethernet)</option>
@@ -4974,6 +4996,15 @@
                                         <select id="upgradeTargetVersion" style="width: 100%; padding: 8px;">
                                             <option value="7.19.4" selected>7.19.4 (Minimum Supported)</option>
                                         </select>
+                                    </div>
+                                </div>
+                                <div id="upgradeQsfpOptionRow" style="display:none; margin-bottom: 15px;">
+                                    <label style="display:flex;align-items:center;gap:8px;font-weight:bold;">
+                                        <input type="checkbox" id="upgradeAllowQsfpPorts">
+                                        <span>Allow QSFP ports on target CCR2216</span>
+                                    </label>
+                                    <div style="font-size:12px;color:var(--text-color-secondary);margin-top:4px;">
+                                        Leave this off for normal Nextlink sites so migration stays on `sfp28-*` ports only.
                                     </div>
                                 </div>
 
@@ -16860,9 +16891,17 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
 
             function syncBng2FeatureVisibility() {
                 const isBng2 = getSelectedMtConfigType() === 'bng2';
+                const routerModel = (document.getElementById('mtRouterModel')?.value || '').trim().toLowerCase();
+                const isNokia = isBng2 && (routerModel === '7535' || routerModel === '7316');
                 const isTarana = !!document.getElementById('mtFeatureTarana')?.checked;
                 const is6ghz = !!document.getElementById('mtFeature6ghz')?.checked;
                 const isTachyon = !!document.getElementById('mtFeatureTachyon')?.checked;
+
+                // CRS326 is MikroTik-only — hide and uncheck when Nokia router is selected
+                const crs326Checkbox = document.getElementById('mtFeatureCrs326');
+                const crs326Label = crs326Checkbox?.closest('label');
+                if (crs326Label) crs326Label.style.display = isNokia ? 'none' : '';
+                if (isNokia && crs326Checkbox) crs326Checkbox.checked = false;
 
                 const taranaSubnetRow = document.getElementById('mtBng2TaranaSubnetRow');
                 const taranaSectorsRow = document.getElementById('mtBng2TaranaSectorsRow');
@@ -16875,6 +16914,15 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 if (bbuS1Row) bbuS1Row.style.display = (isBng2 && is6ghz) ? 'block' : 'none';
                 if (bbuMgmtRow) bbuMgmtRow.style.display = (isBng2 && is6ghz) ? 'block' : 'none';
                 if (switchSection) switchSection.style.display = (isBng2 && isTachyon) ? 'none' : 'block';
+                const is326 = !isNokia && !!document.getElementById('mtFeatureCrs326')?.checked;
+                const crs326SubnetRow = document.getElementById('mtBng2Crs326SubnetRow');
+                const crs326Port1Row = document.getElementById('mtBng2Crs326Port1Row');
+                const crs326Port2Row = document.getElementById('mtBng2Crs326Port2Row');
+                const tachyonSubnetRow = document.getElementById('mtBng2TachyonSubnetRow');
+                if (crs326SubnetRow) crs326SubnetRow.style.display = (isBng2 && is326) ? 'block' : 'none';
+                if (crs326Port1Row) crs326Port1Row.style.display = (isBng2 && is326) ? 'block' : 'none';
+                if (crs326Port2Row) crs326Port2Row.style.display = (isBng2 && is326) ? 'block' : 'none';
+                if (tachyonSubnetRow) tachyonSubnetRow.style.display = (isBng2 && isTachyon) ? 'block' : 'none';
             }
 
             function syncMtConfigTypeUI() {
@@ -17620,6 +17668,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     modelSel.addEventListener('change', () => {
                         refreshModernPortOptions();
                         syncMtRouterIdentity();
+                        syncBng2FeatureVisibility();
                     });
                     modelSel.dataset.bound = '1';
                 }
@@ -18010,6 +18059,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 const isTachyon = !!document.getElementById('mtFeatureTachyon')?.checked;
                 const is6ghz = !!document.getElementById('mtFeature6ghz')?.checked;
                 const isTarana = !!document.getElementById('mtFeatureTarana')?.checked;
+                const is326 = !!document.getElementById('mtFeatureCrs326')?.checked;
                 const taranaSubnet = ensureCIDR((document.getElementById('mtBng2TaranaSubnet')?.value || '').trim(), 29);
                 if (isTarana && !taranaSubnet) {
                     throw new Error('Tarana is enabled. Please provide a valid Tarana Subnet.');
@@ -18020,6 +18070,10 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     if (!bbuS1 || !bbuMgmt) {
                         throw new Error('6 GHz is enabled. Please provide BBU S1 and BBU Mgmt subnets.');
                     }
+                }
+                if (is326) {
+                    const crs326Sub = ensureCIDR((document.getElementById('mtBng2Crs326Subnet')?.value || '').trim(), 29);
+                    if (!crs326Sub) throw new Error('CRS326 is enabled. Please provide a valid CRS326 Mgmt Subnet (/29).');
                 }
                 const derivedGatewayDefault = `10.${area}.80.208/30`;
                 const derivedSwitchDefault = `10.${area}.249.8/29`;
@@ -18052,7 +18106,11 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     tarana_subnet: taranaSubnet,
                     tarana_sector_count: parseInt(document.getElementById('mtBng2TaranaSectors')?.value || '3', 10),
                     tarana_sector_start: 0,
-                    is_326: !!document.getElementById('mtFeatureCrs326')?.checked,
+                    is_326: is326,
+                    '326_mgmt_subnet': is326 ? ensureCIDR((document.getElementById('mtBng2Crs326Subnet')?.value || '').trim(), 29) : undefined,
+                    crs_326_port_1: is326 ? ((document.getElementById('mtBng2Crs326Port1')?.value || 'sfp-sfpplus8').trim()) : undefined,
+                    crs_326_port_2: is326 ? ((document.getElementById('mtBng2Crs326Port2')?.value || 'sfp-sfpplus9').trim()) : undefined,
+                    tachyon_mgmt_subnet: isTachyon ? ensureCIDR((document.getElementById('mtBng2TachyonSubnet')?.value || '').trim(), 29) : undefined,
                     is_6ghz: is6ghz,
                     enable_contractor_login: !!document.getElementById('mtFeatureContractor')?.checked,
                     switches,
@@ -22451,6 +22509,139 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             return ports;
         }
 
+        const sshFetchState = {
+            taskId: null,
+            pollTimer: null,
+            currentHost: '',
+            abortRequested: false
+        };
+
+        function setSshFetchButtons(isRunning, isStopping = false) {
+            const sshFetchBtn = document.getElementById('sshFetchBtn');
+            const sshStopBtn = document.getElementById('sshStopBtn');
+            if (sshFetchBtn) {
+                sshFetchBtn.disabled = isRunning;
+                sshFetchBtn.style.opacity = isRunning ? '0.6' : '1';
+                sshFetchBtn.style.cursor = isRunning ? 'not-allowed' : 'pointer';
+                sshFetchBtn.innerHTML = isRunning ? ' Connecting...' : ' Fetch Config via SSH';
+            }
+            if (sshStopBtn) {
+                sshStopBtn.disabled = !isRunning || isStopping;
+                sshStopBtn.style.opacity = (!isRunning || isStopping) ? '0.6' : '1';
+                sshStopBtn.style.cursor = (!isRunning || isStopping) ? 'not-allowed' : 'pointer';
+                sshStopBtn.innerHTML = isStopping ? 'Stopping...' : 'Stop';
+            }
+        }
+
+        function clearSshFetchPolling() {
+            if (sshFetchState.pollTimer) {
+                clearTimeout(sshFetchState.pollTimer);
+                sshFetchState.pollTimer = null;
+            }
+            sshFetchState.taskId = null;
+            sshFetchState.abortRequested = false;
+        }
+
+        async function pollSshFetchStatus(taskId, deviceIP, sshStatus) {
+            try {
+                const response = await fetch(`${AI_API_BASE}/fetch-config-ssh/status/${encodeURIComponent(taskId)}`, {
+                    headers: getAuthHeaders()
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || `Status check failed (${response.status})`);
+                }
+
+                if (data.message) {
+                    updateProgressStep(data.message);
+                    addProgressLog('info', data.message);
+                }
+
+                if (data.status === 'queued' || data.status === 'running' || data.status === 'aborting') {
+                    if (data.current_port) {
+                        sshStatus.innerHTML = ` Connecting to ${deviceIP} on port ${data.current_port}...`;
+                    } else {
+                        sshStatus.innerHTML = ` ${data.message || 'Connecting to device...'}`;
+                    }
+                    sshStatus.style.background = data.status === 'aborting' ? '#ef6c00' : '#2196F3';
+                    sshFetchState.pollTimer = setTimeout(() => pollSshFetchStatus(taskId, deviceIP, sshStatus), 1000);
+                    return;
+                }
+
+                clearSshFetchPolling();
+                setSshFetchButtons(false);
+
+                if (data.status === 'completed') {
+                    const normalizedConfig = normalizeLineBreaks(data.config || '');
+                    if (!normalizedConfig.trim()) {
+                        throw new Error('Device returned empty configuration');
+                    }
+
+                    uploadedConfigContent = normalizedConfig;
+                    updateProgressPercent(100);
+                    updateProgressStep('Config fetched successfully!');
+                    addProgressLog('success', `Ready for upgrade: ${deviceIP}`);
+                    completeProgressTracker(true);
+
+                    const portInfo = data.port ? ` (port ${data.port})` : '';
+                    sshStatus.style.background = '#4CAF50';
+                    sshStatus.innerHTML = ` Config fetched successfully from ${deviceIP}${portInfo}<br><small>Config size: ${normalizedConfig.length} characters</small>`;
+
+                    const fileNameEl = document.getElementById('fileName');
+                    const uploadedFileName = document.getElementById('uploadedFileName');
+                    const upgradeTargetSelection = document.getElementById('upgradeTargetSelection');
+                    if (fileNameEl) fileNameEl.textContent = `SSH-${deviceIP}-export.rsc`;
+                    if (uploadedFileName) uploadedFileName.style.display = 'block';
+                    if (upgradeTargetSelection) upgradeTargetSelection.style.display = 'block';
+                    if (typeof updateUpgradeQsfpOptionVisibility === 'function') updateUpgradeQsfpOptionVisibility();
+                    showUpgradeStatus(' Config loaded. Select target device/version and click "Start Upgrade" button.', 'success');
+                    return;
+                }
+
+                if (data.status === 'aborted') {
+                    completeProgressTracker(false);
+                    sshStatus.style.background = '#ef6c00';
+                    sshStatus.innerHTML = ' SSH fetch stopped by user.';
+                    showUpgradeStatus('SSH fetch stopped.', 'error');
+                    addProgressLog('warning', 'SSH fetch stopped by user');
+                    return;
+                }
+
+                throw new Error(data.error || 'SSH fetch failed');
+            } catch (error) {
+                clearSshFetchPolling();
+                setSshFetchButtons(false);
+                completeProgressTracker(false);
+                sshStatus.style.background = '#f44336';
+                sshStatus.innerHTML = ` Error: ${error.message}`;
+                showUpgradeStatus(`SSH fetch failed: ${error.message}`, 'error');
+                addProgressLog('error', `SSH fetch failed: ${error.message}`);
+            }
+        }
+
+        async function abortSshFetch() {
+            if (!sshFetchState.taskId) return;
+            sshFetchState.abortRequested = true;
+            setSshFetchButtons(true, true);
+            try {
+                const response = await fetch(`${AI_API_BASE}/fetch-config-ssh/abort/${encodeURIComponent(sshFetchState.taskId)}`, {
+                    method: 'POST',
+                    headers: getAuthHeaders('application/json')
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || `Abort failed (${response.status})`);
+                }
+                addProgressLog('warning', 'SSH fetch stop requested');
+                updateProgressStep('Stopping SSH fetch...');
+            } catch (error) {
+                sshFetchState.abortRequested = false;
+                setSshFetchButtons(true, false);
+                addProgressLog('error', `SSH fetch stop failed: ${error.message}`);
+                showUpgradeStatus(`SSH fetch stop failed: ${error.message}`, 'error');
+            }
+        }
+
         // Fetch config via SSH with live progress tracking
         async function fetchConfigViaSSH() {
             const deviceIP = document.getElementById('sshDeviceIP').value.trim();
@@ -22460,7 +22651,6 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             const sshPassword = document.getElementById('sshPassword')?.value || '';
             const sshPorts = parseSshPorts(document.getElementById('sshPorts')?.value || '');
             const sshStatus = document.getElementById('sshStatus');
-            const sshFetchBtn = document.getElementById('sshFetchBtn');
 
             // Validation
             if (!deviceIP) {
@@ -22486,11 +22676,9 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             updateProgressPercent(5);
             addProgressLog('info', `Connecting to ${deviceIP} via SSH`);
 
-            // Disable button and show loading
-            sshFetchBtn.disabled = true;
-            sshFetchBtn.style.opacity = '0.6';
-            sshFetchBtn.style.cursor = 'not-allowed';
-            sshFetchBtn.innerHTML = ' Connecting...';
+            clearSshFetchPolling();
+            sshFetchState.currentHost = deviceIP;
+            setSshFetchButtons(true, false);
 
             sshStatus.style.display = 'block';
             sshStatus.style.background = '#2196F3';
@@ -22511,13 +22699,10 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                         command: exportCommand,
                         username: sshUsername,
                         password: sshPassword,
-                        ports: sshPorts
+                        ports: sshPorts,
+                        async_task: true
                     })
                 });
-
-                updateProgressPercent(60);
-                updateProgressStep('Processing configuration...');
-                addProgressLog('info', 'Normalizing line breaks and formatting');
 
                 if (!response.ok) {
                     let errorMessage = `HTTP ${response.status}`;
@@ -22540,56 +22725,23 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 }
 
                 const data = await response.json();
-
-                if (!data.config || !data.config.trim()) {
-                    throw new Error('Device returned empty configuration');
+                if (!data.task_id) {
+                    throw new Error('Backend did not return an SSH fetch task id');
                 }
-
-                // Normalize line breaks (remove \ continuations)
-                const normalizedConfig = normalizeLineBreaks(data.config);
-
-                updateProgressPercent(80);
-                updateProgressStep('Finalizing...');
-                addProgressLog('success', `Config normalized: ${normalizedConfig.length} characters`);
-
-                // Store config content (same as file upload)
-                uploadedConfigContent = normalizedConfig;
-
-                updateProgressPercent(100);
-                updateProgressStep('Config fetched successfully!');
-                addProgressLog('success', `Ready for upgrade: ${deviceIP}`);
-                completeProgressTracker(true);
-
-                // Show success with port info
-                const portInfo = data.port ? ` (port ${data.port})` : '';
-                sshStatus.style.background = '#4CAF50';
-                sshStatus.innerHTML = ` Config fetched successfully from ${deviceIP}${portInfo}<br><small>Config size: ${normalizedConfig.length} characters</small>`;
-
-                // Show file name (using device IP as identifier)
-                const fileNameEl = document.getElementById('fileName');
-                const uploadedFileName = document.getElementById('uploadedFileName');
-                const upgradeTargetSelection = document.getElementById('upgradeTargetSelection');
-                if (fileNameEl) fileNameEl.textContent = `SSH-${deviceIP}-export.rsc`;
-                if (uploadedFileName) uploadedFileName.style.display = 'block';
-
-                // Show target selection
-                if (upgradeTargetSelection) upgradeTargetSelection.style.display = 'block';
-
-                // Show ready message
-                showUpgradeStatus(' Config loaded. Select target device/version and click "Start Upgrade" button.', 'success');
+                sshFetchState.taskId = data.task_id;
+                updateProgressPercent(25);
+                updateProgressStep('SSH fetch started on backend...');
+                addProgressLog('info', `Task ${data.task_id} started`);
+                sshFetchState.pollTimer = setTimeout(() => pollSshFetchStatus(data.task_id, deviceIP, sshStatus), 500);
 
             } catch (error) {
+                clearSshFetchPolling();
+                setSshFetchButtons(false);
                 completeProgressTracker(false);
                 sshStatus.style.background = '#f44336';
                 sshStatus.innerHTML = ` Error: ${error.message}`;
                 showUpgradeStatus(`SSH fetch failed: ${error.message}`, 'error');
                 addProgressLog('error', `SSH fetch failed: ${error.message}`);
-            } finally {
-                // Re-enable button
-                sshFetchBtn.disabled = false;
-                sshFetchBtn.style.opacity = '1';
-                sshFetchBtn.style.cursor = 'pointer';
-                sshFetchBtn.innerHTML = ' Fetch Config via SSH';
             }
         }
 
@@ -22628,6 +22780,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
 
                 // Show target selection
                 if (upgradeTargetSelection) upgradeTargetSelection.style.display = 'block';
+                if (typeof updateUpgradeQsfpOptionVisibility === 'function') updateUpgradeQsfpOptionVisibility();
 
                 // Show ready message
                 showUpgradeStatus(' Config loaded. Select target device/version and click "Start Upgrade" button.', 'success');
@@ -22720,6 +22873,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 // Get target selections
                 const targetDevice = document.getElementById('upgradeTargetDevice').value;
                 const targetVersion = document.getElementById('upgradeTargetVersion').value;
+                const allowQsfpPorts = !!document.getElementById('upgradeAllowQsfpPorts')?.checked;
 
                 updateProgressPercent(8);
                 updateProgressStep(`Parsing source configuration...`);
@@ -22836,6 +22990,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                             source_device: sourceDevice !== 'unknown' ? sourceDevice : undefined,
                             target_device: targetDevice,
                             target_version: targetVersion,
+                            allow_qsfp_ports: allowQsfpPorts,
                             apply_compliance: true
                         }),
                         signal: controller.signal
@@ -23182,7 +23337,8 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                         Switch: ${escapeHtml((policySummary.switch_ports || []).join(', ') || 'n/a')} |
                         Reserved: ${escapeHtml((policySummary.reserved_ports || []).join(', ') || 'n/a')} |
                         Backhaul: ${escapeHtml((policySummary.backhaul_ports || []).join(', ') || 'n/a')} |
-                        Radio: ${escapeHtml((policySummary.radio_ports || []).join(', ') || 'n/a')}
+                        Radio: ${escapeHtml((policySummary.radio_ports || []).join(', ') || 'n/a')} |
+                        QSFP Allowed: ${policySummary.allow_qsfp_ports ? 'Yes' : 'No'}
                     </div>
                     <table style="width:100%;border-collapse:collapse;font-size:12px">
                         <thead><tr>
@@ -23228,6 +23384,15 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 ${portTableHtml}
                 ${warningsHtml}`;
             panel.style.display = 'block';
+        }
+
+        function updateUpgradeQsfpOptionVisibility() {
+            const targetDevice = document.getElementById('upgradeTargetDevice')?.value || '';
+            const row = document.getElementById('upgradeQsfpOptionRow');
+            const checkbox = document.getElementById('upgradeAllowQsfpPorts');
+            const showQsfpOption = targetDevice === 'ccr2216' || targetDevice === 'CCR2216-1G-12XS-2XQ';
+            if (row) row.style.display = showQsfpOption ? 'block' : 'none';
+            if (checkbox && !showQsfpOption) checkbox.checked = false;
         }
 
         function hideUpgradeProgress() {
