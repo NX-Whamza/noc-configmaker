@@ -25138,15 +25138,15 @@ Ready for translation!`);
                 }
             });
 
-            // Initial load + periodic refresh
+            // Initial load + periodic refresh every 15s for near-real-time presence
             refreshOnlineUsers();
             if (_onlineRefreshTimer) clearInterval(_onlineRefreshTimer);
-            _onlineRefreshTimer = setInterval(refreshOnlineUsers, 60000);
+            _onlineRefreshTimer = setInterval(refreshOnlineUsers, 15000);
 
-            // Heartbeat every 2 minutes to stay "online"
+            // Heartbeat every 30s to stay "online" (timeout window is 5 minutes)
             setInterval(function() {
                 fetch('/api/session/heartbeat', { method:'POST', headers: getAuthHeaders() }).catch(function(){});
-            }, 120000);
+            }, 30000);
         }
         // ── End Who's Online ─────────────────────────────────────────────────────
 
@@ -25157,19 +25157,18 @@ Ready for translation!`);
         async function loadNotifications() {
             const token = localStorage.getItem('auth_token');
             if (!token) return;
+            // Always show the bell for logged-in users
+            const bell = document.getElementById('notifBell');
+            const badge = document.getElementById('notifBadge');
+            const list = document.getElementById('notifList');
+            if (!bell) return;
+            bell.style.display = 'flex';
             try {
                 const resp = await fetch('/api/notifications', { headers: getAuthHeaders() });
                 if (!resp.ok) return;
                 const data = await resp.json();
                 const notifs = data.notifications || [];
                 const unread = data.unread_count || 0;
-
-                const bell = document.getElementById('notifBell');
-                const badge = document.getElementById('notifBadge');
-                const list = document.getElementById('notifList');
-                if (!bell) return;
-
-                bell.style.display = 'flex';
 
                 if (unread > 0) {
                     badge.textContent = unread > 99 ? '99+' : String(unread);

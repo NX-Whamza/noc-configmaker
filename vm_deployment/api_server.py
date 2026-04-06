@@ -14183,7 +14183,18 @@ def submit_feedback():
         conn = sqlite3.connect(str(feedback_db))
         cursor = conn.cursor()
         
-        email = data.get('email', '')
+        email = data.get('email', '').strip()
+        # If no email provided, try to pull it from the auth token so notifications route correctly
+        if not email:
+            try:
+                auth_header = request.headers.get('Authorization', '')
+                if auth_header.startswith('Bearer '):
+                    _tok = auth_header[7:]
+                    _user = verify_token(_tok)
+                    if _user:
+                        email = _user.get('email', '')
+            except Exception:
+                pass
         cursor.execute('''
             INSERT INTO feedback (tenant_id, feedback_type, subject, category, experience, details, name, email, timestamp)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
