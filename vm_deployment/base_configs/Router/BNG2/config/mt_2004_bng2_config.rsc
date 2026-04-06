@@ -104,7 +104,7 @@ add address={{ six_ghz_address }}/{{ six_ghz_prefixlen }} interface=bridge3000 n
 add address={{ ub_wave_address }}/{{ ub_wave_prefixlen }} interface=bridge3000 network={{ ub_wave_network }} comment=UB-WAVE
 {% endif %}
 {% if is_326 %}
-add address={{ crs_326_mgmt_address.ip }}/{{ crs_326_mgmt_mask_bits }} interface=bridge3000 network={{ crs_326_mgmt_network }} comment=CRS326-MGMT
+add address={{ crs_326_mgmt_address }}/{{ crs_326_mgmt_mask_bits }} interface=bridge3000 network={{ crs_326_mgmt_network }} comment=CRS326-MGMT
 {% endif %}
 
 /routing ospf instance
