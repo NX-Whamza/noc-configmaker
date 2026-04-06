@@ -50,8 +50,9 @@ def test_ftth_speed_controls_and_backend_payload_hooks_exist():
         'Missing FTTH uplink auto-negotiation payload mapping in NOC-configMaker.html'
     assert "speed: speedSelect.value" in content, 'Missing FTTH OLT speed payload mapping in NOC-configMaker.html'
     assert 'BGP Peer Configuration' in content, 'Missing FTTH BGP peer display section in NOC-configMaker.html'
-    assert '10.2.0.107/32' in content, 'Missing FTTH CR7 peer display in NOC-configMaker.html'
-    assert '10.2.0.108/32' in content, 'Missing FTTH CR8 peer display in NOC-configMaker.html'
+    assert "fetch(`${apiBase}/tenant/defaults`)" in content, 'Missing tenant-defaults bootstrap fetch in NOC-configMaker.html'
+    assert 'getTenantRouteReflectorPeers' in content, 'Missing tenant route-reflector peer helper in NOC-configMaker.html'
+    assert 'getTenantDefaultAsn' in content, 'Missing tenant ASN helper in NOC-configMaker.html'
     assert "const targetUrl = `${apiBase.replace(/\\/+$/, '')}/preview-ftth-bng`;" in content, \
         'Missing resolved API base wiring for FTTH preview in NOC-configMaker.html'
     assert "apiBase + '/save-completed-config'" in content, \
@@ -195,6 +196,27 @@ def test_sidebar_and_nokia_7250_layout_updates_exist():
     assert 'setNokia7250OutputFormat' in content, 'Missing Nokia 7250 output format switcher'
     assert 'validateNokia7250Inputs' in content, 'Missing Nokia 7250 input validation helper'
     assert 'Uplink ${index + 1} IP/CIDR is invalid' in content, 'Missing Nokia 7250 uplink CIDR validation message'
+
+
+def test_command_vault_and_maintenance_tabs_use_backend_contracts():
+    content = UI_FILE.read_text(encoding='utf-8')
+    assert "fetch(`${getCommandVaultApiBase()}/command-vault/catalog`" in content, 'Command Vault should sync from the backend catalog endpoint'
+    assert 'function syncCommandVaultCatalog()' in content, 'Missing Command Vault backend sync helper in NOC-configMaker.html'
+    assert 'id="nokiaVault7750Grid"' in content, 'Missing Nokia Command Vault backend target grid in NOC-configMaker.html'
+    assert 'id="ciscoVaultGrid"' in content, 'Missing Cisco Command Vault backend target grid in NOC-configMaker.html'
+    assert 'id="mikrotikVaultGrid"' in content, 'Missing MikroTik Command Vault backend target grid in NOC-configMaker.html'
+    assert "fetch(`${apiBase}/maintenance/windows?status=all&limit=250`)" in content, 'Scheduled Maintenance should load from the backend endpoint'
+    assert "const MAINT_KEY = 'nexus_maintenance_windows_cache';" in content, 'Scheduled Maintenance should use the NEXUS cache key'
+    assert "fetch(`${apiBase}/tenant/defaults`)" in content, 'Shared tools should hydrate tenant defaults from backend discovery'
+
+
+def test_frontend_copy_is_tenant_neutral_for_shared_tools():
+    content = UI_FILE.read_text(encoding='utf-8')
+    assert 'Uses IDO proxy backends.' not in content, 'Field Config Studio copy should not expose legacy IDO wording'
+    assert 'IDO status check failed:' not in content, 'Field Config Studio status copy should use tenant-neutral wording'
+    assert 'IDO backend is not configured' not in content, 'Field Config Studio error copy should use tenant-neutral wording'
+    assert 'Unified device configurator workspace for shared device-access backends' in content, 'Field Config Studio should describe the shared device-access backend'
+    assert 'device-access backend not configured' in content, 'Field Config Studio should reference the shared device-access backend'
 
 
 def test_nokia_7250_port_setup_uses_safe_field_reader_and_clean_labels():

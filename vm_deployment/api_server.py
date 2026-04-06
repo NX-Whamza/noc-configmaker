@@ -63,6 +63,10 @@ try:
 except Exception:
     from vm_deployment.routes.ftth import create_ftth_blueprint
     from vm_deployment.routes.runtime import create_runtime_blueprint
+try:
+    from tenant_defaults import load_infrastructure_defaults, load_nokia_defaults
+except Exception:
+    from vm_deployment.tenant_defaults import load_infrastructure_defaults, load_nokia_defaults
 
 # Ensure local module imports work regardless of process working directory.
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -242,6 +246,29 @@ def _health_check_ido_backend():
         result['ok'] = False
         result['detail'] = f'IDO backend health check failed: {exc}'
     return result
+
+
+_HEALTH_CHECKS_CACHE: dict[str, object] = {
+    'timestamp': 0.0,
+    'checks': None,
+}
+_HEALTH_CHECKS_TTL_SECONDS = 30.0
+
+
+def _collect_health_checks(force: bool = False):
+    now = time.time()
+    cached_checks = _HEALTH_CHECKS_CACHE.get('checks')
+    cached_at = float(_HEALTH_CHECKS_CACHE.get('timestamp') or 0.0)
+    if not force and cached_checks is not None and (now - cached_at) < _HEALTH_CHECKS_TTL_SECONDS:
+        return cached_checks
+
+    checks = [
+        _health_check_secure_data(),
+        _health_check_ido_backend(),
+    ]
+    _HEALTH_CHECKS_CACHE['checks'] = checks
+    _HEALTH_CHECKS_CACHE['timestamp'] = now
+    return checks
 
 
 APP_VERSION_CONFIG_PATH = Path(__file__).parent / 'assets' / 'app-version.json'
@@ -488,6 +515,183 @@ def safe_print(*args, **kwargs):
 # Make the module's print resilient on Windows consoles that can't encode certain Unicode characters.
 print = safe_print
 
+# ── Tenant Secret Encryption ───────────────────────────────────────────────
+from cryptography.fernet import Fernet, InvalidToken as _FernetInvalidToken
+import base64 as _b64
+
+def _get_fernet() -> Fernet:
+    """Return a Fernet instance from TENANT_SECRET_KEY env var. Generates ephemeral key if unset."""
+    key = os.environ.get('TENANT_SECRET_KEY', '')
+    if not key:
+        # Ephemeral key - only warn once
+        if not getattr(_get_fernet, '_warned', False):
+            safe_print('[SECURITY WARNING] TENANT_SECRET_KEY not set. Tenant secrets will use an ephemeral key and cannot be recovered after restart. Set TENANT_SECRET_KEY=<base64-32-bytes> in your .env')
+            _get_fernet._warned = True
+        if not getattr(_get_fernet, '_ephemeral', None):
+            _get_fernet._ephemeral = Fernet(Fernet.generate_key())
+        return _get_fernet._ephemeral
+    # Pad/truncate to 32 bytes for Fernet URL-safe base64
+    raw = key.encode()
+    padded = (raw + b'=' * 32)[:44]  # Fernet keys are 44 base64 chars
+    try:
+        return Fernet(padded)
+    except Exception:
+        return Fernet(Fernet.generate_key())
+
+_ENCRYPTED_FIELDS = {'ssh_password', 'radius_secret', 'ospf_auth_key', 'nokia_root_password', 'nokia_snmp_community'}
+
+def encrypt_secret(plaintext: str) -> str:
+    """Encrypt a secret string. Returns Fernet token as string."""
+    if not plaintext:
+        return plaintext
+    return _get_fernet().encrypt(plaintext.encode()).decode()
+
+def decrypt_secret(ciphertext: str) -> str:
+    """Decrypt a Fernet token. If decryption fails (legacy plaintext), returns as-is."""
+    if not ciphertext:
+        return ciphertext
+    try:
+        return _get_fernet().decrypt(ciphertext.encode()).decode()
+    except (_FernetInvalidToken, Exception):
+        return ciphertext  # Legacy plaintext - caller should re-encrypt
+# ── End Tenant Secret Encryption ───────────────────────────────────────────
+
+# ── Email System ──────────────────────────────────────────────────────────
+import smtplib as _smtplib
+import ssl as _ssl
+from email.mime.text import MIMEText as _MIMEText
+from email.mime.multipart import MIMEMultipart as _MIMEMultipart
+
+def send_email(to: str, subject: str, html_body: str, text_body: str = ''):
+    """Send an email via SMTP. Fails silently with a warning if SMTP is not configured."""
+    host = os.environ.get('SMTP_HOST', '')
+    if not host:
+        safe_print(f'[EMAIL] SMTP not configured — would have sent "{subject}" to {to}')
+        return False
+    port = int(os.environ.get('SMTP_PORT', '587'))
+    user = os.environ.get('SMTP_USER', '')
+    password = os.environ.get('SMTP_PASSWORD', '')
+    from_addr = os.environ.get('SMTP_FROM', user)
+    try:
+        msg = _MIMEMultipart('alternative')
+        msg['Subject'] = subject
+        msg['From'] = from_addr
+        msg['To'] = to
+        if text_body:
+            msg.attach(_MIMEText(text_body, 'plain'))
+        msg.attach(_MIMEText(html_body, 'html'))
+        context = _ssl.create_default_context()
+        with _smtplib.SMTP(host, port) as smtp:
+            smtp.ehlo()
+            smtp.starttls(context=context)
+            if user and password:
+                smtp.login(user, password)
+            smtp.sendmail(from_addr, to, msg.as_string())
+        safe_print(f'[EMAIL] Sent "{subject}" to {to}')
+        return True
+    except Exception as e:
+        safe_print(f'[EMAIL] Failed to send "{subject}" to {to}: {e}')
+        return False
+
+def _email_template(title: str, body_html: str, cta_url: str = '', cta_label: str = '') -> str:
+    """Wrap content in a simple branded HTML email template."""
+    cta_block = f'<div style="text-align:center;margin:32px 0"><a href="{cta_url}" style="background:#2563eb;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;font-size:15px">{cta_label}</a></div>' if cta_url else ''
+    return f'''<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:0">
+<div style="max-width:560px;margin:40px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08)">
+<div style="background:#2563eb;padding:24px 32px"><h1 style="color:#fff;margin:0;font-size:20px">NOC Config Maker</h1></div>
+<div style="padding:32px"><h2 style="margin-top:0;color:#1e293b">{title}</h2>{body_html}{cta_block}</div>
+<div style="padding:16px 32px;background:#f8fafc;font-size:12px;color:#94a3b8">This is an automated message from NOC Config Maker. Do not reply to this email.</div>
+</div></body></html>'''
+# ── End Email System ──────────────────────────────────────────────────────
+
+# ── Per-Tenant Feature Flags ───────────────────────────────────────────────
+_DEFAULT_FEATURES = {
+    'mikrotik': True, 'nokia': True, 'cambium': True, 'aviat': True,
+    'ftth': True, 'bulk_ops': True, 'compliance': True,
+    'ai_assistant': True, 'config_diff': True
+}
+
+def _get_tenant_features(tenant_id) -> dict:
+    """Return feature flags for a tenant. Defaults to all enabled."""
+    if not tenant_id:
+        return dict(_DEFAULT_FEATURES)
+    try:
+        db = init_users_db()
+        conn = sqlite3.connect(str(db))
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute('SELECT features FROM tenant_features WHERE tenant_id = ?', (tenant_id,))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return {**_DEFAULT_FEATURES, **json.loads(row['features'] or '{}')}
+        return dict(_DEFAULT_FEATURES)
+    except Exception:
+        return dict(_DEFAULT_FEATURES)
+
+def _require_feature(feature_name: str):
+    """Check if current tenant has a feature enabled. Returns 403 if not."""
+    tenant_ctx = _get_request_tenant_context()
+    tenant_id = tenant_ctx['tenant'].get('id')
+    features = _get_tenant_features(tenant_id)
+    if not features.get(feature_name, True):
+        abort(403, description=f"Feature '{feature_name}' is not enabled for your organization. Contact your administrator.")
+# ── End Per-Tenant Feature Flags ───────────────────────────────────────────
+
+# ── Quota Helpers ──────────────────────────────────────────────────────────
+def _get_today_usage(tenant_id):
+    """Get today's usage counters for a tenant."""
+    from datetime import date as _date
+    today = str(_date.today())
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT * FROM usage_daily WHERE tenant_id = ? AND date = ?', (tenant_id, today))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else {'configs_generated': 0, 'api_calls': 0}
+
+def _increment_usage(tenant_id, counter: str):
+    """Increment a usage counter for today. counter = 'configs_generated' or 'api_calls'."""
+    from datetime import date as _date
+    today = str(_date.today())
+    if not tenant_id:
+        return
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.execute(f'''
+        INSERT INTO usage_daily (tenant_id, date, {counter}) VALUES (?, ?, 1)
+        ON CONFLICT(tenant_id, date) DO UPDATE SET {counter} = {counter} + 1
+    ''', (tenant_id, today))
+    conn.commit()
+    conn.close()
+
+def _check_quota(tenant_id, quota_type: str):
+    """Check quota. Raises HTTP 429 if exceeded. quota_type: 'configs_generated' or 'api_calls'."""
+    if not tenant_id:
+        return  # No tenant context, skip quota
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT * FROM tenant_quotas WHERE tenant_id = ?', (tenant_id,))
+    quota_row = c.fetchone()
+    conn.close()
+    if not quota_row:
+        return  # No quota set = unlimited
+    usage = _get_today_usage(tenant_id)
+    field_map = {
+        'configs_generated': ('max_configs_per_day', 'daily config generation'),
+        'api_calls': ('max_api_calls_per_day', 'daily API calls'),
+    }
+    limit_field, label = field_map.get(quota_type, ('max_api_calls_per_day', 'API calls'))
+    limit = quota_row[limit_field]
+    current = usage.get(quota_type, 0)
+    if current >= limit:
+        abort(429, description=f'Daily {quota_type} quota of {limit} exceeded. Resets at midnight UTC.')
+# ── End Quota Helpers ──────────────────────────────────────────────────────
+
 # ========================================
 # AVIAT BACKHAUL UPDATER STATE
 # ========================================
@@ -500,6 +704,11 @@ AVIAT_SHARED_QUEUE_STORE = Path(__file__).resolve().parent / "aviat_shared_queue
 AVIAT_GLOBAL_LOG_LIMIT = 2000
 aviat_scheduled_queue = []
 AVIAT_SCHEDULED_STORE = Path(__file__).resolve().parent / "aviat_scheduled_queue.json"
+
+# ── Online presence tracker ──────────────────────────────────────────
+import time as _time
+_active_sessions = {}   # user_id -> {email, display_name, avatar, tenant_name, role_label, last_seen}
+_ONLINE_TIMEOUT_SECS = 300   # 5 minutes
 aviat_loading_queue = []
 AVIAT_LOADING_STORE = Path(__file__).resolve().parent / "aviat_loading_queue.json"
 aviat_reboot_queue = []
@@ -1304,6 +1513,10 @@ def _aviat_resume_remaining_tasks(entry, callback=None):
         maintenance_params=entry.get("maintenance_params", {}),
     )
     res_dict = _aviat_result_dict(result, username=username)
+    # Propagate tenant context from the entry if it was stored there
+    if entry.get('_tenant_id') is not None:
+        res_dict['_tenant_id'] = entry['_tenant_id']
+        res_dict['_tenant_slug'] = entry.get('_tenant_slug', '')
     _log_aviat_activity(res_dict)
     _aviat_queue_update_from_result(res_dict, username=username)
     _aviat_queue_upsert(ip, {
@@ -1362,6 +1575,12 @@ def _aviat_activate_entries(task_id, to_activate, username=None):
                 'error': result.error
             })
             res_dict = _aviat_result_dict(result, username=entry.get("username") or username)
+            # Inject tenant context captured at request time if available
+            _act_task_tenant_id = aviat_tasks.get(task_id, {}).get('_tenant_id')
+            _act_task_tenant_slug = aviat_tasks.get(task_id, {}).get('_tenant_slug', '')
+            if _act_task_tenant_id is not None:
+                res_dict['_tenant_id'] = _act_task_tenant_id
+                res_dict['_tenant_slug'] = _act_task_tenant_slug
             _log_aviat_activity(res_dict)
             _aviat_queue_update_from_result(
                 res_dict,
@@ -1753,8 +1972,35 @@ def _collect_role_matches(text_value):
     return matches
 
 
+GENERIC_LOGICAL_LABEL_PATTERNS = [
+    r'^lan-bridge$',
+    r'^nat-public-bridge$',
+    r'^bridge\d*$',
+    r'^loop0$',
+    r'^vlan\d+$',
+    r'^cpe(?:/tower gear)?$',
+    r'^tower gear$',
+    r'^unauth$',
+    r'^cgnat(?: public| private)?$',
+    r'^customer(?:s)?$',
+    r'^cust$',
+    r'^public$',
+    r'^private$',
+    r'^lan$',
+]
+
+
+def _is_generic_logical_label(text_value):
+    normalized = re.sub(r'\s+', ' ', (text_value or '').strip().strip('"').lower())
+    if not normalized:
+        return True
+    return any(re.fullmatch(pattern, normalized) for pattern in GENERIC_LOGICAL_LABEL_PATTERNS)
+
+
 def _add_role_matches_from_text(port_name, text_value, evidence_prefix, role_signals, source_ports):
     if port_name not in source_ports:
+        return
+    if evidence_prefix != 'comment' and _is_generic_logical_label(text_value):
         return
     for role_name, hits in _collect_role_matches(text_value).items():
         weight = 5 if evidence_prefix == 'comment' else 4
@@ -1796,6 +2042,122 @@ def _all_device_ports(device_key):
     for group_ports in device.get('ports', {}).values():
         ports.extend(group_ports)
     return ports
+
+
+def _extract_physical_interface_tokens(config_text):
+    pattern = r'\b(ether\d+|sfp\d+(?:-\d+)?|sfp-sfpplus\d+|sfp28-\d+|qsfpplus\d+-\d+|qsfp28-\d+-\d+|qsfp\d+(?:-\d+)?|combo\d+)\b'
+    seen = set()
+    physical = []
+    for match in re.finditer(pattern, config_text or ''):
+        port = match.group(1)
+        if port not in seen:
+            seen.add(port)
+            physical.append(port)
+    return physical
+
+
+def _infer_routerboard_model_from_port_usage(config_text):
+    physical_ports = _extract_physical_interface_tokens(config_text)
+    if not physical_ports:
+        return None, {}
+
+    scores = {}
+    for model_key in ROUTERBOARD_INTERFACES:
+        known_ports = set(_all_device_ports(model_key))
+        overlap = [port for port in physical_ports if port in known_ports]
+        if overlap:
+            scores[model_key] = {
+                'matched_ports': overlap,
+                'score': len(overlap),
+            }
+
+    if not scores:
+        return None, {}
+
+    best_model, meta = max(
+        scores.items(),
+        key=lambda item: (
+            item[1]['score'],
+            ROUTERBOARD_INTERFACES[item[0]].get('total_ports', 0),
+            item[0],
+        ),
+    )
+    return best_model, scores
+
+
+def _rewrite_migration_identity_for_target(identity_name: str, source_model: str, target_model: str) -> str:
+    name = (identity_name or '').strip()
+    if not name:
+        target_digits = re.search(r'(\d{3,4})', target_model or '')
+        return f"RTR-MT{target_digits.group(1)}-UNKNOWN" if target_digits else "RTR-UNKNOWN"
+
+    src_digits = re.search(r'(\d{3,4})', source_model or '')
+    tgt_digits = re.search(r'(\d{3,4})', target_model or '')
+
+    if src_digits and tgt_digits:
+        name = re.sub(rf'(?i)\bMT{re.escape(src_digits.group(1))}\b', f"MT{tgt_digits.group(1)}", name)
+        name = re.sub(rf'(?i)\b{re.escape(src_digits.group(1))}\b', tgt_digits.group(1), name)
+    elif tgt_digits and re.fullmatch(r'\d{3,4}', name):
+        name = tgt_digits.group(1)
+
+    old_model_short = (source_model.split('-')[0] if source_model else '').strip()
+    new_model_short = (target_model.split('-')[0] if target_model else '').strip()
+    if old_model_short and new_model_short and old_model_short.lower() != 'unknown' and new_model_short.lower() != 'unknown':
+        name = re.sub(rf'(?i)\b{re.escape(old_model_short)}\b', new_model_short, name)
+
+    return name
+
+
+def _rewrite_migration_metadata(config_text: str, source_model: str, target_model: str, target_version: str) -> str:
+    text = config_text or ''
+
+    if target_version:
+        text = re.sub(r'(?m)^(#.*by RouterOS )\d+(?:\.\d+)+', rf'\g<1>{target_version}', text)
+        text = re.sub(r'(?m)^(#.*RouterOS )\d+(?:\.\d+)+', rf'\g<1>{target_version}', text)
+
+    if target_model:
+        if re.search(r'(?m)^#\s*model\s*=.*$', text):
+            text = re.sub(r'(?m)^#\s*model\s*=.*$', f"# model ={target_model}", text)
+        else:
+            header_match = re.search(r'(?m)^(#.*RouterOS .*)$', text)
+            if header_match:
+                insert_at = header_match.end()
+                text = text[:insert_at] + f"\n# model ={target_model}" + text[insert_at:]
+
+    def _format_identity_for_set(name: str) -> str:
+        s = (name or '').strip()
+        if re.search(r'[^A-Za-z0-9._-]', s):
+            s = s.replace('"', "'")
+            return f'"{s}"'
+        return s
+
+    block_pattern = r'(?ms)^/system identity\s*\n\s*set\s+name=([^\n]+)\s*$'
+    inline_pattern = r'(?m)^\s*/system identity\s+set\s+name=([^\n]+)\s*$'
+    current_identity = None
+    match = re.search(block_pattern, text)
+    if match:
+        current_identity = match.group(1).strip().strip('"').strip("'")
+        updated_identity = _rewrite_migration_identity_for_target(current_identity, source_model, target_model)
+        text = re.sub(
+            block_pattern,
+            f"/system identity\nset name={_format_identity_for_set(updated_identity)}",
+            text,
+        )
+    else:
+        match = re.search(inline_pattern, text)
+        if match:
+            current_identity = match.group(1).strip().strip('"').strip("'")
+            updated_identity = _rewrite_migration_identity_for_target(current_identity, source_model, target_model)
+            text = re.sub(
+                inline_pattern,
+                f"/system identity\nset name={_format_identity_for_set(updated_identity)}",
+                text,
+            )
+        else:
+            updated_identity = _rewrite_migration_identity_for_target('', source_model, target_model)
+            text = text.rstrip() + f"\n\n/system identity\nset name={_format_identity_for_set(updated_identity)}\n"
+
+    return text
 
 
 def resolve_routerboard_model_key(device_name):
@@ -2096,14 +2458,28 @@ def analyze_nextlink_port_mapping(config_text, source_device, target_device):
     for port, comment in comment_map.items():
         upper = comment.upper()
         _add_role_matches_from_text(port, comment, 'comment', role_signals, source_ports)
-        if any(token in upper for token in ['BACKHAUL', ' BH', 'BH ', 'FIBER', 'UPLINK', 'TRANSPORT']) or re.search(r'\b(TX|KS|IL|NE|IA|MO|OK)-', upper):
+        explicit_access_role = bool(role_signals.get(port, {}).get('switch') or role_signals.get(port, {}).get('olt'))
+        if (
+            not explicit_access_role and
+            (
+                any(token in upper for token in ['BACKHAUL', ' BH', 'BH ', 'FIBER', 'UPLINK', 'TRANSPORT']) or
+                re.search(r'\b(TX|KS|IL|NE|IA|MO|OK)-', upper)
+            )
+        ):
             add_signal(port, 'backhaul', f'comment:{comment}', 5)
 
     for logical_iface, logical_comment in logical_comments.items():
         for port in resolve_physical_ports(logical_iface):
             _add_role_matches_from_text(port, logical_comment, f'logical_comment:{logical_iface}', role_signals, source_ports)
             upper = logical_comment.upper()
-            if any(token in upper for token in ['BACKHAUL', 'FIBER', 'UPLINK', 'TRANSPORT']) or re.search(r'\b(TX|KS|IL|NE|IA|MO|OK)-', upper):
+            explicit_access_role = bool(role_signals.get(port, {}).get('switch') or role_signals.get(port, {}).get('olt'))
+            if (
+                not explicit_access_role and
+                (
+                    any(token in upper for token in ['BACKHAUL', 'FIBER', 'UPLINK', 'TRANSPORT']) or
+                    re.search(r'\b(TX|KS|IL|NE|IA|MO|OK)-', upper)
+                )
+            ):
                 add_signal(port, 'backhaul', f'logical_comment:{logical_iface}:{logical_comment}', 4)
 
     for logical_iface, comments in address_comments.items():
@@ -2112,10 +2488,14 @@ def analyze_nextlink_port_mapping(config_text, source_device, target_device):
                 _add_role_matches_from_text(port, address_comment, f'address_comment:{logical_iface}', role_signals, source_ports)
 
     for logical_iface in set(vlan_parent) | set(bond_members) | set(bridge_members) | set(bridge_interfaces):
+        if _is_generic_logical_label(logical_iface):
+            continue
         for port in resolve_physical_ports(logical_iface):
             _add_role_matches_from_text(port, logical_iface, 'logical_interface', role_signals, source_ports)
 
     for bridge_name, members in bridge_members.items():
+        if _is_generic_logical_label(bridge_name):
+            continue
         for member in members:
             for port in resolve_physical_ports(member):
                 _add_role_matches_from_text(port, bridge_name, 'bridge_name', role_signals, source_ports)
@@ -2127,6 +2507,8 @@ def analyze_nextlink_port_mapping(config_text, source_device, target_device):
 
     for logical_iface, prefixes in list(prefix_map.items()):
         if logical_iface in source_ports:
+            continue
+        if _is_generic_logical_label(logical_iface):
             continue
         for port in resolve_physical_ports(logical_iface):
             for prefix in prefixes:
@@ -2152,6 +2534,8 @@ def analyze_nextlink_port_mapping(config_text, source_device, target_device):
             add_signal(port, 'backhaul', f'mpls_ldp:{iface_name}', 2)
 
     for logical_iface, ips in logical_ip_map.items():
+        if logical_iface not in source_ports and _is_generic_logical_label(logical_iface):
+            continue
         for ip_addr in ips:
             if re.search(rf'(?m)^/routing bgp connection\s+add[^\n]*\b(local\.address|update-source)={re.escape(ip_addr)}\b', config_text):
                 for port in resolve_physical_ports(logical_iface):
@@ -2472,16 +2856,18 @@ def migrate_interface_config(config_text, interface_map, source_device=None, tar
     if re.search(r'\bcombo\d+\b', migrated_config):
         migrated_config = re.sub(r'\bcombo1\b', 'sfp-sfpplus1', migrated_config)
     
-    # Sort by length (longest first) to avoid partial replacements
-    # e.g., replace "ether10" before "ether1"
+    # Use placeholders to avoid chained remaps, e.g. A->B and B->C should not turn A into C.
     sorted_interfaces = sorted(interface_map.items(), key=lambda x: len(x[0]), reverse=True)
-    
-    for old_interface, new_interface in sorted_interfaces:
-        # Use word boundaries to avoid partial matches
-        # Pattern matches interface name with word boundaries
-        # This ensures we don't replace "ether1" in "ether10"
+    placeholders = {}
+
+    for index, (old_interface, _new_interface) in enumerate(sorted_interfaces):
+        placeholder = f"__IFACE_REMAP_{index}__"
+        placeholders[placeholder] = interface_map[old_interface]
         pattern = r'\b' + re.escape(old_interface) + r'\b'
-        migrated_config = re.sub(pattern, new_interface, migrated_config)
+        migrated_config = re.sub(pattern, placeholder, migrated_config)
+
+    for placeholder, new_interface in placeholders.items():
+        migrated_config = migrated_config.replace(placeholder, new_interface)
 
     # Remove stale ethernet defaults for source-only ports that cannot exist on the target.
     # This avoids outputs like `default-name=sfp1` on targets such as CCR2004/CCR2216.
@@ -3518,6 +3904,14 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
 CORS(app)  # Enable CORS for local HTML file access
 
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+limiter = Limiter(get_remote_address, app=app, default_limits=[], storage_uri="memory://")
+
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    return jsonify({'error': 'Too many requests. Please wait before trying again.'}), 429
+
 # Trust X-Forwarded-* headers from the reverse proxy so request.host_url
 # returns the real public URL (e.g. https://noc-configmaker.nxlink.com/)
 # instead of http://127.0.0.1:5000/.  Required for OAuth redirect_uri.
@@ -3637,6 +4031,14 @@ def log_request(response):
 # Hot-reload endpoint (now that app exists)
 @app.route('/api/reload-training', methods=['POST'])
 def reload_training():
+    # Auth guard — equivalent to @require_auth (decorator defined later in file)
+    _auth_token = request.headers.get('Authorization', '')
+    if _auth_token.startswith('Bearer '):
+        _auth_token = _auth_token[7:]
+    if not _auth_token:
+        return jsonify({'error': 'Authentication required'}), 401
+    if not verify_token(_auth_token):
+        return jsonify({'error': 'Invalid or expired token'}), 401
     global TRAINING_RULES
     global TRAINING_DIR
     try:
@@ -9191,10 +9593,96 @@ Output (copy every line, update device model to {target_device.upper()}, preserv
         return jsonify({'error': str(e)}), 500
 
 # ========================================
+# AUTH DECORATOR (used by endpoints below and above)
+# ========================================
+
+def require_auth(f):
+    """Decorator to require authentication"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        token = request.headers.get('Authorization')
+        if not token:
+            token = request.json.get('token') if request.json else None
+
+        if token:
+            # Remove 'Bearer ' prefix if present
+            if token.startswith('Bearer '):
+                token = token[7:]
+
+        if not token:
+            return jsonify({'error': 'Authentication required'}), 401
+
+        # Check for API key (nck_ prefix)
+        if token.startswith('nck_'):
+            import hashlib as _hlib
+            key_hash = _hlib.sha256(token.encode()).hexdigest()
+            _db = init_users_db()
+            _conn = sqlite3.connect(str(_db))
+            _conn.row_factory = sqlite3.Row
+            _c = _conn.cursor()
+            _c.execute('''SELECT ak.*, t.slug as tenant_slug FROM api_keys ak
+                          JOIN tenants t ON t.id = ak.tenant_id
+                          WHERE ak.key_hash = ? AND ak.is_active = 1''', (key_hash,))
+            ak = _c.fetchone()
+            if ak:
+                # Check expiry
+                if ak['expires_at']:
+                    if datetime.utcnow().isoformat() > ak['expires_at']:
+                        _conn.close()
+                        return jsonify({'error': 'API key expired'}), 401
+                # Update last_used_at
+                _conn.execute('UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?', (ak['id'],))
+                _conn.commit()
+                _conn.close()
+                # Set current_user shape matching JWT shape
+                request.current_user = {
+                    'user_id': None,
+                    'id': None,
+                    'email': f'apikey:{ak["key_prefix"]}',
+                    'tenant_id': ak['tenant_id'],
+                    'tenantId': ak['tenant_id'],
+                    'tenant_role': 'api_key',
+                    'scopes': json.loads(ak['scopes'] or '["read","write"]'),
+                    'auth_type': 'api_key',
+                    'api_key_id': ak['id'],
+                }
+                return f(*args, **kwargs)
+            _conn.close()
+            return jsonify({'error': 'Invalid or revoked API key'}), 401
+
+        user_info = verify_token(token)
+        if not user_info:
+            return jsonify({'error': 'Invalid or expired token'}), 401
+
+        # Add user info to request context
+        request.current_user = user_info
+
+        # Update online presence tracker
+        try:
+            uid = user_info.get('id') or user_info.get('user_id')
+            if uid:
+                existing = _active_sessions.get(uid, {})
+                _active_sessions[uid] = {
+                    'email': user_info.get('email', ''),
+                    'display_name': user_info.get('displayName') or user_info.get('email', '').split('@')[0],
+                    'avatar': existing.get('avatar'),   # preserved from login
+                    'tenant_name': existing.get('tenant_name', ''),
+                    'role_label': existing.get('role_label', ''),
+                    'last_seen': _time.time(),
+                }
+        except Exception:
+            pass
+
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+# ========================================
 # ENDPOINT 4: Apply Compliance to Config
 # ========================================
 
 @app.route('/api/apply-compliance', methods=['POST'])
+@require_auth
 def apply_compliance():
     """
     Apply RFC-09-10-25 compliance standards to a RouterOS configuration.
@@ -9437,7 +9925,7 @@ def _cidr_details_gen(cidr: str) -> dict:
 
 
 app.register_blueprint(create_runtime_blueprint())
-app.register_blueprint(create_ftth_blueprint(render_ftth_config, _cidr_details_gen))
+app.register_blueprint(create_ftth_blueprint(render_ftth_config, _cidr_details_gen, require_auth))
 
 
 def _ros_quote(value: str) -> str:
@@ -9446,8 +9934,13 @@ def _ros_quote(value: str) -> str:
 
 @app.route('/api/gen-enterprise-non-mpls', methods=['POST'])
 @app.route('/api/gen-enterprise-Non-MPLS', methods=['POST'])  # Legacy UI alias
+@require_auth
 def gen_enterprise_non_mpls():
     try:
+        _tenant_ctx = _get_request_tenant_context()
+        _tenant_id = _tenant_ctx['tenant'].get('id')
+        _check_quota(_tenant_id, 'configs_generated')
+        _increment_usage(_tenant_id, 'configs_generated')
         data = request.get_json(force=True)
         device = (data.get('device') or 'RB5009').upper()
         target_version = data.get('target_version', '7.19.4')
@@ -10509,12 +11002,17 @@ def validate_tarana_config(config_text, device, routeros_version):
     return is_valid, errors, warnings
 
 @app.route('/api/gen-tarana-config', methods=['POST'])
+@require_auth
 def gen_tarana_config():
     """
     Generates and validates Tarana sector configuration with AI-powered network calculation.
     Only returns success if configuration is accurate and device-ready.
     """
     try:
+        _tenant_ctx = _get_request_tenant_context()
+        _tenant_id = _tenant_ctx['tenant'].get('id')
+        _check_quota(_tenant_id, 'configs_generated')
+        _increment_usage(_tenant_id, 'configs_generated')
         data = request.get_json(force=True)
         raw_config = data.get('config', '')
         device = data.get('device', 'ccr2004')
@@ -10748,13 +11246,25 @@ def fetch_config_ssh():
     SSH into MikroTik device and fetch configuration via export command.
     Credentials can be provided in the request body, or via environment variables.
     """
+    # Auth guard — equivalent to @require_auth (decorator defined later in file)
+    _auth_token = request.headers.get('Authorization', '')
+    if _auth_token.startswith('Bearer '):
+        _auth_token = _auth_token[7:]
+    if not _auth_token:
+        _auth_token = (request.get_json(silent=True) or {}).get('token', '')
+    if not _auth_token:
+        return jsonify({'error': 'Authentication required'}), 401
+    _auth_user = verify_token(_auth_token)
+    if not _auth_user:
+        return jsonify({'error': 'Invalid or expired token'}), 401
+
     try:
         import paramiko
     except ImportError:
         return jsonify({
             'error': 'paramiko library not installed. Run: pip install paramiko'
         }), 500
-    
+
     try:
         data = request.get_json(force=True)
         host = data.get('host', '').strip()
@@ -10771,9 +11281,23 @@ def fetch_config_ssh():
             return jsonify({'error': 'Invalid IP address format'}), 400
         
         # Credentials
-        # Prefer request-provided credentials (not stored), fallback to env vars.
-        SSH_USERNAME = (data.get('username') or os.getenv('NEXTLINK_SSH_USERNAME', '')).strip()
-        SSH_PASSWORD = (data.get('password') or os.getenv('NEXTLINK_SSH_PASSWORD', '')).strip()
+        # Prefer request-provided credentials, then tenant_settings, then env vars.
+        _fcs_ts = {}
+        try:
+            _fcs_tenant_ctx = _get_request_tenant_context()
+            _fcs_tenant = (_fcs_tenant_ctx.get('tenant') or {})
+            _fcs_tenant_id = _fcs_tenant.get('id') if _fcs_tenant else None
+            if _fcs_tenant_id:
+                init_users_db()
+                _fcs_conn = sqlite3.connect(os.path.join('secure_data', 'users.db'))
+                _fcs_ts = _get_tenant_settings_row(_fcs_conn, _fcs_tenant_id)
+                _fcs_conn.close()
+        except Exception:
+            _fcs_ts = {}
+        _fcs_env_user = (_fcs_ts.get('ssh_username') or '').strip() or os.getenv('NEXTLINK_SSH_USERNAME', '')
+        _fcs_env_pass = (_fcs_ts.get('ssh_password') or '').strip() or os.getenv('NEXTLINK_SSH_PASSWORD', '')
+        SSH_USERNAME = (data.get('username') or _fcs_env_user).strip()
+        SSH_PASSWORD = (data.get('password') or _fcs_env_pass).strip()
 
         if not SSH_USERNAME or not SSH_PASSWORD:
             return jsonify({
@@ -10982,17 +11506,33 @@ def fetch_config_ssh():
 # ========================================
 
 @app.route('/api/nokia7250-defaults', methods=['GET'])
+@require_auth
 def nokia7250_defaults():
     """
-    Return Nokia 7250 credentials/secrets from environment variables.
+    Return Nokia 7250 credentials/secrets, resolved per-tenant then falling back to env vars.
     Frontend fetches these at generate-time so secrets are never hardcoded in HTML.
     """
+    # Resolve per-tenant settings
+    tenant_ctx = _get_request_tenant_context()
+    tenant = tenant_ctx.get('tenant')
+    tenant_id = tenant.get('id') if tenant else None
+    ts = {}
+    if tenant_id:
+        init_users_db()
+        _nok_conn = sqlite3.connect(os.path.join('secure_data', 'users.db'))
+        ts = _get_tenant_settings_row(_nok_conn, tenant_id)
+        _nok_conn.close()
+    nokia_snmp = ts.get('nokia_snmp_community') or os.getenv('NOKIA7250_SNMP_COMMUNITY', '')
+    nokia_root_pw = ts.get('nokia_root_password') or os.getenv('NOKIA7250_NLROOT_PW', '')
+    nokia_admin_pw = ts.get('nokia_admin_password') or os.getenv('NOKIA7250_ADMIN_PW', '')
+    nokia_bgp_key = ts.get('nokia_bgp_auth_key') or os.getenv('NOKIA7250_BGP_AUTH_KEY', '')
+    nokia_ospf_key = ts.get('nokia_ospf_auth_key') or os.getenv('NOKIA7250_OSPF_AUTH_KEY', '') or nokia_bgp_key
     return jsonify({
-        'snmp_community': os.getenv('NOKIA7250_SNMP_COMMUNITY', '').strip(),
-        'nlroot_pw':      os.getenv('NOKIA7250_NLROOT_PW', '').strip(),
-        'admin_pw':       os.getenv('NOKIA7250_ADMIN_PW', '').strip(),
-        'bgp_auth_key':   os.getenv('NOKIA7250_BGP_AUTH_KEY', '').strip(),
-        'ospf_auth_key':  os.getenv('NOKIA7250_OSPF_AUTH_KEY', '').strip() or os.getenv('NOKIA7250_BGP_AUTH_KEY', '').strip(),
+        'snmp_community': nokia_snmp.strip(),
+        'nlroot_pw':      nokia_root_pw.strip(),
+        'admin_pw':       nokia_admin_pw.strip(),
+        'bgp_auth_key':   nokia_bgp_key.strip(),
+        'ospf_auth_key':  nokia_ospf_key.strip(),
     })
 
 
@@ -11002,13 +11542,7 @@ def nokia_configurator_defaults():
 
 
 def _get_nokia_configurator_creds():
-    return {
-        'snmp_community': os.getenv('NOKIA7250_SNMP_COMMUNITY', '').strip(),
-        'nlroot_pw': os.getenv('NOKIA7250_NLROOT_PW', '').strip(),
-        'admin_pw': os.getenv('NOKIA7250_ADMIN_PW', '').strip(),
-        'bgp_auth_key': os.getenv('NOKIA7250_BGP_AUTH_KEY', '').strip(),
-        'ospf_auth_key': os.getenv('NOKIA7250_OSPF_AUTH_KEY', '').strip() or os.getenv('NOKIA7250_BGP_AUTH_KEY', '').strip(),
-    }
+    return load_nokia_defaults()
 
 
 def _nokia_config_header(title: str):
@@ -11142,7 +11676,13 @@ def _render_nokia_7750_backend(data: dict):
 
 
 @app.route('/api/generate-nokia-configurator', methods=['POST'])
+@require_auth
 def generate_nokia_configurator():
+    _require_feature('nokia')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
     try:
         data = request.get_json(force=True) or {}
         model = (data.get('model') or '7250').strip()
@@ -11184,10 +11724,16 @@ def generate_nokia_configurator():
 
 
 @app.route('/api/generate-nokia7250', methods=['POST'])
+@require_auth
 def generate_nokia7250():
     """
     Generate Nokia 7250 configuration based on provided parameters.
     """
+    _require_feature('nokia')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
     try:
         data = request.json
         system_name = data.get('system_name', '').strip()
@@ -13182,6 +13728,7 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
 
 
 @app.route('/api/parse-mikrotik-for-nokia', methods=['POST'])
+@require_auth
 def parse_mikrotik_for_nokia_endpoint():
     """
     Parse a MikroTik config and return structured extraction data
@@ -13213,6 +13760,7 @@ def parse_mikrotik_for_nokia_endpoint():
 
 
 @app.route('/api/migrate-mikrotik-to-nokia', methods=['POST'])
+@require_auth
 def migrate_mikrotik_to_nokia():
     """
     Convert MikroTik RouterOS configuration to Nokia SR OS classic CLI syntax.
@@ -13347,6 +13895,14 @@ def get_config_policy_bundle():
 @app.route('/api/reload-config-policies', methods=['POST'])
 def reload_config_policies():
     """Reload configuration policies from disk"""
+    # Auth guard — equivalent to @require_auth (decorator defined later in file)
+    _auth_token = request.headers.get('Authorization', '')
+    if _auth_token.startswith('Bearer '):
+        _auth_token = _auth_token[7:]
+    if not _auth_token:
+        return jsonify({'error': 'Authentication required'}), 401
+    if not verify_token(_auth_token):
+        return jsonify({'error': 'Invalid or expired token'}), 401
     try:
         global CONFIG_POLICIES, _policies_loaded
         CONFIG_POLICIES = load_config_policies()
@@ -13364,6 +13920,14 @@ def reload_config_policies():
 @app.route('/api/reload-compliance', methods=['POST'])
 def reload_compliance():
     """Clear the GitLab compliance TTL cache so the next request re-fetches live data."""
+    # Auth guard — equivalent to @require_auth (decorator defined later in file)
+    _auth_token = request.headers.get('Authorization', '')
+    if _auth_token.startswith('Bearer '):
+        _auth_token = _auth_token[7:]
+    if not _auth_token:
+        return jsonify({'error': 'Authentication required'}), 401
+    if not verify_token(_auth_token):
+        return jsonify({'error': 'Invalid or expired token'}), 401
     if not _HAS_GITLAB_COMPLIANCE or _get_gitlab_compliance_loader is None:
         return jsonify({
             'success': False,
@@ -13419,10 +13983,7 @@ def health():
     Backend is considered 'online' if this endpoint responds.
     The backend will handle AI provider availability and fallbacks internally.
     """
-    checks = [
-        _health_check_secure_data(),
-        _health_check_ido_backend(),
-    ]
+    checks = _collect_health_checks(force=request.args.get('refresh') == '1')
     degraded = any(not check.get('ok') for check in checks)
     return jsonify({
         'status': 'online',
@@ -13465,6 +14026,8 @@ _API_REGISTRY = [
     {"method": "POST", "path": "/api/auth/forgot-password",  "category": "Authentication",    "summary": "Request password reset",                    "payload": {"email": "str"}},
     {"method": "POST", "path": "/api/auth/reset-password",   "category": "Authentication",    "summary": "Reset password with token",                 "payload": {"email": "str", "resetToken": "str", "newPassword": "str"}},
     {"method": "POST", "path": "/api/auth/verify",           "category": "Authentication",    "summary": "Verify JWT validity",                       "payload": {"token": "str"}},
+    {"method": "GET",  "path": "/api/session/bootstrap",     "category": "Authentication",    "summary": "Tenant-aware session bootstrap",            "auth": True},
+    {"method": "POST", "path": "/api/session/switch-tenant", "category": "Authentication",    "summary": "Switch active tenant",                      "auth": True, "payload": {"tenant_id": "int"}},
     # ── AI Chat ──
     {"method": "POST", "path": "/api/chat",                  "category": "AI Chat",           "summary": "AI chat (RouterOS Q&A)",                    "payload": {"message": "str", "session_id?": "str"}},
     {"method": "GET",  "path": "/api/chat/history/<id>",     "category": "AI Chat",           "summary": "Chat history for session"},
@@ -13534,6 +14097,16 @@ _API_REGISTRY = [
     {"method": "PUT",  "path": "/api/admin/feedback/<id>/status","category": "Admin",          "summary": "Update feedback status",                    "auth": True, "payload": {"status": "str", "admin_notes?": "str"}},
     {"method": "GET",  "path": "/api/admin/feedback/export", "category": "Admin",             "summary": "Export feedback to Excel",                   "auth": True},
     {"method": "POST", "path": "/api/admin/users/reset-password","category": "Admin",          "summary": "Reset user password (admin)",               "auth": True, "payload": {"email": "str", "newPassword?": "str"}},
+    {"method": "GET",   "path": "/api/admin/tenants",                          "category": "Admin Management", "summary": "List all tenants (platform_admin only)",         "auth": True},
+    {"method": "POST",  "path": "/api/admin/tenants",                          "category": "Admin Management", "summary": "Create a new tenant (platform_admin only)",       "auth": True, "payload": {"slug": "str", "name": "str", "auth_mode": "str"}},
+    {"method": "PATCH", "path": "/api/admin/tenants/<int:tenant_id>/status",   "category": "Admin Management", "summary": "Update tenant status (platform_admin only)",      "auth": True, "payload": {"status": "str"}},
+    {"method": "GET",   "path": "/api/admin/users",                            "category": "Admin Management", "summary": "List users with memberships (platform_admin only)","auth": True},
+    {"method": "PATCH", "path": "/api/admin/users/<int:user_id>/membership",   "category": "Admin Management", "summary": "Upsert user membership (platform_admin only)",    "auth": True, "payload": {"tenant_id": "int", "role": "str", "status": "str"}},
+    {"method": "GET",  "path": "/api/tenant-settings",        "category": "Tenant Settings", "summary": "Get settings for active tenant",           "auth": True},
+    {"method": "PUT",  "path": "/api/tenant-settings",        "category": "Tenant Settings", "summary": "Update settings for active tenant (admin)", "auth": True},
+    {"method": "GET",  "path": "/api/admin/tenant-settings/<int:tenant_id>", "category": "Admin Management", "summary": "Get settings for any tenant (platform_admin)", "auth": True},
+    {"method": "PUT",  "path": "/api/admin/tenant-settings/<int:tenant_id>", "category": "Admin Management", "summary": "Update settings for any tenant (platform_admin)", "auth": True},
+    {"method": "GET", "path": "/api/admin/audit-log", "category": "Admin Management", "summary": "Read audit log (platform_admin only)", "auth": True},
     # ── Aviat Radio ──
     {"method": "POST", "path": "/api/aviat/run",             "category": "Aviat Radio",       "summary": "Run maintenance tasks on radios",           "payload": {"ips": "array", "tasks": "array"}},
     {"method": "POST", "path": "/api/aviat/activate-scheduled","category": "Aviat Radio",      "summary": "Activate scheduled firmware",               "payload": {"ips": "array", "force?": "bool"}},
@@ -13795,6 +14368,14 @@ def _ido_local_generic(ip_address: str, run_tests: bool = False):
 
 @app.route('/api/ido/capabilities', methods=['GET'])
 def ido_capabilities():
+    # Inline auth guard — IDO routes pass the token through, so cannot use @require_auth
+    _ido_cap_token = request.headers.get('Authorization', '').replace('Bearer ', '').strip()
+    if not _ido_cap_token:
+        _ido_cap_token = request.args.get('token', '').strip()
+    if not _ido_cap_token:
+        return jsonify({'error': 'Authentication required', 'authenticated': False}), 401
+    if not verify_token(_ido_cap_token):
+        return jsonify({'error': 'Invalid or expired token', 'authenticated': False}), 401
     backend = _ido_backend_url()
     backend_health = {"ok": False, "checked": False, "error": None}
     if backend:
@@ -13831,6 +14412,14 @@ def ido_capabilities():
 
 @app.route('/api/ido/proxy/<path:target_path>', methods=['GET', 'POST'])
 def ido_proxy(target_path):
+    # Inline auth guard — IDO routes pass the token through, so cannot use @require_auth
+    _ido_proxy_token = request.headers.get('Authorization', '').replace('Bearer ', '').strip()
+    if not _ido_proxy_token:
+        _ido_proxy_token = request.args.get('token', '').strip()
+    if not _ido_proxy_token:
+        return jsonify({'error': 'Authentication required', 'authenticated': False}), 401
+    if not verify_token(_ido_proxy_token):
+        return jsonify({'error': 'Invalid or expired token', 'authenticated': False}), 401
     backend_url = _ido_backend_url()
     if not _ido_target_allowed(target_path):
         return jsonify({"error": f"Target path '/{str(target_path).lstrip('/')}' is not allowed"}), 403
@@ -13910,6 +14499,8 @@ def submit_feedback():
         data = request.json
         if not data:
             return jsonify({'error': 'No data provided'}), 400
+        tenant_context = _get_request_tenant_context()
+        tenant = tenant_context['tenant']
         
         # Extract form data
         feedback_type = data.get('type', 'feedback').capitalize()
@@ -13926,17 +14517,28 @@ def submit_feedback():
         conn = sqlite3.connect(str(feedback_db))
         cursor = conn.cursor()
         
-        email = data.get('email', '')
+        email = data.get('email', '').strip()
+        # If no email provided, try to pull it from the auth token so notifications route correctly
+        if not email:
+            try:
+                auth_header = request.headers.get('Authorization', '')
+                if auth_header.startswith('Bearer '):
+                    _tok = auth_header[7:]
+                    _user = verify_token(_tok)
+                    if _user:
+                        email = _user.get('email', '')
+            except Exception:
+                pass
         cursor.execute('''
-            INSERT INTO feedback (feedback_type, subject, category, experience, details, name, email, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (feedback_type, subject, category, experience, details, name, email, timestamp))
+            INSERT INTO feedback (tenant_id, feedback_type, subject, category, experience, details, name, email, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (tenant.get('id'), feedback_type, subject, category, experience, details, name, email, timestamp))
         
         feedback_id = cursor.lastrowid
         conn.commit()
         conn.close()
         
-        safe_print(f"[FEEDBACK] Saved to database (ID: {feedback_id}) from {name}: {subject}")
+        safe_print(f"[FEEDBACK] Saved to database (ID: {feedback_id}, tenant={tenant.get('slug', DEFAULT_TENANT_SLUG)}) from {name}: {subject}")
 
         return jsonify({
             'success': True,
@@ -13952,50 +14554,11 @@ def submit_feedback():
 # ADMIN ENDPOINTS: Feedback Management
 # ========================================
 
-def require_auth(f):
-    """Decorator to require authentication"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        token = request.headers.get('Authorization')
-        if not token:
-            token = request.json.get('token') if request.json else None
-        
-        if token:
-            # Remove 'Bearer ' prefix if present
-            if token.startswith('Bearer '):
-                token = token[7:]
-        
-        if not token:
-            return jsonify({'error': 'Authentication required'}), 401
-        
-        user_info = verify_token(token)
-        if not user_info:
-            return jsonify({'error': 'Invalid or expired token'}), 401
-        
-        # Add user info to request context
-        request.current_user = user_info
-        return f(*args, **kwargs)
-    return decorated_function
-
 def is_admin_user():
     """Check if current user is admin"""
     try:
-        token = request.headers.get('Authorization', '').replace('Bearer ', '')
-        if not token:
-            return False
-
-        try:
-            decoded = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
-            user_email = decoded.get('email', '').lower()
-            
-            # Admin emails (can be set via environment variable or use default)
-            admin_emails = os.getenv('ADMIN_EMAILS', 'netops@team.nxlink.com,whamza@team.nxlink.com').lower().split(',')
-            admin_emails = [e.strip() for e in admin_emails]
-            
-            return user_email in admin_emails
-        except:
-            return False
-    except:
+        return _can_access_admin_panel()
+    except Exception:
         return False
 
 @app.route('/api/infrastructure', methods=['GET'])
@@ -14006,22 +14569,70 @@ def infrastructure_config():
 
     This endpoint can include operational defaults/secrets (e.g., RADIUS secret) so NOC users
     don't have to manually paste them into the UI, improving consistency and reducing human error.
+
+    Values are sourced from tenant_settings first; env vars are used as fallback for the default
+    tenant so existing deployments are unaffected.
     """
     def _csv(value: str):
         return [v.strip() for v in (value or '').split(',') if v.strip()]
 
-    dns_primary = os.getenv('NEXTLINK_DNS_PRIMARY', '142.147.112.3').strip()
-    dns_secondary = os.getenv('NEXTLINK_DNS_SECONDARY', '142.147.112.19').strip()
+    # Fetch tenant-specific settings if available
+    tenant_settings = {}
+    try:
+        tenant_ctx = _get_request_tenant_context()
+        tenant = tenant_ctx.get('tenant', {})
+        t_id = tenant.get('id')
+        if t_id:
+            _ts_conn = sqlite3.connect(os.path.join('secure_data', 'users.db'))
+            tenant_settings = _get_tenant_settings_row(_ts_conn, t_id)
+            _ts_conn.close()
+    except Exception:
+        tenant_settings = {}
+
+    # Each field: prefer tenant_settings value, fall back to env var
+    _ts_dns_primary = (tenant_settings.get('dns_primary') or '').strip()
+    dns_primary = _ts_dns_primary if _ts_dns_primary else os.getenv('NEXTLINK_DNS_PRIMARY', '142.147.112.3').strip()
+
+    _ts_dns_secondary = (tenant_settings.get('dns_secondary') or '').strip()
+    dns_secondary = _ts_dns_secondary if _ts_dns_secondary else os.getenv('NEXTLINK_DNS_SECONDARY', '142.147.112.19').strip()
+
+    _ts_snmp_contact = (tenant_settings.get('snmp_contact') or '').strip()
+    snmp_contact = _ts_snmp_contact if _ts_snmp_contact else os.getenv('NEXTLINK_SNMP_CONTACT', 'netops@team.nxlink.com').strip()
+
+    _ts_radius_primary = (tenant_settings.get('radius_primary') or '').strip()
+    _ts_radius_secondary = (tenant_settings.get('radius_secondary') or '').strip()
+    _ts_radius_secret = (tenant_settings.get('radius_secret') or '').strip()
+
     shared_key = os.getenv('NEXTLINK_SHARED_KEY', '').strip()
 
-    radius_secret = os.getenv('NEXTLINK_RADIUS_SECRET', 'Nl22021234').strip() or 'Nl22021234'
+    radius_secret = _ts_radius_secret if _ts_radius_secret else os.getenv('NEXTLINK_RADIUS_SECRET', '').strip()
     radius_dhcp_servers = _csv(os.getenv('NEXTLINK_RADIUS_DHCP_SERVERS', ''))
     radius_login_servers = _csv(os.getenv('NEXTLINK_RADIUS_LOGIN_SERVERS', ''))
+
+    # If tenant has explicit RADIUS servers, use them
+    if _ts_radius_primary:
+        radius_dhcp_servers = [s for s in [_ts_radius_primary, _ts_radius_secondary] if s]
+        radius_login_servers = [s for s in [_ts_radius_primary, _ts_radius_secondary] if s]
 
     # If a secret is provided but server lists are not, ship common defaults.
     if radius_secret and not radius_dhcp_servers and not radius_login_servers:
         radius_dhcp_servers = ['142.147.112.17', '142.147.112.18']
         radius_login_servers = ['142.147.112.17', '142.147.112.18']
+
+    ata_url = (tenant_settings.get('ata_provisioning_url') or '').strip() or \
+              os.getenv('ATA_PROVISIONING_URL', 'http://ndp1-dal.nxlink.com/cfg/$MA.cfg')
+    noc_monitor_ip = (tenant_settings.get('noc_monitor_ip') or '').strip() or \
+                     os.getenv('NOC_MONITOR_IP', '142.147.127.2')
+    syslog_server = (tenant_settings.get('syslog_server') or '').strip() or \
+                    os.getenv('SYSLOG_SERVER', '142.147.116.215')
+    try:
+        snmp_monitor_ips = json.loads(tenant_settings.get('snmp_monitor_ips') or '[]') or []
+    except Exception:
+        snmp_monitor_ips = []
+    try:
+        cambium_cnm_urls = json.loads(tenant_settings.get('cambium_cnm_urls') or '[]') or []
+    except Exception:
+        cambium_cnm_urls = []
 
     return jsonify({
         'dns_servers': {
@@ -14030,13 +14641,18 @@ def infrastructure_config():
         },
         'shared_key': shared_key or None,
         'snmp': {
-            'contact': os.getenv('NEXTLINK_SNMP_CONTACT', 'netops@team.nxlink.com').strip(),
+            'contact': snmp_contact,
         },
         'radius': {
             'secret': radius_secret,
             'dhcp_servers': radius_dhcp_servers,
             'login_servers': radius_login_servers,
         },
+        'ataProvisioningUrl': ata_url,
+        'nocMonitorIp': noc_monitor_ip,
+        'syslogServer': syslog_server,
+        'snmpMonitorIps': snmp_monitor_ips,
+        'cambiumCnmUrls': cambium_cnm_urls,
     })
 
 @app.route('/api/feedback/my-status', methods=['GET'])
@@ -14046,13 +14662,15 @@ def get_my_feedback_status():
         name = request.args.get('name', '').strip()
         if not name:
             return jsonify([])
+        tenant_context = _get_request_tenant_context()
+        tenant = tenant_context['tenant']
         feedback_db = init_feedback_db()
         conn = sqlite3.connect(str(feedback_db))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute(
-            'SELECT id, subject, status, admin_notes, timestamp FROM feedback WHERE name = ? ORDER BY id DESC LIMIT 20',
-            (name,)
+            'SELECT id, subject, status, admin_notes, timestamp FROM feedback WHERE name = ? AND tenant_id = ? ORDER BY id DESC LIMIT 20',
+            (name, tenant.get('id'))
         )
         rows = [dict(r) for r in cursor.fetchall()]
         conn.close()
@@ -14068,21 +14686,31 @@ def get_feedback():
         # Check if user is admin
         if not is_admin_user():
             return jsonify({'error': 'Admin access required'}), 403
-        
+        try:
+            tenant_context = _get_request_tenant_context()
+            tenant = tenant_context['tenant']
+        except Exception:
+            tenant = _get_default_tenant_context()
+
         feedback_db = init_feedback_db()
         conn = sqlite3.connect(str(feedback_db))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        
+
         # Get filter parameters
         status_filter = request.args.get('status', 'all')
         type_filter = request.args.get('type', 'all')
         limit = int(request.args.get('limit', 100))
         offset = int(request.args.get('offset', 0))
-        
-        query = 'SELECT * FROM feedback WHERE 1=1'
-        params = []
-        
+
+        tenant_id_val = tenant.get('id')
+        if tenant_id_val is not None:
+            query = 'SELECT * FROM feedback WHERE tenant_id = ?'
+            params = [tenant_id_val]
+        else:
+            query = 'SELECT * FROM feedback WHERE 1=1'
+            params = []
+
         if status_filter != 'all':
             query += ' AND status = ?'
             params.append(status_filter)
@@ -14098,8 +14726,12 @@ def get_feedback():
         feedback_list = [dict(row) for row in cursor.fetchall()]
         
         # Get total count
-        count_query = 'SELECT COUNT(*) FROM feedback WHERE 1=1'
-        count_params = []
+        if tenant_id_val is not None:
+            count_query = 'SELECT COUNT(*) FROM feedback WHERE tenant_id = ?'
+            count_params = [tenant_id_val]
+        else:
+            count_query = 'SELECT COUNT(*) FROM feedback WHERE 1=1'
+            count_params = []
         if status_filter != 'all':
             count_query += ' AND status = ?'
             count_params.append(status_filter)
@@ -14129,7 +14761,7 @@ def get_feedback():
 def admin_reset_user_password():
     """Admin-only password reset for users."""
     try:
-        if not is_admin_user():
+        if not _can_reset_passwords():
             return jsonify({'error': 'Admin access required'}), 403
 
         data = request.get_json() or {}
@@ -14165,7 +14797,11 @@ def admin_reset_user_password():
                          VALUES (?, ?, ?, ?)''',
                       (email, new_password_hash, email.split('@')[0], 1 if require_change else 0))
             conn.commit()
+            _sync_user_platform_access(conn, c.lastrowid, email)
+            _ensure_user_default_membership(conn, c.lastrowid)
+            conn.commit()
             conn.close()
+            _write_audit_log('password_reset', detail={'require_change': require_change}, target_email=email)
             return jsonify({
                 'success': True,
                 'message': 'User created and password set',
@@ -14181,8 +14817,10 @@ def admin_reset_user_password():
                          reset_token_expires = NULL
                      WHERE id = ?''',
                  (new_password_hash, 1 if require_change else 0, user['id']))
+        _sync_user_platform_access(conn, user['id'], email)
         conn.commit()
         conn.close()
+        _write_audit_log('password_reset', detail={'require_change': require_change}, target_email=email)
 
         return jsonify({
             'success': True,
@@ -14203,6 +14841,8 @@ def update_feedback_status(feedback_id):
         # Check if user is admin
         if not is_admin_user():
             return jsonify({'error': 'Admin access required'}), 403
+        tenant_context = _get_request_tenant_context()
+        tenant = tenant_context['tenant']
         data = request.json
         new_status = data.get('status', 'new')
         admin_notes = data.get('admin_notes', '')
@@ -14212,14 +14852,35 @@ def update_feedback_status(feedback_id):
         cursor = conn.cursor()
         
         cursor.execute('''
-            UPDATE feedback 
+            UPDATE feedback
             SET status = ?, admin_notes = ?
-            WHERE id = ?
-        ''', (new_status, admin_notes, feedback_id))
-        
+            WHERE id = ? AND tenant_id = ?
+        ''', (new_status, admin_notes, feedback_id, tenant.get('id')))
+
+        # Fetch submitter info to notify them
+        conn.row_factory = sqlite3.Row
+        cursor2 = conn.cursor()
+        cursor2.execute('SELECT email, subject FROM feedback WHERE id = ?', (feedback_id,))
+        fb_row = cursor2.fetchone()
+
         conn.commit()
         conn.close()
-        
+
+        # Create notification for the submitter
+        if fb_row and fb_row['email']:
+            status_labels = {
+                'new': 'received',
+                'reviewed': 'being reviewed',
+                'in_progress': 'in progress',
+                'resolved': 'resolved',
+                'closed': 'closed',
+            }
+            status_label = status_labels.get(new_status, new_status)
+            msg = f'Your feedback has been marked as {status_label}.'
+            if admin_notes:
+                msg += f' Note from admin: {admin_notes}'
+            _create_notification(feedback_id, fb_row['email'], fb_row['subject'], msg)
+
         return jsonify({'success': True, 'message': 'Feedback status updated'})
         
     except Exception as e:
@@ -14234,6 +14895,8 @@ def export_feedback_excel():
         # Check if user is admin
         if not is_admin_user():
             return jsonify({'error': 'Admin access required'}), 403
+        tenant_context = _get_request_tenant_context()
+        tenant = tenant_context['tenant']
         import pandas as pd
         from io import BytesIO
         
@@ -14244,6 +14907,7 @@ def export_feedback_excel():
         df = pd.read_sql_query('''
             SELECT 
                 id,
+                tenant_id,
                 feedback_type,
                 subject,
                 category,
@@ -14255,8 +14919,9 @@ def export_feedback_excel():
                 status,
                 admin_notes
             FROM feedback
+            WHERE tenant_id = ?
             ORDER BY timestamp DESC
-        ''', conn)
+        ''', conn, params=(tenant.get('id'),))
         
         conn.close()
         
@@ -14281,10 +14946,390 @@ def export_feedback_excel():
         return jsonify({'error': str(e)}), 500
 
 # ========================================
+# PLATFORM ADMIN MANAGEMENT ENDPOINTS
+# ========================================
+
+@app.route('/api/admin/tenants', methods=['GET'])
+@require_auth
+def admin_list_tenants():
+    """List all tenants. Requires platform_admin."""
+    try:
+        if not _can_manage_platform():
+            return jsonify({'error': 'Platform admin access required'}), 403
+        init_users_db()
+        secure_dir = 'secure_data'
+        db_path = os.path.join(secure_dir, 'users.db')
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute('''
+            SELECT
+                t.id, t.slug, t.name, t.status, t.auth_mode, t.azure_tenant_id, t.created_at,
+                COUNT(m.id) AS member_count
+            FROM tenants AS t
+            LEFT JOIN user_tenant_memberships AS m ON m.tenant_id = t.id AND m.status = 'active'
+            GROUP BY t.id
+            ORDER BY t.name ASC
+        ''')
+        tenants = [dict(row) for row in c.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'tenants': tenants})
+    except Exception as e:
+        print(f"[ADMIN] List tenants failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/tenants', methods=['POST'])
+@require_auth
+def admin_create_tenant():
+    """Create a new tenant. Requires platform_admin."""
+    try:
+        if not _can_manage_platform():
+            return jsonify({'error': 'Platform admin access required'}), 403
+        data = request.get_json(silent=True) or {}
+        slug = (data.get('slug') or '').strip().lower()
+        name = (data.get('name') or '').strip()
+        auth_mode = (data.get('auth_mode') or 'password').strip().lower()
+        azure_tenant_id = (data.get('azure_tenant_id') or '').strip() or None
+        allowed_domains = json.dumps(data.get('allowed_email_domains') or [])
+        settings = json.dumps(data.get('settings') or {})
+        if not slug or not name:
+            return jsonify({'error': 'slug and name are required'}), 400
+        init_users_db()
+        secure_dir = 'secure_data'
+        db_path = os.path.join(secure_dir, 'users.db')
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute('SELECT id FROM tenants WHERE slug = ?', (slug,))
+        if c.fetchone():
+            conn.close()
+            return jsonify({'error': f"Tenant slug '{slug}' already exists"}), 409
+        c.execute('''INSERT INTO tenants
+                     (slug, name, status, auth_mode, azure_tenant_id, allowed_email_domains, settings_json)
+                     VALUES (?, ?, 'active', ?, ?, ?, ?)''',
+                  (slug, name, auth_mode, azure_tenant_id, allowed_domains, settings))
+        new_id = c.lastrowid
+        conn.commit()
+        c.execute('SELECT * FROM tenants WHERE id = ?', (new_id,))
+        tenant = dict(c.fetchone())
+        conn.close()
+        _write_audit_log('tenant_create', detail={'slug': slug, 'name': name}, tenant_id=new_id, tenant_slug=slug)
+        return jsonify({'success': True, 'tenant': tenant})
+    except Exception as e:
+        print(f"[ADMIN] Create tenant failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/tenants/<int:tenant_id>/status', methods=['PATCH'])
+@require_auth
+def admin_update_tenant_status(tenant_id):
+    """Update tenant status. Requires platform_admin. Cannot deactivate the default tenant."""
+    try:
+        if not _can_manage_platform():
+            return jsonify({'error': 'Platform admin access required'}), 403
+        data = request.get_json(silent=True) or {}
+        new_status = (data.get('status') or '').strip().lower()
+        valid_statuses = {'active', 'inactive', 'suspended'}
+        if new_status not in valid_statuses:
+            return jsonify({'error': f"status must be one of: {', '.join(sorted(valid_statuses))}"}), 400
+        init_users_db()
+        secure_dir = 'secure_data'
+        db_path = os.path.join(secure_dir, 'users.db')
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute('SELECT slug FROM tenants WHERE id = ?', (tenant_id,))
+        row = c.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'error': 'Tenant not found'}), 404
+        if row['slug'] == DEFAULT_TENANT_SLUG and new_status != 'active':
+            conn.close()
+            return jsonify({'error': 'Cannot deactivate the default platform tenant'}), 400
+        c.execute('UPDATE tenants SET status = ? WHERE id = ?', (new_status, tenant_id))
+        conn.commit()
+        c.execute('SELECT * FROM tenants WHERE id = ?', (tenant_id,))
+        tenant = dict(c.fetchone())
+        conn.close()
+        _write_audit_log('tenant_status_change', detail={'new_status': new_status, 'tenant_id': tenant_id}, tenant_id=tenant_id, tenant_slug=row['slug'])
+        return jsonify({'success': True, 'tenant': tenant})
+    except Exception as e:
+        print(f"[ADMIN] Update tenant status failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users', methods=['GET'])
+@require_auth
+def admin_list_users():
+    """List users with their memberships. Requires platform_admin."""
+    try:
+        if not _can_manage_platform():
+            return jsonify({'error': 'Platform admin access required'}), 403
+        tenant_id_filter = request.args.get('tenant_id', type=int)
+        init_users_db()
+        secure_dir = 'secure_data'
+        db_path = os.path.join(secure_dir, 'users.db')
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        if tenant_id_filter:
+            c.execute('''
+                SELECT u.id, u.email, u.display_name, u.platform_role, u.is_active, u.last_login
+                FROM users AS u
+                JOIN user_tenant_memberships AS m ON m.user_id = u.id
+                WHERE m.tenant_id = ? AND m.status = 'active'
+                ORDER BY u.email ASC
+            ''', (tenant_id_filter,))
+        else:
+            c.execute('''
+                SELECT id, email, display_name, platform_role, is_active, last_login
+                FROM users
+                ORDER BY email ASC
+            ''')
+        users = []
+        for user_row in c.fetchall():
+            user = dict(user_row)
+            c.execute('''
+                SELECT m.role, m.status, m.is_default, t.slug, t.name
+                FROM user_tenant_memberships AS m
+                JOIN tenants AS t ON t.id = m.tenant_id
+                WHERE m.user_id = ?
+                ORDER BY m.is_default DESC, t.name ASC
+            ''', (user['id'],))
+            user['memberships'] = [dict(r) for r in c.fetchall()]
+            users.append(user)
+        conn.close()
+        return jsonify({'success': True, 'users': users})
+    except Exception as e:
+        print(f"[ADMIN] List users failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:user_id>/membership', methods=['PATCH'])
+@require_auth
+def admin_update_user_membership(user_id):
+    """Upsert a user's membership in a tenant. Requires platform_admin."""
+    try:
+        if not _can_manage_platform():
+            return jsonify({'error': 'Platform admin access required'}), 403
+        data = request.get_json(silent=True) or {}
+        tenant_id = data.get('tenant_id')
+        role = (data.get('role') or 'tenant_engineer').strip()
+        status = (data.get('status') or 'active').strip()
+        valid_roles = {'tenant_engineer', 'tenant_admin', 'tenant_viewer', 'platform_support', 'platform_admin'}
+        if role not in valid_roles:
+            return jsonify({'error': f"role must be one of: {', '.join(sorted(valid_roles))}"}), 400
+        if not tenant_id:
+            return jsonify({'error': 'tenant_id is required'}), 400
+        init_users_db()
+        secure_dir = 'secure_data'
+        db_path = os.path.join(secure_dir, 'users.db')
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute('SELECT id FROM users WHERE id = ?', (user_id,))
+        if not c.fetchone():
+            conn.close()
+            return jsonify({'error': 'User not found'}), 404
+        c.execute('SELECT id FROM tenants WHERE id = ?', (tenant_id,))
+        if not c.fetchone():
+            conn.close()
+            return jsonify({'error': 'Tenant not found'}), 404
+        c.execute('''INSERT INTO user_tenant_memberships (user_id, tenant_id, role, status, is_default)
+                     VALUES (?, ?, ?, ?, 0)
+                     ON CONFLICT(user_id, tenant_id) DO UPDATE SET role = excluded.role, status = excluded.status''',
+                  (user_id, int(tenant_id), role, status))
+        conn.commit()
+        c.execute('''SELECT m.*, t.slug, t.name FROM user_tenant_memberships AS m
+                     JOIN tenants AS t ON t.id = m.tenant_id
+                     WHERE m.user_id = ? AND m.tenant_id = ?''', (user_id, int(tenant_id)))
+        membership = dict(c.fetchone())
+        conn.close()
+        _write_audit_log('membership_change', detail={'role': role, 'status': status, 'tenant_id': tenant_id}, target_user_id=user_id, tenant_id=int(tenant_id))
+        return jsonify({'success': True, 'membership': membership})
+    except Exception as e:
+        print(f"[ADMIN] Update membership failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ========================================
+# TENANT SETTINGS ENDPOINTS
+# ========================================
+
+@app.route('/api/tenant-settings', methods=['GET'])
+@require_auth
+def get_tenant_settings():
+    """Get infrastructure settings for the caller's active tenant."""
+    try:
+        ctx = _get_request_tenant_context()
+        tenant = ctx['tenant']
+        tenant_id = tenant.get('id') if tenant else None
+        if not tenant_id:
+            return jsonify({'error': 'No active tenant'}), 400
+        init_users_db()
+        conn = sqlite3.connect(os.path.join('secure_data', 'users.db'))
+        settings = _get_tenant_settings_row(conn, tenant_id)
+        conn.close()
+        return jsonify({'success': True, 'settings': settings})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/tenant-settings', methods=['PUT'])
+@require_auth
+def update_tenant_settings():
+    """Update infrastructure settings for the caller's active tenant. Requires tenant_admin or platform_admin."""
+    try:
+        ctx = _get_request_access_context()
+        if not ctx['permissions'].get('adminPanel'):
+            return jsonify({'error': 'Admin access required'}), 403
+        tenant = ctx['tenant']
+        tenant_id = tenant.get('id') if tenant else None
+        if not tenant_id:
+            return jsonify({'error': 'No active tenant'}), 400
+        data = request.get_json(silent=True) or {}
+        allowed_fields = {
+            'dns_primary', 'dns_secondary', 'ntp_primary', 'ntp_secondary',
+            'snmp_community', 'snmp_contact', 'snmp_location_prefix',
+            'radius_primary', 'radius_secondary', 'radius_secret', 'radius_port',
+            'naming_convention', 'compliance_profile', 'allowed_device_families', 'extra_json',
+            # Batch 10 fields
+            'ata_provisioning_url', 'noc_monitor_ip', 'syslog_server',
+            'snmp_monitor_ips', 'cambium_cnm_urls',
+            'nokia_snmp_community', 'nokia_root_password',
+            'ssh_username', 'ssh_password', 'ospf_auth_key',
+            'compliance_dns_primary', 'compliance_dns_secondary',
+            'compliance_ntp', 'compliance_syslog', 'compliance_snmp_community',
+            'compliance_radius_primary', 'compliance_radius_secondary',
+        }
+        updates = {k: v for k, v in data.items() if k in allowed_fields}
+        if not updates:
+            return jsonify({'error': 'No valid fields provided'}), 400
+        # Encrypt sensitive fields before storing
+        for field in _ENCRYPTED_FIELDS:
+            if field in updates and updates[field]:
+                updates[field] = encrypt_secret(updates[field])
+        init_users_db()
+        conn = sqlite3.connect(os.path.join('secure_data', 'users.db'))
+        _get_tenant_settings_row(conn, tenant_id)  # ensure row exists
+        set_clause = ', '.join(f'{k} = ?' for k in updates)
+        params = list(updates.values()) + [tenant_id]
+        conn.execute(f'UPDATE tenant_settings SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ?', params)
+        conn.commit()
+        settings = _get_tenant_settings_row(conn, tenant_id)
+        conn.close()
+        return jsonify({'success': True, 'settings': settings})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/tenant-settings/<int:tenant_id>', methods=['GET'])
+@require_auth
+def admin_get_tenant_settings(tenant_id):
+    """Get settings for any tenant. Requires platform_admin."""
+    try:
+        if not _can_manage_platform():
+            return jsonify({'error': 'Platform admin access required'}), 403
+        init_users_db()
+        conn = sqlite3.connect(os.path.join('secure_data', 'users.db'))
+        settings = _get_tenant_settings_row(conn, tenant_id)
+        conn.close()
+        return jsonify({'success': True, 'settings': settings})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/tenant-settings/<int:tenant_id>', methods=['PUT'])
+@require_auth
+def admin_update_tenant_settings(tenant_id):
+    """Update settings for any tenant. Requires platform_admin."""
+    try:
+        if not _can_manage_platform():
+            return jsonify({'error': 'Platform admin access required'}), 403
+        data = request.get_json(silent=True) or {}
+        allowed_fields = {
+            'dns_primary', 'dns_secondary', 'ntp_primary', 'ntp_secondary',
+            'snmp_community', 'snmp_contact', 'snmp_location_prefix',
+            'radius_primary', 'radius_secondary', 'radius_secret', 'radius_port',
+            'naming_convention', 'compliance_profile', 'allowed_device_families', 'extra_json',
+            # Batch 10 fields
+            'ata_provisioning_url', 'noc_monitor_ip', 'syslog_server',
+            'snmp_monitor_ips', 'cambium_cnm_urls',
+            'nokia_snmp_community', 'nokia_root_password',
+            'ssh_username', 'ssh_password', 'ospf_auth_key',
+            'compliance_dns_primary', 'compliance_dns_secondary',
+            'compliance_ntp', 'compliance_syslog', 'compliance_snmp_community',
+            'compliance_radius_primary', 'compliance_radius_secondary',
+        }
+        updates = {k: v for k, v in data.items() if k in allowed_fields}
+        if not updates:
+            return jsonify({'error': 'No valid fields provided'}), 400
+        # Encrypt sensitive fields before storing
+        for field in _ENCRYPTED_FIELDS:
+            if field in updates and updates[field]:
+                updates[field] = encrypt_secret(updates[field])
+        init_users_db()
+        conn = sqlite3.connect(os.path.join('secure_data', 'users.db'))
+        _get_tenant_settings_row(conn, tenant_id)
+        set_clause = ', '.join(f'{k} = ?' for k in updates)
+        params = list(updates.values()) + [tenant_id]
+        conn.execute(f'UPDATE tenant_settings SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ?', params)
+        conn.commit()
+        settings = _get_tenant_settings_row(conn, tenant_id)
+        conn.close()
+        return jsonify({'success': True, 'settings': settings})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ========================================
+# AUDIT LOG ENDPOINT
+# ========================================
+
+@app.route('/api/admin/audit-log', methods=['GET'])
+@require_auth
+def admin_get_audit_log():
+    """Get security audit log. Requires platform_admin."""
+    try:
+        if not _can_manage_platform():
+            return jsonify({'error': 'Platform admin access required'}), 403
+        limit = request.args.get('limit', 100, type=int)
+        event_type_filter = request.args.get('event_type', '').strip()
+        tenant_id_filter = request.args.get('tenant_id', type=int)
+        actor_filter = request.args.get('actor', '').strip()
+        init_users_db()
+        conn = sqlite3.connect(os.path.join('secure_data', 'users.db'))
+        conn.row_factory = sqlite3.Row
+        query = 'SELECT * FROM audit_log WHERE 1=1'
+        params = []
+        if event_type_filter:
+            query += ' AND event_type = ?'
+            params.append(event_type_filter)
+        if tenant_id_filter:
+            query += ' AND tenant_id = ?'
+            params.append(tenant_id_filter)
+        if actor_filter:
+            query += ' AND actor_email LIKE ?'
+            params.append(f'%{actor_filter}%')
+        query += ' ORDER BY timestamp_unix DESC LIMIT ?'
+        params.append(limit)
+        c = conn.cursor()
+        c.execute(query, params)
+        rows = [dict(r) for r in c.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'events': rows, 'count': len(rows)})
+    except Exception as e:
+        print(f"[AUDIT] Read audit log failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ========================================
 # DEVICE-AWARE MIGRATION ENDPOINT
 # ========================================
 
 @app.route('/api/migrate-config', methods=['POST'])
+@require_auth
 def migrate_config():
     """
     Intelligent device-aware configuration migration
@@ -14337,44 +15382,65 @@ def migrate_config():
                 'available_devices': list(ROUTERBOARD_INTERFACES.keys())
             }), 400
         
+        inferred_source_device, inferred_scores = _infer_routerboard_model_from_port_usage(config)
+        effective_source_device = source_device
+        source_match_warning = None
+        if inferred_source_device and inferred_source_device in ROUTERBOARD_INTERFACES:
+            declared_score = inferred_scores.get(source_device, {}).get('score', 0)
+            inferred_score = inferred_scores.get(inferred_source_device, {}).get('score', 0)
+            if inferred_source_device != source_device and inferred_score > declared_score:
+                effective_source_device = inferred_source_device
+                source_match_warning = (
+                    f'Source model metadata says {source_device}, but interfaces match '
+                    f'{inferred_source_device}; using actual port layout for migration policy.'
+                )
+
         # Determine what migrations are needed
         needs_syntax_migration = (source_version == 6 and str(target_version).startswith('7'))
         needs_device_migration = (source_device != target_device)
-        
+
         migrated_config = config
-        mapping_analysis = analyze_nextlink_port_mapping(config, source_device, target_device)
+        mapping_analysis = analyze_nextlink_port_mapping(config, effective_source_device, target_device)
         interface_map = mapping_analysis.get('interface_map') or {}
         port_analysis = mapping_analysis.get('port_analysis') or []
         policy_summary = mapping_analysis.get('policy_summary') or {}
         manual_review_required = bool(mapping_analysis.get('manual_review_required'))
         migration_warnings = list(mapping_analysis.get('warnings') or [])
-        
-        # Step 1: Device migration (interface renaming)
-        if needs_device_migration:
-            safe_print(f"[MIGRATION] Device: {source_device} → {target_device}")
-            
-            # Build deterministic Nextlink policy mapping
-            if not interface_map:
+        if source_match_warning:
+            migration_warnings.insert(0, source_match_warning)
+            manual_review_required = True
+        needs_interface_normalization = any(src != dst for src, dst in interface_map.items())
+
+        # Step 1: Device migration / target-policy normalization (interface renaming)
+        if needs_device_migration or needs_interface_normalization:
+            safe_print(f"[MIGRATION] Device: {effective_source_device} → {target_device}")
+
+            if not interface_map and needs_device_migration:
                 return jsonify({
-                    'error': f'No migration path available from {source_device} to {target_device}'
+                    'error': f'No migration path available from {effective_source_device} to {target_device}'
                 }), 400
-            
-            # Apply interface migration
-            migrated_config = migrate_interface_config(
-                migrated_config,
-                interface_map,
-                source_device=source_device,
-                target_device=target_device,
-            )
-            
+            if interface_map:
+                migrated_config = migrate_interface_config(
+                    migrated_config,
+                    interface_map,
+                    source_device=effective_source_device,
+                    target_device=target_device,
+                )
             safe_print(f"[MIGRATION] Mapped {len(interface_map)} interfaces")
-            for old, new in list(interface_map.items())[:5]:  # Show first 5
+            for old, new in list(interface_map.items())[:5]:
                 safe_print(f"[MIGRATION]   {old} → {new}")
-        
+
         # Step 2: Syntax migration (ROS6 → ROS7)
         if needs_syntax_migration:
             safe_print(f"[MIGRATION] Syntax: ROS{source_version} → ROS{target_version}")
             migrated_config = apply_ros6_to_ros7_syntax(migrated_config)
+
+        migrated_config = _rewrite_migration_metadata(
+            migrated_config,
+            source_device,
+            target_device,
+            target_version,
+        )
         
         if apply_compliance and HAS_ENGINEERING_COMPLIANCE:
             loopback_ip = extract_loopback_ip(migrated_config)
@@ -14390,10 +15456,11 @@ def migrate_config():
                 item for item in (
                     'v6→v7' if needs_syntax_migration else '',
                     f'{source_device}→{target_device}' if needs_device_migration else '',
+                    f'policy-normalize:{target_device}' if (not needs_device_migration and needs_interface_normalization) else '',
                 ) if item
             ]) or 'config-audit',
             'needs_version_migration': needs_syntax_migration,
-            'needs_device_migration': needs_device_migration,
+            'needs_device_migration': needs_device_migration or needs_interface_normalization,
             'interface_map': interface_map or {},
             'port_analysis': port_analysis,
             'policy_summary': policy_summary,
@@ -14410,14 +15477,14 @@ def migrate_config():
                 'mpls': '/mpls' in config or '/interface vpls' in config,
             }
         }
-        if needs_device_migration and interface_map:
-            source_ports = ROUTERBOARD_INTERFACES[source_device]['total_ports']
+        if (needs_device_migration or needs_interface_normalization) and interface_map:
+            source_ports = ROUTERBOARD_INTERFACES[effective_source_device]['total_ports']
             target_ports = ROUTERBOARD_INTERFACES[target_device]['total_ports']
             if source_ports > target_ports:
                 migration_analysis['warnings'].append(
                     f'Port count mismatch: source has {source_ports} ports, target has {target_ports}. Some ports may need reassignment.'
                 )
-        elif not needs_device_migration:
+        elif not needs_device_migration and not needs_interface_normalization:
             migration_analysis['warnings'].append('Source and target are the same model - version upgrade only')
 
         # Prepare response
@@ -14430,17 +15497,18 @@ def migrate_config():
             'source_version': source_version,
             'target_version': target_version,
             'detected_source_device': source_device if not data.get('source_device') else None,
+            'effective_source_device': effective_source_device,
             'detected_source_version': detected_version,
             'syntax_migrated': needs_syntax_migration,
-            'device_migrated': needs_device_migration,
-            'interfaces_mapped': len(interface_map) if (needs_device_migration and interface_map) else 0,
+            'device_migrated': needs_device_migration or needs_interface_normalization,
+            'interfaces_mapped': len(interface_map) if interface_map else 0,
             'compliance_applied': bool(apply_compliance and HAS_ENGINEERING_COMPLIANCE),
             'validation': validation,
             'target_interface_audit': target_interface_audit,
             'migration_analysis': migration_analysis,
             'source_info': {
-                'model': source_device,
-                'type': ROUTERBOARD_INTERFACES[source_device]['series'].lower(),
+                'model': effective_source_device,
+                'type': ROUTERBOARD_INTERFACES[effective_source_device]['series'].lower(),
             },
             'target_info': {
                 'model': target_device,
@@ -14449,8 +15517,8 @@ def migrate_config():
             },
             'migration_summary': {
                 'ether1_preserved': 'ether1' in interface_map and interface_map['ether1'] == 'ether1' if interface_map else False,
-                'total_interfaces': len(interface_map) if (needs_device_migration and interface_map) else 0,
-                'source_ports': ROUTERBOARD_INTERFACES[source_device]['total_ports'],
+                'total_interfaces': len(interface_map) if interface_map else 0,
+                'source_ports': ROUTERBOARD_INTERFACES[effective_source_device]['total_ports'],
                 'target_ports': ROUTERBOARD_INTERFACES[target_device]['total_ports']
             }
         }
@@ -14508,12 +15576,366 @@ def toolbox_inventory():
 
 # JWT Secret Key (in production, use environment variable)
 JWT_SECRET = os.getenv('JWT_SECRET', secrets.token_urlsafe(32))
-DEFAULT_PASSWORD = os.getenv('DEFAULT_PASSWORD', 'NOCConfig2025!')  # Change this in production
+DEFAULT_PASSWORD = os.getenv('DEFAULT_PASSWORD')
+if not DEFAULT_PASSWORD:
+    safe_print('[CRITICAL] DEFAULT_PASSWORD env var is not set. New user provisioning will fail until it is set.')
+    DEFAULT_PASSWORD = 'NOCConfig2025!'  # legacy fallback only - set DEFAULT_PASSWORD env var in production
 
 # Azure AD Configuration (for Microsoft SSO)
 AZURE_CLIENT_ID = os.getenv('AZURE_CLIENT_ID', '0563f465-0f3b-466b-a193-90c9e6dd79d6')
 AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET', '')  # Set via env var or .env — never hardcode secrets
 AZURE_TENANT_ID = os.getenv('AZURE_TENANT_ID', '143673a5-ff46-4d23-8255-b4ef07861814')
+DEFAULT_TENANT_SLUG = os.getenv('DEFAULT_TENANT_SLUG', 'nextlink').strip().lower() or 'nextlink'
+DEFAULT_TENANT_NAME = os.getenv('DEFAULT_TENANT_NAME', 'Nextlink').strip() or 'Nextlink'
+DEFAULT_TENANT_AUTH_MODE = os.getenv('DEFAULT_TENANT_AUTH_MODE', 'microsoft').strip().lower() or 'microsoft'
+DEFAULT_ALLOWED_EMAIL_DOMAINS = os.getenv('DEFAULT_ALLOWED_EMAIL_DOMAINS', 'team.nxlink.com')
+# Store as JSON list for the tenant record
+_DEFAULT_EMAIL_DOMAINS_LIST = json.dumps([d.strip() for d in DEFAULT_ALLOWED_EMAIL_DOMAINS.split(',') if d.strip()])
+
+# IMPORTANT: Set these via environment variables in production.
+# These defaults are for local development only and should NOT be real accounts in production deployments.
+DEFAULT_PLATFORM_ADMIN_EMAILS = os.getenv('PLATFORM_ADMIN_EMAILS', 'admin@localhost')
+DEFAULT_PLATFORM_SUPPORT_EMAILS = os.getenv('PLATFORM_SUPPORT_EMAILS', '')
+
+
+def _csv_emails(value):
+    return [item.strip().lower() for item in (value or '').split(',') if item.strip()]
+
+
+def _platform_admin_emails():
+    _LEGACY_ADMIN_EMAILS = {'whamza@team.nxlink.com'}
+    env_val = os.getenv('PLATFORM_ADMIN_EMAILS')
+    if env_val is not None:
+        from_env = set(_csv_emails(env_val))
+        # If the env var yields actual emails, use those (union with legacy so hardcoded admins always work)
+        if from_env:
+            return from_env | _LEGACY_ADMIN_EMAILS
+    # Env var not set or empty — use legacy hardcoded list
+    return _LEGACY_ADMIN_EMAILS
+
+
+def _platform_support_emails():
+    if os.getenv('PLATFORM_SUPPORT_EMAILS') is not None:
+        return set(_csv_emails(os.getenv('PLATFORM_SUPPORT_EMAILS')))
+    # No env var set — use legacy hardcoded list for backward compatibility with existing deployments
+    _LEGACY_SUPPORT_EMAILS = {'bgonzales@team.nxlink.com', 'lgibson@team.nxlink.com', 'seldredge@team.nxlink.com'}
+    return _LEGACY_SUPPORT_EMAILS
+
+
+def _platform_role_for_email(email):
+    normalized = (email or '').strip().lower()
+    if normalized in _platform_admin_emails():
+        return 'platform_admin'
+    if normalized in _platform_support_emails():
+        return 'platform_support'
+    return 'user'
+
+
+def _get_default_tenant_id(conn):
+    c = conn.cursor()
+    c.execute('SELECT id FROM tenants WHERE slug = ?', (DEFAULT_TENANT_SLUG,))
+    row = c.fetchone()
+    return row[0] if row else None
+
+
+def _sync_user_platform_access(conn, user_id, email):
+    platform_role = _platform_role_for_email(email)
+    is_platform_admin = 1 if platform_role == 'platform_admin' else 0
+    c = conn.cursor()
+    c.execute(
+        'UPDATE users SET platform_role = ?, is_platform_admin = ? WHERE id = ?',
+        (platform_role, is_platform_admin, user_id),
+    )
+    return platform_role
+
+
+def _ensure_user_default_membership(conn, user_id):
+    tenant_id = _get_default_tenant_id(conn)
+    if not tenant_id:
+        tenant_id = _seed_default_tenant(conn)
+    c = conn.cursor()
+    c.execute('''INSERT OR IGNORE INTO user_tenant_memberships
+                 (user_id, tenant_id, role, status, is_default)
+                 VALUES (?, ?, 'tenant_engineer', 'active', 1)''',
+              (user_id, tenant_id))
+    c.execute('UPDATE users SET home_tenant_id = COALESCE(home_tenant_id, ?) WHERE id = ?', (tenant_id, user_id))
+    return tenant_id
+
+
+def _seed_default_tenant_settings(conn, tenant_id):
+    """Create tenant_settings table and seed defaults for a given tenant_id."""
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS tenant_settings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL UNIQUE,
+        dns_primary TEXT DEFAULT '8.8.8.8',
+        dns_secondary TEXT DEFAULT '8.8.4.4',
+        ntp_primary TEXT DEFAULT 'pool.ntp.org',
+        ntp_secondary TEXT DEFAULT 'time.cloudflare.com',
+        snmp_community TEXT DEFAULT 'public',
+        snmp_contact TEXT DEFAULT 'netops@team.nxlink.com',
+        snmp_location_prefix TEXT DEFAULT '',
+        radius_primary TEXT DEFAULT '',
+        radius_secondary TEXT DEFAULT '',
+        radius_secret TEXT DEFAULT '',
+        radius_port INTEGER DEFAULT 1812,
+        naming_convention TEXT DEFAULT '{}',
+        compliance_profile TEXT DEFAULT 'standard',
+        allowed_device_families TEXT DEFAULT '["mikrotik","nokia","cambium","aviat"]',
+        extra_json TEXT DEFAULT '{}',
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+    )''')
+
+    # Batch 10: additive column migrations — safe on both new and existing databases
+    _b10_new_cols = {
+        'ata_provisioning_url': 'TEXT DEFAULT ""',
+        'noc_monitor_ip': 'TEXT DEFAULT ""',
+        'syslog_server': 'TEXT DEFAULT ""',
+        'snmp_monitor_ips': 'TEXT DEFAULT "[]"',
+        'cambium_cnm_urls': 'TEXT DEFAULT "[]"',
+        'nokia_snmp_community': 'TEXT DEFAULT ""',
+        'nokia_root_password': 'TEXT DEFAULT ""',
+        'ssh_username': 'TEXT DEFAULT ""',
+        'ssh_password': 'TEXT DEFAULT ""',
+        'ospf_auth_key': 'TEXT DEFAULT ""',
+        'compliance_dns_primary': 'TEXT DEFAULT ""',
+        'compliance_dns_secondary': 'TEXT DEFAULT ""',
+        'compliance_ntp': 'TEXT DEFAULT ""',
+        'compliance_syslog': 'TEXT DEFAULT ""',
+        'compliance_snmp_community': 'TEXT DEFAULT ""',
+        'compliance_radius_primary': 'TEXT DEFAULT ""',
+        'compliance_radius_secondary': 'TEXT DEFAULT ""',
+    }
+    c.execute('PRAGMA table_info(tenant_settings)')
+    existing_cols = {r[1] for r in c.fetchall()}
+    for col, typedef in _b10_new_cols.items():
+        if col not in existing_cols:
+            c.execute(f'ALTER TABLE tenant_settings ADD COLUMN {col} {typedef}')
+
+    # Determine which values to use based on whether this is the default tenant
+    c.execute('SELECT slug FROM tenants WHERE id = ?', (tenant_id,))
+    row = c.fetchone()
+    slug = row[0] if row else ''
+    if slug == DEFAULT_TENANT_SLUG:
+        c.execute('''INSERT OR IGNORE INTO tenant_settings
+            (tenant_id, dns_primary, dns_secondary, ntp_primary, ntp_secondary,
+             snmp_community, snmp_contact, radius_primary, radius_secondary,
+             compliance_profile, allowed_device_families)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            (tenant_id,
+             '192.168.100.14', '192.168.100.15',
+             'pool.ntp.org', 'time.cloudflare.com',
+             'NXLpublic', 'netops@team.nxlink.com',
+             '', '',
+             'nextlink', '["mikrotik","nokia","cambium","aviat"]'))
+
+        # Seed Batch 10 Nextlink-specific values (only if currently empty/null)
+        _nextlink_seed_extras = {
+            'ata_provisioning_url': 'http://ndp1-dal.nxlink.com/cfg/$MA.cfg',
+            'noc_monitor_ip': '142.147.127.2',
+            'syslog_server': '142.147.116.215',
+            'snmp_monitor_ips': '["142.147.112.4", "142.147.124.26"]',
+            'cambium_cnm_urls': json.dumps([
+                {'label': 'CNM-TX1', 'url': 'https://cnm-tx1.nxlink.com'},
+                {'label': 'CNM-TX2', 'url': 'https://cnm-tx2.nxlink.com'},
+                {'label': 'CNM-TX3', 'url': 'https://cnm-tx3.nxlink.com'},
+                {'label': 'CNM-OK1', 'url': 'https://cnm-ok1.nxlink.com'},
+                {'label': 'CNM-KS1', 'url': 'https://cnm-ks1.nxlink.com'},
+                {'label': 'CNM-NE1', 'url': 'https://cnm-ne1.nxlink.com'},
+                {'label': 'CNM-IA1', 'url': 'https://cnm-ia1.nxlink.com'},
+                {'label': 'CNM-IL1', 'url': 'https://cnm-il1.nxlink.com'},
+                {'label': 'CNM-LA1', 'url': 'https://cnm-la1.nxlink.com'},
+            ]),
+            'compliance_dns_primary': '142.147.112.3',
+            'compliance_dns_secondary': '142.147.112.19',
+            'compliance_ntp': 'ntp-pool.nxlink.com',
+            'compliance_syslog': '142.147.116.215',
+            'compliance_snmp_community': 'FBZ1yYdphf',
+            'compliance_radius_primary': '142.147.112.2',
+            'compliance_radius_secondary': '142.147.112.18',
+        }
+        for col, val in _nextlink_seed_extras.items():
+            c.execute(
+                f"UPDATE tenant_settings SET {col} = ? WHERE tenant_id = ? AND ({col} IS NULL OR {col} = '' OR {col} = '[]')",
+                (val, tenant_id)
+            )
+    else:
+        c.execute('''INSERT OR IGNORE INTO tenant_settings (tenant_id) VALUES (?)''', (tenant_id,))
+
+
+def _seed_default_tenant(conn):
+    """Create the default tenant and attach existing users to it."""
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS tenants
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  slug TEXT UNIQUE NOT NULL,
+                  name TEXT NOT NULL,
+                  status TEXT NOT NULL DEFAULT 'active',
+                  auth_mode TEXT NOT NULL DEFAULT 'password',
+                  azure_tenant_id TEXT,
+                  allowed_email_domains TEXT,
+                  settings_json TEXT,
+                  created_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_tenants_slug ON tenants(slug)')
+
+    c.execute('''INSERT OR IGNORE INTO tenants
+                 (slug, name, status, auth_mode, azure_tenant_id, allowed_email_domains, settings_json)
+                 VALUES (?, ?, 'active', ?, ?, ?, ?)''',
+              (DEFAULT_TENANT_SLUG, DEFAULT_TENANT_NAME, DEFAULT_TENANT_AUTH_MODE,
+               AZURE_TENANT_ID, _DEFAULT_EMAIL_DOMAINS_LIST, '{}'))
+
+    c.execute('SELECT id FROM tenants WHERE slug = ?', (DEFAULT_TENANT_SLUG,))
+    row = c.fetchone()
+    tenant_id = row[0] if row else None
+    if not tenant_id:
+        raise RuntimeError(f'Failed to seed default tenant: {DEFAULT_TENANT_SLUG}')
+
+    _seed_default_tenant_settings(conn, tenant_id)
+
+    c.execute('''CREATE TABLE IF NOT EXISTS user_tenant_memberships
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  user_id INTEGER NOT NULL,
+                  tenant_id INTEGER NOT NULL,
+                  role TEXT NOT NULL DEFAULT 'tenant_engineer',
+                  status TEXT NOT NULL DEFAULT 'active',
+                  is_default INTEGER NOT NULL DEFAULT 0,
+                  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                  UNIQUE(user_id, tenant_id),
+                  FOREIGN KEY (user_id) REFERENCES users(id),
+                  FOREIGN KEY (tenant_id) REFERENCES tenants(id))''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_memberships_user_id ON user_tenant_memberships(user_id)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_memberships_tenant_id ON user_tenant_memberships(tenant_id)')
+
+    c.execute('SELECT id FROM users')
+    for (user_id,) in c.fetchall():
+        _ensure_user_default_membership(conn, user_id)
+
+    # Legacy bootstrap: if running without explicit PLATFORM_ADMIN_EMAILS env var,
+    # promote any existing nxlink users who matched the old hardcoded admin list.
+    # This preserves existing deployments without requiring env var configuration.
+    if os.getenv('PLATFORM_ADMIN_EMAILS') is None:
+        _LEGACY_ADMIN_EMAILS = {'whamza@team.nxlink.com'}
+        _LEGACY_SUPPORT_EMAILS = {'bgonzales@team.nxlink.com', 'lgibson@team.nxlink.com', 'seldredge@team.nxlink.com'}
+        for legacy_email in _LEGACY_ADMIN_EMAILS | _LEGACY_SUPPORT_EMAILS:
+            role = 'platform_admin' if legacy_email in _LEGACY_ADMIN_EMAILS else 'platform_support'
+            is_admin = 1 if role == 'platform_admin' else 0
+            c.execute(
+                'UPDATE users SET platform_role = ?, is_platform_admin = ? WHERE email = ? AND (platform_role IS NULL OR platform_role = "user")',
+                (role, is_admin, legacy_email)
+            )
+
+    return tenant_id
+
+
+def _get_tenant_settings_row(conn, tenant_id):
+    """Return settings row for tenant_id, seeding defaults if missing. Decrypts sensitive fields."""
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT * FROM tenant_settings WHERE tenant_id = ?', (tenant_id,))
+    row = c.fetchone()
+    if not row:
+        _seed_default_tenant_settings(conn, tenant_id)
+        conn.commit()
+        c.execute('SELECT * FROM tenant_settings WHERE tenant_id = ?', (tenant_id,))
+        row = c.fetchone()
+    if not row:
+        return {}
+    result = dict(row)
+    for field in _ENCRYPTED_FIELDS:
+        if field in result and result[field]:
+            result[field] = decrypt_secret(result[field])
+    return result
+
+
+def _build_compliance_checks(tenant_settings=None):
+    """Build the dynamic list of hard compliance checks from tenant settings.
+
+    Values are resolved in priority order:
+      1. compliance_* fields (dedicated compliance overrides)
+      2. general infrastructure fields (dns_primary, etc.)
+      3. env var fallbacks (Nextlink defaults)
+    """
+    ts = tenant_settings or {}
+    dns1 = ts.get('compliance_dns_primary') or ts.get('dns_primary') or \
+           os.getenv('NEXTLINK_DNS_PRIMARY', '142.147.112.3')
+    dns2 = ts.get('compliance_dns_secondary') or ts.get('dns_secondary') or \
+           os.getenv('NEXTLINK_DNS_SECONDARY', '142.147.112.19')
+    syslog = ts.get('compliance_syslog') or ts.get('syslog_server') or '142.147.116.215'
+    ntp = ts.get('compliance_ntp') or ts.get('ntp_primary') or 'ntp-pool.nxlink.com'
+    snmp_community = ts.get('compliance_snmp_community') or ts.get('snmp_community') or 'FBZ1yYdphf'
+    radius1 = ts.get('compliance_radius_primary') or ts.get('radius_primary') or '142.147.112.2'
+    radius2 = ts.get('compliance_radius_secondary') or ts.get('radius_secondary') or '142.147.112.18'
+
+    checks = []
+    if dns1:
+        checks.append({'name': f'Primary DNS ({dns1})', 'pattern': dns1, 'required': True, 'category': 'DNS'})
+    if dns2:
+        checks.append({'name': f'Secondary DNS ({dns2})', 'pattern': dns2, 'required': True, 'category': 'DNS'})
+    if syslog:
+        checks.append({'name': f'Syslog Server ({syslog})', 'pattern': syslog, 'required': True, 'category': 'Logging'})
+    if ntp:
+        checks.append({'name': f'NTP Server ({ntp})', 'pattern': ntp, 'required': True, 'category': 'NTP'})
+    if snmp_community:
+        checks.append({'name': 'SNMP Community', 'pattern': snmp_community, 'required': True, 'category': 'SNMP'})
+    if radius1:
+        checks.append({'name': f'RADIUS Primary ({radius1})', 'pattern': radius1, 'required': True, 'category': 'RADIUS'})
+    if radius2:
+        checks.append({'name': f'RADIUS Secondary ({radius2})', 'pattern': radius2, 'required': True, 'category': 'RADIUS'})
+    return checks
+
+
+def _create_notification(feedback_id, user_email, subject, message):
+    """Create a notification for a feedback submitter. Fails silently."""
+    try:
+        if not user_email:
+            return
+        feedback_db = init_feedback_db()
+        conn = sqlite3.connect(str(feedback_db))
+        conn.execute(
+            'INSERT INTO notifications (user_email, feedback_id, subject, message) VALUES (?, ?, ?, ?)',
+            (user_email.strip().lower(), feedback_id, subject, message)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[NOTIFY] Failed to create notification: {e}")
+
+
+def _write_audit_log(event_type, detail=None, target_user_id=None, target_email=None, tenant_id=None, tenant_slug=None):
+    """Write a security audit event. Fails silently to never block the main flow."""
+    try:
+        actor_user_id = None
+        actor_email = None
+        actor_platform_role = 'unknown'
+        user_info = getattr(request, 'current_user', None)
+        if user_info:
+            actor_user_id = user_info.get('user_id')
+            actor_email = user_info.get('email')
+            actor_platform_role = _platform_role_for_email(actor_email or '')
+        # For login events, the user hasn't authenticated yet so current_user is None.
+        # Use target_email as the actor for display purposes.
+        if actor_email is None and target_email and event_type == 'login':
+            actor_email = target_email
+            actor_platform_role = _platform_role_for_email(target_email)
+        ip_address = request.remote_addr if request else None
+        ts_unix = int(time.time())
+        init_users_db()
+        conn = sqlite3.connect(os.path.join('secure_data', 'users.db'))
+        conn.execute('''
+            INSERT INTO audit_log
+            (timestamp_unix, actor_user_id, actor_email, actor_platform_role,
+             event_type, tenant_id, tenant_slug, target_user_id, target_email, detail_json, ip_address)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (ts_unix, actor_user_id, actor_email, actor_platform_role,
+               event_type, tenant_id, tenant_slug,
+               target_user_id, target_email,
+               json.dumps(detail or {}), ip_address))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[AUDIT] Failed to write audit log: {e}")
+
 
 def init_users_db():
     """Initialize users database for authentication"""
@@ -14531,20 +15953,38 @@ def init_users_db():
                   email TEXT UNIQUE NOT NULL,
                   password_hash TEXT NOT NULL,
                   display_name TEXT,
+                  external_subject TEXT,
+                  home_tenant_id INTEGER,
+                  platform_role TEXT DEFAULT 'user',
                   first_login INTEGER DEFAULT 1,
                   password_changed_at DATETIME,
                   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                   last_login DATETIME,
-                  is_active INTEGER DEFAULT 1)''')
+                  is_active INTEGER DEFAULT 1,
+                  is_platform_admin INTEGER DEFAULT 0)''')
 
     # Add missing columns for password resets
     c.execute("PRAGMA table_info(users)")
     existing_cols = {row[1] for row in c.fetchall()}
+    if 'external_subject' not in existing_cols:
+        c.execute("ALTER TABLE users ADD COLUMN external_subject TEXT")
+    if 'home_tenant_id' not in existing_cols:
+        c.execute("ALTER TABLE users ADD COLUMN home_tenant_id INTEGER")
+    if 'platform_role' not in existing_cols:
+        c.execute("ALTER TABLE users ADD COLUMN platform_role TEXT DEFAULT 'user'")
     if 'reset_token' not in existing_cols:
         c.execute("ALTER TABLE users ADD COLUMN reset_token TEXT")
     if 'reset_token_expires' not in existing_cols:
         c.execute("ALTER TABLE users ADD COLUMN reset_token_expires INTEGER")
-    
+    if 'is_platform_admin' not in existing_cols:
+        c.execute("ALTER TABLE users ADD COLUMN is_platform_admin INTEGER DEFAULT 0")
+    if 'profile_photo' not in existing_cols:
+        c.execute("ALTER TABLE users ADD COLUMN profile_photo TEXT")
+    if 'email_verification_token' not in existing_cols:
+        c.execute("ALTER TABLE users ADD COLUMN email_verification_token TEXT")
+    if 'email_verified_at' not in existing_cols:
+        c.execute("ALTER TABLE users ADD COLUMN email_verified_at DATETIME")
+
     # User sessions table
     c.execute('''CREATE TABLE IF NOT EXISTS user_sessions
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -14553,10 +15993,129 @@ def init_users_db():
                   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                   expires_at DATETIME,
                   FOREIGN KEY (user_id) REFERENCES users(id))''')
-    
+
+    _seed_default_tenant(conn)
+
+    # Audit log table
+    c.execute('''CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        timestamp_unix INTEGER,
+        actor_user_id INTEGER,
+        actor_email TEXT,
+        actor_platform_role TEXT,
+        event_type TEXT NOT NULL,
+        tenant_id INTEGER,
+        tenant_slug TEXT,
+        target_user_id INTEGER,
+        target_email TEXT,
+        detail_json TEXT,
+        ip_address TEXT,
+        FOREIGN KEY (actor_user_id) REFERENCES users(id)
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp_unix)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_log(event_type)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_audit_tenant_id ON audit_log(tenant_id)')
+
+    c.execute('SELECT id, email FROM users')
+    for row in c.fetchall():
+        _sync_user_platform_access(conn, row[0], row[1])
+
+    # ── API Keys table ─────────────────────────────────────────────────────
+    c.execute('''CREATE TABLE IF NOT EXISTS api_keys (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL,
+        created_by_user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        key_hash TEXT NOT NULL UNIQUE,
+        key_prefix TEXT NOT NULL,
+        scopes TEXT NOT NULL DEFAULT '["read","write"]',
+        last_used_at DATETIME,
+        expires_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+        FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_api_keys_tenant_id ON api_keys(tenant_id)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash)')
+
+    # ── Quota tables ───────────────────────────────────────────────────────
+    c.execute('''CREATE TABLE IF NOT EXISTS tenant_quotas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL UNIQUE,
+        max_users INTEGER NOT NULL DEFAULT 10,
+        max_configs_per_day INTEGER NOT NULL DEFAULT 100,
+        max_api_calls_per_day INTEGER NOT NULL DEFAULT 1000,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS usage_daily (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        configs_generated INTEGER NOT NULL DEFAULT 0,
+        api_calls INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(tenant_id, date),
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_usage_daily_tenant_date ON usage_daily(tenant_id, date)')
+
+    # ── Invitations table ──────────────────────────────────────────────────
+    c.execute('''CREATE TABLE IF NOT EXISTS invitations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL,
+        invited_by_user_id INTEGER NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'tenant_engineer',
+        token TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'pending',
+        expires_at DATETIME NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+        FOREIGN KEY (invited_by_user_id) REFERENCES users(id)
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_invitations_token ON invitations(token)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_invitations_email ON invitations(email)')
+
+    # ── Tenant domains table ───────────────────────────────────────────────
+    c.execute('''CREATE TABLE IF NOT EXISTS tenant_domains (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL,
+        domain TEXT NOT NULL UNIQUE,
+        verification_token TEXT NOT NULL UNIQUE,
+        verified_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_tenant_domains_domain ON tenant_domains(domain)')
+
+    # ── Tenant feature flags table ─────────────────────────────────────────
+    c.execute('''CREATE TABLE IF NOT EXISTS tenant_features (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL UNIQUE,
+        features TEXT NOT NULL DEFAULT '{"mikrotik":true,"nokia":true,"cambium":true,"aviat":true,"ftth":true,"bulk_ops":true,"compliance":true,"ai_assistant":true,"config_diff":true}',
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+    )''')
+
+    # ── Tenant branding columns (additive migration on tenants table) ──────
+    c.execute("PRAGMA table_info(tenants)")
+    tenant_cols = {r[1] for r in c.fetchall()}
+    for col, coldef in [
+        ('logo_url', 'TEXT'),
+        ('primary_color', "TEXT DEFAULT '#2563eb'"),
+        ('company_name', 'TEXT'),
+        ('custom_domain', 'TEXT'),
+        ('favicon_url', 'TEXT'),
+    ]:
+        if col not in tenant_cols:
+            c.execute(f'ALTER TABLE tenants ADD COLUMN {col} {coldef}')
+
     conn.commit()
     conn.close()
     print(f"[AUTH] Users database initialized at {db_path}")
+    return db_path
 
 def hash_password(password):
     """Hash password using SHA-256 with salt"""
@@ -14595,11 +16154,18 @@ def generate_token(user_id, email):
         return f"{token_data}.{hashlib.sha256((token_data + JWT_SECRET).encode()).hexdigest()[:32]}"
 
 def validate_email_domain(email):
-    """Validate that email is from @team.nxlink.com domain"""
+    """Validate email domain against ALLOWED_EMAIL_DOMAINS env var (comma-separated).
+    Defaults to @team.nxlink.com for the Nextlink deployment.
+    Set ALLOWED_EMAIL_DOMAINS=* to allow any domain (open multi-tenant mode).
+    """
     if not email:
         return False
     email = email.strip().lower()
-    return email.endswith('@team.nxlink.com')
+    allowed_raw = os.getenv('ALLOWED_EMAIL_DOMAINS', '@team.nxlink.com')
+    if allowed_raw.strip() == '*':
+        return True
+    allowed = [d.strip().lower() for d in allowed_raw.split(',') if d.strip()]
+    return any(email.endswith(d) for d in allowed)
 
 def verify_token(token):
     """Verify JWT token and return user info"""
@@ -14643,7 +16209,335 @@ def verify_token(token):
         except:
             return None
 
+
+def _serialize_user_row(user):
+    return {
+        'id': user['id'],
+        'email': user['email'],
+        'displayName': user['display_name'] or user['email'].split('@')[0],
+        'firstLogin': user['first_login'] == 1,
+        'homeTenantId': user['home_tenant_id'],
+        'platformRole': user['platform_role'] or ('platform_admin' if user['is_platform_admin'] else 'user'),
+        'isPlatformAdmin': bool(user['is_platform_admin']),
+        'profilePhoto': dict(user).get('profile_photo') or None,
+    }
+
+
+def _load_session_bootstrap_for_user(user_id):
+    init_users_db()
+    secure_dir = 'secure_data'
+    db_path = os.path.join(secure_dir, 'users.db')
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+
+    c.execute('SELECT * FROM users WHERE id = ?', (user_id,))
+    user = c.fetchone()
+    if not user:
+        conn.close()
+        return None
+
+    _ensure_user_default_membership(conn, user_id)
+    conn.commit()
+
+    # Derive role from stored DB value AND live email check — whichever is higher wins.
+    # This ensures admins always get correct access even if the DB migration hasn't set
+    # platform_role yet (e.g. first boot after schema change on an existing DB).
+    _db_role = user['platform_role'] or ('platform_admin' if user['is_platform_admin'] else 'user')
+    _live_role = _platform_role_for_email(user['email'] or '')
+    _ROLE_RANK = {'platform_admin': 3, 'platform_support': 2, 'tenant_admin': 1, 'user': 0}
+    platform_role = _db_role if _ROLE_RANK.get(_db_role, 0) >= _ROLE_RANK.get(_live_role, 0) else _live_role
+
+    c.execute(
+        '''
+        SELECT
+            m.tenant_id,
+            m.role,
+            m.status,
+            m.is_default,
+            t.slug,
+            t.name,
+            t.auth_mode,
+            t.azure_tenant_id
+        FROM user_tenant_memberships AS m
+        JOIN tenants AS t ON t.id = m.tenant_id
+        WHERE m.user_id = ?
+        ORDER BY m.is_default DESC, t.name ASC
+        ''',
+        (user_id,),
+    )
+    memberships = []
+    seen_tenant_ids = set()
+    active_membership = None
+    for row in c.fetchall():
+        membership = {
+            'tenantId': row['tenant_id'],
+            'slug': row['slug'],
+            'name': row['name'],
+            'role': row['role'],
+            'status': row['status'],
+            'isDefault': bool(row['is_default']),
+            'authMode': row['auth_mode'],
+            'azureTenantId': row['azure_tenant_id'],
+        }
+        memberships.append(membership)
+        seen_tenant_ids.add(row['tenant_id'])
+        if active_membership is None and row['status'] == 'active':
+            active_membership = membership
+
+    if platform_role == 'platform_admin':
+        c.execute('SELECT id, slug, name, auth_mode, azure_tenant_id FROM tenants WHERE status = ?', ('active',))
+        for row in c.fetchall():
+            if row['id'] in seen_tenant_ids:
+                continue
+            memberships.append({
+                'tenantId': row['id'],
+                'slug': row['slug'],
+                'name': row['name'],
+                'role': 'platform_admin',
+                'status': 'active',
+                'isDefault': bool(user['home_tenant_id'] == row['id']),
+                'authMode': row['auth_mode'],
+                'azureTenantId': row['azure_tenant_id'],
+            })
+
+    if active_membership is None and memberships:
+        active_membership = next((m for m in memberships if user['home_tenant_id'] and m['tenantId'] == user['home_tenant_id']), memberships[0])
+
+    tenant_role = active_membership['role'] if active_membership else None
+    effective_roles = [role for role in [platform_role, tenant_role] if role]
+    permissions = {
+        'platformAdmin': platform_role == 'platform_admin',
+        'platformSupport': platform_role in {'platform_admin', 'platform_support'},
+        'tenantAdmin': tenant_role == 'tenant_admin',
+        'adminPanel': platform_role in {'platform_admin', 'platform_support'} or tenant_role == 'tenant_admin',
+        'passwordReset': platform_role in {'platform_admin', 'platform_support'} or tenant_role == 'tenant_admin',
+        'crossTenantVisibility': platform_role == 'platform_admin',
+    }
+
+    # Load tenant settings for active tenant
+    tenant_settings = {}
+    active_tenant_id = active_membership['tenantId'] if active_membership else None
+    if active_membership:
+        tenant_settings = _get_tenant_settings_row(conn, active_tenant_id)
+
+    # Load per-tenant feature flags
+    tenant_feature_flags = _get_tenant_features(active_tenant_id)
+
+    # Load tenant branding
+    branding = {}
+    if active_tenant_id:
+        try:
+            c.execute('SELECT company_name, logo_url, primary_color, favicon_url FROM tenants WHERE id = ?', (active_tenant_id,))
+            branding_row = c.fetchone()
+            if branding_row:
+                branding = dict(branding_row)
+        except Exception:
+            pass
+
+    bootstrap = {
+        'user': _serialize_user_row(user),
+        'memberships': memberships,
+        'activeTenant': {
+            'id': active_membership['tenantId'],
+            'slug': active_membership['slug'],
+            'name': active_membership['name'],
+            'role': active_membership['role'],
+            'authMode': active_membership['authMode'],
+            'azureTenantId': active_membership['azureTenantId'],
+        } if active_membership else None,
+        'effectiveRoles': effective_roles,
+        'permissions': permissions,
+        'features': {
+            'tenantSwitching': len([m for m in memberships if m['status'] == 'active']) > 1,
+            'platformAdmin': permissions['platformAdmin'],
+            'platformSupport': permissions['platformSupport'],
+            'adminPanel': permissions['adminPanel'],
+            **tenant_feature_flags,
+        },
+        'tenantSettings': tenant_settings,
+        'branding': branding,
+    }
+    conn.close()
+    return bootstrap
+
+
+def _switch_user_active_tenant(user_id, tenant_id):
+    init_users_db()
+    secure_dir = 'secure_data'
+    db_path = os.path.join(secure_dir, 'users.db')
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+
+    c.execute('SELECT email, platform_role, is_platform_admin FROM users WHERE id = ?', (user_id,))
+    user = c.fetchone()
+    platform_role = None
+    if user:
+        _db_role2 = user['platform_role'] or ('platform_admin' if user['is_platform_admin'] else 'user')
+        _live_role2 = _platform_role_for_email(user['email'] or '')
+        _ROLE_RANK2 = {'platform_admin': 3, 'platform_support': 2, 'tenant_admin': 1, 'user': 0}
+        platform_role = _db_role2 if _ROLE_RANK2.get(_db_role2, 0) >= _ROLE_RANK2.get(_live_role2, 0) else _live_role2
+
+    c.execute(
+        '''
+        SELECT m.tenant_id, t.slug, t.name, t.auth_mode, t.azure_tenant_id
+        FROM user_tenant_memberships AS m
+        JOIN tenants AS t ON t.id = m.tenant_id
+        WHERE m.user_id = ? AND m.tenant_id = ? AND m.status = 'active'
+        ''',
+        (user_id, tenant_id),
+    )
+    membership = c.fetchone()
+    if not membership and platform_role == 'platform_admin':
+        c.execute('SELECT id, slug, name, auth_mode, azure_tenant_id FROM tenants WHERE id = ? AND status = ?', (tenant_id, 'active'))
+        tenant = c.fetchone()
+        if tenant:
+            c.execute(
+                '''
+                INSERT OR IGNORE INTO user_tenant_memberships
+                (user_id, tenant_id, role, status, is_default)
+                VALUES (?, ?, 'platform_admin', 'active', 0)
+                ''',
+                (user_id, tenant_id),
+            )
+            membership = {
+                'tenant_id': tenant['id'],
+                'slug': tenant['slug'],
+                'name': tenant['name'],
+                'auth_mode': tenant['auth_mode'],
+                'azure_tenant_id': tenant['azure_tenant_id'],
+            }
+
+    if not membership:
+        conn.close()
+        return None
+
+    c.execute('UPDATE user_tenant_memberships SET is_default = 0 WHERE user_id = ?', (user_id,))
+    c.execute(
+        'UPDATE user_tenant_memberships SET is_default = 1 WHERE user_id = ? AND tenant_id = ?',
+        (user_id, tenant_id),
+    )
+    c.execute('UPDATE users SET home_tenant_id = ? WHERE id = ?', (tenant_id, user_id))
+    conn.commit()
+    conn.close()
+
+    return {
+        'id': membership['tenant_id'],
+        'slug': membership['slug'],
+        'name': membership['name'],
+        'authMode': membership['auth_mode'],
+        'azureTenantId': membership['azure_tenant_id'],
+    }
+
+
+def _get_request_token():
+    token = request.headers.get('Authorization', '')
+    if token.startswith('Bearer '):
+        token = token[7:]
+    if token:
+        return token
+    data = request.get_json(silent=True) or {}
+    token = data.get('token', '')
+    if token.startswith('Bearer '):
+        token = token[7:]
+    return token
+
+
+def _get_default_tenant_context():
+    init_users_db()
+    secure_dir = 'secure_data'
+    db_path = os.path.join(secure_dir, 'users.db')
+    conn = sqlite3.connect(db_path)
+    tenant_id = _get_default_tenant_id(conn)
+    tenant = None
+    if tenant_id:
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute('SELECT id, slug, name, auth_mode, azure_tenant_id FROM tenants WHERE id = ?', (tenant_id,))
+        tenant = c.fetchone()
+    conn.close()
+    if not tenant:
+        return {'id': None, 'slug': DEFAULT_TENANT_SLUG, 'name': DEFAULT_TENANT_NAME}
+    return {
+        'id': tenant['id'],
+        'slug': tenant['slug'],
+        'name': tenant['name'],
+        'authMode': tenant['auth_mode'],
+        'azureTenantId': tenant['azure_tenant_id'],
+    }
+
+
+def _get_request_tenant_context():
+    user_info = getattr(request, 'current_user', None)
+    if not user_info:
+        token = _get_request_token()
+        if token:
+            user_info = verify_token(token)
+
+    if user_info:
+        bootstrap = _load_session_bootstrap_for_user(user_info['user_id'])
+        if bootstrap and bootstrap.get('activeTenant'):
+            return {
+                'user': bootstrap.get('user'),
+                'tenant': bootstrap['activeTenant'],
+            }
+
+    return {
+        'user': None,
+        'tenant': _get_default_tenant_context(),
+    }
+
+
+def _get_request_access_context():
+    user_info = getattr(request, 'current_user', None)
+    if not user_info:
+        token = _get_request_token()
+        if token:
+            user_info = verify_token(token)
+
+    bootstrap = None
+    if user_info:
+        bootstrap = _load_session_bootstrap_for_user(user_info['user_id'])
+
+    if bootstrap:
+        return {
+            'user': bootstrap.get('user'),
+            'tenant': bootstrap.get('activeTenant'),
+            'effectiveRoles': bootstrap.get('effectiveRoles', []),
+            'permissions': bootstrap.get('permissions', {}),
+            'memberships': bootstrap.get('memberships', []),
+        }
+
+    return {
+        'user': None,
+        'tenant': _get_default_tenant_context(),
+        'effectiveRoles': ['user'],
+        'permissions': {
+            'platformAdmin': False,
+            'platformSupport': False,
+            'tenantAdmin': False,
+            'adminPanel': False,
+            'passwordReset': False,
+            'crossTenantVisibility': False,
+        },
+        'memberships': [],
+    }
+
+
+def _can_access_admin_panel():
+    return bool(_get_request_access_context()['permissions'].get('adminPanel'))
+
+
+def _can_reset_passwords():
+    return bool(_get_request_access_context()['permissions'].get('passwordReset'))
+
+
+def _can_manage_platform():
+    return bool(_get_request_access_context()['permissions'].get('platformAdmin'))
+
 @app.route('/api/auth/login', methods=['POST'])
+@limiter.limit("10 per minute", exempt_when=lambda: bool(os.environ.get('PYTEST_CURRENT_TEST')) or app.config.get('TESTING', False))
 def auth_login():
     """Email/password login endpoint"""
     try:
@@ -14654,11 +16548,10 @@ def auth_login():
         if not email or not password:
             return jsonify({'success': False, 'error': 'Email and password required'}), 400
         
-        # Validate email domain - only @team.nxlink.com allowed
         if not validate_email_domain(email):
             return jsonify({
-                'success': False, 
-                'error': 'Only @team.nxlink.com email addresses are allowed. Please use your company email (e.g., netops@team.nxlink.com)'
+                'success': False,
+                'error': 'Email domain not authorized for this platform. Please use your company email.'
             }), 403
         
         init_users_db()
@@ -14680,6 +16573,8 @@ def auth_login():
                      (email, password_hash, email.split('@')[0]))
             conn.commit()
             user_id = c.lastrowid
+            _sync_user_platform_access(conn, user_id, email)
+            _ensure_user_default_membership(conn, user_id)
             
             # Verify against default password
             if not verify_password(password, password_hash):
@@ -14689,9 +16584,11 @@ def auth_login():
             # First login - require password change
             token = generate_token(user_id, email)
             c.execute('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?', (user_id,))
+            _sync_user_platform_access(conn, user_id, email)
+            _ensure_user_default_membership(conn, user_id)
             conn.commit()
             conn.close()
-            
+            _write_audit_log('login', detail={'method': 'password'}, target_email=email)
             return jsonify({
                 'success': True,
                 'token': token,
@@ -14708,17 +16605,19 @@ def auth_login():
             if not verify_password(password, user['password_hash']):
                 conn.close()
                 return jsonify({'success': False, 'error': 'Invalid email or password'}), 401
-            
+
             # Check if first login (using default password)
             requires_password_change = user['first_login'] == 1
-            
+
             # Update last login
             c.execute('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?', (user['id'],))
+            _sync_user_platform_access(conn, user['id'], email)
+            _ensure_user_default_membership(conn, user['id'])
             conn.commit()
-            
+
             token = generate_token(user['id'], email)
             conn.close()
-            
+            _write_audit_log('login', detail={'method': 'password'}, target_email=email)
             return jsonify({
                 'success': True,
                 'token': token,
@@ -14755,7 +16654,7 @@ def auth_microsoft():
             'response_type': 'code',
             'redirect_uri': redirect_uri,
             'response_mode': 'query',
-            'scope': 'openid email profile',
+            'scope': 'openid email profile User.Read',
             'state': secrets.token_urlsafe(32)
         }
         auth_url_full = f"{auth_base}?{urlencode(params)}"
@@ -14797,7 +16696,7 @@ def auth_callback():
         'code': code,
         'redirect_uri': redirect_uri,
         'grant_type': 'authorization_code',
-        'scope': 'openid email profile',
+        'scope': 'openid email profile User.Read',
     }
 
     try:
@@ -14842,8 +16741,8 @@ def auth_callback():
     if not validate_email_domain(email):
         print(f"[AUTH] SSO domain rejected: {email}")
         return _sso_redirect_with_error(
-            "Only @team.nxlink.com accounts are allowed. "
-            f"You signed in as {email}."
+            f"Your account ({email}) is not authorized for this platform. "
+            "Please sign in with your company email."
         )
 
     # ── create / find user in local DB ─────────────────────────────
@@ -14863,6 +16762,9 @@ def auth_callback():
             if display_name and display_name != email.split('@')[0]:
                 c.execute('UPDATE users SET display_name = ? WHERE id = ?', (display_name, user_id))
             c.execute('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?', (user_id,))
+            # Always sync platform role on login so DB stays current with email-list membership
+            _sync_user_platform_access(conn, user_id, email)
+            _ensure_user_default_membership(conn, user_id)
         else:
             # Auto-create – SSO users don't need a local password
             password_hash = hash_password(secrets.token_urlsafe(32))
@@ -14873,6 +16775,8 @@ def auth_callback():
             )
             user_id = c.lastrowid
             c.execute('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?', (user_id,))
+            _sync_user_platform_access(conn, user_id, email)
+            _ensure_user_default_membership(conn, user_id)
             print(f"[AUTH] SSO auto-created user: {email}")
 
         conn.commit()
@@ -14880,6 +16784,42 @@ def auth_callback():
     except Exception as exc:
         print(f"[AUTH ERROR] DB error during SSO callback: {exc}")
         return _sso_redirect_with_error("Internal server error during sign-in.")
+
+    # ── Try fetching Teams/Entra profile photo from Graph API ──────
+    access_token = token_json.get('access_token', '')
+    if access_token:
+        try:
+            photo_resp = requests.get(
+                'https://graph.microsoft.com/v1.0/me/photo/$value',
+                headers={'Authorization': f'Bearer {access_token}'},
+                timeout=5
+            )
+            if photo_resp.ok and photo_resp.content:
+                import base64 as _photo_b64
+                photo_b64 = _photo_b64.b64encode(photo_resp.content).decode()
+                photo_data_url = f"data:image/jpeg;base64,{photo_b64}"
+                # Store in DB and in active sessions
+                try:
+                    conn2 = sqlite3.connect(os.path.join('secure_data', 'users.db'))
+                    conn2.execute('UPDATE users SET profile_photo = ? WHERE id = ?', (photo_data_url, user_id))
+                    conn2.commit()
+                    conn2.close()
+                except Exception:
+                    pass
+                # Pre-seed active sessions with photo
+                if user_id in _active_sessions:
+                    _active_sessions[user_id]['avatar'] = photo_data_url
+                else:
+                    _active_sessions[user_id] = {
+                        'email': email,
+                        'display_name': display_name,
+                        'avatar': photo_data_url,
+                        'tenant_name': '',
+                        'role_label': '',
+                        'last_seen': _time.time(),
+                    }
+        except Exception as _photo_exc:
+            print(f"[AUTH] Could not fetch profile photo: {_photo_exc}")
 
     # ── issue app JWT and redirect to frontend ─────────────────────
     app_token = generate_token(user_id, email)
@@ -14892,6 +16832,7 @@ def auth_callback():
     })
 
     print(f"[AUTH] SSO login success: {email}")
+    _write_audit_log('login', detail={'method': 'sso_microsoft'}, target_email=email)
     # Redirect to login.html with token in query string – the page
     # will pick these up, store them in localStorage, and redirect
     # to the main app.
@@ -15078,35 +17019,219 @@ def verify_auth():
         if not user_info:
             return jsonify({'success': False, 'authenticated': False}), 401
         
-        # Get user details
-        init_users_db()
-        secure_dir = 'secure_data'
-        db_path = os.path.join(secure_dir, 'users.db')
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        
-        c.execute('SELECT * FROM users WHERE id = ?', (user_info['user_id'],))
-        user = c.fetchone()
-        conn.close()
-        
-        if not user:
+        bootstrap = _load_session_bootstrap_for_user(user_info['user_id'])
+        if not bootstrap:
             return jsonify({'success': False, 'authenticated': False}), 404
         
         return jsonify({
             'success': True,
             'authenticated': True,
-            'user': {
-                'id': user['id'],
-                'email': user['email'],
-                'displayName': user['display_name'] or user['email'].split('@')[0],
-                'firstLogin': user['first_login'] == 1
-            }
+            'user': bootstrap['user']
         })
         
     except Exception as e:
         print(f"[AUTH ERROR] Verify failed: {e}")
         return jsonify({'success': False, 'authenticated': False}), 500
+
+
+@app.route('/api/session/bootstrap', methods=['GET'])
+@require_auth
+def session_bootstrap():
+    """Return tenant-aware session context for the frontend."""
+    try:
+        bootstrap = _load_session_bootstrap_for_user(request.current_user['user_id'])
+        if not bootstrap:
+            return jsonify({'success': False, 'error': 'User not found'}), 404
+
+        # Update presence tracker with role/tenant context from the just-computed bootstrap
+        try:
+            uid = request.current_user.get('id') or request.current_user.get('user_id')
+            if uid:
+                entry = _active_sessions.setdefault(uid, {
+                    'email': request.current_user.get('email', ''),
+                    'display_name': request.current_user.get('displayName', ''),
+                    'avatar': None,
+                    'last_seen': _time.time(),
+                })
+                entry['last_seen'] = _time.time()
+                if bootstrap and bootstrap.get('activeTenant'):
+                    entry['tenant_name'] = bootstrap['activeTenant'].get('name', '')
+                if bootstrap and bootstrap.get('memberships'):
+                    for m in bootstrap['memberships']:
+                        if bootstrap.get('activeTenant') and m.get('tenant_id') == bootstrap['activeTenant'].get('id'):
+                            entry['role_label'] = m.get('role', '')
+                            break
+        except Exception:
+            pass
+
+        return jsonify({
+            'success': True,
+            **bootstrap,
+        })
+    except Exception as e:
+        print(f"[AUTH ERROR] Session bootstrap failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/notifications', methods=['GET'])
+@require_auth
+def get_notifications():
+    """Get notifications for the current user (matched by email)."""
+    try:
+        user_info = getattr(request, 'current_user', None)
+        email = (user_info or {}).get('email', '').strip().lower()
+        if not email:
+            return jsonify({'notifications': [], 'unread_count': 0})
+        feedback_db = init_feedback_db()
+        conn = sqlite3.connect(str(feedback_db))
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute(
+            'SELECT * FROM notifications WHERE user_email = ? ORDER BY created_at DESC LIMIT 50',
+            (email,)
+        )
+        notifs = [dict(r) for r in c.fetchall()]
+        c.execute('SELECT COUNT(*) FROM notifications WHERE user_email = ? AND is_read = 0', (email,))
+        unread = c.fetchone()[0]
+        conn.close()
+        return jsonify({'notifications': notifs, 'unread_count': unread})
+    except Exception as e:
+        return jsonify({'notifications': [], 'unread_count': 0})
+
+
+@app.route('/api/notifications/<int:notif_id>/read', methods=['POST'])
+@require_auth
+def mark_notification_read(notif_id):
+    """Mark a single notification as read."""
+    try:
+        user_info = getattr(request, 'current_user', None)
+        email = (user_info or {}).get('email', '').strip().lower()
+        feedback_db = init_feedback_db()
+        conn = sqlite3.connect(str(feedback_db))
+        conn.execute(
+            'UPDATE notifications SET is_read = 1 WHERE id = ? AND user_email = ?',
+            (notif_id, email)
+        )
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/notifications/read-all', methods=['POST'])
+@require_auth
+def mark_all_notifications_read():
+    """Mark all notifications as read for the current user."""
+    try:
+        user_info = getattr(request, 'current_user', None)
+        email = (user_info or {}).get('email', '').strip().lower()
+        feedback_db = init_feedback_db()
+        conn = sqlite3.connect(str(feedback_db))
+        conn.execute(
+            'UPDATE notifications SET is_read = 1 WHERE user_email = ?', (email,)
+        )
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/session/heartbeat', methods=['POST'])
+@require_auth
+def session_heartbeat():
+    """Lightweight ping to keep the user marked as online."""
+    try:
+        uid = request.current_user.get('id') or request.current_user.get('user_id')
+        if uid and uid in _active_sessions:
+            _active_sessions[uid]['last_seen'] = _time.time()
+    except Exception:
+        pass
+    return jsonify({'ok': True})
+
+
+@app.route('/api/admin/online-users', methods=['GET'])
+@require_auth
+def admin_online_users():
+    """Return currently-online users. Visible to all admin roles."""
+    if not _can_access_admin_panel():
+        return jsonify({'error': 'Forbidden'}), 403
+
+    cutoff = _time.time() - _ONLINE_TIMEOUT_SECS
+    online = []
+    for uid, entry in list(_active_sessions.items()):
+        if entry.get('last_seen', 0) >= cutoff:
+            online.append({
+                'id': uid,
+                'email': entry.get('email', ''),
+                'display_name': entry.get('display_name', ''),
+                'avatar': entry.get('avatar'),
+                'tenant_name': entry.get('tenant_name', ''),
+                'role_label': entry.get('role_label', ''),
+                'last_seen_ago': int(_time.time() - entry['last_seen']),
+            })
+
+    # Fill missing avatars from DB (handles multi-worker deployments where
+    # in-memory photo may only exist in the worker that handled SSO login)
+    if online:
+        try:
+            init_users_db()
+            _av_conn = sqlite3.connect(os.path.join('secure_data', 'users.db'))
+            _av_conn.row_factory = sqlite3.Row
+            emails_needing_photo = [u['email'] for u in online if not u['avatar']]
+            if emails_needing_photo:
+                placeholders = ','.join('?' * len(emails_needing_photo))
+                rows = _av_conn.execute(
+                    f'SELECT email, profile_photo FROM users WHERE email IN ({placeholders})',
+                    emails_needing_photo
+                ).fetchall()
+                photo_map = {row['email']: row['profile_photo'] for row in rows if row['profile_photo']}
+                for u in online:
+                    if not u['avatar'] and u['email'] in photo_map:
+                        u['avatar'] = photo_map[u['email']]
+                        # Also cache in active_sessions so same worker benefits next time
+                        if u['id'] in _active_sessions:
+                            _active_sessions[u['id']]['avatar'] = photo_map[u['email']]
+            _av_conn.close()
+        except Exception:
+            pass
+
+    online.sort(key=lambda x: x['last_seen_ago'])
+    return jsonify({'online': online, 'count': len(online)})
+
+
+@app.route('/api/session/switch-tenant', methods=['POST'])
+@require_auth
+def switch_session_tenant():
+    """Switch the caller's active tenant when they have an active membership."""
+    try:
+        data = request.get_json(silent=True) or {}
+        tenant_id = data.get('tenant_id')
+        if tenant_id in (None, ''):
+            return jsonify({'success': False, 'error': 'tenant_id is required'}), 400
+        try:
+            tenant_id = int(tenant_id)
+        except Exception:
+            return jsonify({'success': False, 'error': 'tenant_id must be an integer'}), 400
+
+        switched = _switch_user_active_tenant(request.current_user['user_id'], tenant_id)
+        if not switched:
+            return jsonify({'success': False, 'error': 'Tenant membership not found'}), 403
+
+        _write_audit_log('tenant_switch', detail={'to_tenant': switched['slug']}, tenant_id=tenant_id, tenant_slug=switched.get('slug'))
+
+        bootstrap = _load_session_bootstrap_for_user(request.current_user['user_id'])
+        if not bootstrap:
+            return jsonify({'success': False, 'error': 'User not found'}), 404
+
+        return jsonify({
+            'success': True,
+            **bootstrap,
+        })
+    except Exception as e:
+        print(f"[AUTH ERROR] Switch tenant failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 # ========================================
 # ENDPOINT: Activity Tracking (Live Feed)
@@ -15117,49 +17242,16 @@ def verify_auth():
 ACTIVITY_STORE = []
 MAX_ACTIVITIES = 100
 
-@app.route('/api/activity', methods=['GET', 'POST'])
-def handle_activity():
-    """Store and retrieve live activity feed"""
-    global ACTIVITY_STORE
-    
-    if request.method == 'POST':
-        # Store new activity
-        try:
-            activity = request.json
-            if not activity:
-                return jsonify({'error': 'No activity data'}), 400
-            
-            # Add timestamp if not present
-            if 'timestamp' not in activity:
-                activity['timestamp'] = get_cst_timestamp()
-            
-            # Add to store
-            ACTIVITY_STORE.insert(0, activity)
-            
-            # Keep only last MAX_ACTIVITIES
-            if len(ACTIVITY_STORE) > MAX_ACTIVITIES:
-                ACTIVITY_STORE = ACTIVITY_STORE[:MAX_ACTIVITIES]
-            
-            safe_print(f"[ACTIVITY] {activity.get('username', 'Unknown')} - {activity.get('type', 'action')} - {activity.get('siteName', 'N/A')}")
-            
-            return jsonify({'success': True})
-        except Exception as e:
-            safe_print(f"[ACTIVITY ERROR] {str(e)}")
-            return jsonify({'error': str(e)}), 500
-    
-    else:
-        # Retrieve activities
-        try:
-            # Return all activities, sorted by timestamp (newest first)
-            sorted_activities = sorted(
-                ACTIVITY_STORE,
-                key=lambda x: x.get('timestamp', ''),
-                reverse=True
-            )
-            return jsonify(sorted_activities[:50])  # Return last 50
-        except Exception as e:
-            safe_print(f"[ACTIVITY ERROR] {str(e)}")
-            return jsonify({'error': str(e)}), 500
+@app.route('/api/activity', methods=['GET'])
+def activity_legacy():
+    """Legacy in-memory activity endpoint — deprecated. Redirects to tenant-scoped /api/get-activity."""
+    return get_activity()
+
+
+@app.route('/api/activity', methods=['POST'])
+def activity_legacy_post():
+    """Legacy in-memory activity endpoint — deprecated. Redirects to tenant-scoped /api/log-activity."""
+    return log_activity()
 
 # ========================================
 # RUN SERVER
@@ -15184,6 +17276,7 @@ def init_feedback_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS feedback (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER,
             feedback_type TEXT NOT NULL,
             subject TEXT NOT NULL,
             category TEXT,
@@ -15201,6 +17294,32 @@ def init_feedback_db():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_feedback_timestamp ON feedback(timestamp)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status)')
 
+    # Migrate: add tenant_id column before creating its index (existing DBs may not have it)
+    cursor.execute("PRAGMA table_info(feedback)")
+    existing_cols = {row[1] for row in cursor.fetchall()}
+    if 'tenant_id' not in existing_cols:
+        cursor.execute("ALTER TABLE feedback ADD COLUMN tenant_id INTEGER")
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_feedback_tenant_id ON feedback(tenant_id)')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_email TEXT NOT NULL,
+            feedback_id INTEGER,
+            subject TEXT,
+            message TEXT NOT NULL,
+            is_read INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_notif_email ON notifications(user_email)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_notif_read ON notifications(is_read)')
+
+    default_tenant = _get_default_tenant_context()
+    if default_tenant.get('id') is not None:
+        cursor.execute('UPDATE feedback SET tenant_id = ? WHERE tenant_id IS NULL', (default_tenant['id'],))
+
     conn.commit()
     conn.close()
     safe_print(f"[FEEDBACK] Database initialized: {FEEDBACK_DB_PATH}")
@@ -15217,6 +17336,7 @@ def init_configs_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS completed_configs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER,
             config_type TEXT NOT NULL,
             device_name TEXT,
             device_type TEXT,
@@ -15231,11 +17351,22 @@ def init_configs_db():
         )
     ''')
     
+    # Migrate: add tenant_id before creating its index (existing DBs may not have it)
+    cursor.execute("PRAGMA table_info(completed_configs)")
+    existing_cols = {row[1] for row in cursor.fetchall()}
+    if 'tenant_id' not in existing_cols:
+        cursor.execute("ALTER TABLE completed_configs ADD COLUMN tenant_id INTEGER")
+
     # Create indexes for faster searching
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_config_type ON completed_configs(config_type)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_customer_code ON completed_configs(customer_code)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON completed_configs(created_at)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_device_type ON completed_configs(device_type)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_completed_configs_tenant_id ON completed_configs(tenant_id)')
+
+    default_tenant = _get_default_tenant_context()
+    if default_tenant.get('id') is not None:
+        cursor.execute('UPDATE completed_configs SET tenant_id = ? WHERE tenant_id IS NULL', (default_tenant['id'],))
     
     conn.commit()
     conn.close()
@@ -15626,11 +17757,14 @@ def format_port_mapping_text(port_mapping, device_name='', customer_code=''):
     return "\n".join(lines)
 
 @app.route('/api/save-completed-config', methods=['POST'])
+@require_auth
 def save_completed_config():
     """Save a completed configuration to the database"""
     try:
         ensure_configs_db()  # Lazy init
         data = request.get_json(force=True)
+        tenant_context = _get_request_tenant_context()
+        tenant = tenant_context['tenant']
         
         config_type = data.get('config_type', 'unknown')  # 'tower', 'enterprise', 'mpls-enterprise'
         device_name = data.get('device_name', '')
@@ -15669,10 +17803,10 @@ def save_completed_config():
         
         cursor.execute('''
             INSERT INTO completed_configs 
-            (config_type, device_name, device_type, customer_code, loopback_ip, routeros_version, 
+            (tenant_id, config_type, device_name, device_type, customer_code, loopback_ip, routeros_version, 
              config_content, port_mapping, metadata, created_by, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (config_type, device_name, device_type, customer_code, loopback_ip, routeros_version,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (tenant.get('id'), config_type, device_name, device_type, customer_code, loopback_ip, routeros_version,
               config_content, port_mapping_json, metadata_json, data.get('created_by', 'user'), cst_timestamp))
         
         config_id = cursor.lastrowid
@@ -15690,10 +17824,13 @@ def save_completed_config():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/get-completed-configs', methods=['GET'])
+@require_auth
 def get_completed_configs():
     """Get all completed configurations with optional filtering"""
     try:
         ensure_configs_db()  # Lazy init
+        tenant_context = _get_request_tenant_context()
+        tenant = tenant_context['tenant']
         
         search_term = request.args.get('search', '').strip()
         year_filter = request.args.get('year', '').strip()
@@ -15703,8 +17840,8 @@ def get_completed_configs():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        query = 'SELECT * FROM completed_configs WHERE 1=1'
-        params = []
+        query = 'SELECT * FROM completed_configs WHERE tenant_id = ?'
+        params = [tenant.get('id')]
         
         if type_filter:
             query += ' AND config_type = ?'
@@ -15725,7 +17862,7 @@ def get_completed_configs():
         configs = [dict(row) for row in cursor.fetchall()]
         
         # Get unique years
-        cursor.execute('SELECT DISTINCT strftime("%Y", created_at) as year FROM completed_configs ORDER BY year DESC')
+        cursor.execute('SELECT DISTINCT strftime("%Y", created_at) as year FROM completed_configs WHERE tenant_id = ? ORDER BY year DESC', (tenant.get('id'),))
         years = [row[0] for row in cursor.fetchall() if row[0]]
         
         conn.close()
@@ -15740,16 +17877,19 @@ def get_completed_configs():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/get-completed-config/<int:config_id>', methods=['GET'])
+@require_auth
 def get_completed_config(config_id):
     """Get a specific completed configuration by ID"""
     try:
         ensure_configs_db()  # Lazy init
+        tenant_context = _get_request_tenant_context()
+        tenant = tenant_context['tenant']
         
         conn = sqlite3.connect(str(CONFIGS_DB_PATH))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        cursor.execute('SELECT * FROM completed_configs WHERE id = ?', (config_id,))
+        cursor.execute('SELECT * FROM completed_configs WHERE id = ? AND tenant_id = ?', (config_id, tenant.get('id')))
         row = cursor.fetchone()
         conn.close()
         
@@ -15836,11 +17976,13 @@ def download_port_map(config_id):
     """Download a plain-text port map for a completed configuration."""
     try:
         ensure_configs_db()  # Lazy init
+        tenant_context = _get_request_tenant_context()
+        tenant = tenant_context['tenant']
 
         conn = sqlite3.connect(str(CONFIGS_DB_PATH))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute('SELECT id, device_name, customer_code, port_mapping FROM completed_configs WHERE id = ?', (config_id,))
+        cursor.execute('SELECT id, device_name, customer_code, port_mapping FROM completed_configs WHERE id = ? AND tenant_id = ?', (config_id, tenant.get('id')))
         row = cursor.fetchone()
         conn.close()
 
@@ -15957,6 +18099,7 @@ def init_activity_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS activities
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  tenant_id INTEGER,
                   username TEXT,
                   activity_type TEXT,
                   device TEXT,
@@ -15980,22 +18123,32 @@ def init_activity_db():
             c.execute("ALTER TABLE activities ADD COLUMN ticket_url TEXT DEFAULT ''")
         if 'counts_toward_metrics' not in cols:
             c.execute("ALTER TABLE activities ADD COLUMN counts_toward_metrics INTEGER DEFAULT 1")
+        if 'tenant_id' not in cols:
+            c.execute("ALTER TABLE activities ADD COLUMN tenant_id INTEGER")
     except Exception as e:
         safe_print(f"[ACTIVITY] Column migration skipped: {e}")
 
     try:
         c.execute('CREATE INDEX IF NOT EXISTS idx_activity_timestamp_unix ON activities(timestamp_unix)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_activity_tenant_id ON activities(tenant_id)')
     except Exception:
         pass
+
+    default_tenant = _get_default_tenant_context()
+    if default_tenant.get('id') is not None:
+        c.execute('UPDATE activities SET tenant_id = ? WHERE tenant_id IS NULL', (default_tenant['id'],))
     conn.commit()
     conn.close()
     print(f"[ACTIVITY] Database initialized at {db_path}")
 
 @app.route('/api/log-activity', methods=['POST'])
+@require_auth
 def log_activity():
     """Log user activity for live feed with authenticated user info"""
     try:
         data = request.get_json()
+        tenant_context = _get_request_tenant_context()
+        tenant = tenant_context['tenant']
         
         # Get user from token if provided
         token = data.get('token') or request.headers.get('Authorization', '').replace('Bearer ', '')
@@ -16040,9 +18193,9 @@ def log_activity():
         ts_unix = get_unix_timestamp()
         ts_iso = get_utc_timestamp()
         c.execute('''INSERT INTO activities 
-                     (username, activity_type, device, site_name, routeros_version, success, counts_toward_metrics, timestamp, timestamp_unix, ticket_url)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                  (username, activity_type, device, site_name, routeros, success, counts_toward_metrics, ts_iso, ts_unix, ticket_url))
+                     (tenant_id, username, activity_type, device, site_name, routeros_version, success, counts_toward_metrics, timestamp, timestamp_unix, ticket_url)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                  (tenant.get('id'), username, activity_type, device, site_name, routeros, success, counts_toward_metrics, ts_iso, ts_unix, ticket_url))
         conn.commit()
         conn.close()
         
@@ -16057,11 +18210,14 @@ def log_activity():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/get-activity', methods=['GET'])
+@require_auth
 def get_activity():
     """Get recent activities for live feed with formatted messages"""
     try:
         limit = request.args.get('limit', 50, type=int)
         all_activities = request.args.get('all', 'false').lower() == 'true'  # For log history tab
+        tenant_context = _get_request_tenant_context()
+        tenant = tenant_context['tenant']
         
         # Initialize DB if needed
         init_activity_db()
@@ -16074,30 +18230,33 @@ def get_activity():
 
         cols = {row[1] for row in c.execute("PRAGMA table_info(activities)").fetchall()}
         has_unix = 'timestamp_unix' in cols
+        tenant_filter = tenant.get('id')
         
         if all_activities:
             # Get all activities for log history
             if has_unix:
                 c.execute('''SELECT * FROM activities 
+                             WHERE tenant_id = ?
                              ORDER BY timestamp_unix DESC 
-                             LIMIT ?''', (limit,))
+                             LIMIT ?''', (tenant_filter, limit))
             else:
                 c.execute('''SELECT * FROM activities 
+                             WHERE tenant_id = ?
                              ORDER BY timestamp DESC 
-                             LIMIT ?''', (limit,))
+                             LIMIT ?''', (tenant_filter, limit))
         else:
             # Get recent activities (last 24 hours)
             if has_unix:
                 cutoff = int(time.time()) - (24 * 60 * 60)
                 c.execute('''SELECT * FROM activities 
-                             WHERE timestamp_unix >= ?
+                             WHERE tenant_id = ? AND timestamp_unix >= ?
                              ORDER BY timestamp_unix DESC 
-                             LIMIT ?''', (cutoff, limit))
+                             LIMIT ?''', (tenant_filter, cutoff, limit))
             else:
                 c.execute('''SELECT * FROM activities 
-                             WHERE timestamp >= datetime('now', '-24 hours')
+                             WHERE tenant_id = ? AND timestamp >= datetime('now', '-24 hours')
                              ORDER BY timestamp DESC 
-                             LIMIT ?''', (limit,))
+                             LIMIT ?''', (tenant_filter, limit))
         
         rows = c.fetchall()
         conn.close()
@@ -16196,6 +18355,12 @@ def _log_aviat_activity(result):
         if not _aviat_should_log(result):
             return
         init_activity_db()
+        # Use tenant_id captured at request time if available; else fall back to default
+        if result.get('_tenant_id'):
+            tenant_id = result['_tenant_id']
+        else:
+            tenant = _get_default_tenant_context()
+            tenant_id = tenant.get('id')
         secure_dir = 'secure_data'
         db_path = os.path.join(secure_dir, 'activity_log.db')
         conn = sqlite3.connect(db_path)
@@ -16209,10 +18374,10 @@ def _log_aviat_activity(result):
         routeros = result.get('firmware_version_after') or result.get('firmware_version_before') or ''
         normalized_status = _aviat_status_from_result(result)
         success = 1 if normalized_status == "success" else 0
-        c.execute('''INSERT INTO activities 
-                     (username, activity_type, device, site_name, routeros_version, success, timestamp, timestamp_unix)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                  (username, activity_type, device, site_name, routeros, success, ts_iso, ts_unix))
+        c.execute('''INSERT INTO activities
+                     (tenant_id, username, activity_type, device, site_name, routeros_version, success, timestamp, timestamp_unix)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                  (tenant_id, username, activity_type, device, site_name, routeros, success, ts_iso, ts_unix))
         conn.commit()
     except Exception as e:
         safe_print(f"[AVIAT] Failed to log activity: {e}")
@@ -16428,8 +18593,13 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
     _aviat_save_reboot_queue()
 
     aviat_tasks[task_id]['results'] = results
+    _task_tenant_id = aviat_tasks[task_id].get('_tenant_id')
+    _task_tenant_slug = aviat_tasks[task_id].get('_tenant_slug', '')
     for res in results:
         _aviat_queue_update_from_result(res, username=username)
+        if _task_tenant_id is not None:
+            res['_tenant_id'] = _task_tenant_id
+            res['_tenant_slug'] = _task_tenant_slug
         _log_aviat_activity(res)
     _aviat_save_shared_queue()
     _aviat_save_reboot_queue()
@@ -16439,9 +18609,15 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
 
 
 @app.route('/api/aviat/run', methods=['POST'])
+@require_auth
 def aviat_run_tasks():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
+    _require_feature('aviat')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
     data = request.json or {}
     ips = data.get('ips', [])
     task_types = data.get('tasks', [])
@@ -16451,6 +18627,14 @@ def aviat_run_tasks():
 
     if not ips:
         return jsonify({'error': 'No IPs provided'}), 400
+
+    # Capture tenant context at request time before background thread starts
+    _aviat_run_tenant_ctx = _get_request_tenant_context()
+    _aviat_run_tenant_id = None
+    _aviat_run_tenant_slug = ''
+    if _aviat_run_tenant_ctx and _aviat_run_tenant_ctx.get('tenant') and _aviat_run_tenant_ctx['tenant'].get('id'):
+        _aviat_run_tenant_id = _aviat_run_tenant_ctx['tenant']['id']
+        _aviat_run_tenant_slug = _aviat_run_tenant_ctx['tenant'].get('slug', '')
 
     for ip in ips:
         _aviat_queue_upsert(ip, {
@@ -16466,7 +18650,9 @@ def aviat_run_tasks():
         'abort': False,
         'ips': ips,
         'tasks': task_types,
-        'results': []
+        'results': [],
+        '_tenant_id': _aviat_run_tenant_id,
+        '_tenant_slug': _aviat_run_tenant_slug,
     }
     aviat_log_queues[task_id] = queue.Queue()
 
@@ -16511,6 +18697,14 @@ def aviat_activate_scheduled():
     task_id = str(uuid.uuid4())
     username = data.get("username")
 
+    # Capture tenant context at request time before background thread starts
+    _aviat_act_tenant_ctx = _get_request_tenant_context()
+    _aviat_act_tenant_id = None
+    _aviat_act_tenant_slug = ''
+    if _aviat_act_tenant_ctx and _aviat_act_tenant_ctx.get('tenant') and _aviat_act_tenant_ctx['tenant'].get('id'):
+        _aviat_act_tenant_id = _aviat_act_tenant_ctx['tenant']['id']
+        _aviat_act_tenant_slug = _aviat_act_tenant_ctx['tenant'].get('slug', '')
+
     if request_ips:
         scheduled_map = {entry.get("ip"): entry for entry in aviat_scheduled_queue}
         to_activate = []
@@ -16547,7 +18741,9 @@ def aviat_activate_scheduled():
         'abort': False,
         'ips': [x["ip"] for x in to_activate],
         'tasks': ['activate'],
-        'results': []
+        'results': [],
+        '_tenant_id': _aviat_act_tenant_id,
+        '_tenant_slug': _aviat_act_tenant_slug,
     }
     aviat_log_queues[task_id] = queue.Queue()
 
@@ -16633,6 +18829,14 @@ def aviat_run_reboot_required():
     if not target_entries:
         return jsonify({"error": "No reboot-required devices"}), 400
 
+    # Capture tenant context at request time before background thread starts
+    _aviat_reboot_tenant_ctx = _get_request_tenant_context()
+    _aviat_reboot_tenant_id = None
+    _aviat_reboot_tenant_slug = ''
+    if _aviat_reboot_tenant_ctx and _aviat_reboot_tenant_ctx.get('tenant') and _aviat_reboot_tenant_ctx['tenant'].get('id'):
+        _aviat_reboot_tenant_id = _aviat_reboot_tenant_ctx['tenant']['id']
+        _aviat_reboot_tenant_slug = _aviat_reboot_tenant_ctx['tenant'].get('slug', '')
+
     for entry in target_entries:
         _aviat_queue_upsert(entry["ip"], {
             "status": "rebooting",
@@ -16693,6 +18897,9 @@ def aviat_run_reboot_required():
                     )
                     res_dict = _aviat_result_dict(result, username=username)
                     _aviat_queue_update_from_result(res_dict, username=username)
+                    if _aviat_reboot_tenant_id is not None:
+                        res_dict['_tenant_id'] = _aviat_reboot_tenant_id
+                        res_dict['_tenant_slug'] = _aviat_reboot_tenant_slug
                     _log_aviat_activity(res_dict)
                 except Exception as e:
                     # Don't mark failed due to transient reconnect issues.
@@ -17545,9 +19752,15 @@ def cambium_queue_state():
 
 
 @app.route('/api/cambium/run', methods=['POST'])
+@require_auth
 def cambium_run_tasks():
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
+    _require_feature('cambium')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
     data = request.get_json(force=True) or {}
     radios = _cambium_expand_radios(data)
     actor_username = (
@@ -17641,7 +19854,13 @@ def cambium_stream_global():
             yield f"data: {json.dumps(entry)}\n\n"
         try:
             while True:
-                item = q.get()
+                try:
+                    item = q.get(timeout=15)
+                except queue.Empty:
+                    # Keep the stream active and give disconnected clients a chance
+                    # to unwind so stale tabs do not pin a worker forever.
+                    yield ": keep-alive\n\n"
+                    continue
                 yield f"data: {json.dumps(item)}\n\n"
         finally:
             cambium_global_log_queues.discard(q)
@@ -17845,6 +20064,7 @@ def _build_ftth_fiber_customer_base_config(data: dict):
 
 
 @app.route('/api/generate-ftth-fiber-customer', methods=['POST'])
+@require_auth
 def generate_ftth_fiber_customer():
     data = request.get_json(silent=True) or {}
     apply_compliance_flag = bool(data.get('apply_compliance', True))
@@ -18415,6 +20635,7 @@ def _build_switch_profile_config(data: dict):
 
 
 @app.route('/api/generate-mt-switch-config', methods=['POST'])
+@require_auth
 def generate_mt_switch_config():
     data = request.get_json(silent=True) or {}
     try:
@@ -18610,6 +20831,7 @@ def _build_ftth_1036_config(data: dict):
 
 
 @app.route('/api/generate-ftth-fiber-site', methods=['POST'])
+@require_auth
 def generate_ftth_fiber_site():
     data = request.get_json(silent=True) or {}
     try:
@@ -18732,6 +20954,7 @@ def _build_isd_fiber_config(data: dict, backhauls):
 
 
 @app.route('/api/generate-ftth-isd-fiber', methods=['POST'])
+@require_auth
 def generate_ftth_isd_fiber():
     data = request.get_json(silent=True) or {}
     try:
@@ -18878,9 +21101,15 @@ def _sanitize_bng2_transport_output(config_text: str) -> str:
 
 
 @app.route('/api/mt/<config_type>/config', methods=['POST'])
+@require_auth
 def mt_generate_config(config_type):
     if not HAS_MT_CONFIG_GEN:
         return jsonify({'error': f'MikroTik config generator unavailable: {MT_CONFIG_GEN_ERROR}'}), 503
+    _require_feature('mikrotik')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
 
     base_path = _mt_base_config_path()
     if not base_path:
@@ -18909,6 +21138,7 @@ def mt_generate_config(config_type):
 
 
 @app.route('/api/mt/<config_type>/portmap', methods=['POST'])
+@require_auth
 def mt_generate_portmap(config_type):
     if not HAS_MT_CONFIG_GEN:
         return jsonify({'error': f'MikroTik config generator unavailable: {MT_CONFIG_GEN_ERROR}'}), 503
@@ -19034,6 +21264,7 @@ def serve_ui_catchall(path: str):
 # ========================================
 
 @app.route('/api/bulk-ssh-fetch', methods=['POST'])
+@require_auth
 def bulk_ssh_fetch():
     """
     Bulk SSH fetch: connect to multiple MikroTik devices concurrently and
@@ -19160,6 +21391,7 @@ def bulk_ssh_fetch():
 
 
 @app.route('/api/bulk-generate', methods=['POST'])
+@require_auth
 def bulk_generate():
     """
     Bulk config generation for multiple sites.
@@ -19168,6 +21400,11 @@ def bulk_generate():
         sites       – list of site config objects (required)
         config_type – "tower" | "non-mpls" | "mpls" | "bng2" (required)
     """
+    _require_feature('bulk_ops')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
     data = request.get_json(force=True) or {}
     sites = data.get('sites', [])
     config_type = data.get('config_type', 'non-mpls')
@@ -19284,6 +21521,7 @@ def bulk_generate():
 
 
 @app.route('/api/bulk-migration-analyze', methods=['POST'])
+@require_auth
 def bulk_migration_analyze():
     """
     Bulk migration analysis: SSH-fetch configs from multiple devices,
@@ -19500,6 +21738,7 @@ def bulk_migration_analyze():
 
 
 @app.route('/api/bulk-compliance-scan', methods=['POST'])
+@require_auth
 def bulk_compliance_scan():
     """
     Bulk compliance scanner: validate multiple configs against RFC-09-10-25.
@@ -19579,15 +21818,39 @@ def bulk_compliance_scan():
     if not configs:
         return jsonify({'error': 'No configs or hosts provided'}), 400
 
-    # Define all compliance checks with their patterns
+    # Build tenant-specific compliance checks per request
+    _b_scan_tenant_ctx = _get_request_tenant_context()
+    _b_scan_tenant = _b_scan_tenant_ctx.get('tenant') or {}
+    _b_scan_tenant_id = _b_scan_tenant.get('id') if _b_scan_tenant else None
+    _b_scan_ts = {}
+    if _b_scan_tenant_id:
+        try:
+            init_users_db()
+            _b_scan_conn = sqlite3.connect(os.path.join('secure_data', 'users.db'))
+            _b_scan_ts = _get_tenant_settings_row(_b_scan_conn, _b_scan_tenant_id)
+            _b_scan_conn.close()
+        except Exception:
+            _b_scan_ts = {}
+
+    # Resolve tenant-driven IP values for compliance checks
+    _ts_dns1 = (_b_scan_ts.get('compliance_dns_primary') or _b_scan_ts.get('dns_primary') or
+                os.getenv('NEXTLINK_DNS_PRIMARY', '142.147.112.3')).strip()
+    _ts_dns2 = (_b_scan_ts.get('compliance_dns_secondary') or _b_scan_ts.get('dns_secondary') or
+                os.getenv('NEXTLINK_DNS_SECONDARY', '142.147.112.19')).strip()
+    _ts_syslog = (_b_scan_ts.get('compliance_syslog') or _b_scan_ts.get('syslog_server') or '142.147.116.215').strip()
+    _ts_ntp = (_b_scan_ts.get('compliance_ntp') or _b_scan_ts.get('ntp_primary') or 'ntp-pool.nxlink.com').strip()
+    _ts_snmp = (_b_scan_ts.get('compliance_snmp_community') or _b_scan_ts.get('snmp_community') or 'FBZ1yYdphf').strip()
+
+    # Static structural checks (device hardening — same for all tenants)
+    # Plus tenant-driven IP checks for DNS, syslog, NTP, SNMP
     COMPLIANCE_CHECKS = [
         {'id': 'svc_telnet',     'category': 'IP Services',    'label': 'Telnet disabled (port 5023)',      'pattern': r'telnet.*disabled=yes'},
         {'id': 'svc_www',        'category': 'IP Services',    'label': 'HTTP disabled (port 1234)',        'pattern': r'www.*disabled=yes.*port=1234|www.*port=1234.*disabled=yes'},
         {'id': 'svc_www_ssl',    'category': 'IP Services',    'label': 'HTTPS enabled (port 443)',         'pattern': r'www-ssl.*disabled=no.*port=443|www-ssl.*port=443.*disabled=no'},
         {'id': 'svc_winbox',     'category': 'IP Services',    'label': 'Winbox on port 8291',              'pattern': r'winbox.*port=8291'},
         {'id': 'svc_ssh',        'category': 'IP Services',    'label': 'SSH on port 22',                   'pattern': r'ssh.*port=22'},
-        {'id': 'dns_primary',    'category': 'DNS',            'label': 'Primary DNS (142.147.112.3)',      'pattern': r'142\.147\.112\.3'},
-        {'id': 'dns_secondary',  'category': 'DNS',            'label': 'Secondary DNS (142.147.112.19)',   'pattern': r'142\.147\.112\.19'},
+        {'id': 'dns_primary',    'category': 'DNS',            'label': f'Primary DNS ({_ts_dns1})',        'pattern': re.escape(_ts_dns1)},
+        {'id': 'dns_secondary',  'category': 'DNS',            'label': f'Secondary DNS ({_ts_dns2})',      'pattern': re.escape(_ts_dns2)},
         {'id': 'fw_eoip',        'category': 'Firewall',       'label': 'EOIP-ALLOW address list',          'pattern': r'list=eoip-allow'},
         {'id': 'fw_mgr',         'category': 'Firewall',       'label': 'managerIP address list',           'pattern': r'list=managerip'},
         {'id': 'fw_bgp',         'category': 'Firewall',       'label': 'BGP-ALLOW address list',           'pattern': r'list=bgp-allow'},
@@ -19598,11 +21861,11 @@ def bulk_compliance_scan():
         {'id': 'fw_udp_timeout', 'category': 'Firewall',       'label': 'UDP timeout = 30s',                'pattern': r'udp-timeout=30s'},
         {'id': 'fw_sip_off',     'category': 'Firewall',       'label': 'SIP ALG disabled',                 'pattern': r'sip.*disabled=yes'},
         {'id': 'sys_tz',         'category': 'System',         'label': 'Timezone America/Chicago',         'pattern': r'america/chicago'},
-        {'id': 'sys_ntp',        'category': 'System',         'label': 'NTP: ntp-pool.nxlink.com',         'pattern': r'ntp-pool\.nxlink\.com'},
-        {'id': 'sys_snmp',       'category': 'SNMP',           'label': 'SNMP community configured',        'pattern': r'name=fbz1yydphf|name=FBZ1yYdphf'},
+        {'id': 'sys_ntp',        'category': 'System',         'label': f'NTP: {_ts_ntp}',                  'pattern': re.escape(_ts_ntp).replace(re.escape('.'), r'\.')},
+        {'id': 'sys_snmp',       'category': 'SNMP',           'label': 'SNMP community configured',        'pattern': rf'name={re.escape(_ts_snmp.lower())}|name={re.escape(_ts_snmp)}'},
         {'id': 'sys_watchdog',   'category': 'System',         'label': 'Watchdog timer enabled',           'pattern': r'watchdog-timer=yes'},
         {'id': 'sys_autoupg',    'category': 'System',         'label': 'Auto-upgrade enabled',             'pattern': r'auto-upgrade=yes'},
-        {'id': 'log_syslog',     'category': 'Logging',        'label': 'Remote syslog (142.147.116.215)',  'pattern': r'142\.147\.116\.215'},
+        {'id': 'log_syslog',     'category': 'Logging',        'label': f'Remote syslog ({_ts_syslog})',    'pattern': re.escape(_ts_syslog)},
     ]
 
     SOFT_CHECKS = [
@@ -19759,6 +22022,7 @@ def bulk_compliance_scan():
 
 
 @app.route('/api/bulk-migration-execute', methods=['POST'])
+@require_auth
 def bulk_migration_execute():
     """
     Execute migration transformation on previously-analyzed device configs.
@@ -19775,6 +22039,11 @@ def bulk_migration_execute():
             host                 – IP address (for labeling)
             current_model        – source model string
     """
+    _require_feature('bulk_ops')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
     data = request.get_json(force=True) or {}
     devices = data.get('devices', [])
     if not devices or not isinstance(devices, list):
@@ -19906,8 +22175,22 @@ def ssh_push_config():
     if not devices:
         return jsonify({'error': 'No devices provided'}), 400
 
-    ssh_user = os.getenv('NEXTLINK_SSH_USERNAME', '')
-    ssh_pass = os.getenv('NEXTLINK_SSH_PASSWORD', '')
+    # Batch 10: prefer tenant_settings credentials over env vars
+    _push_ts = {}
+    try:
+        _push_tenant_ctx = _get_request_tenant_context()
+        _push_tenant = _push_tenant_ctx.get('tenant') or {}
+        _push_tenant_id = _push_tenant.get('id') if _push_tenant else None
+        if _push_tenant_id:
+            init_users_db()
+            _push_conn = sqlite3.connect(os.path.join('secure_data', 'users.db'))
+            _push_ts = _get_tenant_settings_row(_push_conn, _push_tenant_id)
+            _push_conn.close()
+    except Exception:
+        _push_ts = {}
+
+    ssh_user = (_push_ts.get('ssh_username') or '').strip() or os.getenv('NEXTLINK_SSH_USERNAME', '')
+    ssh_pass = (_push_ts.get('ssh_password') or '').strip() or os.getenv('NEXTLINK_SSH_PASSWORD', '')
     if not ssh_user or not ssh_pass:
         return jsonify({'error': 'SSH credentials not configured on server'}), 500
 
@@ -20130,6 +22413,554 @@ def ssh_push_config():
         'failed': len(devices) - success_count,
         'results': results
     })
+
+
+# ============================================================
+# PHASE 1B — PER-TENANT API KEYS
+# ============================================================
+
+@app.route('/api/api-keys', methods=['POST'])
+@require_auth
+def create_api_key():
+    """Create a new API key for the current tenant. Returns full key once."""
+    user_info = getattr(request, 'current_user', {})
+    tenant_id = user_info.get('tenant_id') or user_info.get('tenantId')
+    tenant_role = user_info.get('tenant_role', '')
+    if tenant_role not in ('tenant_admin', 'platform_admin', 'platform_support'):
+        if _platform_role_for_email(user_info.get('email', '')) not in ('platform_admin',):
+            return jsonify({'error': 'tenant_admin or higher required'}), 403
+    data = request.json or {}
+    name = data.get('name', '').strip()
+    if not name:
+        return jsonify({'error': 'name is required'}), 400
+    scopes = data.get('scopes', ['read', 'write'])
+    expires_days = data.get('expires_days')
+
+    import hashlib as _hashlib
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT slug FROM tenants WHERE id = ?', (tenant_id,))
+    t = c.fetchone()
+    slug = (t['slug'] if t else 'default').replace('-', '')[:12]
+    raw_key = f"nck_{slug}_{secrets.token_urlsafe(24)}"
+    key_hash = _hashlib.sha256(raw_key.encode()).hexdigest()
+    key_prefix = raw_key[:12]
+
+    expires_at = None
+    if expires_days:
+        expires_at = (datetime.utcnow() + timedelta(days=int(expires_days))).isoformat()
+
+    user_id = user_info.get('id') or user_info.get('user_id')
+    c.execute('''
+        INSERT INTO api_keys (tenant_id, created_by_user_id, name, key_hash, key_prefix, scopes, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (tenant_id, user_id, name, key_hash, key_prefix, json.dumps(scopes), expires_at))
+    key_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'key': raw_key, 'id': key_id, 'prefix': key_prefix, 'name': name, 'scopes': scopes})
+
+
+@app.route('/api/api-keys', methods=['GET'])
+@require_auth
+def list_api_keys():
+    """List API keys for current tenant (prefix + metadata only, never full key)."""
+    user_info = getattr(request, 'current_user', {})
+    tenant_id = user_info.get('tenant_id') or user_info.get('tenantId')
+    tenant_role = user_info.get('tenant_role', '')
+    if tenant_role not in ('tenant_admin', 'platform_admin'):
+        if _platform_role_for_email(user_info.get('email', '')) not in ('platform_admin',):
+            return jsonify({'error': 'tenant_admin or higher required'}), 403
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('''SELECT id, name, key_prefix, scopes, last_used_at, expires_at, created_at, is_active
+                 FROM api_keys WHERE tenant_id = ? ORDER BY created_at DESC''', (tenant_id,))
+    keys = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return jsonify({'success': True, 'api_keys': keys})
+
+
+@app.route('/api/api-keys/<int:key_id>', methods=['DELETE'])
+@require_auth
+def revoke_api_key(key_id):
+    """Revoke an API key (sets is_active=0)."""
+    user_info = getattr(request, 'current_user', {})
+    tenant_id = user_info.get('tenant_id') or user_info.get('tenantId')
+    tenant_role = user_info.get('tenant_role', '')
+    if tenant_role not in ('tenant_admin', 'platform_admin'):
+        if _platform_role_for_email(user_info.get('email', '')) not in ('platform_admin',):
+            return jsonify({'error': 'tenant_admin or higher required'}), 403
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.execute('UPDATE api_keys SET is_active = 0 WHERE id = ? AND tenant_id = ?', (key_id, tenant_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+
+# ============================================================
+# PHASE 1C — USAGE QUOTA ADMIN ENDPOINT
+# ============================================================
+
+@app.route('/api/admin/tenants/<int:tenant_id>/quotas', methods=['GET', 'PUT'])
+@require_auth
+def manage_tenant_quotas(tenant_id):
+    """Get or set quota limits for a tenant. Platform admin only."""
+    if _platform_role_for_email((getattr(request, 'current_user', {}) or {}).get('email', '')) != 'platform_admin':
+        return jsonify({'error': 'Platform admin required'}), 403
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    if request.method == 'GET':
+        c = conn.cursor()
+        c.execute('SELECT * FROM tenant_quotas WHERE tenant_id = ?', (tenant_id,))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return jsonify({'success': True, 'quotas': dict(row)})
+        return jsonify({'success': True, 'quotas': {'tenant_id': tenant_id, 'max_users': 10, 'max_configs_per_day': 100, 'max_api_calls_per_day': 1000}})
+    data = request.json or {}
+    conn.execute('''
+        INSERT INTO tenant_quotas (tenant_id, max_users, max_configs_per_day, max_api_calls_per_day)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(tenant_id) DO UPDATE SET
+            max_users = excluded.max_users,
+            max_configs_per_day = excluded.max_configs_per_day,
+            max_api_calls_per_day = excluded.max_api_calls_per_day,
+            updated_at = CURRENT_TIMESTAMP
+    ''', (tenant_id, data.get('max_users', 10), data.get('max_configs_per_day', 100), data.get('max_api_calls_per_day', 1000)))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+
+# ============================================================
+# PHASE 2A — SELF-SERVICE TENANT REGISTRATION
+# ============================================================
+
+@app.route('/api/register', methods=['POST'])
+def register_organization():
+    """Self-service tenant registration. No auth required."""
+    try:
+        data = request.json or {}
+        org_name = data.get('org_name', '').strip()
+        slug = data.get('slug', '').strip().lower().replace(' ', '-')
+        admin_email = data.get('admin_email', '').strip().lower()
+        admin_password = data.get('admin_password', '')
+        domain = data.get('domain', '').strip().lower()
+
+        if not all([org_name, slug, admin_email, admin_password]):
+            return jsonify({'error': 'org_name, slug, admin_email, and admin_password are required'}), 400
+        if len(admin_password) < 8:
+            return jsonify({'error': 'Password must be at least 8 characters'}), 400
+        if not re.match(r'^[a-z0-9][a-z0-9\-]{1,29}$', slug):
+            return jsonify({'error': 'Slug must be 2-30 lowercase letters, numbers, or hyphens'}), 400
+
+        import hashlib as _hashlib
+        db = init_users_db()
+        conn = sqlite3.connect(str(db))
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        c.execute('SELECT id FROM tenants WHERE slug = ?', (slug,))
+        if c.fetchone():
+            conn.close()
+            return jsonify({'error': 'Organization slug already taken'}), 409
+
+        c.execute('SELECT id FROM users WHERE email = ?', (admin_email,))
+        if c.fetchone():
+            conn.close()
+            return jsonify({'error': 'An account with this email already exists'}), 409
+
+        verification_token = secrets.token_urlsafe(32)
+
+        c.execute('''
+            INSERT INTO tenants (slug, name, status, auth_mode, allowed_email_domains, created_at)
+            VALUES (?, ?, 'pending_verification', 'password', ?, CURRENT_TIMESTAMP)
+        ''', (slug, org_name, json.dumps([domain] if domain else [])))
+        tenant_id = c.lastrowid
+
+        c.execute('INSERT OR IGNORE INTO tenant_settings (tenant_id) VALUES (?)', (tenant_id,))
+
+        pw_hash = _hashlib.sha256(admin_password.encode()).hexdigest()
+        c.execute('''
+            INSERT INTO users (email, password_hash, display_name, home_tenant_id, platform_role, is_active, email_verification_token)
+            VALUES (?, ?, ?, ?, 'user', 1, ?)
+        ''', (admin_email, pw_hash, org_name + ' Admin', tenant_id, verification_token))
+        user_id = c.lastrowid
+
+        c.execute('''
+            INSERT INTO user_tenant_memberships (user_id, tenant_id, role, status, is_default)
+            VALUES (?, ?, 'tenant_admin', 'active', 1)
+        ''', (user_id, tenant_id))
+
+        conn.commit()
+        conn.close()
+
+        base_url = os.environ.get('APP_BASE_URL', 'http://localhost:5000')
+        verify_url = f"{base_url}/api/verify-email?token={verification_token}"
+        send_email(
+            admin_email,
+            f"Verify your NOC Config Maker account — {org_name}",
+            _email_template(
+                f"Welcome to NOC Config Maker, {org_name}!",
+                f"<p>Your organization account has been created. Please verify your email address to activate your account.</p>",
+                verify_url, "Verify Email Address"
+            )
+        )
+
+        safe_print(f"[REGISTER] New tenant registered: {slug} ({org_name}) by {admin_email}")
+        return jsonify({'success': True, 'message': 'Account created. Check your email to verify your account.', 'tenant_id': tenant_id})
+    except Exception as e:
+        safe_print(f"[REGISTER ERROR] {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/verify-email', methods=['GET'])
+def verify_email():
+    """Verify email address via token from registration email."""
+    token = request.args.get('token', '').strip()
+    if not token:
+        return jsonify({'error': 'Token required'}), 400
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT id, home_tenant_id FROM users WHERE email_verification_token = ?', (token,))
+    user = c.fetchone()
+    if not user:
+        conn.close()
+        return jsonify({'error': 'Invalid or expired verification token'}), 400
+    c.execute("UPDATE users SET email_verified_at = CURRENT_TIMESTAMP, email_verification_token = NULL WHERE id = ?", (user['id'],))
+    c.execute("UPDATE tenants SET status = 'active' WHERE id = ? AND status = 'pending_verification'", (user['home_tenant_id'],))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'Email verified successfully. You can now log in.'})
+
+
+# ============================================================
+# PHASE 2C — USER EMAIL INVITES
+# ============================================================
+
+@app.route('/api/admin/invite', methods=['POST'])
+@require_auth
+def send_invite():
+    """Send an email invite to join a tenant. tenant_admin or platform_admin."""
+    user_info = getattr(request, 'current_user', {})
+    tenant_ctx = _get_request_tenant_context()
+    tenant = tenant_ctx['tenant']
+    tenant_id = tenant.get('id')
+    if not _can_access_admin_panel():
+        return jsonify({'error': 'Admin access required'}), 403
+
+    data = request.json or {}
+    invite_email = data.get('email', '').strip().lower()
+    role = data.get('role', 'tenant_engineer')
+    if role not in ('tenant_engineer', 'tenant_admin', 'tenant_viewer'):
+        return jsonify({'error': 'Invalid role'}), 400
+    if not invite_email:
+        return jsonify({'error': 'email is required'}), 400
+
+    token = secrets.token_urlsafe(32)
+    expires_at = (datetime.utcnow() + timedelta(days=7)).isoformat()
+    invited_by = user_info.get('user_id') or user_info.get('id')
+
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+
+    c.execute('''SELECT utw.id FROM user_tenant_memberships utw
+                 JOIN users u ON u.id = utw.user_id
+                 WHERE u.email = ? AND utw.tenant_id = ? AND utw.status = 'active' ''', (invite_email, tenant_id))
+    if c.fetchone():
+        conn.close()
+        return jsonify({'error': 'User is already a member of this tenant'}), 409
+
+    c.execute('''INSERT INTO invitations (tenant_id, invited_by_user_id, email, role, token, expires_at)
+                 VALUES (?, ?, ?, ?, ?, ?)
+                 ON CONFLICT DO NOTHING''', (tenant_id, invited_by, invite_email, role, token, expires_at))
+    conn.commit()
+    conn.close()
+
+    base_url = os.environ.get('APP_BASE_URL', 'http://localhost:5000')
+    accept_url = f"{base_url}/#invite?token={token}"
+    inviter_name = user_info.get('email', 'Your administrator')
+    send_email(
+        invite_email,
+        f"You're invited to join {tenant['name']} on NOC Config Maker",
+        _email_template(
+            f"You've been invited to {tenant['name']}",
+            f"<p>{inviter_name} has invited you to join <strong>{tenant['name']}</strong> on NOC Config Maker as a <strong>{role.replace('_', ' ').title()}</strong>.</p><p>This invitation expires in 7 days.</p>",
+            accept_url, "Accept Invitation"
+        )
+    )
+    return jsonify({'success': True, 'message': f'Invitation sent to {invite_email}'})
+
+
+@app.route('/api/invite/accept', methods=['GET', 'POST'])
+def accept_invite():
+    """GET: validate token and return invite metadata. POST: complete signup."""
+    token = request.args.get('token') or (request.json or {}).get('token', '')
+    if not token:
+        return jsonify({'error': 'Token required'}), 400
+
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('''SELECT inv.*, t.name as tenant_name, t.slug as tenant_slug
+                 FROM invitations inv JOIN tenants t ON t.id = inv.tenant_id
+                 WHERE inv.token = ?''', (token,))
+    inv = c.fetchone()
+
+    if not inv:
+        conn.close()
+        return jsonify({'error': 'Invalid invitation token'}), 400
+    if inv['status'] != 'pending':
+        conn.close()
+        return jsonify({'error': 'Invitation already used or expired'}), 400
+    if datetime.utcnow().isoformat() > inv['expires_at']:
+        conn.close()
+        return jsonify({'error': 'Invitation has expired'}), 400
+
+    if request.method == 'GET':
+        conn.close()
+        return jsonify({'success': True, 'invite': {
+            'email': inv['email'], 'role': inv['role'],
+            'tenant_name': inv['tenant_name'], 'tenant_slug': inv['tenant_slug'],
+            'expires_at': inv['expires_at']
+        }})
+
+    data = request.json or {}
+    password = data.get('password', '')
+    display_name = data.get('display_name', '').strip()
+    if len(password) < 8:
+        conn.close()
+        return jsonify({'error': 'Password must be at least 8 characters'}), 400
+
+    import hashlib as _hashlib
+    pw_hash = _hashlib.sha256(password.encode()).hexdigest()
+    email = inv['email']
+    tenant_id = inv['tenant_id']
+
+    c.execute('SELECT id FROM users WHERE email = ?', (email,))
+    existing = c.fetchone()
+    if existing:
+        user_id = existing['id']
+    else:
+        c.execute('''INSERT INTO users (email, password_hash, display_name, home_tenant_id, platform_role, is_active, email_verified_at)
+                     VALUES (?, ?, ?, ?, 'user', 1, CURRENT_TIMESTAMP)''',
+                  (email, pw_hash, display_name or email.split('@')[0], tenant_id))
+        user_id = c.lastrowid
+
+    c.execute('''INSERT OR REPLACE INTO user_tenant_memberships (user_id, tenant_id, role, status, is_default)
+                 VALUES (?, ?, ?, 'active', 1)''', (user_id, tenant_id, inv['role']))
+    c.execute("UPDATE invitations SET status = 'accepted' WHERE token = ?", (token,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'Account activated. You can now log in.'})
+
+
+# ============================================================
+# PHASE 2D — DOMAIN VERIFICATION
+# ============================================================
+
+@app.route('/api/admin/tenant-domains', methods=['GET', 'POST'])
+@require_auth
+def manage_tenant_domains():
+    """List or add domain for verification. Platform admin only."""
+    if _platform_role_for_email((getattr(request, 'current_user', {}) or {}).get('email', '')) != 'platform_admin':
+        return jsonify({'error': 'Platform admin required'}), 403
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    if request.method == 'GET':
+        tenant_id = request.args.get('tenant_id')
+        c = conn.cursor()
+        q = 'SELECT * FROM tenant_domains'
+        params = []
+        if tenant_id:
+            q += ' WHERE tenant_id = ?'
+            params = [tenant_id]
+        c.execute(q, params)
+        rows = [dict(r) for r in c.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'domains': rows})
+
+    data = request.json or {}
+    domain = data.get('domain', '').strip().lower().lstrip('www.').lstrip('.')
+    tenant_id = data.get('tenant_id')
+    if not domain or not tenant_id:
+        conn.close()
+        return jsonify({'error': 'domain and tenant_id required'}), 400
+    token = secrets.token_hex(16)
+    try:
+        conn.execute('INSERT INTO tenant_domains (tenant_id, domain, verification_token) VALUES (?, ?, ?)',
+                     (tenant_id, domain, token))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({'error': 'Domain already registered'}), 409
+    conn.close()
+    return jsonify({'success': True, 'domain': domain, 'verification_token': token,
+                    'dns_instructions': f'Add a TXT record: _noc-configmaker.{domain} -> noc-verify={token}'})
+
+
+@app.route('/api/admin/tenant-domains/<int:domain_id>/verify', methods=['GET'])
+@require_auth
+def verify_tenant_domain(domain_id):
+    """Check DNS TXT record for domain verification via DNS-over-HTTPS."""
+    if _platform_role_for_email((getattr(request, 'current_user', {}) or {}).get('email', '')) != 'platform_admin':
+        return jsonify({'error': 'Platform admin required'}), 403
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT * FROM tenant_domains WHERE id = ?', (domain_id,))
+    domain_row = c.fetchone()
+    if not domain_row:
+        conn.close()
+        return jsonify({'error': 'Domain not found'}), 404
+
+    domain = domain_row['domain']
+    expected_token = f"noc-verify={domain_row['verification_token']}"
+    lookup_name = f"_noc-configmaker.{domain}"
+
+    verified = False
+    try:
+        r = requests.get(
+            'https://cloudflare-dns.com/dns-query',
+            params={'name': lookup_name, 'type': 'TXT'},
+            headers={'Accept': 'application/dns-json'},
+            timeout=10
+        )
+        if r.ok:
+            for ans in r.json().get('Answer', []):
+                val = ans.get('data', '').strip('"')
+                if val == expected_token:
+                    verified = True
+                    break
+    except Exception as e:
+        safe_print(f"[DNS VERIFY] Failed for {domain}: {e}")
+
+    if verified:
+        conn.execute('UPDATE tenant_domains SET verified_at = CURRENT_TIMESTAMP WHERE id = ?', (domain_id,))
+        c.execute('SELECT tenant_id FROM tenant_domains WHERE id = ?', (domain_id,))
+        tid = c.fetchone()['tenant_id']
+        c.execute('SELECT allowed_email_domains FROM tenants WHERE id = ?', (tid,))
+        t = c.fetchone()
+        existing = json.loads(t['allowed_email_domains'] or '[]') if t else []
+        if domain not in existing:
+            existing.append(domain)
+            conn.execute('UPDATE tenants SET allowed_email_domains = ? WHERE id = ?', (json.dumps(existing), tid))
+        conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'verified': verified,
+                    'message': 'Domain verified and added to allowed domains.' if verified else f'TXT record not found. Expected: {expected_token} at {lookup_name}'})
+
+
+# ============================================================
+# PHASE 3A — PER-TENANT FEATURE FLAGS (Admin Endpoints)
+# ============================================================
+
+@app.route('/api/admin/tenants/<int:tenant_id>/features', methods=['GET', 'PUT'])
+@require_auth
+def manage_tenant_features(tenant_id):
+    """Get or set feature flags for a tenant. Platform admin only."""
+    if _platform_role_for_email((getattr(request, 'current_user', {}) or {}).get('email', '')) != 'platform_admin':
+        return jsonify({'error': 'Platform admin required'}), 403
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    if request.method == 'GET':
+        c = conn.cursor()
+        c.execute('SELECT features FROM tenant_features WHERE tenant_id = ?', (tenant_id,))
+        row = c.fetchone()
+        conn.close()
+        features = {**_DEFAULT_FEATURES, **json.loads(row['features'] if row else '{}')}
+        return jsonify({'success': True, 'features': features})
+    data = request.json or {}
+    features = {**_DEFAULT_FEATURES, **{k: bool(v) for k, v in data.items() if k in _DEFAULT_FEATURES}}
+    conn.execute('''INSERT INTO tenant_features (tenant_id, features) VALUES (?, ?)
+                    ON CONFLICT(tenant_id) DO UPDATE SET features = excluded.features, updated_at = CURRENT_TIMESTAMP''',
+                 (tenant_id, json.dumps(features)))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'features': features})
+
+
+# ============================================================
+# PHASE 3B — TENANT BRANDING
+# ============================================================
+
+@app.route('/api/tenant/branding', methods=['GET'])
+def get_tenant_branding():
+    """Public endpoint — returns branding for a tenant by slug or host header."""
+    slug = request.args.get('slug', '').strip()
+    host = request.headers.get('Host', '').split(':')[0]
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    if slug:
+        c.execute('SELECT slug, name, company_name, logo_url, primary_color, favicon_url FROM tenants WHERE slug = ? AND status = ?', (slug, 'active'))
+    else:
+        c.execute('SELECT slug, name, company_name, logo_url, primary_color, favicon_url FROM tenants WHERE custom_domain = ? AND status = ?', (host, 'active'))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'success': True, 'branding': {'primary_color': '#2563eb'}})
+    return jsonify({'success': True, 'branding': dict(row)})
+
+
+@app.route('/api/admin/tenants/<int:tenant_id>/branding', methods=['PUT'])
+@require_auth
+def update_tenant_branding(tenant_id):
+    """Update branding for a tenant. Platform admin only."""
+    if _platform_role_for_email((getattr(request, 'current_user', {}) or {}).get('email', '')) != 'platform_admin':
+        return jsonify({'error': 'Platform admin required'}), 403
+    data = request.json or {}
+    allowed = ('logo_url', 'primary_color', 'company_name', 'custom_domain', 'favicon_url')
+    updates = {k: v for k, v in data.items() if k in allowed}
+    if not updates:
+        return jsonify({'error': 'No valid fields provided'}), 400
+    sets = ', '.join(f'{k} = ?' for k in updates)
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.execute(f'UPDATE tenants SET {sets} WHERE id = ?', (*updates.values(), tenant_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+
+# ============================================================
+# QUOTA USAGE — Current tenant
+# ============================================================
+
+@app.route('/api/tenant/usage', methods=['GET'])
+@require_auth
+def get_tenant_usage():
+    """Return today's usage vs quotas for the current tenant."""
+    user_info = getattr(request, 'current_user', {})
+    tenant_id = user_info.get('tenant_id') or user_info.get('tenantId')
+    if not tenant_id:
+        tenant_ctx = _get_request_tenant_context()
+        tenant_id = tenant_ctx['tenant'].get('id')
+    usage = _get_today_usage(tenant_id) if tenant_id else {'configs_generated': 0, 'api_calls': 0}
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT * FROM tenant_quotas WHERE tenant_id = ?', (tenant_id,))
+    quota_row = c.fetchone()
+    conn.close()
+    quotas = dict(quota_row) if quota_row else {'max_users': None, 'max_configs_per_day': None, 'max_api_calls_per_day': None}
+    return jsonify({'success': True, 'usage': usage, 'quotas': quotas})
 
 
 if __name__ == '__main__':

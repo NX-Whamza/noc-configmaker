@@ -25,9 +25,20 @@ def _load_app():
     return app.test_client(), api_server
 
 
+def _auth_headers(client, api_server_mod) -> dict:
+    admin_email = os.getenv("PLATFORM_ADMIN_EMAILS", "whamza@team.nxlink.com").split(",")[0].strip()
+    login = client.post(
+        "/api/auth/login",
+        json={"email": admin_email, "password": api_server_mod.DEFAULT_PASSWORD},
+    )
+    token = (login.get_json() or {}).get("token")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def test_nokia7250_defaults_exposes_distinct_ospf_auth_key() -> None:
-    client, _ = _load_app()
-    response = client.get("/api/nokia7250-defaults")
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
+    response = client.get("/api/nokia7250-defaults", headers=headers)
     assert response.status_code == 200, response.get_data(as_text=True)
     data = response.get_json() or {}
     assert data.get("bgp_auth_key") == "test-bgp"
@@ -35,9 +46,11 @@ def test_nokia7250_defaults_exposes_distinct_ospf_auth_key() -> None:
 
 
 def test_generate_nokia7250_uses_env_secrets_and_unique_backhaul_ports() -> None:
-    client, _ = _load_app()
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
     response = client.post(
         "/api/generate-nokia7250",
+        headers=headers,
         json={
             "system_name": "NOKIA-7250-TEST-1",
             "system_ip": "10.42.13.4/32",
@@ -67,9 +80,11 @@ def test_generate_nokia7250_uses_env_secrets_and_unique_backhaul_ports() -> None
 
 
 def test_generate_nokia7250_rejects_reserved_or_duplicate_backhaul_ports() -> None:
-    client, _ = _load_app()
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
     reserved = client.post(
         "/api/generate-nokia7250",
+        headers=headers,
         json={
             "system_name": "NOKIA-7250-TEST-1",
             "system_ip": "10.42.13.4/32",
@@ -81,6 +96,7 @@ def test_generate_nokia7250_rejects_reserved_or_duplicate_backhaul_ports() -> No
 
     duplicate = client.post(
         "/api/generate-nokia7250",
+        headers=headers,
         json={
             "system_name": "NOKIA-7250-TEST-1",
             "system_ip": "10.42.13.4/32",
@@ -99,6 +115,27 @@ def test_build_interface_migration_map_no_local_re_shadow() -> None:
     result = api_server.build_interface_migration_map("CCR1072-12G-4S+", "CCR2216-1G-12XS-2XQ")
     assert isinstance(result, dict)
     assert result["ether1"] == "ether1"
+
+
+@pytest.mark.parametrize(
+    ("source_model", "target_model"),
+    [
+        ("CCR1036-12G-4S", "CCR2004-1G-12S+2XS"),
+        ("CCR1036-12G-4S", "CCR2216-1G-12XS-2XQ"),
+        ("CCR1072-12G-4S+", "CCR2216-1G-12XS-2XQ"),
+        ("CCR2004-1G-12S+2XS", "CCR2216-1G-12XS-2XQ"),
+        ("CCR2004-1G-12S+2XS", "CCR2116-12G-4S+"),
+        ("CCR2116-12G-4S+", "CCR2004-1G-12S+2XS"),
+        ("CCR2216-1G-12XS-2XQ", "CCR2004-1G-12S+2XS"),
+        ("RB5009UG+S+", "CCR2004-1G-12S+2XS"),
+    ],
+)
+def test_build_interface_migration_map_only_uses_target_ports(source_model: str, target_model: str) -> None:
+    _, api_server = _load_app()
+    result = api_server.build_interface_migration_map(source_model, target_model)
+    target_ports = set(api_server._all_device_ports(target_model))
+    assert result, f"Expected a migration map for {source_model} -> {target_model}"
+    assert set(result.values()).issubset(target_ports)
 
 
 @pytest.mark.parametrize(
@@ -180,7 +217,8 @@ def test_routerboard_migrations_translate_across_port_families(
     expected_any: list[str],
     unexpected_tokens: list[str],
 ) -> None:
-    client, _ = _load_app()
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
     response = client.post(
         "/api/migrate-config",
         data=json.dumps(
@@ -192,6 +230,7 @@ def test_routerboard_migrations_translate_across_port_families(
             }
         ),
         content_type="application/json",
+        headers=headers,
     )
     assert response.status_code == 200, response.get_data(as_text=True)
     data = response.get_json() or {}
@@ -206,7 +245,8 @@ def test_routerboard_migrations_translate_across_port_families(
 
 
 def test_migrate_config_returns_analysis_and_validation() -> None:
-    client, _ = _load_app()
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
     export = (
         "# 2025-12-22 12:34:47 by RouterOS 6.49.10\n"
         "# model = CCR1072-12G-4S+\n"
@@ -228,6 +268,7 @@ def test_migrate_config_returns_analysis_and_validation() -> None:
             }
         ),
         content_type="application/json",
+        headers=headers,
     )
     assert response.status_code == 200, response.get_data(as_text=True)
     data = response.get_json() or {}
@@ -240,7 +281,8 @@ def test_migrate_config_returns_analysis_and_validation() -> None:
 
 
 def test_migrate_config_accepts_source_device_alias_from_client_payload() -> None:
-    client, _ = _load_app()
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
     export = (
         "# 2026-04-05 09:10:00 by RouterOS 7.19.4\n"
         "/interface ethernet\n"
@@ -252,6 +294,7 @@ def test_migrate_config_accepts_source_device_alias_from_client_payload() -> Non
     )
     response = client.post(
         "/api/migrate-config",
+        headers=headers,
         data=json.dumps(
             {
                 "config": export,
@@ -295,7 +338,8 @@ def test_target_interface_audit_flags_ports_not_present_on_selected_target() -> 
 
 
 def test_migrate_config_strips_unmapped_source_only_sfp_defaults_on_target() -> None:
-    client, _ = _load_app()
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
     export = (
         "# 2026-04-06 12:10:25 by RouterOS 7.19.4\n"
         "# model = CCR1036-12G-4S\n"
@@ -315,6 +359,7 @@ def test_migrate_config_strips_unmapped_source_only_sfp_defaults_on_target() -> 
     )
     response = client.post(
         "/api/migrate-config",
+        headers=headers,
         data=json.dumps(
             {
                 "config": export,
@@ -337,6 +382,7 @@ def test_migrate_config_strips_unmapped_source_only_sfp_defaults_on_target() -> 
 
 def test_supported_routerboard_pairs_do_not_leave_invalid_target_port_references() -> None:
     client, api_server = _load_app()
+    headers = _auth_headers(client, api_server)
     models = [
         "CCR1036-12G-4S",
         "CCR1072-12G-4S+",
@@ -389,6 +435,7 @@ def test_supported_routerboard_pairs_do_not_leave_invalid_target_port_references
         for target_model in models:
             response = client.post(
                 "/api/migrate-config",
+                headers=headers,
                 data=json.dumps(
                     {
                         "config": export,
@@ -406,7 +453,8 @@ def test_supported_routerboard_pairs_do_not_leave_invalid_target_port_references
 
 
 def test_nextlink_policy_detects_roles_and_keeps_target_ether1_management_only() -> None:
-    client, _ = _load_app()
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
     export = (
         "# 2025-12-22 12:34:47 by RouterOS 6.49.10\n"
         "# model = CCR1072-12G-4S+\n"
@@ -431,6 +479,7 @@ def test_nextlink_policy_detects_roles_and_keeps_target_ether1_management_only()
             }
         ),
         content_type="application/json",
+        headers=headers,
     )
     assert response.status_code == 200, response.get_data(as_text=True)
     data = response.get_json() or {}
@@ -447,7 +496,8 @@ def test_nextlink_policy_detects_roles_and_keeps_target_ether1_management_only()
 
 
 def test_logical_vlan_and_routing_signals_flow_back_to_physical_port() -> None:
-    client, _ = _load_app()
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
     export = (
         "# 2025-12-22 12:34:47 by RouterOS 7.19.4\n"
         "# model = CCR2004-1G-12S+2XS\n"
@@ -475,6 +525,7 @@ def test_logical_vlan_and_routing_signals_flow_back_to_physical_port() -> None:
             }
         ),
         content_type="application/json",
+        headers=headers,
     )
     assert response.status_code == 200, response.get_data(as_text=True)
     data = response.get_json() or {}
@@ -489,7 +540,8 @@ def test_logical_vlan_and_routing_signals_flow_back_to_physical_port() -> None:
 
 
 def test_legacy_lte_and_6ghz_patterns_are_detected_from_full_config() -> None:
-    client, _ = _load_app()
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
     export = (
         "# 2026-03-22 09:15:00 by RouterOS 7.19.4\n"
         "# model = CCR2004-1G-12S+2XS\n"
@@ -515,6 +567,7 @@ def test_legacy_lte_and_6ghz_patterns_are_detected_from_full_config() -> None:
             }
         ),
         content_type="application/json",
+        headers=headers,
     )
     assert response.status_code == 200, response.get_data(as_text=True)
     ports = {
@@ -538,8 +591,108 @@ def test_toolbox_inventory_endpoint_exposes_porting_reference() -> None:
     assert "switch" in data.get("role_patterns", {})
 
 
+def test_migrate_config_normalizes_existing_target_family_ports_and_identity() -> None:
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
+    export = (
+        "# 2026-04-01 22:00:27 by RouterOS 7.16.2\n"
+        "# model=CCR2004-1G-12S+2XS\n"
+        "/interface ethernet\n"
+        "set [ find default-name=sfp28-4 ] auto-negotiation=no comment=\"Netonix Uplink #1\" speed=1G-baseX\n"
+        "set [ find default-name=sfp28-5 ] comment=\"Netonix Uplink #2\" disabled=yes\n"
+        "set [ find default-name=sfp28-6 ] auto-negotiation=no comment=TX-OTTO-SE-1 speed=10G-baseSR-LR\n"
+        "set [ find default-name=qsfp28-1-1 ] auto-negotiation=no comment=TX-KOSSE-EA-1 speed=10G-baseSR-LR\n"
+        "/ip address\n"
+        "add address=10.43.129.196/29 comment=TX-OTTO-SE-1 interface=sfp28-6 network=10.43.129.192\n"
+        "add address=10.43.129.201/29 comment=TX-KOSSE-EA-1 interface=qsfp28-1-1 network=10.43.129.200\n"
+        "/system identity\n"
+        "set name=RTR-MT2004-AR1.TX-STRANGER-NE-1\n"
+    )
+    response = client.post(
+        "/api/migrate-config",
+        data=json.dumps(
+            {
+                "config": export,
+                "target_device": "CCR2216-1G-12XS-2XQ",
+                "target_version": "7",
+                "apply_compliance": False,
+            }
+        ),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    data = response.get_json() or {}
+    assert data.get("success") is True
+    assert data.get("effective_source_device") == "CCR2216-1G-12XS-2XQ"
+    translated = data.get("translated_config") or ""
+    analysis = data.get("migration_analysis") or {}
+    ports = {row["source_port"]: row for row in analysis.get("port_analysis", [])}
+
+    assert ports["sfp28-4"]["detected_role"] == "switch"
+    assert ports["sfp28-4"]["target_port"] == "sfp28-1"
+    assert ports["sfp28-5"]["detected_role"] == "switch"
+    assert ports["sfp28-5"]["target_port"] == "sfp28-2"
+    assert ports["sfp28-6"]["detected_role"] == "backhaul"
+    assert ports["sfp28-6"]["target_port"] == "sfp28-4"
+    assert ports["qsfp28-1-1"]["target_port"] in {"sfp28-5", "sfp28-6"}
+    assert "set name=RTR-MT2216-AR1.TX-STRANGER-NE-1" in translated
+    assert "# model =CCR2216-1G-12XS-2XQ" in translated
+    assert "default-name=sfp28-1" in translated
+    assert "default-name=sfp28-2" in translated
+    assert "default-name=sfp28-5 ] auto-negotiation=no comment=TX-KOSSE-EA-1" in translated
+    assert "default-name=qsfp28-1-1 ] auto-negotiation=no comment=TX-KOSSE-EA-1" not in translated
+
+
+def test_generic_logical_labels_do_not_override_physical_port_mapping() -> None:
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
+    export = (
+        "# 2026-04-01 22:00:27 by RouterOS 7.19.4\n"
+        "# model=CCR2004-1G-12S+2XS\n"
+        "/interface bridge\n"
+        "add name=lan-bridge\n"
+        "/interface ethernet\n"
+        "set [ find default-name=sfp-sfpplus1 ] comment=\"Netonix Uplink #1\"\n"
+        "set [ find default-name=sfp-sfpplus7 ] comment=TX-BACKHAUL-1\n"
+        "/interface bridge port\n"
+        "add bridge=lan-bridge interface=sfp-sfpplus1\n"
+        "add bridge=lan-bridge interface=sfp-sfpplus7\n"
+        "/ip address\n"
+        "add address=10.22.176.1/22 comment=\"CPE/Tower Gear\" interface=lan-bridge network=10.22.176.0\n"
+        "add address=10.43.129.193/29 comment=TX-BACKHAUL-1 interface=sfp-sfpplus7 network=10.43.129.192\n"
+        "/system identity\n"
+        "set name=RTR-MT2004-AR1.TEST\n"
+    )
+    response = client.post(
+        "/api/migrate-config",
+        data=json.dumps(
+            {
+                "config": export,
+                "target_device": "CCR2216-1G-12XS-2XQ",
+                "target_version": "7",
+                "apply_compliance": False,
+            }
+        ),
+        content_type="application/json",
+        headers=headers,
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    data = response.get_json() or {}
+    ports = {row["source_port"]: row for row in data.get("migration_analysis", {}).get("port_analysis", [])}
+
+    assert ports["sfp-sfpplus1"]["detected_role"] == "switch"
+    assert ports["sfp-sfpplus1"]["target_port"] in {"sfp28-1", "sfp28-2"}
+    assert ports["sfp-sfpplus7"]["detected_role"] == "backhaul"
+    assert ports["sfp-sfpplus7"]["target_port"] in {"sfp28-4", "sfp28-5", "sfp28-6"}
+    joined = " | ".join(ports["sfp-sfpplus1"]["role_evidence"])
+    assert "address_comment:lan-bridge:CPE/Tower Gear" not in joined
+    assert "logical_interface:lan-bridge" not in joined
+
+
 def test_enterprise_generator_uses_device_profile_defaults_for_ccr2216() -> None:
-    client, _ = _load_app()
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
     response = client.post(
         "/api/gen-enterprise-non-mpls",
         data=json.dumps(
@@ -553,6 +706,7 @@ def test_enterprise_generator_uses_device_profile_defaults_for_ccr2216() -> None
             }
         ),
         content_type="application/json",
+        headers=headers,
     )
     assert response.status_code == 200, response.get_data(as_text=True)
     data = response.get_json() or {}
@@ -568,7 +722,8 @@ def test_enterprise_generator_uses_device_profile_defaults_for_ccr2216() -> None
 
 
 def test_enterprise_generator_rejects_overlapping_interface_roles() -> None:
-    client, _ = _load_app()
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
     response = client.post(
         "/api/gen-enterprise-non-mpls",
         data=json.dumps(
@@ -584,6 +739,7 @@ def test_enterprise_generator_rejects_overlapping_interface_roles() -> None:
             }
         ),
         content_type="application/json",
+        headers=headers,
     )
     assert response.status_code == 400, response.get_data(as_text=True)
     data = response.get_json() or {}
@@ -592,7 +748,8 @@ def test_enterprise_generator_rejects_overlapping_interface_roles() -> None:
 
 
 def test_nokia_configurator_backend_generates_7210_isd() -> None:
-    client, _ = _load_app()
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
     response = client.post(
         "/api/generate-nokia-configurator",
         data=json.dumps(
@@ -611,6 +768,7 @@ def test_nokia_configurator_backend_generates_7210_isd() -> None:
             }
         ),
         content_type="application/json",
+        headers=headers,
     )
     assert response.status_code == 200, response.get_data(as_text=True)
     data = response.get_json() or {}
@@ -623,7 +781,8 @@ def test_nokia_configurator_backend_generates_7210_isd() -> None:
 
 
 def test_nokia_configurator_backend_generates_7750_tunnel() -> None:
-    client, _ = _load_app()
+    client, api_mod = _load_app()
+    headers = _auth_headers(client, api_mod)
     response = client.post(
         "/api/generate-nokia-configurator",
         data=json.dumps(
@@ -642,6 +801,7 @@ def test_nokia_configurator_backend_generates_7750_tunnel() -> None:
             }
         ),
         content_type="application/json",
+        headers=headers,
     )
     assert response.status_code == 200, response.get_data(as_text=True)
     data = response.get_json() or {}
