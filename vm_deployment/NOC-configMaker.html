@@ -16660,7 +16660,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 const v = String(value || '').trim().toLowerCase();
                 if (v.includes('7535')) return '7535';
                 if (v.includes('7316')) return '7316';
-                // CCR2216 uses the same MT2004 MikroTik template
+                if (v.includes('ccr2216') || v.includes('mt2216')) return 'CCR2216';
                 return 'MT2004';
             }
 
@@ -16675,6 +16675,18 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 const type = String(configType || 'tower').trim().toLowerCase();
 
                 if (type === 'bng2') {
+                    if (model.includes('ccr2216') || model.includes('mt2216')) {
+                        return {
+                            switchPorts: ['sfp28-1', 'sfp28-2'],
+                            backhaulPorts: [
+                                'sfp28-4', 'sfp28-5', 'sfp28-6', 'sfp28-7', 'sfp28-8', 'sfp28-9',
+                                'sfp28-10', 'sfp28-11', 'sfp28-12',
+                                'qsfp28-1-1', 'qsfp28-1-2', 'qsfp28-1-3', 'qsfp28-1-4',
+                                'qsfp28-2-1', 'qsfp28-2-2', 'qsfp28-2-3', 'qsfp28-2-4'
+                            ],
+                            managementPort: 'ether1'
+                        };
+                    }
                     if (model.includes('7535') || model.includes('7316')) {
                         return {
                             switchPorts: ['ether1', 'ether2'],
@@ -16926,6 +16938,19 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 if (crs326Port1Row) crs326Port1Row.style.display = (isBng2 && is326) ? 'block' : 'none';
                 if (crs326Port2Row) crs326Port2Row.style.display = (isBng2 && is326) ? 'block' : 'none';
                 if (tachyonSubnetRow) tachyonSubnetRow.style.display = (isBng2 && isTachyon) ? 'block' : 'none';
+
+                // Update CRS326 port defaults to match the selected router model
+                if (isBng2 && is326) {
+                    const isCcr2216 = routerModel.includes('ccr2216');
+                    const defaultP1 = isCcr2216 ? 'sfp28-8' : 'sfp-sfpplus8';
+                    const defaultP2 = isCcr2216 ? 'sfp28-9' : 'sfp-sfpplus9';
+                    const otherP1 = isCcr2216 ? 'sfp-sfpplus8' : 'sfp28-8';
+                    const otherP2 = isCcr2216 ? 'sfp-sfpplus9' : 'sfp28-9';
+                    const p1 = document.getElementById('mtBng2Crs326Port1');
+                    const p2 = document.getElementById('mtBng2Crs326Port2');
+                    if (p1) { p1.placeholder = defaultP1; if (!p1.value || p1.value === otherP1) p1.value = defaultP1; }
+                    if (p2) { p2.placeholder = defaultP2; if (!p2.value || p2.value === otherP2) p2.value = defaultP2; }
+                }
             }
 
             function syncMtConfigTypeUI() {
