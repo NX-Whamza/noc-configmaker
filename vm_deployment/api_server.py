@@ -515,6 +515,183 @@ def safe_print(*args, **kwargs):
 # Make the module's print resilient on Windows consoles that can't encode certain Unicode characters.
 print = safe_print
 
+# ── Tenant Secret Encryption ───────────────────────────────────────────────
+from cryptography.fernet import Fernet, InvalidToken as _FernetInvalidToken
+import base64 as _b64
+
+def _get_fernet() -> Fernet:
+    """Return a Fernet instance from TENANT_SECRET_KEY env var. Generates ephemeral key if unset."""
+    key = os.environ.get('TENANT_SECRET_KEY', '')
+    if not key:
+        # Ephemeral key - only warn once
+        if not getattr(_get_fernet, '_warned', False):
+            safe_print('[SECURITY WARNING] TENANT_SECRET_KEY not set. Tenant secrets will use an ephemeral key and cannot be recovered after restart. Set TENANT_SECRET_KEY=<base64-32-bytes> in your .env')
+            _get_fernet._warned = True
+        if not getattr(_get_fernet, '_ephemeral', None):
+            _get_fernet._ephemeral = Fernet(Fernet.generate_key())
+        return _get_fernet._ephemeral
+    # Pad/truncate to 32 bytes for Fernet URL-safe base64
+    raw = key.encode()
+    padded = (raw + b'=' * 32)[:44]  # Fernet keys are 44 base64 chars
+    try:
+        return Fernet(padded)
+    except Exception:
+        return Fernet(Fernet.generate_key())
+
+_ENCRYPTED_FIELDS = {'ssh_password', 'radius_secret', 'ospf_auth_key', 'nokia_root_password', 'nokia_snmp_community'}
+
+def encrypt_secret(plaintext: str) -> str:
+    """Encrypt a secret string. Returns Fernet token as string."""
+    if not plaintext:
+        return plaintext
+    return _get_fernet().encrypt(plaintext.encode()).decode()
+
+def decrypt_secret(ciphertext: str) -> str:
+    """Decrypt a Fernet token. If decryption fails (legacy plaintext), returns as-is."""
+    if not ciphertext:
+        return ciphertext
+    try:
+        return _get_fernet().decrypt(ciphertext.encode()).decode()
+    except (_FernetInvalidToken, Exception):
+        return ciphertext  # Legacy plaintext - caller should re-encrypt
+# ── End Tenant Secret Encryption ───────────────────────────────────────────
+
+# ── Email System ──────────────────────────────────────────────────────────
+import smtplib as _smtplib
+import ssl as _ssl
+from email.mime.text import MIMEText as _MIMEText
+from email.mime.multipart import MIMEMultipart as _MIMEMultipart
+
+def send_email(to: str, subject: str, html_body: str, text_body: str = ''):
+    """Send an email via SMTP. Fails silently with a warning if SMTP is not configured."""
+    host = os.environ.get('SMTP_HOST', '')
+    if not host:
+        safe_print(f'[EMAIL] SMTP not configured — would have sent "{subject}" to {to}')
+        return False
+    port = int(os.environ.get('SMTP_PORT', '587'))
+    user = os.environ.get('SMTP_USER', '')
+    password = os.environ.get('SMTP_PASSWORD', '')
+    from_addr = os.environ.get('SMTP_FROM', user)
+    try:
+        msg = _MIMEMultipart('alternative')
+        msg['Subject'] = subject
+        msg['From'] = from_addr
+        msg['To'] = to
+        if text_body:
+            msg.attach(_MIMEText(text_body, 'plain'))
+        msg.attach(_MIMEText(html_body, 'html'))
+        context = _ssl.create_default_context()
+        with _smtplib.SMTP(host, port) as smtp:
+            smtp.ehlo()
+            smtp.starttls(context=context)
+            if user and password:
+                smtp.login(user, password)
+            smtp.sendmail(from_addr, to, msg.as_string())
+        safe_print(f'[EMAIL] Sent "{subject}" to {to}')
+        return True
+    except Exception as e:
+        safe_print(f'[EMAIL] Failed to send "{subject}" to {to}: {e}')
+        return False
+
+def _email_template(title: str, body_html: str, cta_url: str = '', cta_label: str = '') -> str:
+    """Wrap content in a simple branded HTML email template."""
+    cta_block = f'<div style="text-align:center;margin:32px 0"><a href="{cta_url}" style="background:#2563eb;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;font-size:15px">{cta_label}</a></div>' if cta_url else ''
+    return f'''<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:0">
+<div style="max-width:560px;margin:40px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08)">
+<div style="background:#2563eb;padding:24px 32px"><h1 style="color:#fff;margin:0;font-size:20px">NOC Config Maker</h1></div>
+<div style="padding:32px"><h2 style="margin-top:0;color:#1e293b">{title}</h2>{body_html}{cta_block}</div>
+<div style="padding:16px 32px;background:#f8fafc;font-size:12px;color:#94a3b8">This is an automated message from NOC Config Maker. Do not reply to this email.</div>
+</div></body></html>'''
+# ── End Email System ──────────────────────────────────────────────────────
+
+# ── Per-Tenant Feature Flags ───────────────────────────────────────────────
+_DEFAULT_FEATURES = {
+    'mikrotik': True, 'nokia': True, 'cambium': True, 'aviat': True,
+    'ftth': True, 'bulk_ops': True, 'compliance': True,
+    'ai_assistant': True, 'config_diff': True
+}
+
+def _get_tenant_features(tenant_id) -> dict:
+    """Return feature flags for a tenant. Defaults to all enabled."""
+    if not tenant_id:
+        return dict(_DEFAULT_FEATURES)
+    try:
+        db = init_users_db()
+        conn = sqlite3.connect(str(db))
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute('SELECT features FROM tenant_features WHERE tenant_id = ?', (tenant_id,))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return {**_DEFAULT_FEATURES, **json.loads(row['features'] or '{}')}
+        return dict(_DEFAULT_FEATURES)
+    except Exception:
+        return dict(_DEFAULT_FEATURES)
+
+def _require_feature(feature_name: str):
+    """Check if current tenant has a feature enabled. Returns 403 if not."""
+    tenant_ctx = _get_request_tenant_context()
+    tenant_id = tenant_ctx['tenant'].get('id')
+    features = _get_tenant_features(tenant_id)
+    if not features.get(feature_name, True):
+        abort(403, description=f"Feature '{feature_name}' is not enabled for your organization. Contact your administrator.")
+# ── End Per-Tenant Feature Flags ───────────────────────────────────────────
+
+# ── Quota Helpers ──────────────────────────────────────────────────────────
+def _get_today_usage(tenant_id):
+    """Get today's usage counters for a tenant."""
+    from datetime import date as _date
+    today = str(_date.today())
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT * FROM usage_daily WHERE tenant_id = ? AND date = ?', (tenant_id, today))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else {'configs_generated': 0, 'api_calls': 0}
+
+def _increment_usage(tenant_id, counter: str):
+    """Increment a usage counter for today. counter = 'configs_generated' or 'api_calls'."""
+    from datetime import date as _date
+    today = str(_date.today())
+    if not tenant_id:
+        return
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.execute(f'''
+        INSERT INTO usage_daily (tenant_id, date, {counter}) VALUES (?, ?, 1)
+        ON CONFLICT(tenant_id, date) DO UPDATE SET {counter} = {counter} + 1
+    ''', (tenant_id, today))
+    conn.commit()
+    conn.close()
+
+def _check_quota(tenant_id, quota_type: str):
+    """Check quota. Raises HTTP 429 if exceeded. quota_type: 'configs_generated' or 'api_calls'."""
+    if not tenant_id:
+        return  # No tenant context, skip quota
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT * FROM tenant_quotas WHERE tenant_id = ?', (tenant_id,))
+    quota_row = c.fetchone()
+    conn.close()
+    if not quota_row:
+        return  # No quota set = unlimited
+    usage = _get_today_usage(tenant_id)
+    field_map = {
+        'configs_generated': ('max_configs_per_day', 'daily config generation'),
+        'api_calls': ('max_api_calls_per_day', 'daily API calls'),
+    }
+    limit_field, label = field_map.get(quota_type, ('max_api_calls_per_day', 'API calls'))
+    limit = quota_row[limit_field]
+    current = usage.get(quota_type, 0)
+    if current >= limit:
+        abort(429, description=f'Daily {quota_type} quota of {limit} exceeded. Resets at midnight UTC.')
+# ── End Quota Helpers ──────────────────────────────────────────────────────
+
 # ========================================
 # AVIAT BACKHAUL UPDATER STATE
 # ========================================
@@ -9334,6 +9511,44 @@ def require_auth(f):
         if not token:
             return jsonify({'error': 'Authentication required'}), 401
 
+        # Check for API key (nck_ prefix)
+        if token.startswith('nck_'):
+            import hashlib as _hlib
+            key_hash = _hlib.sha256(token.encode()).hexdigest()
+            _db = init_users_db()
+            _conn = sqlite3.connect(str(_db))
+            _conn.row_factory = sqlite3.Row
+            _c = _conn.cursor()
+            _c.execute('''SELECT ak.*, t.slug as tenant_slug FROM api_keys ak
+                          JOIN tenants t ON t.id = ak.tenant_id
+                          WHERE ak.key_hash = ? AND ak.is_active = 1''', (key_hash,))
+            ak = _c.fetchone()
+            if ak:
+                # Check expiry
+                if ak['expires_at']:
+                    if datetime.utcnow().isoformat() > ak['expires_at']:
+                        _conn.close()
+                        return jsonify({'error': 'API key expired'}), 401
+                # Update last_used_at
+                _conn.execute('UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?', (ak['id'],))
+                _conn.commit()
+                _conn.close()
+                # Set current_user shape matching JWT shape
+                request.current_user = {
+                    'user_id': None,
+                    'id': None,
+                    'email': f'apikey:{ak["key_prefix"]}',
+                    'tenant_id': ak['tenant_id'],
+                    'tenantId': ak['tenant_id'],
+                    'tenant_role': 'api_key',
+                    'scopes': json.loads(ak['scopes'] or '["read","write"]'),
+                    'auth_type': 'api_key',
+                    'api_key_id': ak['id'],
+                }
+                return f(*args, **kwargs)
+            _conn.close()
+            return jsonify({'error': 'Invalid or revoked API key'}), 401
+
         user_info = verify_token(token)
         if not user_info:
             return jsonify({'error': 'Invalid or expired token'}), 401
@@ -9621,6 +9836,10 @@ def _ros_quote(value: str) -> str:
 @require_auth
 def gen_enterprise_non_mpls():
     try:
+        _tenant_ctx = _get_request_tenant_context()
+        _tenant_id = _tenant_ctx['tenant'].get('id')
+        _check_quota(_tenant_id, 'configs_generated')
+        _increment_usage(_tenant_id, 'configs_generated')
         data = request.get_json(force=True)
         device = (data.get('device') or 'RB5009').upper()
         target_version = data.get('target_version', '7.19.4')
@@ -10689,6 +10908,10 @@ def gen_tarana_config():
     Only returns success if configuration is accurate and device-ready.
     """
     try:
+        _tenant_ctx = _get_request_tenant_context()
+        _tenant_id = _tenant_ctx['tenant'].get('id')
+        _check_quota(_tenant_id, 'configs_generated')
+        _increment_usage(_tenant_id, 'configs_generated')
         data = request.get_json(force=True)
         raw_config = data.get('config', '')
         device = data.get('device', 'ccr2004')
@@ -11354,6 +11577,11 @@ def _render_nokia_7750_backend(data: dict):
 @app.route('/api/generate-nokia-configurator', methods=['POST'])
 @require_auth
 def generate_nokia_configurator():
+    _require_feature('nokia')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
     try:
         data = request.get_json(force=True) or {}
         model = (data.get('model') or '7250').strip()
@@ -11400,6 +11628,11 @@ def generate_nokia7250():
     """
     Generate Nokia 7250 configuration based on provided parameters.
     """
+    _require_feature('nokia')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
     try:
         data = request.json
         system_name = data.get('system_name', '').strip()
@@ -14872,6 +15105,10 @@ def update_tenant_settings():
         updates = {k: v for k, v in data.items() if k in allowed_fields}
         if not updates:
             return jsonify({'error': 'No valid fields provided'}), 400
+        # Encrypt sensitive fields before storing
+        for field in _ENCRYPTED_FIELDS:
+            if field in updates and updates[field]:
+                updates[field] = encrypt_secret(updates[field])
         init_users_db()
         conn = sqlite3.connect(os.path.join('secure_data', 'users.db'))
         _get_tenant_settings_row(conn, tenant_id)  # ensure row exists
@@ -14927,6 +15164,10 @@ def admin_update_tenant_settings(tenant_id):
         updates = {k: v for k, v in data.items() if k in allowed_fields}
         if not updates:
             return jsonify({'error': 'No valid fields provided'}), 400
+        # Encrypt sensitive fields before storing
+        for field in _ENCRYPTED_FIELDS:
+            if field in updates and updates[field]:
+                updates[field] = encrypt_secret(updates[field])
         init_users_db()
         conn = sqlite3.connect(os.path.join('secure_data', 'users.db'))
         _get_tenant_settings_row(conn, tenant_id)
@@ -15479,7 +15720,7 @@ def _seed_default_tenant(conn):
 
 
 def _get_tenant_settings_row(conn, tenant_id):
-    """Return settings row for tenant_id, seeding defaults if missing."""
+    """Return settings row for tenant_id, seeding defaults if missing. Decrypts sensitive fields."""
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
     c.execute('SELECT * FROM tenant_settings WHERE tenant_id = ?', (tenant_id,))
@@ -15489,7 +15730,13 @@ def _get_tenant_settings_row(conn, tenant_id):
         conn.commit()
         c.execute('SELECT * FROM tenant_settings WHERE tenant_id = ?', (tenant_id,))
         row = c.fetchone()
-    return dict(row) if row else {}
+    if not row:
+        return {}
+    result = dict(row)
+    for field in _ENCRYPTED_FIELDS:
+        if field in result and result[field]:
+            result[field] = decrypt_secret(result[field])
+    return result
 
 
 def _build_compliance_checks(tenant_settings=None):
@@ -15624,6 +15871,10 @@ def init_users_db():
         c.execute("ALTER TABLE users ADD COLUMN is_platform_admin INTEGER DEFAULT 0")
     if 'profile_photo' not in existing_cols:
         c.execute("ALTER TABLE users ADD COLUMN profile_photo TEXT")
+    if 'email_verification_token' not in existing_cols:
+        c.execute("ALTER TABLE users ADD COLUMN email_verification_token TEXT")
+    if 'email_verified_at' not in existing_cols:
+        c.execute("ALTER TABLE users ADD COLUMN email_verified_at DATETIME")
 
     # User sessions table
     c.execute('''CREATE TABLE IF NOT EXISTS user_sessions
@@ -15660,6 +15911,97 @@ def init_users_db():
     c.execute('SELECT id, email FROM users')
     for row in c.fetchall():
         _sync_user_platform_access(conn, row[0], row[1])
+
+    # ── API Keys table ─────────────────────────────────────────────────────
+    c.execute('''CREATE TABLE IF NOT EXISTS api_keys (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL,
+        created_by_user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        key_hash TEXT NOT NULL UNIQUE,
+        key_prefix TEXT NOT NULL,
+        scopes TEXT NOT NULL DEFAULT '["read","write"]',
+        last_used_at DATETIME,
+        expires_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+        FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_api_keys_tenant_id ON api_keys(tenant_id)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash)')
+
+    # ── Quota tables ───────────────────────────────────────────────────────
+    c.execute('''CREATE TABLE IF NOT EXISTS tenant_quotas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL UNIQUE,
+        max_users INTEGER NOT NULL DEFAULT 10,
+        max_configs_per_day INTEGER NOT NULL DEFAULT 100,
+        max_api_calls_per_day INTEGER NOT NULL DEFAULT 1000,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS usage_daily (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        configs_generated INTEGER NOT NULL DEFAULT 0,
+        api_calls INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(tenant_id, date),
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_usage_daily_tenant_date ON usage_daily(tenant_id, date)')
+
+    # ── Invitations table ──────────────────────────────────────────────────
+    c.execute('''CREATE TABLE IF NOT EXISTS invitations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL,
+        invited_by_user_id INTEGER NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'tenant_engineer',
+        token TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'pending',
+        expires_at DATETIME NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+        FOREIGN KEY (invited_by_user_id) REFERENCES users(id)
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_invitations_token ON invitations(token)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_invitations_email ON invitations(email)')
+
+    # ── Tenant domains table ───────────────────────────────────────────────
+    c.execute('''CREATE TABLE IF NOT EXISTS tenant_domains (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL,
+        domain TEXT NOT NULL UNIQUE,
+        verification_token TEXT NOT NULL UNIQUE,
+        verified_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_tenant_domains_domain ON tenant_domains(domain)')
+
+    # ── Tenant feature flags table ─────────────────────────────────────────
+    c.execute('''CREATE TABLE IF NOT EXISTS tenant_features (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL UNIQUE,
+        features TEXT NOT NULL DEFAULT '{"mikrotik":true,"nokia":true,"cambium":true,"aviat":true,"ftth":true,"bulk_ops":true,"compliance":true,"ai_assistant":true,"config_diff":true}',
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+    )''')
+
+    # ── Tenant branding columns (additive migration on tenants table) ──────
+    c.execute("PRAGMA table_info(tenants)")
+    tenant_cols = {r[1] for r in c.fetchall()}
+    for col, coldef in [
+        ('logo_url', 'TEXT'),
+        ('primary_color', "TEXT DEFAULT '#2563eb'"),
+        ('company_name', 'TEXT'),
+        ('custom_domain', 'TEXT'),
+        ('favicon_url', 'TEXT'),
+    ]:
+        if col not in tenant_cols:
+            c.execute(f'ALTER TABLE tenants ADD COLUMN {col} {coldef}')
 
     conn.commit()
     conn.close()
@@ -15865,8 +16207,23 @@ def _load_session_bootstrap_for_user(user_id):
 
     # Load tenant settings for active tenant
     tenant_settings = {}
+    active_tenant_id = active_membership['tenantId'] if active_membership else None
     if active_membership:
-        tenant_settings = _get_tenant_settings_row(conn, active_membership['tenantId'])
+        tenant_settings = _get_tenant_settings_row(conn, active_tenant_id)
+
+    # Load per-tenant feature flags
+    tenant_feature_flags = _get_tenant_features(active_tenant_id)
+
+    # Load tenant branding
+    branding = {}
+    if active_tenant_id:
+        try:
+            c.execute('SELECT company_name, logo_url, primary_color, favicon_url FROM tenants WHERE id = ?', (active_tenant_id,))
+            branding_row = c.fetchone()
+            if branding_row:
+                branding = dict(branding_row)
+        except Exception:
+            pass
 
     bootstrap = {
         'user': _serialize_user_row(user),
@@ -15886,8 +16243,10 @@ def _load_session_bootstrap_for_user(user_id):
             'platformAdmin': permissions['platformAdmin'],
             'platformSupport': permissions['platformSupport'],
             'adminPanel': permissions['adminPanel'],
+            **tenant_feature_flags,
         },
         'tenantSettings': tenant_settings,
+        'branding': branding,
     }
     conn.close()
     return bootstrap
@@ -18144,6 +18503,11 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
 def aviat_run_tasks():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
+    _require_feature('aviat')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
     data = request.json or {}
     ips = data.get('ips', [])
     task_types = data.get('tasks', [])
@@ -19282,6 +19646,11 @@ def cambium_queue_state():
 def cambium_run_tasks():
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
+    _require_feature('cambium')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
     data = request.get_json(force=True) or {}
     radios = _cambium_expand_radios(data)
     actor_username = (
@@ -20626,6 +20995,11 @@ def _sanitize_bng2_transport_output(config_text: str) -> str:
 def mt_generate_config(config_type):
     if not HAS_MT_CONFIG_GEN:
         return jsonify({'error': f'MikroTik config generator unavailable: {MT_CONFIG_GEN_ERROR}'}), 503
+    _require_feature('mikrotik')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
 
     base_path = _mt_base_config_path()
     if not base_path:
@@ -20916,6 +21290,11 @@ def bulk_generate():
         sites       – list of site config objects (required)
         config_type – "tower" | "non-mpls" | "mpls" | "bng2" (required)
     """
+    _require_feature('bulk_ops')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
     data = request.get_json(force=True) or {}
     sites = data.get('sites', [])
     config_type = data.get('config_type', 'non-mpls')
@@ -21550,6 +21929,11 @@ def bulk_migration_execute():
             host                 – IP address (for labeling)
             current_model        – source model string
     """
+    _require_feature('bulk_ops')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
     data = request.get_json(force=True) or {}
     devices = data.get('devices', [])
     if not devices or not isinstance(devices, list):
@@ -21919,6 +22303,554 @@ def ssh_push_config():
         'failed': len(devices) - success_count,
         'results': results
     })
+
+
+# ============================================================
+# PHASE 1B — PER-TENANT API KEYS
+# ============================================================
+
+@app.route('/api/api-keys', methods=['POST'])
+@require_auth
+def create_api_key():
+    """Create a new API key for the current tenant. Returns full key once."""
+    user_info = getattr(request, 'current_user', {})
+    tenant_id = user_info.get('tenant_id') or user_info.get('tenantId')
+    tenant_role = user_info.get('tenant_role', '')
+    if tenant_role not in ('tenant_admin', 'platform_admin', 'platform_support'):
+        if _platform_role_for_email(user_info.get('email', '')) not in ('platform_admin',):
+            return jsonify({'error': 'tenant_admin or higher required'}), 403
+    data = request.json or {}
+    name = data.get('name', '').strip()
+    if not name:
+        return jsonify({'error': 'name is required'}), 400
+    scopes = data.get('scopes', ['read', 'write'])
+    expires_days = data.get('expires_days')
+
+    import hashlib as _hashlib
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT slug FROM tenants WHERE id = ?', (tenant_id,))
+    t = c.fetchone()
+    slug = (t['slug'] if t else 'default').replace('-', '')[:12]
+    raw_key = f"nck_{slug}_{secrets.token_urlsafe(24)}"
+    key_hash = _hashlib.sha256(raw_key.encode()).hexdigest()
+    key_prefix = raw_key[:12]
+
+    expires_at = None
+    if expires_days:
+        expires_at = (datetime.utcnow() + timedelta(days=int(expires_days))).isoformat()
+
+    user_id = user_info.get('id') or user_info.get('user_id')
+    c.execute('''
+        INSERT INTO api_keys (tenant_id, created_by_user_id, name, key_hash, key_prefix, scopes, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (tenant_id, user_id, name, key_hash, key_prefix, json.dumps(scopes), expires_at))
+    key_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'key': raw_key, 'id': key_id, 'prefix': key_prefix, 'name': name, 'scopes': scopes})
+
+
+@app.route('/api/api-keys', methods=['GET'])
+@require_auth
+def list_api_keys():
+    """List API keys for current tenant (prefix + metadata only, never full key)."""
+    user_info = getattr(request, 'current_user', {})
+    tenant_id = user_info.get('tenant_id') or user_info.get('tenantId')
+    tenant_role = user_info.get('tenant_role', '')
+    if tenant_role not in ('tenant_admin', 'platform_admin'):
+        if _platform_role_for_email(user_info.get('email', '')) not in ('platform_admin',):
+            return jsonify({'error': 'tenant_admin or higher required'}), 403
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('''SELECT id, name, key_prefix, scopes, last_used_at, expires_at, created_at, is_active
+                 FROM api_keys WHERE tenant_id = ? ORDER BY created_at DESC''', (tenant_id,))
+    keys = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return jsonify({'success': True, 'api_keys': keys})
+
+
+@app.route('/api/api-keys/<int:key_id>', methods=['DELETE'])
+@require_auth
+def revoke_api_key(key_id):
+    """Revoke an API key (sets is_active=0)."""
+    user_info = getattr(request, 'current_user', {})
+    tenant_id = user_info.get('tenant_id') or user_info.get('tenantId')
+    tenant_role = user_info.get('tenant_role', '')
+    if tenant_role not in ('tenant_admin', 'platform_admin'):
+        if _platform_role_for_email(user_info.get('email', '')) not in ('platform_admin',):
+            return jsonify({'error': 'tenant_admin or higher required'}), 403
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.execute('UPDATE api_keys SET is_active = 0 WHERE id = ? AND tenant_id = ?', (key_id, tenant_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+
+# ============================================================
+# PHASE 1C — USAGE QUOTA ADMIN ENDPOINT
+# ============================================================
+
+@app.route('/api/admin/tenants/<int:tenant_id>/quotas', methods=['GET', 'PUT'])
+@require_auth
+def manage_tenant_quotas(tenant_id):
+    """Get or set quota limits for a tenant. Platform admin only."""
+    if _platform_role_for_email((getattr(request, 'current_user', {}) or {}).get('email', '')) != 'platform_admin':
+        return jsonify({'error': 'Platform admin required'}), 403
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    if request.method == 'GET':
+        c = conn.cursor()
+        c.execute('SELECT * FROM tenant_quotas WHERE tenant_id = ?', (tenant_id,))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return jsonify({'success': True, 'quotas': dict(row)})
+        return jsonify({'success': True, 'quotas': {'tenant_id': tenant_id, 'max_users': 10, 'max_configs_per_day': 100, 'max_api_calls_per_day': 1000}})
+    data = request.json or {}
+    conn.execute('''
+        INSERT INTO tenant_quotas (tenant_id, max_users, max_configs_per_day, max_api_calls_per_day)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(tenant_id) DO UPDATE SET
+            max_users = excluded.max_users,
+            max_configs_per_day = excluded.max_configs_per_day,
+            max_api_calls_per_day = excluded.max_api_calls_per_day,
+            updated_at = CURRENT_TIMESTAMP
+    ''', (tenant_id, data.get('max_users', 10), data.get('max_configs_per_day', 100), data.get('max_api_calls_per_day', 1000)))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+
+# ============================================================
+# PHASE 2A — SELF-SERVICE TENANT REGISTRATION
+# ============================================================
+
+@app.route('/api/register', methods=['POST'])
+def register_organization():
+    """Self-service tenant registration. No auth required."""
+    try:
+        data = request.json or {}
+        org_name = data.get('org_name', '').strip()
+        slug = data.get('slug', '').strip().lower().replace(' ', '-')
+        admin_email = data.get('admin_email', '').strip().lower()
+        admin_password = data.get('admin_password', '')
+        domain = data.get('domain', '').strip().lower()
+
+        if not all([org_name, slug, admin_email, admin_password]):
+            return jsonify({'error': 'org_name, slug, admin_email, and admin_password are required'}), 400
+        if len(admin_password) < 8:
+            return jsonify({'error': 'Password must be at least 8 characters'}), 400
+        if not re.match(r'^[a-z0-9][a-z0-9\-]{1,29}$', slug):
+            return jsonify({'error': 'Slug must be 2-30 lowercase letters, numbers, or hyphens'}), 400
+
+        import hashlib as _hashlib
+        db = init_users_db()
+        conn = sqlite3.connect(str(db))
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        c.execute('SELECT id FROM tenants WHERE slug = ?', (slug,))
+        if c.fetchone():
+            conn.close()
+            return jsonify({'error': 'Organization slug already taken'}), 409
+
+        c.execute('SELECT id FROM users WHERE email = ?', (admin_email,))
+        if c.fetchone():
+            conn.close()
+            return jsonify({'error': 'An account with this email already exists'}), 409
+
+        verification_token = secrets.token_urlsafe(32)
+
+        c.execute('''
+            INSERT INTO tenants (slug, name, status, auth_mode, allowed_email_domains, created_at)
+            VALUES (?, ?, 'pending_verification', 'password', ?, CURRENT_TIMESTAMP)
+        ''', (slug, org_name, json.dumps([domain] if domain else [])))
+        tenant_id = c.lastrowid
+
+        c.execute('INSERT OR IGNORE INTO tenant_settings (tenant_id) VALUES (?)', (tenant_id,))
+
+        pw_hash = _hashlib.sha256(admin_password.encode()).hexdigest()
+        c.execute('''
+            INSERT INTO users (email, password_hash, display_name, home_tenant_id, platform_role, is_active, email_verification_token)
+            VALUES (?, ?, ?, ?, 'user', 1, ?)
+        ''', (admin_email, pw_hash, org_name + ' Admin', tenant_id, verification_token))
+        user_id = c.lastrowid
+
+        c.execute('''
+            INSERT INTO user_tenant_memberships (user_id, tenant_id, role, status, is_default)
+            VALUES (?, ?, 'tenant_admin', 'active', 1)
+        ''', (user_id, tenant_id))
+
+        conn.commit()
+        conn.close()
+
+        base_url = os.environ.get('APP_BASE_URL', 'http://localhost:5000')
+        verify_url = f"{base_url}/api/verify-email?token={verification_token}"
+        send_email(
+            admin_email,
+            f"Verify your NOC Config Maker account — {org_name}",
+            _email_template(
+                f"Welcome to NOC Config Maker, {org_name}!",
+                f"<p>Your organization account has been created. Please verify your email address to activate your account.</p>",
+                verify_url, "Verify Email Address"
+            )
+        )
+
+        safe_print(f"[REGISTER] New tenant registered: {slug} ({org_name}) by {admin_email}")
+        return jsonify({'success': True, 'message': 'Account created. Check your email to verify your account.', 'tenant_id': tenant_id})
+    except Exception as e:
+        safe_print(f"[REGISTER ERROR] {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/verify-email', methods=['GET'])
+def verify_email():
+    """Verify email address via token from registration email."""
+    token = request.args.get('token', '').strip()
+    if not token:
+        return jsonify({'error': 'Token required'}), 400
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT id, home_tenant_id FROM users WHERE email_verification_token = ?', (token,))
+    user = c.fetchone()
+    if not user:
+        conn.close()
+        return jsonify({'error': 'Invalid or expired verification token'}), 400
+    c.execute("UPDATE users SET email_verified_at = CURRENT_TIMESTAMP, email_verification_token = NULL WHERE id = ?", (user['id'],))
+    c.execute("UPDATE tenants SET status = 'active' WHERE id = ? AND status = 'pending_verification'", (user['home_tenant_id'],))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'Email verified successfully. You can now log in.'})
+
+
+# ============================================================
+# PHASE 2C — USER EMAIL INVITES
+# ============================================================
+
+@app.route('/api/admin/invite', methods=['POST'])
+@require_auth
+def send_invite():
+    """Send an email invite to join a tenant. tenant_admin or platform_admin."""
+    user_info = getattr(request, 'current_user', {})
+    tenant_ctx = _get_request_tenant_context()
+    tenant = tenant_ctx['tenant']
+    tenant_id = tenant.get('id')
+    if not _can_access_admin_panel():
+        return jsonify({'error': 'Admin access required'}), 403
+
+    data = request.json or {}
+    invite_email = data.get('email', '').strip().lower()
+    role = data.get('role', 'tenant_engineer')
+    if role not in ('tenant_engineer', 'tenant_admin', 'tenant_viewer'):
+        return jsonify({'error': 'Invalid role'}), 400
+    if not invite_email:
+        return jsonify({'error': 'email is required'}), 400
+
+    token = secrets.token_urlsafe(32)
+    expires_at = (datetime.utcnow() + timedelta(days=7)).isoformat()
+    invited_by = user_info.get('user_id') or user_info.get('id')
+
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+
+    c.execute('''SELECT utw.id FROM user_tenant_memberships utw
+                 JOIN users u ON u.id = utw.user_id
+                 WHERE u.email = ? AND utw.tenant_id = ? AND utw.status = 'active' ''', (invite_email, tenant_id))
+    if c.fetchone():
+        conn.close()
+        return jsonify({'error': 'User is already a member of this tenant'}), 409
+
+    c.execute('''INSERT INTO invitations (tenant_id, invited_by_user_id, email, role, token, expires_at)
+                 VALUES (?, ?, ?, ?, ?, ?)
+                 ON CONFLICT DO NOTHING''', (tenant_id, invited_by, invite_email, role, token, expires_at))
+    conn.commit()
+    conn.close()
+
+    base_url = os.environ.get('APP_BASE_URL', 'http://localhost:5000')
+    accept_url = f"{base_url}/#invite?token={token}"
+    inviter_name = user_info.get('email', 'Your administrator')
+    send_email(
+        invite_email,
+        f"You're invited to join {tenant['name']} on NOC Config Maker",
+        _email_template(
+            f"You've been invited to {tenant['name']}",
+            f"<p>{inviter_name} has invited you to join <strong>{tenant['name']}</strong> on NOC Config Maker as a <strong>{role.replace('_', ' ').title()}</strong>.</p><p>This invitation expires in 7 days.</p>",
+            accept_url, "Accept Invitation"
+        )
+    )
+    return jsonify({'success': True, 'message': f'Invitation sent to {invite_email}'})
+
+
+@app.route('/api/invite/accept', methods=['GET', 'POST'])
+def accept_invite():
+    """GET: validate token and return invite metadata. POST: complete signup."""
+    token = request.args.get('token') or (request.json or {}).get('token', '')
+    if not token:
+        return jsonify({'error': 'Token required'}), 400
+
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('''SELECT inv.*, t.name as tenant_name, t.slug as tenant_slug
+                 FROM invitations inv JOIN tenants t ON t.id = inv.tenant_id
+                 WHERE inv.token = ?''', (token,))
+    inv = c.fetchone()
+
+    if not inv:
+        conn.close()
+        return jsonify({'error': 'Invalid invitation token'}), 400
+    if inv['status'] != 'pending':
+        conn.close()
+        return jsonify({'error': 'Invitation already used or expired'}), 400
+    if datetime.utcnow().isoformat() > inv['expires_at']:
+        conn.close()
+        return jsonify({'error': 'Invitation has expired'}), 400
+
+    if request.method == 'GET':
+        conn.close()
+        return jsonify({'success': True, 'invite': {
+            'email': inv['email'], 'role': inv['role'],
+            'tenant_name': inv['tenant_name'], 'tenant_slug': inv['tenant_slug'],
+            'expires_at': inv['expires_at']
+        }})
+
+    data = request.json or {}
+    password = data.get('password', '')
+    display_name = data.get('display_name', '').strip()
+    if len(password) < 8:
+        conn.close()
+        return jsonify({'error': 'Password must be at least 8 characters'}), 400
+
+    import hashlib as _hashlib
+    pw_hash = _hashlib.sha256(password.encode()).hexdigest()
+    email = inv['email']
+    tenant_id = inv['tenant_id']
+
+    c.execute('SELECT id FROM users WHERE email = ?', (email,))
+    existing = c.fetchone()
+    if existing:
+        user_id = existing['id']
+    else:
+        c.execute('''INSERT INTO users (email, password_hash, display_name, home_tenant_id, platform_role, is_active, email_verified_at)
+                     VALUES (?, ?, ?, ?, 'user', 1, CURRENT_TIMESTAMP)''',
+                  (email, pw_hash, display_name or email.split('@')[0], tenant_id))
+        user_id = c.lastrowid
+
+    c.execute('''INSERT OR REPLACE INTO user_tenant_memberships (user_id, tenant_id, role, status, is_default)
+                 VALUES (?, ?, ?, 'active', 1)''', (user_id, tenant_id, inv['role']))
+    c.execute("UPDATE invitations SET status = 'accepted' WHERE token = ?", (token,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'Account activated. You can now log in.'})
+
+
+# ============================================================
+# PHASE 2D — DOMAIN VERIFICATION
+# ============================================================
+
+@app.route('/api/admin/tenant-domains', methods=['GET', 'POST'])
+@require_auth
+def manage_tenant_domains():
+    """List or add domain for verification. Platform admin only."""
+    if _platform_role_for_email((getattr(request, 'current_user', {}) or {}).get('email', '')) != 'platform_admin':
+        return jsonify({'error': 'Platform admin required'}), 403
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    if request.method == 'GET':
+        tenant_id = request.args.get('tenant_id')
+        c = conn.cursor()
+        q = 'SELECT * FROM tenant_domains'
+        params = []
+        if tenant_id:
+            q += ' WHERE tenant_id = ?'
+            params = [tenant_id]
+        c.execute(q, params)
+        rows = [dict(r) for r in c.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'domains': rows})
+
+    data = request.json or {}
+    domain = data.get('domain', '').strip().lower().lstrip('www.').lstrip('.')
+    tenant_id = data.get('tenant_id')
+    if not domain or not tenant_id:
+        conn.close()
+        return jsonify({'error': 'domain and tenant_id required'}), 400
+    token = secrets.token_hex(16)
+    try:
+        conn.execute('INSERT INTO tenant_domains (tenant_id, domain, verification_token) VALUES (?, ?, ?)',
+                     (tenant_id, domain, token))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({'error': 'Domain already registered'}), 409
+    conn.close()
+    return jsonify({'success': True, 'domain': domain, 'verification_token': token,
+                    'dns_instructions': f'Add a TXT record: _noc-configmaker.{domain} -> noc-verify={token}'})
+
+
+@app.route('/api/admin/tenant-domains/<int:domain_id>/verify', methods=['GET'])
+@require_auth
+def verify_tenant_domain(domain_id):
+    """Check DNS TXT record for domain verification via DNS-over-HTTPS."""
+    if _platform_role_for_email((getattr(request, 'current_user', {}) or {}).get('email', '')) != 'platform_admin':
+        return jsonify({'error': 'Platform admin required'}), 403
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT * FROM tenant_domains WHERE id = ?', (domain_id,))
+    domain_row = c.fetchone()
+    if not domain_row:
+        conn.close()
+        return jsonify({'error': 'Domain not found'}), 404
+
+    domain = domain_row['domain']
+    expected_token = f"noc-verify={domain_row['verification_token']}"
+    lookup_name = f"_noc-configmaker.{domain}"
+
+    verified = False
+    try:
+        r = requests.get(
+            'https://cloudflare-dns.com/dns-query',
+            params={'name': lookup_name, 'type': 'TXT'},
+            headers={'Accept': 'application/dns-json'},
+            timeout=10
+        )
+        if r.ok:
+            for ans in r.json().get('Answer', []):
+                val = ans.get('data', '').strip('"')
+                if val == expected_token:
+                    verified = True
+                    break
+    except Exception as e:
+        safe_print(f"[DNS VERIFY] Failed for {domain}: {e}")
+
+    if verified:
+        conn.execute('UPDATE tenant_domains SET verified_at = CURRENT_TIMESTAMP WHERE id = ?', (domain_id,))
+        c.execute('SELECT tenant_id FROM tenant_domains WHERE id = ?', (domain_id,))
+        tid = c.fetchone()['tenant_id']
+        c.execute('SELECT allowed_email_domains FROM tenants WHERE id = ?', (tid,))
+        t = c.fetchone()
+        existing = json.loads(t['allowed_email_domains'] or '[]') if t else []
+        if domain not in existing:
+            existing.append(domain)
+            conn.execute('UPDATE tenants SET allowed_email_domains = ? WHERE id = ?', (json.dumps(existing), tid))
+        conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'verified': verified,
+                    'message': 'Domain verified and added to allowed domains.' if verified else f'TXT record not found. Expected: {expected_token} at {lookup_name}'})
+
+
+# ============================================================
+# PHASE 3A — PER-TENANT FEATURE FLAGS (Admin Endpoints)
+# ============================================================
+
+@app.route('/api/admin/tenants/<int:tenant_id>/features', methods=['GET', 'PUT'])
+@require_auth
+def manage_tenant_features(tenant_id):
+    """Get or set feature flags for a tenant. Platform admin only."""
+    if _platform_role_for_email((getattr(request, 'current_user', {}) or {}).get('email', '')) != 'platform_admin':
+        return jsonify({'error': 'Platform admin required'}), 403
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    if request.method == 'GET':
+        c = conn.cursor()
+        c.execute('SELECT features FROM tenant_features WHERE tenant_id = ?', (tenant_id,))
+        row = c.fetchone()
+        conn.close()
+        features = {**_DEFAULT_FEATURES, **json.loads(row['features'] if row else '{}')}
+        return jsonify({'success': True, 'features': features})
+    data = request.json or {}
+    features = {**_DEFAULT_FEATURES, **{k: bool(v) for k, v in data.items() if k in _DEFAULT_FEATURES}}
+    conn.execute('''INSERT INTO tenant_features (tenant_id, features) VALUES (?, ?)
+                    ON CONFLICT(tenant_id) DO UPDATE SET features = excluded.features, updated_at = CURRENT_TIMESTAMP''',
+                 (tenant_id, json.dumps(features)))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'features': features})
+
+
+# ============================================================
+# PHASE 3B — TENANT BRANDING
+# ============================================================
+
+@app.route('/api/tenant/branding', methods=['GET'])
+def get_tenant_branding():
+    """Public endpoint — returns branding for a tenant by slug or host header."""
+    slug = request.args.get('slug', '').strip()
+    host = request.headers.get('Host', '').split(':')[0]
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    if slug:
+        c.execute('SELECT slug, name, company_name, logo_url, primary_color, favicon_url FROM tenants WHERE slug = ? AND status = ?', (slug, 'active'))
+    else:
+        c.execute('SELECT slug, name, company_name, logo_url, primary_color, favicon_url FROM tenants WHERE custom_domain = ? AND status = ?', (host, 'active'))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'success': True, 'branding': {'primary_color': '#2563eb'}})
+    return jsonify({'success': True, 'branding': dict(row)})
+
+
+@app.route('/api/admin/tenants/<int:tenant_id>/branding', methods=['PUT'])
+@require_auth
+def update_tenant_branding(tenant_id):
+    """Update branding for a tenant. Platform admin only."""
+    if _platform_role_for_email((getattr(request, 'current_user', {}) or {}).get('email', '')) != 'platform_admin':
+        return jsonify({'error': 'Platform admin required'}), 403
+    data = request.json or {}
+    allowed = ('logo_url', 'primary_color', 'company_name', 'custom_domain', 'favicon_url')
+    updates = {k: v for k, v in data.items() if k in allowed}
+    if not updates:
+        return jsonify({'error': 'No valid fields provided'}), 400
+    sets = ', '.join(f'{k} = ?' for k in updates)
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.execute(f'UPDATE tenants SET {sets} WHERE id = ?', (*updates.values(), tenant_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+
+# ============================================================
+# QUOTA USAGE — Current tenant
+# ============================================================
+
+@app.route('/api/tenant/usage', methods=['GET'])
+@require_auth
+def get_tenant_usage():
+    """Return today's usage vs quotas for the current tenant."""
+    user_info = getattr(request, 'current_user', {})
+    tenant_id = user_info.get('tenant_id') or user_info.get('tenantId')
+    if not tenant_id:
+        tenant_ctx = _get_request_tenant_context()
+        tenant_id = tenant_ctx['tenant'].get('id')
+    usage = _get_today_usage(tenant_id) if tenant_id else {'configs_generated': 0, 'api_calls': 0}
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT * FROM tenant_quotas WHERE tenant_id = ?', (tenant_id,))
+    quota_row = c.fetchone()
+    conn.close()
+    quotas = dict(quota_row) if quota_row else {'max_users': None, 'max_configs_per_day': None, 'max_api_calls_per_day': None}
+    return jsonify({'success': True, 'usage': usage, 'quotas': quotas})
 
 
 if __name__ == '__main__':

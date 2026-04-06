@@ -4124,20 +4124,20 @@
                         <a data-tab="switch-maker">MikroTik Switch Maker</a>
                     </div>
                 </div>
-                <div class="nav-item dropdown" data-default-tab="field-config-studio"><button>FIELD CONFIG STUDIO</button>
+                <div class="nav-item dropdown" data-default-tab="field-config-studio" data-feature="nokia"><button>FIELD CONFIG STUDIO</button>
                     <div class="dropdown-menu">
                         <a data-tab="field-config-studio">DEVICE CONFIG STUDIO</a>
-                        <a data-tab="nokia7250-maker">Nokia Configurator</a>
-                        <a data-tab="mikrotik-to-nokia">NOKIA MIGRATION</a>
+                        <a data-tab="nokia7250-maker" data-feature="nokia">Nokia Configurator</a>
+                        <a data-tab="mikrotik-to-nokia" data-feature="nokia">NOKIA MIGRATION</a>
                     </div>
                 </div>
                 <div class="nav-item dropdown" data-default-tab="device-firmware-updater"><button>DEVICES FIRMWARE UPDATER</button>
                     <div class="dropdown-menu">
-                        <a data-tab="device-firmware-updater" data-device-firmware-tab="aviat">AVIAT BACKHAUL UPDATER</a>
-                        <a data-tab="device-firmware-updater" data-device-firmware-tab="cambium">CAMBIUM RADIO UPDATER</a>
+                        <a data-tab="device-firmware-updater" data-device-firmware-tab="aviat" data-feature="aviat">AVIAT BACKHAUL UPDATER</a>
+                        <a data-tab="device-firmware-updater" data-device-firmware-tab="cambium" data-feature="cambium">CAMBIUM RADIO UPDATER</a>
                     </div>
                 </div>
-                <div class="nav-item dropdown" data-tab="ftth-home"><button>FTTH CONFIGURATOR</button>
+                <div class="nav-item dropdown" data-tab="ftth-home" data-feature="ftth"><button>FTTH CONFIGURATOR</button>
                     <div class="dropdown-menu">
                         <a data-tab="ftth-home" data-ftth-home-tab="olt">OLT CONFIGURATION</a>
                         <a data-tab="ftth-home" data-ftth-home-tab="bng">BNG CONFIGURATION</a>
@@ -4156,8 +4156,8 @@
                 <button class="nav-item" data-tab="cisco-config">CISCO PORT SETUP</button>
                 <div class="nav-item dropdown" data-default-tab="config-diff"><button>POWER TOOLS</button>
                     <div class="dropdown-menu">
-                        <a data-tab="config-diff">Config Diff Viewer</a>
-                        <a data-tab="bulk-config">Bulk Operations Center</a>
+                        <a data-tab="config-diff" data-feature="config_diff">Config Diff Viewer</a>
+                        <a data-tab="bulk-config" data-feature="bulk_ops">Bulk Operations Center</a>
                         <a data-tab="maintenance">Scheduled Maintenance</a>
                         <a data-tab="compliance-scanner">Compliance Scanner</a>
                     </div>
@@ -7204,10 +7204,19 @@
                     <h1> Admin Panel</h1>
 
                     <!-- Admin internal tab bar -->
-                    <div style="display:flex; gap:8px; margin-bottom:18px; border-bottom:1px solid var(--border-color); padding-bottom:10px;">
+                    <div style="display:flex; gap:8px; margin-bottom:18px; border-bottom:1px solid var(--border-color); padding-bottom:10px; flex-wrap:wrap;">
                         <button id="adminTabFeedback" onclick="switchAdminTab('feedback')" style="background:var(--primary-color); color:#fff; border:none; border-radius:6px; padding:6px 16px; font-size:12px; cursor:pointer;">Feedback</button>
                         <span id="adminSettingsTabWrapper" style="display:none;">
                             <button id="adminTabSettings" onclick="switchAdminTab('settings')" style="background:transparent; color:var(--text-color); border:1px solid var(--border-color); border-radius:6px; padding:6px 16px; font-size:12px; cursor:pointer;">Tenant Settings</button>
+                        </span>
+                        <span id="adminApiKeysTabWrapper" style="display:none;">
+                            <button id="adminTabApiKeys" onclick="switchAdminTab('apikeys')" style="background:transparent; color:var(--text-color); border:1px solid var(--border-color); border-radius:6px; padding:6px 16px; font-size:12px; cursor:pointer;">API Keys</button>
+                        </span>
+                        <span id="adminInviteTabWrapper" style="display:none;">
+                            <button id="adminTabInvite" onclick="switchAdminTab('invite')" style="background:transparent; color:var(--text-color); border:1px solid var(--border-color); border-radius:6px; padding:6px 16px; font-size:12px; cursor:pointer;">Invite Users</button>
+                        </span>
+                        <span id="adminUsageTabWrapper" style="display:none;">
+                            <button id="adminTabUsage" onclick="switchAdminTab('usage')" style="background:transparent; color:var(--text-color); border:1px solid var(--border-color); border-radius:6px; padding:6px 16px; font-size:12px; cursor:pointer;">Usage &amp; Quotas</button>
                         </span>
                         <span id="adminPlatformTabWrapper" style="display:none;">
                             <button id="adminTabPlatform" onclick="switchAdminTab('platform')" style="background:transparent; color:var(--text-color); border:1px solid var(--border-color); border-radius:6px; padding:6px 16px; font-size:12px; cursor:pointer;">Platform Management</button>
@@ -7403,6 +7412,66 @@
                         </div>
                     </div>
 
+                    <!-- API Keys section (tenant_admin+) -->
+                    <div id="adminApiKeysSection" style="display:none;">
+                        <div class="section" style="margin-bottom:24px;">
+                            <h2 style="font-size:14px; margin-bottom:12px; color:var(--text-color);">API Keys</h2>
+                            <p style="font-size:12px; color:var(--text-color-secondary); margin-bottom:12px;">Create API keys to authenticate programmatic access to the NOC Config Maker API. The full key is shown only once at creation.</p>
+                            <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:flex-end;">
+                                <input id="newApiKeyName" placeholder="Key name (e.g. CI/CD Pipeline)" style="padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px; width:200px;" />
+                                <select id="newApiKeyExpiry" style="padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px;">
+                                    <option value="">Never expires</option>
+                                    <option value="30">30 days</option>
+                                    <option value="90">90 days</option>
+                                    <option value="365">1 year</option>
+                                </select>
+                                <button onclick="createApiKey()" style="background:var(--primary-color); color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:12px; cursor:pointer;">Create Key</button>
+                                <button onclick="loadApiKeys()" style="background:transparent; border:1px solid var(--border-color); border-radius:6px; padding:6px 10px; font-size:11px; color:var(--text-color); cursor:pointer;">Refresh</button>
+                            </div>
+                            <div id="adminApiKeyList" style="font-size:12px; color:var(--text-color-secondary);">Loading...</div>
+                        </div>
+                        <!-- New key display modal -->
+                        <div id="newApiKeyModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; align-items:center; justify-content:center;">
+                            <div style="background:var(--card-bg); border-radius:10px; padding:24px; max-width:520px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+                                <h3 style="margin-top:0; color:var(--text-color); font-size:15px;">API Key Created</h3>
+                                <div style="background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; padding:10px 14px; margin-bottom:12px; font-size:12px; color:#92400e;">
+                                    <strong>Save this key now.</strong> You will never see it again.
+                                </div>
+                                <code id="newApiKeyValue" style="display:block; background:var(--container-bg); padding:10px 14px; border-radius:6px; font-size:12px; word-break:break-all; color:var(--text-color); margin-bottom:12px; border:1px solid var(--border-color);"></code>
+                                <div style="display:flex; gap:8px; justify-content:flex-end;">
+                                    <button onclick="copyApiKey()" style="background:var(--primary-color); color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:12px; cursor:pointer;">Copy Key</button>
+                                    <button onclick="document.getElementById('newApiKeyModal').style.display='none'; loadApiKeys();" style="background:transparent; border:1px solid var(--border-color); border-radius:6px; padding:6px 14px; font-size:12px; color:var(--text-color); cursor:pointer;">Done</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Invite Users section (tenant_admin+) -->
+                    <div id="adminInviteSection" style="display:none;">
+                        <div class="section" style="margin-bottom:24px;">
+                            <h2 style="font-size:14px; margin-bottom:12px; color:var(--text-color);">Invite Users</h2>
+                            <p style="font-size:12px; color:var(--text-color-secondary); margin-bottom:12px;">Send email invitations to add users to your organization. Invited users will receive a link to set their password and join.</p>
+                            <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:flex-end;">
+                                <input id="inviteEmail" type="email" placeholder="user@example.com" style="padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px; width:220px;" />
+                                <select id="inviteRole" style="padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px;">
+                                    <option value="tenant_engineer">Engineer</option>
+                                    <option value="tenant_admin">Tenant Admin</option>
+                                    <option value="tenant_viewer">Viewer (Read-only)</option>
+                                </select>
+                                <button onclick="sendInvite()" style="background:var(--primary-color); color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:12px; cursor:pointer;">Send Invite</button>
+                            </div>
+                            <div id="inviteStatusMsg" style="font-size:12px; margin-top:8px;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Usage & Quotas section (tenant_admin+) -->
+                    <div id="adminUsageSection" style="display:none;">
+                        <div class="section" style="margin-bottom:24px;">
+                            <h2 style="font-size:14px; margin-bottom:12px; color:var(--text-color);">Today's Usage</h2>
+                            <div id="adminUsageDisplay" style="font-size:13px; color:var(--text-color);">Loading...</div>
+                        </div>
+                    </div>
+
                     <!-- Platform management section (platform_admin only) -->
                     <div id="adminPlatformSection" style="display:none;">
                         <!-- Tenant Management -->
@@ -7435,6 +7504,70 @@
                             <div id="adminUserList" style="font-size:12px; color:var(--text-color-secondary);">Loading...</div>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Feature Flags Modal (platform_admin) -->
+            <div id="featuresModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; align-items:center; justify-content:center;">
+                <div style="background:var(--card-bg); border-radius:10px; padding:24px; max-width:420px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+                    <h3 style="margin-top:0; color:var(--text-color); font-size:15px;">Feature Flags — <span id="featuresModalTenantName"></span></h3>
+                    <input type="hidden" id="featuresModalTenantId" />
+                    <div id="featuresModalBody" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px;"></div>
+                    <div style="display:flex; gap:8px; justify-content:flex-end;">
+                        <button onclick="saveFeatureFlags()" style="background:var(--primary-color); color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:12px; cursor:pointer;">Save</button>
+                        <button onclick="document.getElementById('featuresModal').style.display='none'" style="background:transparent; border:1px solid var(--border-color); border-radius:6px; padding:6px 14px; font-size:12px; color:var(--text-color); cursor:pointer;">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Branding Modal (platform_admin) -->
+            <div id="brandingModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; align-items:center; justify-content:center;">
+                <div style="background:var(--card-bg); border-radius:10px; padding:24px; max-width:480px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+                    <h3 style="margin-top:0; color:var(--text-color); font-size:15px;">Branding — <span id="brandingModalTenantName"></span></h3>
+                    <input type="hidden" id="brandingModalTenantId" />
+                    <div style="display:grid; gap:10px; margin-bottom:16px;">
+                        <div><label style="font-size:11px; color:var(--text-color-secondary);">Company Name</label><input id="brandingCompanyName" placeholder="Acme Corp" style="width:100%; padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px; box-sizing:border-box;" /></div>
+                        <div><label style="font-size:11px; color:var(--text-color-secondary);">Primary Color</label><div style="display:flex; gap:8px; align-items:center;"><input type="color" id="brandingPrimaryColor" value="#2563eb" style="width:44px; height:32px; border:none; padding:0; cursor:pointer;" /><input id="brandingPrimaryColorText" placeholder="#2563eb" style="flex:1; padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px;" oninput="document.getElementById('brandingPrimaryColor').value=this.value" /></div></div>
+                        <div><label style="font-size:11px; color:var(--text-color-secondary);">Logo URL</label><input id="brandingLogoUrl" placeholder="https://example.com/logo.png" style="width:100%; padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px; box-sizing:border-box;" /></div>
+                        <div><label style="font-size:11px; color:var(--text-color-secondary);">Favicon URL</label><input id="brandingFaviconUrl" placeholder="https://example.com/favicon.ico" style="width:100%; padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px; box-sizing:border-box;" /></div>
+                        <div><label style="font-size:11px; color:var(--text-color-secondary);">Custom Domain</label><input id="brandingCustomDomain" placeholder="app.acmecorp.com" style="width:100%; padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px; box-sizing:border-box;" /></div>
+                    </div>
+                    <div style="display:flex; gap:8px; justify-content:flex-end;">
+                        <button onclick="saveBranding()" style="background:var(--primary-color); color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:12px; cursor:pointer;">Save Branding</button>
+                        <button onclick="document.getElementById('brandingModal').style.display='none'" style="background:transparent; border:1px solid var(--border-color); border-radius:6px; padding:6px 14px; font-size:12px; color:var(--text-color); cursor:pointer;">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quotas Modal (platform_admin) -->
+            <div id="quotasModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; align-items:center; justify-content:center;">
+                <div style="background:var(--card-bg); border-radius:10px; padding:24px; max-width:420px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+                    <h3 style="margin-top:0; color:var(--text-color); font-size:15px;">Quota Limits — <span id="quotasModalTenantName"></span></h3>
+                    <input type="hidden" id="quotasModalTenantId" />
+                    <div style="display:grid; gap:10px; margin-bottom:16px;">
+                        <div><label style="font-size:11px; color:var(--text-color-secondary);">Max Users</label><input type="number" id="quotaMaxUsers" placeholder="10" style="width:100%; padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px; box-sizing:border-box;" /></div>
+                        <div><label style="font-size:11px; color:var(--text-color-secondary);">Max Config Generations / Day</label><input type="number" id="quotaMaxConfigs" placeholder="100" style="width:100%; padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px; box-sizing:border-box;" /></div>
+                        <div><label style="font-size:11px; color:var(--text-color-secondary);">Max API Calls / Day</label><input type="number" id="quotaMaxApiCalls" placeholder="1000" style="width:100%; padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px; box-sizing:border-box;" /></div>
+                    </div>
+                    <div style="display:flex; gap:8px; justify-content:flex-end;">
+                        <button onclick="saveQuotas()" style="background:var(--primary-color); color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:12px; cursor:pointer;">Save Quotas</button>
+                        <button onclick="document.getElementById('quotasModal').style.display='none'" style="background:transparent; border:1px solid var(--border-color); border-radius:6px; padding:6px 14px; font-size:12px; color:var(--text-color); cursor:pointer;">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Invite Accept Flow (shown when URL hash contains #invite?token=...) -->
+            <div id="inviteAcceptOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:10000; align-items:center; justify-content:center;">
+                <div style="background:var(--card-bg); border-radius:10px; padding:32px; max-width:440px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.4);">
+                    <h2 style="margin-top:0; color:var(--text-color); font-size:18px;">Accept Invitation</h2>
+                    <div id="inviteAcceptInfo" style="margin-bottom:16px; font-size:13px; color:var(--text-color-secondary);"></div>
+                    <div style="display:grid; gap:10px; margin-bottom:16px;">
+                        <input id="inviteAcceptName" placeholder="Your display name" style="padding:8px 12px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:13px;" />
+                        <input type="password" id="inviteAcceptPassword" placeholder="Set a password (min 8 chars)" style="padding:8px 12px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:13px;" />
+                        <input type="password" id="inviteAcceptPasswordConfirm" placeholder="Confirm password" style="padding:8px 12px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:13px;" />
+                    </div>
+                    <div id="inviteAcceptError" style="color:var(--danger-color); font-size:12px; margin-bottom:10px;"></div>
+                    <button onclick="submitInviteAccept()" style="width:100%; background:var(--primary-color); color:#fff; border:none; border-radius:6px; padding:10px; font-size:13px; cursor:pointer; font-weight:600;">Activate Account</button>
                 </div>
             </div>
 
@@ -24927,38 +25060,41 @@ Ready for translation!`);
         }
 
         function switchAdminTab(tab) {
-            const feedbackSection = document.getElementById('adminFeedbackSection');
-            const platformSection = document.getElementById('adminPlatformSection');
-            const settingsSection = document.getElementById('adminSettingsSection');
-            const auditSection = document.getElementById('adminAuditSection');
-            const feedbackBtn = document.getElementById('adminTabFeedback');
-            const platformBtn = document.getElementById('adminTabPlatform');
-            const settingsBtn = document.getElementById('adminTabSettings');
-            const auditBtn = document.getElementById('adminTabAudit');
+            const sections = {
+                feedback: document.getElementById('adminFeedbackSection'),
+                platform: document.getElementById('adminPlatformSection'),
+                settings: document.getElementById('adminSettingsSection'),
+                audit: document.getElementById('adminAuditSection'),
+                apikeys: document.getElementById('adminApiKeysSection'),
+                invite: document.getElementById('adminInviteSection'),
+                usage: document.getElementById('adminUsageSection'),
+            };
+            const buttons = {
+                feedback: document.getElementById('adminTabFeedback'),
+                platform: document.getElementById('adminTabPlatform'),
+                settings: document.getElementById('adminTabSettings'),
+                audit: document.getElementById('adminTabAudit'),
+                apikeys: document.getElementById('adminTabApiKeys'),
+                invite: document.getElementById('adminTabInvite'),
+                usage: document.getElementById('adminTabUsage'),
+            };
 
             // Hide all sections and reset all buttons
-            [feedbackSection, platformSection, settingsSection, auditSection].forEach(s => { if (s) s.style.display = 'none'; });
-            [feedbackBtn, platformBtn, settingsBtn, auditBtn].forEach(b => {
+            Object.values(sections).forEach(s => { if (s) s.style.display = 'none'; });
+            Object.values(buttons).forEach(b => {
                 if (b) { b.style.background = 'transparent'; b.style.color = 'var(--text-color)'; b.style.border = '1px solid var(--border-color)'; }
             });
 
-            if (tab === 'feedback') {
-                if (feedbackSection) feedbackSection.style.display = '';
-                if (feedbackBtn) { feedbackBtn.style.background = 'var(--primary-color)'; feedbackBtn.style.color = '#fff'; feedbackBtn.style.border = 'none'; }
-            } else if (tab === 'settings') {
-                if (settingsSection) settingsSection.style.display = '';
-                if (settingsBtn) { settingsBtn.style.background = 'var(--primary-color)'; settingsBtn.style.color = '#fff'; settingsBtn.style.border = 'none'; }
-                loadTenantSettings();
-            } else if (tab === 'audit') {
-                if (auditSection) auditSection.style.display = '';
-                if (auditBtn) { auditBtn.style.background = 'var(--primary-color)'; auditBtn.style.color = '#fff'; auditBtn.style.border = 'none'; }
-                loadAuditLog();
-            } else {
-                if (platformSection) platformSection.style.display = '';
-                if (platformBtn) { platformBtn.style.background = 'var(--primary-color)'; platformBtn.style.color = '#fff'; platformBtn.style.border = 'none'; }
-                loadAdminTenants();
-                loadAdminUsers();
-            }
+            const section = sections[tab];
+            const btn = buttons[tab];
+            if (section) section.style.display = '';
+            if (btn) { btn.style.background = 'var(--primary-color)'; btn.style.color = '#fff'; btn.style.border = 'none'; }
+
+            if (tab === 'settings') loadTenantSettings();
+            else if (tab === 'audit') loadAuditLog();
+            else if (tab === 'platform') { loadAdminTenants(); loadAdminUsers(); }
+            else if (tab === 'apikeys') loadApiKeys();
+            else if (tab === 'usage') loadTenantUsage();
         }
 
         // ── Profile Avatar (top bar) ────────────────────────────────────────────
@@ -25247,10 +25383,19 @@ Ready for translation!`);
             const platformWrapper = document.getElementById('adminPlatformTabWrapper');
             const settingsWrapper = document.getElementById('adminSettingsTabWrapper');
             const auditWrapper = document.getElementById('adminAuditTabWrapper');
+            const apiKeysWrapper = document.getElementById('adminApiKeysTabWrapper');
+            const inviteWrapper = document.getElementById('adminInviteTabWrapper');
+            const usageWrapper = document.getElementById('adminUsageTabWrapper');
             const sidebarAdminBtn = document.getElementById('sidebarAdminBtn');
 
             // Tenant Settings tab: visible to all adminPanel users (tenant_admin + platform_admin)
             if (settingsWrapper) settingsWrapper.style.display = permissions.adminPanel ? 'inline' : 'none';
+            // API Keys tab: tenant_admin+
+            if (apiKeysWrapper) apiKeysWrapper.style.display = permissions.adminPanel ? 'inline' : 'none';
+            // Invite Users tab: tenant_admin+
+            if (inviteWrapper) inviteWrapper.style.display = permissions.adminPanel ? 'inline' : 'none';
+            // Usage & Quotas tab: tenant_admin+
+            if (usageWrapper) usageWrapper.style.display = permissions.adminPanel ? 'inline' : 'none';
             // Platform Management tab: platform_admin only
             if (platformWrapper) platformWrapper.style.display = permissions.platformAdmin ? 'inline' : 'none';
             // Audit Log tab: platform_admin only
@@ -25263,6 +25408,12 @@ Ready for translation!`);
             if (topNavAdminBtn) {
                 topNavAdminBtn.style.display = permissions.adminPanel ? '' : 'none';
             }
+
+            // Apply tenant feature flags
+            applyFeatureFlags(session.features || {});
+
+            // Apply tenant branding
+            if (session.branding) applyBrandingFromBootstrap(session.branding);
         }
 
         async function loadTenantSettings() {
@@ -25380,7 +25531,12 @@ Ready for translation!`);
                         <td style="padding:6px 10px;">${t.auth_mode}</td>
                         <td style="padding:6px 10px; text-align:center;">${t.member_count || 0}</td>
                         <td style="padding:6px 10px;">
+                            <div style="display:flex; gap:4px; flex-wrap:wrap;">
                             ${t.status === 'active' ? `<button onclick="deactivateTenant(${t.id})" style="font-size:11px; padding:3px 8px; background:transparent; border:1px solid var(--danger-color); color:var(--danger-color); border-radius:4px; cursor:pointer;">Deactivate</button>` : `<button onclick="activateTenant(${t.id})" style="font-size:11px; padding:3px 8px; background:transparent; border:1px solid var(--primary-color); color:var(--primary-color); border-radius:4px; cursor:pointer;">Activate</button>`}
+                            <button onclick="openFeaturesModal(${t.id}, ${JSON.stringify(t.name).replace(/"/g,'&quot;')})" style="font-size:11px; padding:3px 8px; background:transparent; border:1px solid var(--border-color); color:var(--text-color); border-radius:4px; cursor:pointer;">Features</button>
+                            <button onclick="openBrandingModal(${t.id}, ${JSON.stringify(t.name).replace(/"/g,'&quot;')})" style="font-size:11px; padding:3px 8px; background:transparent; border:1px solid var(--border-color); color:var(--text-color); border-radius:4px; cursor:pointer;">Branding</button>
+                            <button onclick="openQuotasModal(${t.id}, ${JSON.stringify(t.name).replace(/"/g,'&quot;')})" style="font-size:11px; padding:3px 8px; background:transparent; border:1px solid var(--border-color); color:var(--text-color); border-radius:4px; cursor:pointer;">Quotas</button>
+                            </div>
                         </td>
                     </tr>`).join('');
                 container.innerHTML = `<table style="width:100%; border-collapse:collapse; background:var(--card-bg); border-radius:8px; overflow:hidden;">
@@ -25434,6 +25590,368 @@ Ready for translation!`);
                 container.innerHTML = `<span style="color:var(--danger-color)">Error loading users: ${e.message}</span>`;
             }
         }
+
+        // ── Tenant Branding ────────────────────────────────────────────────────────
+        async function loadTenantBranding(slug) {
+            try {
+                const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : '/api';
+                const url = slug ? `${apiBase}/tenant/branding?slug=${encodeURIComponent(slug)}` : `${apiBase}/tenant/branding`;
+                const r = await fetch(url);
+                if (!r.ok) return;
+                const { branding } = await r.json();
+                applyBrandingFromBootstrap(branding || {});
+            } catch(e) {}
+        }
+
+        function applyBrandingFromBootstrap(branding) {
+            if (!branding) return;
+            if (branding.primary_color) {
+                document.documentElement.style.setProperty('--primary-color', branding.primary_color);
+                document.documentElement.style.setProperty('--accent-color', branding.primary_color);
+            }
+            if (branding.logo_url) {
+                const logo = document.getElementById('appLogo');
+                if (logo) logo.src = branding.logo_url;
+            }
+            if (branding.favicon_url) {
+                let link = document.querySelector("link[rel~='icon']");
+                if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link); }
+                link.href = branding.favicon_url;
+            }
+            if (branding.company_name) {
+                document.title = branding.company_name + ' — Config Maker';
+            }
+        }
+
+        // ── Feature Flags ──────────────────────────────────────────────────────────
+        function applyFeatureFlags(features) {
+            if (!features) return;
+            const map = {
+                nokia: '[data-feature="nokia"]',
+                cambium: '[data-feature="cambium"]',
+                aviat: '[data-feature="aviat"]',
+                ftth: '[data-feature="ftth"]',
+                bulk_ops: '[data-feature="bulk_ops"]',
+                mikrotik: '[data-feature="mikrotik"]',
+                compliance: '[data-feature="compliance"]',
+            };
+            Object.entries(map).forEach(([key, selector]) => {
+                if (features[key] === false) {
+                    document.querySelectorAll(selector).forEach(el => el.style.display = 'none');
+                }
+            });
+        }
+
+        // ── API Keys ───────────────────────────────────────────────────────────────
+        async function loadApiKeys() {
+            const container = document.getElementById('adminApiKeyList');
+            if (!container) return;
+            container.innerHTML = '<span style="color:var(--text-color-secondary)">Loading...</span>';
+            const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : '/api';
+            try {
+                const resp = await fetch(`${apiBase}/api-keys`, { headers: getAuthHeaders() });
+                const data = await resp.json();
+                if (!data.success) { container.innerHTML = `<span style="color:var(--danger-color)">${data.error || 'Failed to load API keys'}</span>`; return; }
+                const keys = data.api_keys || [];
+                if (!keys.length) { container.innerHTML = '<span style="color:var(--text-color-secondary)">No API keys yet. Create one above.</span>'; return; }
+                const rows = keys.map(k => {
+                    const expired = k.expires_at && new Date(k.expires_at) < new Date();
+                    const status = !k.is_active ? 'Revoked' : expired ? 'Expired' : 'Active';
+                    const statusColor = !k.is_active || expired ? 'var(--danger-color)' : '#22c55e';
+                    return `<tr>
+                        <td style="padding:6px 10px;">${escHtml(k.name)}</td>
+                        <td style="padding:6px 10px; font-family:monospace;">${escHtml(k.key_prefix)}...</td>
+                        <td style="padding:6px 10px; color:${statusColor}">${status}</td>
+                        <td style="padding:6px 10px;">${k.last_used_at ? new Date(k.last_used_at).toLocaleDateString() : 'Never'}</td>
+                        <td style="padding:6px 10px;">${k.expires_at ? new Date(k.expires_at).toLocaleDateString() : 'Never'}</td>
+                        <td style="padding:6px 10px;">${k.is_active ? `<button onclick="revokeApiKey(${k.id})" style="font-size:11px; padding:3px 8px; background:transparent; border:1px solid var(--danger-color); color:var(--danger-color); border-radius:4px; cursor:pointer;">Revoke</button>` : ''}</td>
+                    </tr>`;
+                }).join('');
+                container.innerHTML = `<table style="width:100%; border-collapse:collapse; background:var(--card-bg); border-radius:8px; overflow:hidden;">
+                    <thead><tr style="background:var(--table-header-bg,var(--container-bg)); font-size:11px; text-transform:uppercase; color:var(--text-color-secondary);">
+                        <th style="padding:8px 10px; text-align:left;">Name</th>
+                        <th style="padding:8px 10px; text-align:left;">Prefix</th>
+                        <th style="padding:8px 10px; text-align:left;">Status</th>
+                        <th style="padding:8px 10px; text-align:left;">Last Used</th>
+                        <th style="padding:8px 10px; text-align:left;">Expires</th>
+                        <th style="padding:8px 10px; text-align:left;">Actions</th>
+                    </tr></thead><tbody>${rows}</tbody></table>`;
+            } catch(e) {
+                container.innerHTML = `<span style="color:var(--danger-color)">Error: ${e.message}</span>`;
+            }
+        }
+
+        function escHtml(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+        async function createApiKey() {
+            const name = (document.getElementById('newApiKeyName')?.value || '').trim();
+            const expiry = document.getElementById('newApiKeyExpiry')?.value || '';
+            if (!name) { alert('Key name is required.'); return; }
+            const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : '/api';
+            try {
+                const resp = await fetch(`${apiBase}/api-keys`, {
+                    method: 'POST',
+                    headers: getAuthHeaders('application/json'),
+                    body: JSON.stringify({ name, expires_days: expiry ? parseInt(expiry) : null })
+                });
+                const data = await resp.json();
+                if (!data.success) { alert(data.error || 'Failed to create key'); return; }
+                // Show key in modal
+                document.getElementById('newApiKeyValue').textContent = data.key;
+                const modal = document.getElementById('newApiKeyModal');
+                if (modal) { modal.style.display = 'flex'; }
+                document.getElementById('newApiKeyName').value = '';
+            } catch(e) { alert('Error: ' + e.message); }
+        }
+
+        function copyApiKey() {
+            const val = document.getElementById('newApiKeyValue')?.textContent || '';
+            navigator.clipboard.writeText(val).then(() => alert('API key copied to clipboard.')).catch(() => {
+                const el = document.getElementById('newApiKeyValue');
+                const range = document.createRange();
+                range.selectNode(el);
+                window.getSelection().removeAllRanges();
+                window.getSelection().addRange(range);
+                document.execCommand('copy');
+            });
+        }
+
+        async function revokeApiKey(keyId) {
+            if (!confirm('Revoke this API key? This cannot be undone.')) return;
+            const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : '/api';
+            try {
+                const resp = await fetch(`${apiBase}/api-keys/${keyId}`, { method: 'DELETE', headers: getAuthHeaders() });
+                const data = await resp.json();
+                if (data.success) loadApiKeys();
+                else alert(data.error || 'Failed to revoke');
+            } catch(e) { alert('Error: ' + e.message); }
+        }
+
+        // ── Invite Users ───────────────────────────────────────────────────────────
+        async function sendInvite() {
+            const email = (document.getElementById('inviteEmail')?.value || '').trim();
+            const role = document.getElementById('inviteRole')?.value || 'tenant_engineer';
+            const statusEl = document.getElementById('inviteStatusMsg');
+            if (!email) { if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger-color)">Email is required.</span>'; return; }
+            if (statusEl) statusEl.innerHTML = '<span style="color:var(--text-color-secondary)">Sending...</span>';
+            const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : '/api';
+            try {
+                const resp = await fetch(`${apiBase}/admin/invite`, {
+                    method: 'POST',
+                    headers: getAuthHeaders('application/json'),
+                    body: JSON.stringify({ email, role })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    if (statusEl) statusEl.innerHTML = `<span style="color:#22c55e">${data.message || 'Invitation sent!'}</span>`;
+                    document.getElementById('inviteEmail').value = '';
+                } else {
+                    if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger-color)">${data.error || 'Failed to send invite'}</span>`;
+                }
+            } catch(e) { if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger-color)">Error: ${e.message}</span>`; }
+        }
+
+        // ── Usage & Quotas ─────────────────────────────────────────────────────────
+        async function loadTenantUsage() {
+            const container = document.getElementById('adminUsageDisplay');
+            if (!container) return;
+            container.innerHTML = 'Loading...';
+            const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : '/api';
+            try {
+                const resp = await fetch(`${apiBase}/tenant/usage`, { headers: getAuthHeaders() });
+                const data = await resp.json();
+                if (!data.success) { container.innerHTML = `<span style="color:var(--danger-color)">${data.error}</span>`; return; }
+                const u = data.usage || {};
+                const q = data.quotas || {};
+                const fmt = (val, limit) => limit ? `${val} / ${limit}` : `${val} (unlimited)`;
+                container.innerHTML = `
+                    <table style="width:100%; border-collapse:collapse;">
+                        <thead><tr style="font-size:11px; text-transform:uppercase; color:var(--text-color-secondary);">
+                            <th style="padding:6px 10px; text-align:left;">Metric</th>
+                            <th style="padding:6px 10px; text-align:left;">Today's Usage / Limit</th>
+                        </tr></thead>
+                        <tbody>
+                            <tr><td style="padding:6px 10px;">Config Generations</td><td style="padding:6px 10px;">${fmt(u.configs_generated || 0, q.max_configs_per_day)}</td></tr>
+                            <tr><td style="padding:6px 10px;">API Calls</td><td style="padding:6px 10px;">${fmt(u.api_calls || 0, q.max_api_calls_per_day)}</td></tr>
+                        </tbody>
+                    </table>`;
+            } catch(e) { container.innerHTML = `<span style="color:var(--danger-color)">Error: ${e.message}</span>`; }
+        }
+
+        // ── Feature Flags Modal ────────────────────────────────────────────────────
+        async function openFeaturesModal(tenantId, tenantName) {
+            document.getElementById('featuresModalTenantId').value = tenantId;
+            document.getElementById('featuresModalTenantName').textContent = tenantName;
+            const body = document.getElementById('featuresModalBody');
+            body.innerHTML = 'Loading...';
+            document.getElementById('featuresModal').style.display = 'flex';
+            const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : '/api';
+            try {
+                const resp = await fetch(`${apiBase}/admin/tenants/${tenantId}/features`, { headers: getAuthHeaders() });
+                const data = await resp.json();
+                const features = data.features || {};
+                const featureLabels = { mikrotik:'MikroTik', nokia:'Nokia', cambium:'Cambium', aviat:'Aviat', ftth:'FTTH', bulk_ops:'Bulk Ops', compliance:'Compliance', ai_assistant:'AI Assistant', config_diff:'Config Diff' };
+                body.innerHTML = Object.entries(featureLabels).map(([key, label]) => `
+                    <label style="display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer;">
+                        <input type="checkbox" id="ff_${key}" ${features[key] !== false ? 'checked' : ''} />
+                        ${label}
+                    </label>`).join('');
+            } catch(e) { body.innerHTML = `<span style="color:var(--danger-color)">Error: ${e.message}</span>`; }
+        }
+
+        async function saveFeatureFlags() {
+            const tenantId = document.getElementById('featuresModalTenantId').value;
+            const featureKeys = ['mikrotik','nokia','cambium','aviat','ftth','bulk_ops','compliance','ai_assistant','config_diff'];
+            const payload = {};
+            featureKeys.forEach(k => { payload[k] = document.getElementById(`ff_${k}`)?.checked ?? true; });
+            const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : '/api';
+            try {
+                const resp = await fetch(`${apiBase}/admin/tenants/${tenantId}/features`, {
+                    method: 'PUT',
+                    headers: getAuthHeaders('application/json'),
+                    body: JSON.stringify(payload)
+                });
+                const data = await resp.json();
+                if (data.success) { document.getElementById('featuresModal').style.display = 'none'; alert('Feature flags saved.'); }
+                else alert(data.error || 'Failed to save');
+            } catch(e) { alert('Error: ' + e.message); }
+        }
+
+        // ── Branding Modal ─────────────────────────────────────────────────────────
+        async function openBrandingModal(tenantId, tenantName) {
+            document.getElementById('brandingModalTenantId').value = tenantId;
+            document.getElementById('brandingModalTenantName').textContent = tenantName;
+            document.getElementById('brandingModal').style.display = 'flex';
+            const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : '/api';
+            try {
+                const resp = await fetch(`${apiBase}/tenant/branding?slug=_id_${tenantId}`, { headers: getAuthHeaders() });
+                // Branding endpoint uses slug, so we just pre-clear fields
+                ['brandingCompanyName','brandingLogoUrl','brandingFaviconUrl','brandingCustomDomain'].forEach(id => {
+                    const el = document.getElementById(id); if (el) el.value = '';
+                });
+                document.getElementById('brandingPrimaryColor').value = '#2563eb';
+                document.getElementById('brandingPrimaryColorText').value = '#2563eb';
+            } catch(e) {}
+        }
+
+        async function saveBranding() {
+            const tenantId = document.getElementById('brandingModalTenantId').value;
+            const payload = {
+                company_name: document.getElementById('brandingCompanyName')?.value || '',
+                logo_url: document.getElementById('brandingLogoUrl')?.value || '',
+                favicon_url: document.getElementById('brandingFaviconUrl')?.value || '',
+                custom_domain: document.getElementById('brandingCustomDomain')?.value || '',
+                primary_color: document.getElementById('brandingPrimaryColorText')?.value || document.getElementById('brandingPrimaryColor')?.value || '#2563eb',
+            };
+            const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : '/api';
+            try {
+                const resp = await fetch(`${apiBase}/admin/tenants/${tenantId}/branding`, {
+                    method: 'PUT',
+                    headers: getAuthHeaders('application/json'),
+                    body: JSON.stringify(payload)
+                });
+                const data = await resp.json();
+                if (data.success) { document.getElementById('brandingModal').style.display = 'none'; alert('Branding saved.'); }
+                else alert(data.error || 'Failed to save branding');
+            } catch(e) { alert('Error: ' + e.message); }
+        }
+
+        // ── Quotas Modal ───────────────────────────────────────────────────────────
+        async function openQuotasModal(tenantId, tenantName) {
+            document.getElementById('quotasModalTenantId').value = tenantId;
+            document.getElementById('quotasModalTenantName').textContent = tenantName;
+            document.getElementById('quotasModal').style.display = 'flex';
+            const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : '/api';
+            try {
+                const resp = await fetch(`${apiBase}/admin/tenants/${tenantId}/quotas`, { headers: getAuthHeaders() });
+                const data = await resp.json();
+                const q = data.quotas || {};
+                document.getElementById('quotaMaxUsers').value = q.max_users || 10;
+                document.getElementById('quotaMaxConfigs').value = q.max_configs_per_day || 100;
+                document.getElementById('quotaMaxApiCalls').value = q.max_api_calls_per_day || 1000;
+            } catch(e) {}
+        }
+
+        async function saveQuotas() {
+            const tenantId = document.getElementById('quotasModalTenantId').value;
+            const payload = {
+                max_users: parseInt(document.getElementById('quotaMaxUsers')?.value) || 10,
+                max_configs_per_day: parseInt(document.getElementById('quotaMaxConfigs')?.value) || 100,
+                max_api_calls_per_day: parseInt(document.getElementById('quotaMaxApiCalls')?.value) || 1000,
+            };
+            const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : '/api';
+            try {
+                const resp = await fetch(`${apiBase}/admin/tenants/${tenantId}/quotas`, {
+                    method: 'PUT',
+                    headers: getAuthHeaders('application/json'),
+                    body: JSON.stringify(payload)
+                });
+                const data = await resp.json();
+                if (data.success) { document.getElementById('quotasModal').style.display = 'none'; alert('Quota limits saved.'); }
+                else alert(data.error || 'Failed to save quotas');
+            } catch(e) { alert('Error: ' + e.message); }
+        }
+
+        // ── Invite Accept Flow ─────────────────────────────────────────────────────
+        async function checkInviteToken() {
+            const hash = window.location.hash;
+            const match = hash.match(/[#&?]invite\?token=([^&]+)/);
+            if (!match) return;
+            const token = decodeURIComponent(match[1]);
+            const overlay = document.getElementById('inviteAcceptOverlay');
+            if (!overlay) return;
+            const infoEl = document.getElementById('inviteAcceptInfo');
+            overlay.style.display = 'flex';
+            const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : '/api';
+            try {
+                const resp = await fetch(`${apiBase}/invite/accept?token=${encodeURIComponent(token)}`);
+                const data = await resp.json();
+                if (!data.success) {
+                    if (infoEl) infoEl.innerHTML = `<span style="color:var(--danger-color)">${data.error}</span>`;
+                    return;
+                }
+                const inv = data.invite || {};
+                if (infoEl) infoEl.innerHTML = `You've been invited to join <strong>${escHtml(inv.tenant_name)}</strong> as <strong>${escHtml((inv.role||'').replace(/_/g,' '))}</strong>.<br><span style="font-size:11px; color:var(--text-color-secondary);">For: ${escHtml(inv.email)}</span>`;
+                overlay._inviteToken = token;
+            } catch(e) {
+                if (infoEl) infoEl.innerHTML = `<span style="color:var(--danger-color)">Error loading invitation.</span>`;
+            }
+        }
+
+        async function submitInviteAccept() {
+            const overlay = document.getElementById('inviteAcceptOverlay');
+            const token = overlay ? overlay._inviteToken : null;
+            const name = document.getElementById('inviteAcceptName')?.value || '';
+            const pw = document.getElementById('inviteAcceptPassword')?.value || '';
+            const pw2 = document.getElementById('inviteAcceptPasswordConfirm')?.value || '';
+            const errEl = document.getElementById('inviteAcceptError');
+            if (!pw || pw.length < 8) { if (errEl) errEl.textContent = 'Password must be at least 8 characters.'; return; }
+            if (pw !== pw2) { if (errEl) errEl.textContent = 'Passwords do not match.'; return; }
+            if (!token) { if (errEl) errEl.textContent = 'Invalid token. Please use the link from your email.'; return; }
+            const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : '/api';
+            try {
+                const resp = await fetch(`${apiBase}/invite/accept`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token, password: pw, display_name: name })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    if (overlay) overlay.style.display = 'none';
+                    alert('Account activated! You can now log in.');
+                    window.location.hash = '';
+                    window.location.href = 'login.html';
+                } else {
+                    if (errEl) errEl.textContent = data.error || 'Failed to activate account.';
+                }
+            } catch(e) { if (errEl) errEl.textContent = 'Error: ' + e.message; }
+        }
+
+        // Call on page load to detect invite token
+        window.addEventListener('DOMContentLoaded', function() {
+            loadTenantBranding();
+            checkInviteToken();
+        });
 
         async function createTenantAdmin() {
             const slug = (document.getElementById('newTenantSlug')?.value || '').trim();
