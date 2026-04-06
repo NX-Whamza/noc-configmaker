@@ -4727,26 +4727,6 @@
                                     <label for="mtBng2BbuMgmt">BBU Mgmt Subnet (LTE)</label>
                                     <input type="text" id="mtBng2BbuMgmt" placeholder="10.248.86.8/29">
                                 </div>
-                                <div id="mtBng2BgpAsnRow">
-                                    <label for="mtBng2Asn">BGP ASN</label>
-                                    <input type="text" id="mtBng2Asn" value="26077" placeholder="26077">
-                                </div>
-                                <div id="mtBng2BgpPeer1NameRow">
-                                    <label for="mtBng2Peer1Name">BGP Peer 1 Name</label>
-                                    <input type="text" id="mtBng2Peer1Name" value="CR7" placeholder="CR7">
-                                </div>
-                                <div id="mtBng2BgpPeer1AddrRow">
-                                    <label for="mtBng2Peer1Addr">BGP Peer 1 Address</label>
-                                    <input type="text" id="mtBng2Peer1Addr" value="10.2.0.107" placeholder="10.2.0.107">
-                                </div>
-                                <div id="mtBng2BgpPeer2NameRow">
-                                    <label for="mtBng2Peer2Name">BGP Peer 2 Name</label>
-                                    <input type="text" id="mtBng2Peer2Name" value="CR8" placeholder="CR8">
-                                </div>
-                                <div id="mtBng2BgpPeer2AddrRow">
-                                    <label for="mtBng2Peer2Addr">BGP Peer 2 Address</label>
-                                    <input type="text" id="mtBng2Peer2Addr" value="10.2.0.108" placeholder="10.2.0.108">
-                                </div>
                                 <div id="mtBng2Crs326SubnetRow" style="display:none;">
                                     <label for="mtBng2Crs326Subnet">CRS326 Mgmt Subnet (/29)</label>
                                     <input type="text" id="mtBng2Crs326Subnet" placeholder="10.248.90.0/29">
@@ -16911,9 +16891,17 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
 
             function syncBng2FeatureVisibility() {
                 const isBng2 = getSelectedMtConfigType() === 'bng2';
+                const routerModel = (document.getElementById('mtRouterModel')?.value || '').trim().toLowerCase();
+                const isNokia = isBng2 && (routerModel === '7535' || routerModel === '7316');
                 const isTarana = !!document.getElementById('mtFeatureTarana')?.checked;
                 const is6ghz = !!document.getElementById('mtFeature6ghz')?.checked;
                 const isTachyon = !!document.getElementById('mtFeatureTachyon')?.checked;
+
+                // CRS326 is MikroTik-only — hide and uncheck when Nokia router is selected
+                const crs326Checkbox = document.getElementById('mtFeatureCrs326');
+                const crs326Label = crs326Checkbox?.closest('label');
+                if (crs326Label) crs326Label.style.display = isNokia ? 'none' : '';
+                if (isNokia && crs326Checkbox) crs326Checkbox.checked = false;
 
                 const taranaSubnetRow = document.getElementById('mtBng2TaranaSubnetRow');
                 const taranaSectorsRow = document.getElementById('mtBng2TaranaSectorsRow');
@@ -16926,7 +16914,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 if (bbuS1Row) bbuS1Row.style.display = (isBng2 && is6ghz) ? 'block' : 'none';
                 if (bbuMgmtRow) bbuMgmtRow.style.display = (isBng2 && is6ghz) ? 'block' : 'none';
                 if (switchSection) switchSection.style.display = (isBng2 && isTachyon) ? 'none' : 'block';
-                const is326 = !!document.getElementById('mtFeatureCrs326')?.checked;
+                const is326 = !isNokia && !!document.getElementById('mtFeatureCrs326')?.checked;
                 const crs326SubnetRow = document.getElementById('mtBng2Crs326SubnetRow');
                 const crs326Port1Row = document.getElementById('mtBng2Crs326Port1Row');
                 const crs326Port2Row = document.getElementById('mtBng2Crs326Port2Row');
@@ -17680,6 +17668,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     modelSel.addEventListener('change', () => {
                         refreshModernPortOptions();
                         syncMtRouterIdentity();
+                        syncBng2FeatureVisibility();
                     });
                     modelSel.dataset.bound = '1';
                 }
@@ -18121,11 +18110,6 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     '326_mgmt_subnet': is326 ? ensureCIDR((document.getElementById('mtBng2Crs326Subnet')?.value || '').trim(), 29) : undefined,
                     crs_326_port_1: is326 ? ((document.getElementById('mtBng2Crs326Port1')?.value || 'sfp-sfpplus8').trim()) : undefined,
                     crs_326_port_2: is326 ? ((document.getElementById('mtBng2Crs326Port2')?.value || 'sfp-sfpplus9').trim()) : undefined,
-                    asn: (document.getElementById('mtBng2Asn')?.value || '26077').trim(),
-                    peer_1_name: (document.getElementById('mtBng2Peer1Name')?.value || 'CR7').trim(),
-                    peer_1_address: (document.getElementById('mtBng2Peer1Addr')?.value || '10.2.0.107').trim(),
-                    peer_2_name: (document.getElementById('mtBng2Peer2Name')?.value || 'CR8').trim(),
-                    peer_2_address: (document.getElementById('mtBng2Peer2Addr')?.value || '10.2.0.108').trim(),
                     tachyon_mgmt_subnet: isTachyon ? ensureCIDR((document.getElementById('mtBng2TachyonSubnet')?.value || '').trim(), 29) : undefined,
                     is_6ghz: is6ghz,
                     enable_contractor_login: !!document.getElementById('mtFeatureContractor')?.checked,

@@ -126,13 +126,6 @@ add area=area{{ OSPF_area }}-v2 comment="6Ghz Equipment" cost=10 disabled=no int
 add area=area{{ OSPF_area }}-v2 comment="UB WAVE" cost=10 disabled=no interfaces=bridge3000 networks={{ ub_wave_network }}/{{ ub_wave_prefixlen }} priority=1
 {% endif %}
 
-/routing bgp template
-set default as={{ asn }} disabled=no output.network=bgp-networks router-id={{ loopip }}
-
-/routing bgp connection
-add cisco-vpls-nlri-len-fmt=auto-bits connect=yes listen=yes local.address={{ loopip }} .role=ibgp multihop=yes name={{ peer1_name }} remote.address={{ peer1 }} .as={{ asn }} .port=179 tcp-md5-key={{ bgp_md5_key }} templates=default
-add cisco-vpls-nlri-len-fmt=auto-bits connect=yes listen=yes local.address={{ loopip }} .role=ibgp multihop=yes name={{ peer2_name }} remote.address={{ peer2 }} .as={{ asn }} .port=179 tcp-md5-key={{ bgp_md5_key }} templates=default
-
 /mpls interface
 add interface=all mpls-mtu={{ mpls_mtu }}
 /mpls ldp
