@@ -11,7 +11,8 @@
         fileId: null,
         fileName: null,
         searchTerm: '',
-        showLimit: 100
+        showLimit: 100,
+        serverFirmware: []
     };
 
     const PAGE_SIZE = 100;
@@ -267,6 +268,7 @@
                             <span style="color:var(--text-color-secondary);font-size:12px;margin-left:6px;">${displayIp}</span>
                             <div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap;">
                                 ${model ? `<span class="aviat-pill">${model}</span>` : ''}
+                                ${model ? `<span class="aviat-pill" style="opacity:0.7;">${modelFamily(device.model) === 'nano' ? 'Nano/LR/Pico FW' : 'AP/Micro/PRO FW'}</span>` : ''}
                                 ${version ? `<span class="aviat-pill">FW: ${version}</span>` : ''}
                                 ${targetVersion ? `<span class="aviat-pill aviat-pill-target">→ ${targetVersion}</span>` : ''}
                                 ${activeBank ? `<span class="aviat-pill">Active: ${activeBank}</span>` : ''}
@@ -404,18 +406,52 @@
 
     // ── Run / Abort ───────────────────────────────────────────────────────────
 
+    async function loadServerFirmware() {
+        const listEl = document.getElementById('waveFwFirmwareList');
+        try {
+            const response = await waveFetch('/firmware-list');
+            const data = await parseJson(response);
+            if (!response.ok || !data.success) throw new Error(data.error || 'Firmware list failed');
+            waveState.serverFirmware = data.firmware || [];
+            if (listEl) {
+                if (waveState.serverFirmware.length === 0) {
+                    listEl.innerHTML = '<span style="color:var(--color-warning,#f59e0b);font-size:13px;">No firmware files found on server. Place .bin files in /opt/firmware/wave/ or use the upload override below.</span>';
+                } else {
+                    listEl.innerHTML = waveState.serverFirmware.map(f => `
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <span class="aviat-status-badge success" style="font-size:11px;">OK</span>
+                            <div>
+                                <div style="font-size:13px;font-weight:500;">${waveEscapeHtml(f.family_label)}</div>
+                                <div style="font-size:12px;color:var(--text-color-secondary);">${waveEscapeHtml(f.name)} &mdash; v${waveEscapeHtml(f.version)} &mdash; ${(f.size / 1024 / 1024).toFixed(1)} MB</div>
+                            </div>
+                        </div>`).join('');
+                }
+            }
+        } catch (err) {
+            if (listEl) listEl.innerHTML = `<span style="color:var(--color-error,#ef4444);font-size:13px;">Could not load firmware list: ${waveEscapeHtml(err.message)}</span>`;
+        }
+    }
+
+    function modelFamily(model) {
+        const m = (model || '').toLowerCase().replace(/-/g, '').replace(/\s/g, '');
+        if (['wavenano', 'wavelr', 'wavepico', 'nano', 'wlr', 'pico'].some(k => m.includes(k))) return 'nano';
+        return 'ap';
+    }
+
     async function runUpgrade() {
         if (waveState.isProcessing) return;
-        if (!waveState.fileId) {
-            addLog('Upload a firmware file before running the upgrade.', 'warning');
-            return;
-        }
         const selectedDevices = waveState.devices.filter(d => d.selected !== false);
         if (selectedDevices.length === 0) {
             addLog('Select at least one device to upgrade.', 'warning');
             return;
         }
-        const deviceIds = selectedDevices.map(d => d.ip || d.id).filter(Boolean);
+        // Require either an uploaded file or server firmware
+        const hasServerFirmware = waveState.serverFirmware && waveState.serverFirmware.length > 0;
+        if (!waveState.fileId && !hasServerFirmware) {
+            addLog('No firmware available. Upload a .bin file or check server firmware.', 'warning');
+            return;
+        }
+        const deviceIds = selectedDevices.map(d => stripCidr(d.ip || d.id)).filter(Boolean);
         addLog(`Starting Wave FW upgrade for ${deviceIds.length} device(s)...`, 'info');
 
         waveState.taskId = null;
@@ -423,15 +459,27 @@
         selectedDevices.forEach(d => { d.status = 'processing'; d.detail = 'Queued'; });
         updateDeviceList();
 
+        const body = {
+            device_ids: deviceIds,
+            devices: selectedDevices.map(d => ({
+                id: d.id || stripCidr(d.ip),
+                ip: stripCidr(d.ip || ''),
+                name: d.name || d.hostname || stripCidr(d.ip),
+                model: d.model || ''
+            })),
+            requested_by: waveGetUsername()
+        };
+        if (waveState.fileId) {
+            body.file_id = waveState.fileId;
+        } else {
+            body.use_server_firmware = true;
+        }
+
         try {
             const response = await waveFetch('/upgrade', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    file_id: waveState.fileId,
-                    device_ids: deviceIds,
-                    requested_by: waveGetUsername()
-                })
+                body: JSON.stringify(body)
             });
             const data = await parseJson(response);
             if (!response.ok) throw new Error(data.error || `Upgrade failed (${response.status})`);
@@ -616,6 +664,7 @@
         updateDeviceList();
         setRunState(false);
         bindControls();
+        await loadServerFirmware();
         addLog('Ubiquiti Wave firmware updater ready.', 'info');
     }
 

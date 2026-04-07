@@ -9034,18 +9034,24 @@
                     </div>
 
                     <div class="aviat-card">
-                        <h2>Step 2 &mdash; Upload Firmware</h2>
+                        <h2>Step 2 &mdash; Firmware</h2>
                         <p style="color:var(--text-color-secondary);font-size:13px;margin-bottom:12px;">
-                            Select a <code>.bin</code> firmware file to upload to the server. The file is staged and reused across all selected devices.
+                            Firmware is auto-selected per device from the server. AP / Micro / PRO and Nano / LR / Pico each get the correct file.
                         </p>
-                        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-                            <label class="aviat-btn secondary" style="cursor:pointer;margin:0;">
-                                Choose File
-                                <input type="file" id="waveFwFileInput" accept=".bin" style="display:none;">
-                            </label>
-                            <button id="waveFwUploadBtn" class="aviat-btn secondary">Upload</button>
-                            <span id="waveFwFileBadge" class="aviat-pill" style="display:none;"></span>
+                        <div id="waveFwFirmwareList" style="display:flex;flex-direction:column;gap:8px;">
+                            <span style="color:var(--text-color-secondary);font-size:13px;">Loading available firmware...</span>
                         </div>
+                        <details style="margin-top:14px;">
+                            <summary style="font-size:13px;cursor:pointer;color:var(--text-color-secondary);">Upload custom firmware override</summary>
+                            <div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                                <label class="aviat-btn secondary" style="cursor:pointer;margin:0;">
+                                    Choose File
+                                    <input type="file" id="waveFwFileInput" accept=".bin" style="display:none;">
+                                </label>
+                                <button id="waveFwUploadBtn" class="aviat-btn secondary">Upload</button>
+                                <span id="waveFwFileBadge" class="aviat-pill" style="display:none;"></span>
+                            </div>
+                        </details>
                     </div>
                 </div>
 
