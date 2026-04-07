@@ -255,6 +255,8 @@
             const activeBank = waveEscapeHtml(device.active_bank || '');
             const backupBank = waveEscapeHtml(device.backup_bank || '');
             const fwFamily = model ? (modelFamily(device.model) === 'nano' ? 'Nano/LR/Pico' : 'AP/Micro/PRO') : '';
+            const rawRole = (device.role || '').toLowerCase().replace(/[^a-z]/g, '');
+            const roleLabel = rawRole.includes('station') ? 'Station' : (rawRole === 'ap' || rawRole.endsWith('ap') ? 'AP' : '');
             const checked = device.selected !== false ? 'checked' : '';
 
             const statusBadge = status !== 'pending'
@@ -279,6 +281,7 @@
                         <span style="font-size:12px;color:var(--text-color-secondary);white-space:nowrap;flex-shrink:0;">${displayIp}</span>
                     </div>
                     <div style="display:flex;align-items:center;gap:5px;margin-top:2px;flex-wrap:wrap;">
+                        ${roleLabel ? `<span class="aviat-status-badge" style="font-size:10px;padding:1px 5px;background:${roleLabel==='AP'?'rgba(59,130,246,.25)':'rgba(168,85,247,.25)'};color:${roleLabel==='AP'?'#93c5fd':'#d8b4fe'};">${roleLabel}</span>` : ''}
                         ${model ? `<span style="font-size:11px;color:var(--text-color-secondary);">${model}</span>` : ''}
                         ${fwFamily ? `<span style="font-size:11px;color:var(--text-color-secondary);opacity:0.7;">· ${fwFamily}</span>` : ''}
                         ${version ? `<span style="font-size:11px;color:var(--text-color-secondary);">· v${version}</span>` : ''}
@@ -468,16 +471,25 @@
         selectedDevices.forEach(d => { d.status = 'processing'; d.detail = 'Queued'; });
         updateDeviceList();
 
+        // Read upgrade options
+        const roleScope = document.getElementById('waveFwRoleScope')?.value || 'both';
+        const minFw = (document.getElementById('waveFwMinFirmware')?.value || '').trim();
+        const deadlineMin = parseInt(document.getElementById('waveFwDeadlineMinutes')?.value || '0') || 0;
+
         const body = {
             device_ids: deviceIds,
             devices: selectedDevices.map(d => ({
                 id: d.id || stripCidr(d.ip),
                 ip: stripCidr(d.ip || ''),
                 name: d.name || d.hostname || stripCidr(d.ip),
-                model: d.model || ''
+                model: d.model || '',
+                role: d.role || ''
             })),
+            role_scope: roleScope,
             requested_by: waveGetUsername()
         };
+        if (minFw) body.min_current_firmware = minFw;
+        if (deadlineMin > 0) body.deadline_minutes = deadlineMin;
         if (waveState.fileId) {
             body.file_id = waveState.fileId;
         } else {

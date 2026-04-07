@@ -1286,6 +1286,35 @@ def _wave_fw_model_family(model: str) -> str:
     return 'ap'
 
 
+def _wave_fw_version_tuple(v: str):
+    """Parse '3.4.0' → (3, 4, 0). Returns (0, 0, 0) on failure."""
+    import re as _re
+    m = _re.search(r'(\d+)\.(\d+)\.(\d+)', v or '')
+    return tuple(int(x) for x in m.groups()) if m else (0, 0, 0)
+
+
+def _wave_fw_version_below(v: str, minimum: str) -> bool:
+    """Return True if version v is strictly below minimum. Returns False if minimum is empty."""
+    if not minimum:
+        return False
+    return _wave_fw_version_tuple(v) < _wave_fw_version_tuple(minimum)
+
+
+def _wave_fw_classify_role(device: dict) -> str:
+    """Return 'ap', 'station', or 'unknown' from a UISP device dict."""
+    import re as _re
+    role = _re.sub(r'[^a-z]', '', (device.get('role') or '').lower())
+    if 'station' in role:
+        return 'station'
+    if role in ('ap', 'accesspoint', 'wirelessap') or role.endswith('ap'):
+        return 'ap'
+    # Fallback: check name for station/SM patterns
+    name = (device.get('name') or '').lower()
+    if any(k in name for k in ('station', '-sm-', '/sm/', ' sm ')):
+        return 'station'
+    return 'unknown'
+
+
 def _wave_fw_select_firmware(model: str, firmware_dir) -> 'pathlib.Path | None':
     """Pick the right server-side .bin file for a given device model."""
     import pathlib as _pl
@@ -20605,7 +20634,8 @@ def _wave_fw_check_banks_ssh(ip, username, password, timeout=60):
     return active, backup
 
 
-def _wave_fw_upgrade_single(device, file_path, target_version, log_cb, should_abort, firmware_dir=None):
+def _wave_fw_upgrade_single(device, file_path, target_version, log_cb, should_abort, firmware_dir=None,
+                            min_current_firmware=None, deadline_ts=None):
     """Perform the full firmware upgrade sequence for a single Wave device."""
     import pathlib as _pl
     ip = device['ip']
@@ -20613,17 +20643,24 @@ def _wave_fw_upgrade_single(device, file_path, target_version, log_cb, should_ab
     ap_pass = os.getenv('WAVE_AP_PASS', '')
     sm_pass = os.getenv('WAVE_SM_PASS', ap_pass)
 
+    # Maintenance window check — device not yet started, deadline passed
+    if deadline_ts is not None and time.time() >= deadline_ts:
+        return {'ip': ip, 'name': name, 'status': 'skipped',
+                'error': 'Maintenance window deadline exceeded',
+                'active_bank': '', 'backup_bank': '',
+                'started_at': datetime.utcnow().isoformat() + 'Z',
+                'completed_at': datetime.utcnow().isoformat() + 'Z'}
+
     # Auto-select server-side firmware if no uploaded file was provided
     if file_path is None:
         fdir = _pl.Path(firmware_dir) if firmware_dir else _wave_fw_server_firmware_dir()
         file_path = _wave_fw_select_firmware(device.get('model', ''), fdir)
         if file_path is None:
-            def result_early(status, error=''):
-                return {'ip': ip, 'name': name, 'status': status, 'error': error,
-                        'active_bank': '', 'backup_bank': '',
-                        'started_at': datetime.utcnow().isoformat() + 'Z',
-                        'completed_at': datetime.utcnow().isoformat() + 'Z'}
-            return result_early('failed', error='No firmware file found on server for this model')
+            return {'ip': ip, 'name': name, 'status': 'failed',
+                    'error': 'No firmware file found on server for this model',
+                    'active_bank': '', 'backup_bank': '',
+                    'started_at': datetime.utcnow().isoformat() + 'Z',
+                    'completed_at': datetime.utcnow().isoformat() + 'Z'}
     started_at = datetime.utcnow().isoformat() + 'Z'
 
     def result(status, error='', active='', backup=''):
@@ -20665,6 +20702,12 @@ def _wave_fw_upgrade_single(device, file_path, target_version, log_cb, should_ab
                 return result('failed', error=f'SSH bank check failed: {e2}')
 
         log_cb(f'[{name}] Banks: active={active or "?"} backup={backup or "?"}')
+
+        # Min firmware gate — skip devices that haven't reached the required baseline
+        if min_current_firmware and active and _wave_fw_version_below(active, min_current_firmware):
+            log_cb(f'[{name}] Active {active} is below minimum {min_current_firmware} — skipping.', 'warning')
+            return result('skipped', error=f'Active fw {active} < required min {min_current_firmware}',
+                          active=active, backup=backup)
 
         if active == target_version and backup == target_version:
             log_cb(f'[{name}] Already at target {target_version}, skipping.')
@@ -20750,7 +20793,8 @@ def _wave_fw_upgrade_single(device, file_path, target_version, log_cb, should_ab
         return result('failed', error=str(exc))
 
 
-def _wave_fw_background_task_inner(task_id, file_path, devices, target_version, firmware_dir=None):
+def _wave_fw_background_task_inner(task_id, file_path, devices, target_version, firmware_dir=None,
+                                   min_current_firmware=None, deadline_ts=None, role_scope='both'):
     _purge_stale_tasks(wave_fw_tasks, wave_fw_log_queues)
     wave_fw_tasks[task_id]['status'] = 'running'
     _wave_fw_persist_task(task_id)
@@ -20762,12 +20806,36 @@ def _wave_fw_background_task_inner(task_id, file_path, devices, target_version, 
         # Check both in-memory flag (same worker) and disk signal (cross-worker)
         return wave_fw_tasks[task_id].get('abort', False) or _wave_fw_check_abort_signal(task_id)
 
-    max_workers = max(1, min(WAVE_FW_MAX_WORKERS, len(devices)))
+    # Filter by role scope before launching upgrade threads
+    if role_scope != 'both':
+        role_filtered = []
+        skipped_by_role = []
+        for d in devices:
+            dev_role = _wave_fw_classify_role(d)
+            if role_scope == 'ap' and dev_role != 'ap':
+                skipped_by_role.append(d)
+            elif role_scope == 'station' and dev_role != 'station':
+                skipped_by_role.append(d)
+            else:
+                role_filtered.append(d)
+        if skipped_by_role:
+            log_cb(f'Role filter ({role_scope}): skipping {len(skipped_by_role)} device(s) with non-matching role', 'info')
+        devices = role_filtered
+
+    if deadline_ts is not None:
+        import datetime as _dt
+        deadline_str = _dt.datetime.utcfromtimestamp(deadline_ts).strftime('%H:%M:%S UTC')
+        log_cb(f'Maintenance window deadline: {deadline_str} — devices not started by then will be skipped', 'info')
+
+    if min_current_firmware:
+        log_cb(f'Minimum firmware gate: {min_current_firmware} — devices below this version will be skipped', 'info')
+
+    max_workers = max(1, min(WAVE_FW_MAX_WORKERS, len(devices))) if devices else 1
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(
                 _wave_fw_upgrade_single, device, file_path, target_version,
-                log_cb, should_abort, firmware_dir
+                log_cb, should_abort, firmware_dir, min_current_firmware, deadline_ts
             ): device
             for device in devices
         }
@@ -20786,9 +20854,12 @@ def _wave_fw_background_task_inner(task_id, file_path, devices, target_version, 
         wave_fw_log_queues[task_id].put(None)
 
 
-def _wave_fw_background_task(task_id, file_path, devices, target_version, firmware_dir=None):
+def _wave_fw_background_task(task_id, file_path, devices, target_version, firmware_dir=None,
+                             min_current_firmware=None, deadline_ts=None, role_scope='both'):
     try:
-        _wave_fw_background_task_inner(task_id, file_path, devices, target_version, firmware_dir=firmware_dir)
+        _wave_fw_background_task_inner(task_id, file_path, devices, target_version,
+                                       firmware_dir=firmware_dir, min_current_firmware=min_current_firmware,
+                                       deadline_ts=deadline_ts, role_scope=role_scope)
     except Exception as _exc:
         try:
             wave_fw_tasks[task_id]['status'] = 'failed'
@@ -20866,6 +20937,12 @@ def wave_fw_upgrade_start():
     device_ids = data.get('device_ids') or []
     target_version = data.get('target_version', '').strip()
     use_server_firmware = data.get('use_server_firmware', False)
+    min_current_firmware = data.get('min_current_firmware', '').strip()
+    role_scope = data.get('role_scope', 'both')
+    if role_scope not in ('both', 'ap', 'station'):
+        role_scope = 'both'
+    deadline_minutes = int(data.get('deadline_minutes') or 0)
+    deadline_ts = (time.time() + deadline_minutes * 60) if deadline_minutes > 0 else None
 
     if not device_ids:
         return jsonify({'success': False, 'error': 'device_ids must be a non-empty list'}), 400
@@ -20915,6 +20992,9 @@ def wave_fw_upgrade_start():
         'target_version': target_version,
         'device_count': len(devices),
         'results': [],
+        'role_scope': role_scope,
+        'min_current_firmware': min_current_firmware or None,
+        'deadline_ts': deadline_ts,
         '_tenant_id': user_info.get('tenant_id') or user_info.get('tenantId'),
         '_tenant_slug': '',
     }
@@ -20925,7 +21005,12 @@ def wave_fw_upgrade_start():
     t = threading.Thread(
         target=_wave_fw_background_task,
         args=(task_id, file_path, devices, target_version),
-        kwargs={'firmware_dir': str(firmware_dir) if firmware_dir else None},
+        kwargs={
+            'firmware_dir': str(firmware_dir) if firmware_dir else None,
+            'min_current_firmware': min_current_firmware or None,
+            'deadline_ts': deadline_ts,
+            'role_scope': role_scope,
+        },
         daemon=True,
     )
     t.start()
@@ -20940,17 +21025,24 @@ def wave_fw_firmware_list():
     firmware_dir = _wave_fw_server_firmware_dir()
     files = []
     if firmware_dir.exists():
-        for f in sorted(firmware_dir.glob('*.bin')):
+        all_bins = sorted(firmware_dir.glob('*.bin'))
+        is_universal = len(all_bins) == 1
+        nano_kws = ['nano', 'lr', 'pico']
+        for f in all_bins:
             m = _re.search(r'v?(\d+\.\d+\.\d+)', f.name)
             version = m.group(1) if m else ''
-            nano_kws = ['nano', 'lr', 'pico']
-            family = 'nano' if any(k in f.name.lower() for k in nano_kws) else 'ap'
+            if is_universal:
+                family = 'universal'
+                family_label = 'Universal — all Wave devices (AP, Micro, PRO, Nano, LR, Pico)'
+            else:
+                family = 'nano' if any(k in f.name.lower() for k in nano_kws) else 'ap'
+                family_label = 'Wave Nano / LR / Pico' if family == 'nano' else 'Wave AP / AP Micro / PRO'
             files.append({
                 'name': f.name,
                 'size': f.stat().st_size,
                 'version': version,
                 'family': family,
-                'family_label': 'Wave Nano / LR / Pico' if family == 'nano' else 'Wave AP / AP Micro / PRO',
+                'family_label': family_label,
             })
     return jsonify({'success': True, 'firmware': files, 'firmware_dir': str(firmware_dir)})
 
