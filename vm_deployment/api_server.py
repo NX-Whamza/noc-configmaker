@@ -7,6 +7,7 @@ Secure OpenAI API integration for RouterOS config generation and validation
 
 import sys
 import io
+import faulthandler
 from collections import deque
 # Fix Windows console encoding for Unicode - but only if not already wrapped
 # In PyInstaller, stdout/stderr might already be wrapped, so check first
@@ -20,6 +21,11 @@ if sys.platform == 'win32':
     except (AttributeError, ValueError):
         # If wrapping fails (e.g., in PyInstaller), just continue
         pass
+
+try:
+    faulthandler.enable(all_threads=True)
+except Exception:
+    pass
 
 from flask import Flask, request, jsonify, send_file, send_from_directory, stream_with_context
 from flask import make_response, abort, Response
@@ -217,13 +223,35 @@ def _health_check_secure_data():
     return result
 
 
-def _health_check_ido_backend():
-    backend_url = _ido_backend_url()
+def _configured_ido_backend_url():
+    candidates = (
+        "IDO_BACKEND_URL",
+        "IDO_TOOLS_BACKEND_URL",
+        "NETLAUNCH_IDO_BACKEND_URL",
+        "NEXTLINK_IDO_BACKEND_URL",
+        "NETLAUNCH_TOOLS_BACKEND_URL",
+    )
+    for key in candidates:
+        value = (os.getenv(key) or "").strip()
+        if value:
+            if not value.startswith(("http://", "https://")):
+                value = f"http://{value}"
+            return value.rstrip("/")
+    return ""
+
+
+def _health_check_ido_backend(allow_autostart: bool = False):
+    backend_url = _configured_ido_backend_url()
+    autostart_attempted = False
+    if not backend_url and allow_autostart:
+        autostart_attempted = True
+        backend_url = _ensure_local_ido_backend()
     result = {
         'name': 'ido_backend',
         'ok': True,
         'configured': bool(backend_url),
         'backend_url': backend_url,
+        'autostart_attempted': autostart_attempted,
         'detail': 'IDO backend reachable',
     }
     if not backend_url:
@@ -250,25 +278,29 @@ def _health_check_ido_backend():
 
 
 _HEALTH_CHECKS_CACHE: dict[str, object] = {
-    'timestamp': 0.0,
-    'checks': None,
+    'basic_timestamp': 0.0,
+    'basic_checks': None,
+    'full_timestamp': 0.0,
+    'full_checks': None,
 }
 _HEALTH_CHECKS_TTL_SECONDS = 30.0
 
 
-def _collect_health_checks(force: bool = False):
+def _collect_health_checks(force: bool = False, include_dependencies: bool = False):
+    cache_prefix = 'full' if include_dependencies else 'basic'
+    timestamp_key = f'{cache_prefix}_timestamp'
+    checks_key = f'{cache_prefix}_checks'
     now = time.time()
-    cached_checks = _HEALTH_CHECKS_CACHE.get('checks')
-    cached_at = float(_HEALTH_CHECKS_CACHE.get('timestamp') or 0.0)
+    cached_checks = _HEALTH_CHECKS_CACHE.get(checks_key)
+    cached_at = float(_HEALTH_CHECKS_CACHE.get(timestamp_key) or 0.0)
     if not force and cached_checks is not None and (now - cached_at) < _HEALTH_CHECKS_TTL_SECONDS:
         return cached_checks
 
-    checks = [
-        _health_check_secure_data(),
-        _health_check_ido_backend(),
-    ]
-    _HEALTH_CHECKS_CACHE['checks'] = checks
-    _HEALTH_CHECKS_CACHE['timestamp'] = now
+    checks = [_health_check_secure_data()]
+    if include_dependencies:
+        checks.append(_health_check_ido_backend(allow_autostart=True))
+    _HEALTH_CHECKS_CACHE[checks_key] = checks
+    _HEALTH_CHECKS_CACHE[timestamp_key] = now
     return checks
 
 
@@ -293,7 +325,20 @@ def _load_app_version_config():
     return config
 
 
-def _git_metadata():
+_GIT_METADATA_CACHE: dict[str, object] = {
+    'timestamp': 0.0,
+    'value': {'sha': None, 'count': None},
+}
+_GIT_METADATA_TTL_SECONDS = 300.0
+
+
+def _git_metadata(force: bool = False):
+    now = time.time()
+    cached_value = _GIT_METADATA_CACHE.get('value')
+    cached_at = float(_GIT_METADATA_CACHE.get('timestamp') or 0.0)
+    if not force and cached_value is not None and (now - cached_at) < _GIT_METADATA_TTL_SECONDS:
+        return dict(cached_value)
+
     repo_root = Path(__file__).resolve().parent.parent
     result = {'sha': None, 'count': None}
     try:
@@ -322,6 +367,8 @@ def _git_metadata():
             result['count'] = int(count_raw)
     except Exception:
         pass
+    _GIT_METADATA_CACHE['value'] = dict(result)
+    _GIT_METADATA_CACHE['timestamp'] = now
     return result
 
 
@@ -355,6 +402,23 @@ def get_app_version_meta():
         'release_date': release_date,
         'git_sha': git_sha,
         'environment': os.getenv('NOC_ENVIRONMENT', 'production'),
+    }
+
+
+def build_health_payload(include_dependencies: bool = False, force: bool = False):
+    checks = _collect_health_checks(force=force, include_dependencies=include_dependencies)
+    degraded = any(not check.get('ok') for check in checks)
+    return {
+        'status': 'online',
+        'degraded': degraded,
+        'checks_mode': 'full' if include_dependencies else 'basic',
+        'dependencies_checked': include_dependencies,
+        'app': get_app_version_meta(),
+        'ai_provider': AI_PROVIDER,
+        'api_key_configured': bool(OPENAI_API_KEY) if AI_PROVIDER == 'openai' else None,
+        'timestamp': get_cst_timestamp(),
+        'message': 'Unified backend (api_server.py) is online and ready',
+        'checks': checks,
     }
 
 
@@ -914,6 +978,10 @@ def _aviat_remaining_tasks_for_reboot(task_types):
 def _aviat_queue_remove(ip):
     aviat_shared_queue[:] = [e for e in aviat_shared_queue if e.get("ip") != ip]
 
+
+def _aviat_queue_for_tenant(tenant_id):
+    return [entry for entry in aviat_shared_queue if _queue_entry_matches_tenant(entry, tenant_id)]
+
 def _aviat_error_is_transient(error_text):
     text = str(error_text or "").strip().lower()
     if not text:
@@ -1206,6 +1274,442 @@ def _aviat_reboot_device(ip, callback=None):
 _TASK_TTL_SECONDS = 7200  # 2 hours — keep completed/aborted task state for status queries
 
 # ── Wave Firmware Updater state ───────────────────────────────────────────────
+_BACKGROUND_TASK_STORE_DIR = None
+_BACKGROUND_TASK_DB_PATH = None
+
+
+def _background_task_db_path() -> Path:
+    global _BACKGROUND_TASK_DB_PATH
+    if _BACKGROUND_TASK_DB_PATH is None:
+        _BACKGROUND_TASK_DB_PATH = ensure_secure_data_dir() / 'background_tasks.db'
+    return _BACKGROUND_TASK_DB_PATH
+
+
+def _background_task_db_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(str(_background_task_db_path()), check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA journal_mode=WAL')
+    conn.execute('PRAGMA busy_timeout=5000')
+    return conn
+
+
+def init_background_tasks_db() -> Path:
+    db_path = _background_task_db_path()
+    conn = _background_task_db_conn()
+    try:
+        conn.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS background_tasks (
+                kind TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                status TEXT,
+                tenant_id TEXT,
+                tenant_slug TEXT,
+                created_at TEXT,
+                started_at TEXT,
+                completed_at TEXT,
+                updated_at TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                PRIMARY KEY (kind, task_id)
+            )
+            '''
+        )
+        conn.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS background_task_logs (
+                kind TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                ts TEXT NOT NULL,
+                entry_json TEXT NOT NULL
+            )
+            '''
+        )
+        conn.execute(
+            'CREATE INDEX IF NOT EXISTS idx_background_tasks_kind_updated ON background_tasks(kind, updated_at DESC)'
+        )
+        conn.execute(
+            'CREATE INDEX IF NOT EXISTS idx_background_task_logs_kind_ts ON background_task_logs(kind, ts DESC)'
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return db_path
+
+
+def _background_task_cleanup_stale(ttl_seconds: int | None = None) -> None:
+    effective_ttl = int(ttl_seconds or _TASK_TTL_SECONDS)
+    cutoff_dt = get_utc_now() - timedelta(seconds=max(effective_ttl, 60))
+    cutoff = cutoff_dt.isoformat().replace('+00:00', 'Z')
+    stale_pairs: list[tuple[str, str]] = []
+    try:
+        init_background_tasks_db()
+        conn = _background_task_db_conn()
+        try:
+            rows = conn.execute(
+                '''
+                SELECT kind, task_id
+                FROM background_tasks
+                WHERE updated_at < ?
+                  AND COALESCE(status, '') IN ('completed', 'failed', 'aborted')
+                ''',
+                (cutoff,),
+            ).fetchall()
+            stale_pairs = [(str(row['kind']), str(row['task_id'])) for row in rows]
+            conn.execute(
+                '''
+                DELETE FROM background_task_logs
+                WHERE ts < ?
+                  AND task_id IN (
+                    SELECT task_id
+                    FROM background_tasks
+                    WHERE updated_at < ?
+                      AND COALESCE(status, '') IN ('completed', 'failed', 'aborted')
+                  )
+                ''',
+                (cutoff, cutoff),
+            )
+            conn.execute(
+                '''
+                DELETE FROM background_tasks
+                WHERE updated_at < ?
+                  AND COALESCE(status, '') IN ('completed', 'failed', 'aborted')
+                ''',
+                (cutoff,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    for kind, task_id in stale_pairs:
+        state_path, log_path, abort_path = _background_task_paths(kind, task_id)
+        for path in (state_path, log_path, abort_path):
+            try:
+                path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def _background_task_store_dir(kind: str) -> Path:
+    global _BACKGROUND_TASK_STORE_DIR
+    if _BACKGROUND_TASK_STORE_DIR is None:
+        _BACKGROUND_TASK_STORE_DIR = ensure_secure_data_dir() / 'background_tasks'
+        _BACKGROUND_TASK_STORE_DIR.mkdir(parents=True, exist_ok=True)
+    kind_dir = _BACKGROUND_TASK_STORE_DIR / kind
+    kind_dir.mkdir(parents=True, exist_ok=True)
+    return kind_dir
+
+
+def _background_task_paths(kind: str, task_id: str) -> tuple[Path, Path, Path]:
+    base_dir = _background_task_store_dir(kind)
+    return (
+        base_dir / f'{task_id}.json',
+        base_dir / f'{task_id}.log.jsonl',
+        base_dir / f'{task_id}.abort',
+    )
+
+
+def _background_task_snapshot(task: dict | None) -> dict | None:
+    if not isinstance(task, dict):
+        return None
+    return json.loads(json.dumps(task))
+
+
+def _background_task_persist(kind: str, task_id: str, task: dict | None = None, extra: dict | None = None) -> None:
+    payload = _background_task_snapshot(task)
+    if payload is None:
+        return
+    if extra:
+        payload.update(extra)
+    payload['task_id'] = payload.get('task_id') or task_id
+    payload['updated_at'] = get_utc_timestamp()
+    state_path, _, _ = _background_task_paths(kind, task_id)
+    tmp_path = state_path.with_suffix('.json.tmp')
+    try:
+        tmp_path.write_text(json.dumps(payload), encoding='utf-8')
+        tmp_path.replace(state_path)
+    except Exception:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+    try:
+        init_background_tasks_db()
+        conn = _background_task_db_conn()
+        try:
+            conn.execute(
+                '''
+                INSERT INTO background_tasks (
+                    kind, task_id, status, tenant_id, tenant_slug,
+                    created_at, started_at, completed_at, updated_at, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(kind, task_id) DO UPDATE SET
+                    status=excluded.status,
+                    tenant_id=excluded.tenant_id,
+                    tenant_slug=excluded.tenant_slug,
+                    created_at=excluded.created_at,
+                    started_at=excluded.started_at,
+                    completed_at=excluded.completed_at,
+                    updated_at=excluded.updated_at,
+                    payload_json=excluded.payload_json
+                ''',
+                (
+                    kind,
+                    task_id,
+                    payload.get('status'),
+                    str(payload.get('_tenant_id') or payload.get('tenant_id') or '') or None,
+                    payload.get('_tenant_slug') or payload.get('tenant_slug'),
+                    payload.get('created_at'),
+                    payload.get('started_at'),
+                    payload.get('completed_at'),
+                    payload.get('updated_at'),
+                    json.dumps(payload),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def _background_task_load(kind: str, task_id: str) -> dict | None:
+    try:
+        init_background_tasks_db()
+        conn = _background_task_db_conn()
+        try:
+            row = conn.execute(
+                'SELECT payload_json FROM background_tasks WHERE kind = ? AND task_id = ?',
+                (kind, task_id),
+            ).fetchone()
+            if row and row['payload_json']:
+                return json.loads(row['payload_json'])
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    state_path, _, _ = _background_task_paths(kind, task_id)
+    try:
+        if state_path.exists():
+            return json.loads(state_path.read_text(encoding='utf-8'))
+    except Exception:
+        pass
+    return None
+
+
+def _background_task_append_log(kind: str, task_id: str, entry: dict) -> None:
+    _, log_path, _ = _background_task_paths(kind, task_id)
+    try:
+        with log_path.open('a', encoding='utf-8') as handle:
+            handle.write(json.dumps(entry) + '\n')
+    except Exception:
+        pass
+    try:
+        init_background_tasks_db()
+        conn = _background_task_db_conn()
+        try:
+            conn.execute(
+                'INSERT INTO background_task_logs (kind, task_id, ts, entry_json) VALUES (?, ?, ?, ?)',
+                (
+                    kind,
+                    task_id,
+                    entry.get('ts') or entry.get('timestamp') or get_utc_timestamp(),
+                    json.dumps(entry),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def _background_task_signal_abort(kind: str, task_id: str) -> None:
+    _, _, abort_path = _background_task_paths(kind, task_id)
+    try:
+        abort_path.touch()
+    except Exception:
+        pass
+
+
+def _background_task_has_abort(kind: str, task_id: str) -> bool:
+    _, _, abort_path = _background_task_paths(kind, task_id)
+    try:
+        return abort_path.exists()
+    except Exception:
+        return False
+
+
+def _background_task_status_payload(task: dict | None) -> dict | None:
+    payload = _background_task_snapshot(task)
+    if payload is None:
+        return None
+    payload.pop('abort', None)
+    payload.pop('_tenant_id', None)
+    payload.pop('_tenant_slug', None)
+    return payload
+
+
+def _background_task_matches_tenant(task: dict, tenant_id) -> bool:
+    if not tenant_id:
+        return True
+    task_tenant = task.get('_tenant_id') or task.get('tenant_id')
+    if task_tenant in (None, '', 'None'):
+        return False
+    return str(task_tenant) == str(tenant_id)
+
+
+def _request_tenant_id():
+    user_info = getattr(request, 'current_user', {}) or {}
+    return user_info.get('tenant_id') or user_info.get('tenantId')
+
+
+def _request_is_platform_admin() -> bool:
+    user_info = getattr(request, 'current_user', {}) or {}
+    return _platform_role_for_email(user_info.get('email', '')) == 'platform_admin'
+
+
+def _background_task_access_allowed(task: dict | None) -> bool:
+    if not isinstance(task, dict):
+        return False
+    if _request_is_platform_admin():
+        return True
+    return _background_task_matches_tenant(task, _request_tenant_id())
+
+
+def _queue_entry_matches_tenant(entry: dict, tenant_id) -> bool:
+    if not tenant_id:
+        return True
+    if not isinstance(entry, dict):
+        return False
+    entry_tenant = entry.get('_tenant_id') or entry.get('tenant_id')
+    if entry_tenant in (None, '', 'None'):
+        return False
+    return str(entry_tenant) == str(tenant_id)
+
+
+def _queue_payload(entries: list[dict], tenant_id=None) -> list[dict]:
+    payload = []
+    for entry in entries:
+        if not _queue_entry_matches_tenant(entry, tenant_id):
+            continue
+        item = dict(entry)
+        item.pop('_tenant_id', None)
+        item.pop('_tenant_slug', None)
+        payload.append(item)
+    return payload
+
+
+def _background_task_list(kind: str, limit: int = 50) -> list[dict]:
+    try:
+        init_background_tasks_db()
+        conn = _background_task_db_conn()
+        try:
+            rows = conn.execute(
+                '''
+                SELECT payload_json
+                FROM background_tasks
+                WHERE kind = ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                ''',
+                (kind, max(1, int(limit or 50))),
+            ).fetchall()
+            items = []
+            for row in rows:
+                try:
+                    payload = json.loads(row['payload_json'])
+                except Exception:
+                    continue
+                if isinstance(payload, dict):
+                    items.append(payload)
+            if items:
+                return items
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+    items = []
+    base_dir = _background_task_store_dir(kind)
+    for path in base_dir.glob('*.json'):
+        try:
+            payload = json.loads(path.read_text(encoding='utf-8'))
+            if isinstance(payload, dict):
+                items.append(payload)
+        except Exception:
+            continue
+
+    def _sort_key(item: dict):
+        return (
+            item.get('updated_at')
+            or item.get('created_at')
+            or item.get('started_at')
+            or item.get('completed_at')
+            or ''
+        )
+
+    items.sort(key=_sort_key, reverse=True)
+    return items[: max(1, int(limit or 50))]
+
+
+def _background_task_recent_logs(kind: str, limit: int = 200) -> list[dict]:
+    try:
+        init_background_tasks_db()
+        conn = _background_task_db_conn()
+        try:
+            rows = conn.execute(
+                '''
+                SELECT entry_json
+                FROM background_task_logs
+                WHERE kind = ?
+                ORDER BY ts DESC
+                LIMIT ?
+                ''',
+                (kind, max(1, int(limit or 200))),
+            ).fetchall()
+            entries = []
+            for row in reversed(rows):
+                try:
+                    payload = json.loads(row['entry_json'])
+                except Exception:
+                    continue
+                if isinstance(payload, dict):
+                    entries.append(payload)
+            if entries:
+                return entries
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+    entries = []
+    base_dir = _background_task_store_dir(kind)
+    files = sorted(base_dir.glob('*.log.jsonl'), key=lambda p: p.stat().st_mtime, reverse=True)
+    for path in files:
+        try:
+            with path.open('r', encoding='utf-8') as handle:
+                lines = handle.readlines()
+        except Exception:
+            continue
+        for line in reversed(lines):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(payload, dict):
+                entries.append(payload)
+            if len(entries) >= limit:
+                break
+        if len(entries) >= limit:
+            break
+    entries.reverse()
+    return entries
+
+
 wave_fw_tasks: dict = {}
 wave_fw_log_queues: dict = {}
 _WAVE_FW_UPLOAD_DIR = None   # resolved lazily to avoid import-time secure_data dependency
@@ -1228,48 +1732,32 @@ _WAVE_FW_TASK_STORE_DIR = None
 def _wave_fw_task_store_dir():
     global _WAVE_FW_TASK_STORE_DIR
     if _WAVE_FW_TASK_STORE_DIR is None:
-        _WAVE_FW_TASK_STORE_DIR = ensure_secure_data_dir() / 'wave_fw_tasks'
-        _WAVE_FW_TASK_STORE_DIR.mkdir(parents=True, exist_ok=True)
+        _WAVE_FW_TASK_STORE_DIR = _background_task_store_dir('wave_fw')
     return _WAVE_FW_TASK_STORE_DIR
 
 
 def _wave_fw_persist_task(task_id: str, extra: dict = None):
     """Write task header to disk so other workers can find it."""
-    try:
-        task = dict(wave_fw_tasks.get(task_id, {}))
-        if extra:
-            task.update(extra)
-        task.pop('results', None)  # don't write huge results arrays
-        (_wave_fw_task_store_dir() / f'{task_id}.json').write_text(json.dumps(task))
-    except Exception:
-        pass
+    task = dict(wave_fw_tasks.get(task_id, {}))
+    if extra:
+        task.update(extra)
+    task.pop('results', None)  # don't write huge results arrays
+    _background_task_persist('wave_fw', task_id, task)
 
 
 def _wave_fw_load_task_from_disk(task_id: str) -> dict | None:
     """Read task header from disk (cross-worker fallback)."""
-    try:
-        p = _wave_fw_task_store_dir() / f'{task_id}.json'
-        if p.exists():
-            return json.loads(p.read_text())
-    except Exception:
-        pass
-    return None
+    return _background_task_load('wave_fw', task_id)
 
 
 def _wave_fw_signal_abort(task_id: str):
     """Write an abort signal file readable by any worker."""
-    try:
-        (_wave_fw_task_store_dir() / f'{task_id}.abort').touch()
-    except Exception:
-        pass
+    _background_task_signal_abort('wave_fw', task_id)
 
 
 def _wave_fw_check_abort_signal(task_id: str) -> bool:
     """Check whether an abort signal file exists for this task."""
-    try:
-        return (_wave_fw_task_store_dir() / f'{task_id}.abort').exists()
-    except Exception:
-        return False
+    return _background_task_has_abort('wave_fw', task_id)
 
 
 def _wave_fw_server_firmware_dir():
@@ -1712,6 +2200,7 @@ def _aviat_resume_remaining_tasks(entry, callback=None):
 
 def _aviat_activate_entries(task_id, to_activate, username=None):
     aviat_tasks[task_id]['status'] = 'running'
+    _background_task_persist('aviat', task_id, aviat_tasks.get(task_id))
 
     def log_callback(message, level):
         _aviat_broadcast_log(message, level, task_id=task_id)
@@ -1802,9 +2291,11 @@ def _aviat_activate_entries(task_id, to_activate, username=None):
                     "targetVersion": res_dict.get("target_version") or _aviat_target_version(entry),
                 })
                 _aviat_save_shared_queue()
+            _background_task_persist('aviat', task_id, aviat_tasks.get(task_id))
 
     aviat_tasks[task_id]['status'] = 'completed'
     _aviat_save_shared_queue()
+    _background_task_persist('aviat', task_id, aviat_tasks.get(task_id))
     if task_id in aviat_log_queues:
         aviat_log_queues[task_id].put(None)
 
@@ -4176,6 +4667,13 @@ def unsupported_media_handler(e):
 
 @app.errorhandler(500)
 def internal_error_handler(e):
+    try:
+        print(
+            f"[FLASK][500] method={request.method} path={request.path} "
+            f"remote={request.remote_addr} error={e}"
+        )
+    except Exception:
+        pass
     return jsonify({'error': 'Internal server error'}), 500
 
 # Trust X-Forwarded-* headers from the reverse proxy so request.host_url
@@ -4326,6 +4824,9 @@ def reload_training():
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
+    _, _auth_err = _authenticate_request_context()
+    if _auth_err:
+        return _auth_err
     try:
         data = request.get_json(force=True)
         msgs = data.get('messages')
@@ -4381,6 +4882,9 @@ def chat():
 @app.route('/api/chat/history/<session_id>', methods=['GET'])
 def get_chat_history_endpoint(session_id):
     """Get chat history for a session"""
+    _, _auth_err = _authenticate_request_context()
+    if _auth_err:
+        return _auth_err
     try:
         limit = request.args.get('limit', 20, type=int)
         history = get_chat_history(session_id, limit)
@@ -4402,6 +4906,9 @@ def get_chat_history_endpoint(session_id):
 @app.route('/api/chat/context/<session_id>', methods=['GET'])
 def get_user_context_endpoint(session_id):
     """Get user context and preferences"""
+    _, _auth_err = _authenticate_request_context()
+    if _auth_err:
+        return _auth_err
     try:
         context = get_user_context(session_id)
         return jsonify({"success": True, "context": context})
@@ -4411,6 +4918,9 @@ def get_user_context_endpoint(session_id):
 @app.route('/api/chat/context/<session_id>', methods=['POST'])
 def update_user_context_endpoint(session_id):
     """Update user context and preferences"""
+    _, _auth_err = _authenticate_request_context()
+    if _auth_err:
+        return _auth_err
     try:
         data = request.get_json(force=True)
         preferred_model = data.get('preferred_model')
@@ -4424,6 +4934,9 @@ def update_user_context_endpoint(session_id):
 @app.route('/api/chat/export/<session_id>', methods=['GET'])
 def export_chat_history(session_id):
     """Export chat history as JSON"""
+    _, _auth_err = _authenticate_request_context()
+    if _auth_err:
+        return _auth_err
     try:
         history = get_chat_history(session_id, limit=1000)
         
@@ -9866,82 +10379,9 @@ def require_auth(f):
     """Decorator to require authentication"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        token = request.headers.get('Authorization')
-        if not token:
-            try:
-                token = (request.get_json(silent=True, force=False) or {}).get('token')
-            except Exception:
-                token = None
-
-        if token:
-            # Remove 'Bearer ' prefix if present
-            if token.startswith('Bearer '):
-                token = token[7:]
-
-        if not token:
-            return jsonify({'error': 'Authentication required'}), 401
-
-        # Check for API key (nck_ prefix)
-        if token.startswith('nck_'):
-            import hashlib as _hlib
-            key_hash = _hlib.sha256(token.encode()).hexdigest()
-            _db = init_users_db()
-            _conn = sqlite3.connect(str(_db))
-            _conn.row_factory = sqlite3.Row
-            _c = _conn.cursor()
-            _c.execute('''SELECT ak.*, t.slug as tenant_slug FROM api_keys ak
-                          JOIN tenants t ON t.id = ak.tenant_id
-                          WHERE ak.key_hash = ? AND ak.is_active = 1''', (key_hash,))
-            ak = _c.fetchone()
-            if ak:
-                # Check expiry
-                if ak['expires_at']:
-                    if datetime.utcnow().isoformat() > ak['expires_at']:
-                        _conn.close()
-                        return jsonify({'error': 'API key expired'}), 401
-                # Update last_used_at
-                _conn.execute('UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?', (ak['id'],))
-                _conn.commit()
-                _conn.close()
-                # Set current_user shape matching JWT shape
-                request.current_user = {
-                    'user_id': None,
-                    'id': None,
-                    'email': f'apikey:{ak["key_prefix"]}',
-                    'tenant_id': ak['tenant_id'],
-                    'tenantId': ak['tenant_id'],
-                    'tenant_role': 'api_key',
-                    'scopes': json.loads(ak['scopes'] or '["read","write"]'),
-                    'auth_type': 'api_key',
-                    'api_key_id': ak['id'],
-                }
-                return f(*args, **kwargs)
-            _conn.close()
-            return jsonify({'error': 'Invalid or revoked API key'}), 401
-
-        user_info = verify_token(token)
-        if not user_info:
-            return jsonify({'error': 'Invalid or expired token'}), 401
-
-        # Add user info to request context
-        request.current_user = user_info
-
-        # Update online presence tracker
-        try:
-            uid = user_info.get('id') or user_info.get('user_id')
-            if uid:
-                existing = _active_sessions.get(uid, {})
-                _active_sessions[uid] = {
-                    'email': user_info.get('email', ''),
-                    'display_name': user_info.get('displayName') or user_info.get('email', '').split('@')[0],
-                    'avatar': existing.get('avatar'),   # preserved from login
-                    'tenant_name': existing.get('tenant_name', ''),
-                    'role_label': existing.get('role_label', ''),
-                    'last_seen': _time.time(),
-                }
-        except Exception:
-            pass
-
+        _, error_response = _authenticate_request_context()
+        if error_response:
+            return error_response
         return f(*args, **kwargs)
     return decorated_function
 
@@ -11512,9 +11952,24 @@ Return the corrected configuration with proper network calculations and formatti
 def _ssh_fetch_update_task(task_id: str, **fields) -> None:
     with ssh_fetch_tasks_lock:
         task = ssh_fetch_tasks.get(task_id)
-        if not task:
-            return
-        task.update(fields)
+        if task is None:
+            # Task may have been lost from memory (server restart / cross-worker).
+            # Recover from shared store so the update is not silently dropped.
+            stored = _background_task_load('ssh_fetch', task_id)
+            if stored:
+                ssh_fetch_tasks[task_id] = stored
+                task = ssh_fetch_tasks[task_id]
+        if task:
+            task.update(fields)
+            _background_task_persist('ssh_fetch', task_id, task)
+
+
+def _ssh_fetch_should_abort(task_id: str) -> bool:
+    with ssh_fetch_tasks_lock:
+        task = ssh_fetch_tasks.get(task_id)
+        if task and task.get('abort') is True:
+            return True
+    return _background_task_has_abort('ssh_fetch', task_id)
 
 
 def _run_mikrotik_ssh_fetch(
@@ -11710,23 +12165,12 @@ def _run_mikrotik_ssh_fetch(
     }
 
 @app.route('/api/fetch-config-ssh', methods=['POST'])
+@require_auth
 def fetch_config_ssh():
     """
     SSH into MikroTik device and fetch configuration via export command.
     Credentials can be provided in the request body, or via environment variables.
     """
-    # Auth guard — equivalent to @require_auth (decorator defined later in file)
-    _auth_token = request.headers.get('Authorization', '')
-    if _auth_token.startswith('Bearer '):
-        _auth_token = _auth_token[7:]
-    if not _auth_token:
-        _auth_token = (request.get_json(silent=True) or {}).get('token', '')
-    if not _auth_token:
-        return jsonify({'error': 'Authentication required'}), 401
-    _auth_user = verify_token(_auth_token)
-    if not _auth_user:
-        return jsonify({'error': 'Invalid or expired token'}), 401
-
     try:
         data = request.get_json(force=True)
         host = data.get('host', '').strip()
@@ -11838,12 +12282,13 @@ def fetch_config_ssh():
                     'started_at': get_utc_timestamp(),
                     'completed_at': None,
                 }
+                _background_task_persist('ssh_fetch', task_id, ssh_fetch_tasks[task_id])
 
             def _worker():
                 _ssh_fetch_update_task(task_id, status='running', message='Starting SSH fetch')
 
                 def _should_abort():
-                    return ssh_fetch_tasks.get(task_id, {}).get('abort') is True
+                    return _ssh_fetch_should_abort(task_id)
 
                 def _progress(message, **extra):
                     payload = {'message': message}
@@ -11926,20 +12371,21 @@ def fetch_config_ssh():
 @app.route('/api/fetch-config-ssh/status/<task_id>', methods=['GET'])
 @require_auth
 def fetch_config_ssh_status(task_id):
-    task = ssh_fetch_tasks.get(task_id)
+    task = ssh_fetch_tasks.get(task_id) or _background_task_load('ssh_fetch', task_id)
     if not task:
         return jsonify({'error': 'Task not found'}), 404
-    return jsonify(task)
+    return jsonify(_background_task_status_payload(task))
 
 
 @app.route('/api/fetch-config-ssh/abort/<task_id>', methods=['POST'])
 @require_auth
 def fetch_config_ssh_abort(task_id):
-    task = ssh_fetch_tasks.get(task_id)
+    task = ssh_fetch_tasks.get(task_id) or _background_task_load('ssh_fetch', task_id)
     if not task:
         return jsonify({'error': 'Task not found'}), 404
     if task.get('status') in {'completed', 'failed', 'aborted'}:
         return jsonify({'status': task.get('status')}), 200
+    _background_task_signal_abort('ssh_fetch', task_id)
     _ssh_fetch_update_task(task_id, abort=True, status='aborting', message='Abort requested')
     return jsonify({'status': 'aborting'})
 
@@ -11979,6 +12425,7 @@ def nokia7250_defaults():
 
 
 @app.route('/api/nokia-configurator-defaults', methods=['GET'])
+@require_auth
 def nokia_configurator_defaults():
     return nokia7250_defaults()
 
@@ -14425,18 +14872,9 @@ def health():
     Backend is considered 'online' if this endpoint responds.
     The backend will handle AI provider availability and fallbacks internally.
     """
-    checks = _collect_health_checks(force=request.args.get('refresh') == '1')
-    degraded = any(not check.get('ok') for check in checks)
-    return jsonify({
-        'status': 'online',
-        'degraded': degraded,
-        'app': get_app_version_meta(),
-        'ai_provider': AI_PROVIDER,
-        'api_key_configured': bool(OPENAI_API_KEY) if AI_PROVIDER == 'openai' else None,
-        'timestamp': get_cst_timestamp(),
-        'message': 'Unified backend (api_server.py) is online and ready',
-        'checks': checks,
-    })
+    refresh = request.args.get('refresh') == '1'
+    include_dependencies = request.args.get('full') == '1' or request.args.get('include_dependencies') == '1'
+    return jsonify(build_health_payload(include_dependencies=include_dependencies, force=refresh))
 
 
 @app.route('/api/version', methods=['GET'])
@@ -16905,11 +17343,76 @@ def _get_request_token():
         token = token[7:]
     if token:
         return token
+    token = request.args.get('token', '')
+    if token.startswith('Bearer '):
+        token = token[7:]
+    if token:
+        return token
     data = request.get_json(silent=True) or {}
     token = data.get('token', '')
     if token.startswith('Bearer '):
         token = token[7:]
     return token
+
+
+def _authenticate_request_context():
+    token = _get_request_token()
+    if not token:
+        return None, (jsonify({'error': 'Authentication required'}), 401)
+
+    if token.startswith('nck_'):
+        import hashlib as _hlib
+        key_hash = _hlib.sha256(token.encode()).hexdigest()
+        _db = init_users_db()
+        _conn = sqlite3.connect(str(_db))
+        _conn.row_factory = sqlite3.Row
+        _c = _conn.cursor()
+        _c.execute('''SELECT ak.*, t.slug as tenant_slug FROM api_keys ak
+                      JOIN tenants t ON t.id = ak.tenant_id
+                      WHERE ak.key_hash = ? AND ak.is_active = 1''', (key_hash,))
+        ak = _c.fetchone()
+        if ak:
+            if ak['expires_at'] and datetime.utcnow().isoformat() > ak['expires_at']:
+                _conn.close()
+                return None, (jsonify({'error': 'API key expired'}), 401)
+            _conn.execute('UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?', (ak['id'],))
+            _conn.commit()
+            _conn.close()
+            request.current_user = {
+                'user_id': None,
+                'id': None,
+                'email': f'apikey:{ak["key_prefix"]}',
+                'tenant_id': ak['tenant_id'],
+                'tenantId': ak['tenant_id'],
+                'tenant_role': 'api_key',
+                'scopes': json.loads(ak['scopes'] or '["read","write"]'),
+                'auth_type': 'api_key',
+                'api_key_id': ak['id'],
+            }
+            return request.current_user, None
+        _conn.close()
+        return None, (jsonify({'error': 'Invalid or revoked API key'}), 401)
+
+    user_info = verify_token(token)
+    if not user_info:
+        return None, (jsonify({'error': 'Invalid or expired token'}), 401)
+
+    request.current_user = user_info
+    try:
+        uid = user_info.get('id') or user_info.get('user_id')
+        if uid:
+            existing = _active_sessions.get(uid, {})
+            _active_sessions[uid] = {
+                'email': user_info.get('email', ''),
+                'display_name': user_info.get('displayName') or user_info.get('email', '').split('@')[0],
+                'avatar': existing.get('avatar'),
+                'tenant_name': existing.get('tenant_name', ''),
+                'role_label': existing.get('role_label', ''),
+                'last_seen': _time.time(),
+            }
+    except Exception:
+        pass
+    return user_info, None
 
 
 def _get_default_tenant_context():
@@ -18926,6 +19429,8 @@ def _aviat_broadcast_log(message, level="info", task_id=None):
         "ts": datetime.utcnow().isoformat() + "Z",
     }
     aviat_global_log_history.append(entry)
+    if task_id:
+        _background_task_append_log('aviat', task_id, entry)
     for q in list(aviat_global_log_queues):
         try:
             q.put(entry)
@@ -18940,6 +19445,7 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
             aviat_tasks[task_id]['status'] = 'failed'
             aviat_tasks[task_id]['completed_at'] = datetime.utcnow().isoformat() + 'Z'
             aviat_tasks[task_id].setdefault('results', [])
+            _background_task_persist('aviat', task_id, aviat_tasks.get(task_id))
             _aviat_broadcast_log(f"[task:{task_id}] Unhandled crash: {_exc}", "error", task_id=task_id)
         except Exception:
             pass
@@ -18952,6 +19458,7 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
 
 def _aviat_background_task_inner(task_id, ips, task_types, maintenance_params=None, username=None):
     aviat_tasks[task_id]['status'] = 'running'
+    _background_task_persist('aviat', task_id, aviat_tasks.get(task_id))
     maintenance_params = maintenance_params or {}
     activation_mode = maintenance_params.get('activation_mode')
     target_version = _aviat_target_version({"maintenance_params": maintenance_params})
@@ -18964,7 +19471,7 @@ def _aviat_background_task_inner(task_id, ips, task_types, maintenance_params=No
     results = []
 
     def should_abort():
-        return aviat_tasks.get(task_id, {}).get('abort') is True
+        return aviat_tasks.get(task_id, {}).get('abort') is True or _background_task_has_abort('aviat', task_id)
 
     if activation_mode == "scheduled":
         result_list = aviat_process_radios_parallel(
@@ -19093,6 +19600,7 @@ def _aviat_background_task_inner(task_id, ips, task_types, maintenance_params=No
     _aviat_save_reboot_queue()
 
     aviat_tasks[task_id]['results'] = results
+    _background_task_persist('aviat', task_id, aviat_tasks.get(task_id))
     _task_tenant_id = aviat_tasks[task_id].get('_tenant_id')
     _task_tenant_slug = aviat_tasks[task_id].get('_tenant_slug', '')
     for res in results:
@@ -19154,6 +19662,7 @@ def aviat_run_tasks():
         '_tenant_id': _aviat_run_tenant_id,
         '_tenant_slug': _aviat_run_tenant_slug,
     }
+    _background_task_persist('aviat', task_id, aviat_tasks.get(task_id))
     aviat_log_queues[task_id] = queue.Queue()
 
     thread = threading.Thread(
@@ -19165,6 +19674,7 @@ def aviat_run_tasks():
 
 
 @app.route('/api/aviat/activate-scheduled', methods=['POST'])
+@require_auth
 def aviat_activate_scheduled():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -19245,6 +19755,7 @@ def aviat_activate_scheduled():
         '_tenant_id': _aviat_act_tenant_id,
         '_tenant_slug': _aviat_act_tenant_slug,
     }
+    _background_task_persist('aviat', task_id, aviat_tasks.get(task_id))
     aviat_log_queues[task_id] = queue.Queue()
 
     def activation_task():
@@ -19287,33 +19798,39 @@ def aviat_activate_scheduled():
 
 
 @app.route('/api/aviat/scheduled', methods=['GET'])
+@require_auth
 def aviat_get_scheduled():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
+    tenant_id = _request_tenant_id()
     return jsonify({
-        "scheduled": [item.get("ip") for item in aviat_scheduled_queue]
+        "scheduled": [item.get("ip") for item in aviat_scheduled_queue if _queue_entry_matches_tenant(item, tenant_id)]
     })
 
 
 @app.route('/api/aviat/loading', methods=['GET'])
+@require_auth
 def aviat_get_loading():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
+    tenant_id = _request_tenant_id()
     return jsonify({
-        "loading": [item.get("ip") for item in aviat_loading_queue]
+        "loading": [item.get("ip") for item in aviat_loading_queue if _queue_entry_matches_tenant(item, tenant_id)]
     })
 
 
 @app.route('/api/aviat/reboot-required', methods=['GET'])
+@require_auth
 def aviat_get_reboot_required():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
     return jsonify({
-        "reboot_required": aviat_reboot_queue
+        "reboot_required": _queue_payload(aviat_reboot_queue, tenant_id=_request_tenant_id())
     })
 
 
 @app.route('/api/aviat/reboot-required/run', methods=['POST'])
+@require_auth
 def aviat_run_reboot_required():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -19417,6 +19934,7 @@ def aviat_run_reboot_required():
 
 
 @app.route('/api/aviat/scheduled/sync', methods=['POST'])
+@require_auth
 def aviat_sync_scheduled():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -19443,11 +19961,15 @@ def aviat_sync_scheduled():
     return jsonify({"scheduled": [item.get("ip") for item in aviat_scheduled_queue]})
 
 @app.route('/api/aviat/queue', methods=['GET', 'POST'])
+@require_auth
 def aviat_queue_state():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
+    tenant_ctx = _get_request_tenant_context()
+    tenant_id = tenant_ctx['tenant'].get('id') if tenant_ctx.get('tenant') else None
+    tenant_slug = tenant_ctx['tenant'].get('slug', '') if tenant_ctx.get('tenant') else ''
     if request.method == 'GET':
-        return jsonify({"radios": aviat_shared_queue})
+        return jsonify({"radios": _queue_payload(aviat_shared_queue, tenant_id=tenant_id)})
 
     data = request.json or {}
     mode = (data.get("mode") or "replace").lower()
@@ -19455,27 +19977,33 @@ def aviat_queue_state():
     username = data.get("username") or "aviat-tool"
 
     if mode == "replace":
-        aviat_shared_queue.clear()
+        aviat_shared_queue[:] = [entry for entry in aviat_shared_queue if not _queue_entry_matches_tenant(entry, tenant_id)]
     if mode in ("replace", "add"):
         for radio in radios:
             ip = radio.get("ip") if isinstance(radio, dict) else str(radio)
             if not ip:
                 continue
-            updates = radio if isinstance(radio, dict) else {}
+            updates = dict(radio) if isinstance(radio, dict) else {}
             updates.setdefault("status", "pending")
             updates.setdefault("username", username)
+            updates["_tenant_id"] = tenant_id
+            updates["_tenant_slug"] = tenant_slug
             _aviat_queue_upsert(ip, updates)
     if mode == "remove":
         for radio in radios:
             ip = radio.get("ip") if isinstance(radio, dict) else str(radio)
             if ip:
-                _aviat_queue_remove(ip)
+                aviat_shared_queue[:] = [
+                    entry for entry in aviat_shared_queue
+                    if not (entry.get("ip") == ip and _queue_entry_matches_tenant(entry, tenant_id))
+                ]
 
     _aviat_save_shared_queue()
-    return jsonify({"radios": aviat_shared_queue})
+    return jsonify({"radios": _queue_payload(aviat_shared_queue, tenant_id=tenant_id)})
 
 
 @app.route('/api/aviat/check-status', methods=['POST'])
+@require_auth
 def aviat_check_status():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -19541,6 +20069,7 @@ def aviat_check_status():
 
 
 @app.route('/api/aviat/precheck/recheck', methods=['POST'])
+@require_auth
 def aviat_recheck_precheck():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -19600,6 +20129,7 @@ def aviat_recheck_precheck():
 
 
 @app.route('/api/aviat/fix-stp', methods=['POST'])
+@require_auth
 def aviat_fix_stp():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -19632,12 +20162,19 @@ def aviat_fix_stp():
 
 
 @app.route('/api/aviat/abort/<task_id>', methods=['POST'])
+@require_auth
 def aviat_abort_task(task_id):
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
-    if task_id not in aviat_tasks:
+    task = aviat_tasks.get(task_id) or _background_task_load('aviat', task_id)
+    if not task:
         return jsonify({'error': 'Task not found'}), 404
-    aviat_tasks[task_id]['abort'] = True
+    if not _background_task_access_allowed(task):
+        return jsonify({'error': 'Task not found'}), 404
+    _background_task_signal_abort('aviat', task_id)
+    if task_id in aviat_tasks:
+        aviat_tasks[task_id]['abort'] = True
+        _background_task_persist('aviat', task_id, aviat_tasks.get(task_id))
     return jsonify({'status': 'aborting'})
 
 
@@ -19645,8 +20182,39 @@ def aviat_abort_task(task_id):
 def aviat_stream_logs(task_id):
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
+    _, error_response = _authenticate_request_context()
+    if error_response:
+        return error_response
     if task_id not in aviat_log_queues:
-        return jsonify({'error': 'Task not found'}), 404
+        task = _background_task_load('aviat', task_id)
+        _, log_path, _ = _background_task_paths('aviat', task_id)
+        if not task:
+            return jsonify({'error': 'Task not found'}), 404
+        if not _background_task_access_allowed(task):
+            return jsonify({'error': 'Task not found'}), 404
+        if not log_path.exists():
+            return Response(
+                'data: {"type":"done"}\n\n',
+                mimetype='text/event-stream',
+                headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+            )
+
+        def generate_from_disk():
+            try:
+                with log_path.open('r', encoding='utf-8') as handle:
+                    for line in handle:
+                        line = line.strip()
+                        if line:
+                            yield f'data: {line}\n\n'
+            except Exception:
+                pass
+            yield 'data: {"type":"done"}\n\n'
+
+        return Response(
+            generate_from_disk(),
+            mimetype='text/event-stream',
+            headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+        )
 
     def generate():
         q = aviat_log_queues[task_id]
@@ -19671,12 +20239,22 @@ def aviat_stream_logs(task_id):
 def aviat_stream_global():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
+    _, error_response = _authenticate_request_context()
+    if error_response:
+        return error_response
     q = queue.Queue()
     aviat_global_log_queues.add(q)
 
     def generate():
-        # Send backlog first
-        for entry in list(aviat_global_log_history)[-200:]:
+        # Send persisted backlog first so cross-worker/restart visibility still works.
+        persisted = _background_task_recent_logs('aviat', limit=200)
+        backlog = persisted or list(aviat_global_log_history)[-200:]
+        for entry in backlog:
+            backlog_task_id = entry.get('task_id')
+            if backlog_task_id:
+                task = aviat_tasks.get(backlog_task_id) or _background_task_load('aviat', backlog_task_id)
+                if task and not _background_task_access_allowed(task):
+                    continue
             yield f"data: {json.dumps(entry)}\n\n"
         while True:
             try:
@@ -19700,12 +20278,39 @@ def aviat_stream_global():
 
 
 @app.route('/api/aviat/status/<task_id>')
+@require_auth
 def aviat_get_status(task_id):
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
-    if task_id not in aviat_tasks:
+    task = aviat_tasks.get(task_id) or _background_task_load('aviat', task_id)
+    if not task:
         return jsonify({'error': 'Task not found'}), 404
-    return jsonify(aviat_tasks[task_id])
+    if not _background_task_access_allowed(task):
+        return jsonify({'error': 'Task not found'}), 404
+    return jsonify(_background_task_status_payload(task))
+
+
+def _aviat_firmware_dir():
+    """Path where Aviat .swpack files live inside the container (/opt/firmware/aviat)."""
+    import pathlib as _pl
+    return _pl.Path(os.getenv('FIRMWARE_PATH', '/opt/firmware')) / 'aviat'
+
+
+@app.route('/api/aviat/firmware/<filename>')
+def aviat_serve_firmware(filename):
+    """Serve an Aviat firmware .swpack file for direct radio download (no auth — device pulls directly).
+
+    Radios fetch the firmware URI as a plain HTTP GET; they cannot send auth headers.
+    The file is read-only from the container's /opt/firmware/aviat/ volume mount.
+    """
+    import pathlib as _pl
+    fw_dir = _aviat_firmware_dir()
+    safe_name = _pl.Path(filename).name  # strip any directory traversal
+    file_path = fw_dir / safe_name
+    if not file_path.exists() or not file_path.is_file():
+        return jsonify({'error': 'Firmware file not found'}), 404
+    return send_file(str(file_path), as_attachment=True, download_name=safe_name,
+                     mimetype='application/octet-stream')
 
 
 # ========================================
@@ -19770,6 +20375,8 @@ def _cambium_broadcast_log(message, level="info", task_id=None, ip=None):
         "ip": ip,
     }
     cambium_global_log_history.append(entry)
+    if task_id:
+        _background_task_append_log('cambium', task_id, entry)
     for q in list(cambium_global_log_queues):
         try:
             q.put(entry)
@@ -19819,26 +20426,27 @@ def _log_cambium_activity(result):
                 pass
 
 
-def _cambium_update_queue_from_result(result, username=None):
+def _cambium_update_queue_from_result(result, username=None, tenant_id=None, tenant_slug=None):
     if not isinstance(result, dict):
         return
     status = result.get("status") or ("success" if result.get("success") else "error")
-    _cambium_queue_upsert(
-        result.get("ip"),
-        {
-            "status": status,
-            "firmwareStatus": status,
-            "deviceType": result.get("device_type"),
-            "targetVersion": result.get("target_version"),
-            "firmwareVersion": result.get("firmware_version_after") or result.get("firmware_version_before"),
-            "selectedImage": result.get("selected_image"),
-            "lastError": result.get("error"),
-            "backupStatus": result.get("backup_status"),
-            "verifyStatus": result.get("verify_status"),
-            "backupPath": result.get("backup_path"),
-            "username": result.get("username") or username or "cambium-tool",
-        },
-    )
+    update = {
+        "status": status,
+        "firmwareStatus": status,
+        "deviceType": result.get("device_type"),
+        "targetVersion": result.get("target_version"),
+        "firmwareVersion": result.get("firmware_version_after") or result.get("firmware_version_before"),
+        "selectedImage": result.get("selected_image"),
+        "lastError": result.get("error"),
+        "backupStatus": result.get("backup_status"),
+        "verifyStatus": result.get("verify_status"),
+        "backupPath": result.get("backup_path"),
+        "username": result.get("username") or username or "cambium-tool",
+    }
+    if tenant_id is not None:
+        update["_tenant_id"] = tenant_id
+        update["_tenant_slug"] = tenant_slug or ""
+    _cambium_queue_upsert(result.get("ip"), update)
 
 
 def _cambium_expand_tasks(task_values):
@@ -20077,6 +20685,7 @@ def _cambium_background_task(task_id, radios, username):
             cambium_tasks[task_id]['status'] = 'failed'
             cambium_tasks[task_id]['completed_at'] = get_utc_timestamp()
             cambium_tasks[task_id].setdefault('results', [])
+            _background_task_persist('cambium', task_id, cambium_tasks.get(task_id))
             _cambium_broadcast_log(f"[task:{task_id}] Unhandled crash: {_exc}", "error", task_id=task_id)
         except Exception:
             pass
@@ -20090,15 +20699,18 @@ def _cambium_background_task(task_id, radios, username):
 def _cambium_background_task_inner(task_id, radios, username):
     results = []
     cambium_tasks[task_id]["status"] = "running"
+    _background_task_persist('cambium', task_id, cambium_tasks.get(task_id))
+    _task_tenant_id = cambium_tasks[task_id].get('_tenant_id')
+    _task_tenant_slug = cambium_tasks[task_id].get('_tenant_slug', '')
     def should_abort():
-        return cambium_tasks.get(task_id, {}).get("abort") is True
+        return cambium_tasks.get(task_id, {}).get("abort") is True or _background_task_has_abort('cambium', task_id)
     max_workers = max(1, min(CAMBIUM_MAX_WORKERS, len(radios)))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(_cambium_run_single, radio, username, should_abort): radio for radio in radios}
         for future in as_completed(futures):
             result = future.result()
             results.append(result)
-            _cambium_update_queue_from_result(result, username=username)
+            _cambium_update_queue_from_result(result, username=username, tenant_id=_task_tenant_id, tenant_slug=_task_tenant_slug)
             _log_cambium_activity(result)
             if result.get("success"):
                 _cambium_broadcast_log(
@@ -20126,6 +20738,7 @@ def _cambium_background_task_inner(task_id, radios, username):
     cambium_tasks[task_id]["status"] = "aborted" if should_abort() else "completed"
     cambium_tasks[task_id]["results"] = results
     cambium_tasks[task_id]["completed_at"] = get_utc_timestamp()
+    _background_task_persist('cambium', task_id, cambium_tasks.get(task_id))
     if task_id in cambium_log_queues:
         cambium_log_queues[task_id].put(None)
 
@@ -20162,9 +20775,13 @@ def cambium_catalog():
 
 
 @app.route('/api/cambium/device-info', methods=['POST'])
+@require_auth
 def cambium_device_info():
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
+    _ctx = _get_request_tenant_context()
+    _dev_tenant_id = _ctx['tenant'].get('id') if _ctx.get('tenant') else None
+    _dev_tenant_slug = _ctx['tenant'].get('slug', '') if _ctx.get('tenant') else ''
     data = request.get_json(force=True) or {}
     ip = str(data.get("ip") or data.get("ip_address") or "").strip()
     device_type = data.get("device_type")
@@ -20180,6 +20797,8 @@ def cambium_device_info():
             "deviceType": info["device_type"],
             "firmwareVersion": info["firmware_version"],
             "lastError": info["error"],
+            "_tenant_id": _dev_tenant_id,
+            "_tenant_slug": _dev_tenant_slug,
         })
         _cambium_save_shared_queue()
         return jsonify({"success": True, **info})
@@ -20222,11 +20841,15 @@ def cambium_check_status():
 
 
 @app.route('/api/cambium/queue', methods=['GET', 'POST'])
+@require_auth
 def cambium_queue_state():
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
+    tenant_ctx = _get_request_tenant_context()
+    tenant_id = tenant_ctx['tenant'].get('id') if tenant_ctx.get('tenant') else None
+    tenant_slug = tenant_ctx['tenant'].get('slug', '') if tenant_ctx.get('tenant') else ''
     if request.method == 'GET':
-        return jsonify({"radios": cambium_shared_queue})
+        return jsonify({"radios": _queue_payload(cambium_shared_queue, tenant_id=tenant_id)})
 
     data = request.get_json(force=True) or {}
     mode = str(data.get("mode") or "replace").strip().lower()
@@ -20239,7 +20862,7 @@ def cambium_queue_state():
     radios = _cambium_expand_radios(data)
 
     if mode == "replace":
-        cambium_shared_queue.clear()
+        cambium_shared_queue[:] = [entry for entry in cambium_shared_queue if not _queue_entry_matches_tenant(entry, tenant_id)]
         for radio in radios:
             canonical = cambium_resolve_device_type(radio.get("device_type"))
             _cambium_queue_upsert(radio["ip"], {
@@ -20248,6 +20871,8 @@ def cambium_queue_state():
                 "deviceType": canonical,
                 "targetVersion": radio.get("update_version"),
                 "username": actor_username,
+                "_tenant_id": tenant_id,
+                "_tenant_slug": tenant_slug,
             })
     elif mode == "add":
         for radio in radios:
@@ -20258,15 +20883,20 @@ def cambium_queue_state():
                 "deviceType": canonical,
                 "targetVersion": radio.get("update_version"),
                 "username": actor_username,
+                "_tenant_id": tenant_id,
+                "_tenant_slug": tenant_slug,
             })
     elif mode == "remove":
         for radio in radios:
-            _cambium_queue_remove(radio["ip"])
+            cambium_shared_queue[:] = [
+                entry for entry in cambium_shared_queue
+                if not (entry.get("ip") == radio["ip"] and _queue_entry_matches_tenant(entry, tenant_id))
+            ]
     else:
         return jsonify({'error': f'Unsupported mode: {mode}'}), 400
 
     _cambium_save_shared_queue()
-    return jsonify({"radios": cambium_shared_queue})
+    return jsonify({"radios": _queue_payload(cambium_shared_queue, tenant_id=tenant_id)})
 
 
 @app.route('/api/cambium/run', methods=['POST'])
@@ -20287,6 +20917,8 @@ def cambium_run_tasks():
         or data.get("submitted_by")
         or "cambium-tool"
     )
+    _cambium_tenant_id = _tenant_ctx['tenant'].get('id') if _tenant_ctx.get('tenant') else None
+    _cambium_tenant_slug = _tenant_ctx['tenant'].get('slug', '') if _tenant_ctx.get('tenant') else ''
     if not radios:
         return jsonify({'error': 'No radios provided'}), 400
 
@@ -20314,6 +20946,8 @@ def cambium_run_tasks():
             "deviceType": canonical,
             "targetVersion": radio.get("update_version"),
             "username": actor_username,
+            "_tenant_id": _cambium_tenant_id,
+            "_tenant_slug": _cambium_tenant_slug,
         })
     _cambium_save_shared_queue()
 
@@ -20327,7 +20961,10 @@ def cambium_run_tasks():
         "tasks": _cambium_expand_tasks(data.get("tasks")),
         "started_at": get_utc_timestamp(),
         "results": [],
+        "_tenant_id": _cambium_tenant_id,
+        "_tenant_slug": _cambium_tenant_slug,
     }
+    _background_task_persist('cambium', task_id, cambium_tasks.get(task_id))
     cambium_log_queues[task_id] = queue.Queue()
     threading.Thread(
         target=_cambium_background_task,
@@ -20341,8 +20978,40 @@ def cambium_run_tasks():
 def cambium_stream_logs(task_id):
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
+    _, error_response = _authenticate_request_context()
+    if error_response:
+        return error_response
     if task_id not in cambium_log_queues:
-        return jsonify({'error': 'Task not found'}), 404
+        task = _background_task_load('cambium', task_id)
+        _, log_path, _ = _background_task_paths('cambium', task_id)
+        if not task:
+            return jsonify({'error': 'Task not found'}), 404
+        if not _background_task_access_allowed(task):
+            return jsonify({'error': 'Task not found'}), 404
+        if not log_path.exists():
+            return Response(
+                'data: {"type":"done"}\n\n',
+                mimetype='text/event-stream',
+                headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+            )
+
+        @stream_with_context
+        def generate_from_disk():
+            try:
+                with log_path.open('r', encoding='utf-8') as handle:
+                    for line in handle:
+                        line = line.strip()
+                        if line:
+                            yield f'data: {line}\n\n'
+            except Exception:
+                pass
+            yield 'data: {"type":"done"}\n\n'
+
+        return Response(
+            generate_from_disk(),
+            mimetype='text/event-stream',
+            headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+        )
 
     @stream_with_context
     def generate():
@@ -20363,12 +21032,22 @@ def cambium_stream_logs(task_id):
 def cambium_stream_global():
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
+    _, error_response = _authenticate_request_context()
+    if error_response:
+        return error_response
     q = queue.Queue()
     cambium_global_log_queues.add(q)
 
     @stream_with_context
     def generate():
-        for entry in list(cambium_global_log_history)[-200:]:
+        persisted = _background_task_recent_logs('cambium', limit=200)
+        backlog = persisted or list(cambium_global_log_history)[-200:]
+        for entry in backlog:
+            backlog_task_id = entry.get('task_id')
+            if backlog_task_id:
+                task = cambium_tasks.get(backlog_task_id) or _background_task_load('cambium', backlog_task_id)
+                if task and not _background_task_access_allowed(task):
+                    continue
             yield f"data: {json.dumps(entry)}\n\n"
         try:
             while True:
@@ -20390,22 +21069,33 @@ def cambium_stream_global():
 
 
 @app.route('/api/cambium/status/<task_id>')
+@require_auth
 def cambium_get_status(task_id):
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
-    if task_id not in cambium_tasks:
+    task = cambium_tasks.get(task_id) or _background_task_load('cambium', task_id)
+    if not task:
         return jsonify({'error': 'Task not found'}), 404
-    return jsonify(cambium_tasks[task_id])
+    if not _background_task_access_allowed(task):
+        return jsonify({'error': 'Task not found'}), 404
+    return jsonify(_background_task_status_payload(task))
 
 
 @app.route('/api/cambium/abort/<task_id>', methods=['POST'])
+@require_auth
 def cambium_abort_task(task_id):
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
-    if task_id not in cambium_tasks:
+    task = cambium_tasks.get(task_id) or _background_task_load('cambium', task_id)
+    if not task:
         return jsonify({'error': 'Task not found'}), 404
-    cambium_tasks[task_id]['abort'] = True
-    cambium_tasks[task_id]['status'] = 'aborting'
+    if not _background_task_access_allowed(task):
+        return jsonify({'error': 'Task not found'}), 404
+    _background_task_signal_abort('cambium', task_id)
+    if task_id in cambium_tasks:
+        cambium_tasks[task_id]['abort'] = True
+        cambium_tasks[task_id]['status'] = 'aborting'
+        _background_task_persist('cambium', task_id, cambium_tasks.get(task_id))
     return jsonify({'status': 'aborting'})
 
 
@@ -21293,8 +21983,19 @@ def wave_fw_list_tasks():
     """List recent Wave FW upgrade tasks (summary only, no full results array)."""
     if not HAS_WAVE_FW:
         return jsonify({'success': False, 'error': 'Wave FW updater not configured.'}), 503
-    tasks = []
+    user_info = getattr(request, 'current_user', {}) or {}
+    tenant_id = user_info.get('tenant_id') or user_info.get('tenantId')
+    merged = {}
     for tid, t in wave_fw_tasks.items():
+        if _background_task_matches_tenant(t, tenant_id):
+            merged[tid] = dict(t)
+    for task in _background_task_list('wave_fw', limit=200):
+        tid = task.get('task_id')
+        if tid and tid not in merged and _background_task_matches_tenant(task, tenant_id):
+            merged[tid] = task
+
+    tasks = []
+    for tid, t in merged.items():
         tasks.append({
             'task_id': tid,
             'status': t.get('status'),
@@ -21318,13 +22019,14 @@ def wave_fw_task_status(task_id):
     """Full task status including per-device results."""
     if not HAS_WAVE_FW:
         return jsonify({'success': False, 'error': 'Wave FW updater not configured.'}), 503
-    if task_id not in wave_fw_tasks:
-        # Cross-worker fallback: task was created in a different uvicorn worker
-        disk_task = _wave_fw_load_task_from_disk(task_id)
-        if disk_task:
-            return jsonify({'success': True, 'task': disk_task})
+    task = wave_fw_tasks.get(task_id)
+    if task is None:
+        task = _wave_fw_load_task_from_disk(task_id)
+        if task is None:
+            return jsonify({'success': False, 'error': 'Task not found'}), 404
+    if not _background_task_access_allowed(task):
         return jsonify({'success': False, 'error': 'Task not found'}), 404
-    t = dict(wave_fw_tasks[task_id])
+    t = dict(task)
     t.pop('abort', None)  # Don't expose internal flag
     t.pop('_tenant_id', None)
     t.pop('_tenant_slug', None)
@@ -21334,19 +22036,19 @@ def wave_fw_task_status(task_id):
 @app.route('/api/wave-fw/stream/<task_id>')
 def wave_fw_stream_logs(task_id):
     """SSE real-time log stream for a Wave FW upgrade task."""
-    # Manual token check (no @require_auth — streaming response incompatible with decorator buffering)
-    token = request.args.get('token') or (request.headers.get('Authorization', '').replace('Bearer ', '') or None)
-    if not token or not verify_token(token):
-        return jsonify({'error': 'Authentication required'}), 401
+    _, error_response = _authenticate_request_context()
+    if error_response:
+        return error_response
 
-    # Cross-worker fallback: if this worker doesn't have the live queue, serve the persisted log file
+    task = wave_fw_tasks.get(task_id) or _wave_fw_load_task_from_disk(task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    if not _background_task_access_allowed(task):
+        return jsonify({'error': 'Task not found'}), 404
+
     if task_id not in wave_fw_log_queues:
         log_path = _wave_fw_task_store_dir() / f'{task_id}.log.jsonl'
         if not log_path.exists():
-            # Also check if the task exists at all (disk header)
-            if not (_wave_fw_task_store_dir() / f'{task_id}.json').exists():
-                return jsonify({'error': 'Task not found'}), 404
-            # Task exists but no logs yet — send empty done
             return Response(
                 'data: {"type":"done"}\n\n',
                 mimetype='text/event-stream',
@@ -21398,10 +22100,16 @@ def wave_fw_abort(task_id):
     """Cooperatively abort an in-progress Wave FW upgrade task."""
     if not HAS_WAVE_FW:
         return jsonify({'success': False, 'error': 'Wave FW updater not configured.'}), 503
+    task = wave_fw_tasks.get(task_id) or _wave_fw_load_task_from_disk(task_id)
+    if not task:
+        return jsonify({'success': False, 'error': 'Task not found'}), 404
+    if not _background_task_access_allowed(task):
+        return jsonify({'success': False, 'error': 'Task not found'}), 404
     _wave_fw_signal_abort(task_id)  # write signal file for cross-worker abort
     if task_id in wave_fw_tasks:
         wave_fw_tasks[task_id]['abort'] = True
         wave_fw_tasks[task_id]['status'] = 'aborting'
+        _wave_fw_persist_task(task_id)
     else:
         # Task is in another worker — signal via file only
         disk_task = _wave_fw_load_task_from_disk(task_id)
@@ -22472,6 +23180,7 @@ def generate_ftth_isd_fiber():
 
 
 @app.route('/api/ftth-home/mf2-package', methods=['POST'])
+@require_auth
 def generate_ftth_home_mf2_package():
     """Generate MF2 ZIP with updated gateway and primary IP in 2-ihub-startup 831.xml."""
     data = request.get_json() or {}
@@ -23640,6 +24349,7 @@ def bulk_migration_execute():
 
 # ─── SSH Push Config to Live MikroTik Devices ────────────────────────
 @app.route('/api/ssh-push-config', methods=['POST'])
+@require_auth
 def ssh_push_config():
     """
     Push .rsc config text to MikroTik devices via SFTP upload + /import.

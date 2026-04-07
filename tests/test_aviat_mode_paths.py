@@ -86,6 +86,13 @@ def test_check_status_uses_queue_target_version_for_downgrade(monkeypatch):
 
     monkeypatch.setattr(
         api_server,
+        "verify_token",
+        lambda token: {"user_id": "u1", "email": "test@example.com", "tenant_id": None, "tenantId": None}
+        if token == "test-token"
+        else None,
+    )
+    monkeypatch.setattr(
+        api_server,
         "aviat_check_device_status",
         lambda ip: {
             "ip": ip,
@@ -108,7 +115,11 @@ def test_check_status_uses_queue_target_version_for_downgrade(monkeypatch):
         {"ip": "10.0.0.20", "status": "pending", "targetVersion": "2.11.11"}
     )
 
-    response = client.post("/api/aviat/check-status", json={"ips": ["10.0.0.20"]})
+    response = client.post(
+        "/api/aviat/check-status",
+        json={"ips": ["10.0.0.20"]},
+        headers={"Authorization": "Bearer test-token"},
+    )
     assert response.status_code == 200
     updated = api_server._aviat_queue_find("10.0.0.20")
     assert updated["status"] == "success"

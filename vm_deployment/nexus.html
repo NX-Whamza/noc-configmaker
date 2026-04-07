@@ -22704,7 +22704,9 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             taskId: null,
             pollTimer: null,
             currentHost: '',
-            abortRequested: false
+            abortRequested: false,
+            abortTimeoutTimer: null,
+            notFoundRetries: 0
         };
 
         function setSshFetchButtons(isRunning, isStopping = false) {
@@ -22729,8 +22731,13 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 clearTimeout(sshFetchState.pollTimer);
                 sshFetchState.pollTimer = null;
             }
+            if (sshFetchState.abortTimeoutTimer) {
+                clearTimeout(sshFetchState.abortTimeoutTimer);
+                sshFetchState.abortTimeoutTimer = null;
+            }
             sshFetchState.taskId = null;
             sshFetchState.abortRequested = false;
+            sshFetchState.notFoundRetries = 0;
         }
 
         async function pollSshFetchStatus(taskId, deviceIP, sshStatus) {
@@ -22740,8 +22747,16 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 });
                 const data = await response.json();
                 if (!response.ok) {
+                    if (response.status === 404) {
+                        sshFetchState.notFoundRetries = (sshFetchState.notFoundRetries || 0) + 1;
+                        if (sshFetchState.notFoundRetries <= 3) {
+                            sshFetchState.pollTimer = setTimeout(() => pollSshFetchStatus(taskId, deviceIP, sshStatus), 1500);
+                            return;
+                        }
+                    }
                     throw new Error(data.error || `Status check failed (${response.status})`);
                 }
+                sshFetchState.notFoundRetries = 0;
 
                 if (data.message) {
                     updateProgressStep(data.message);
@@ -22825,6 +22840,22 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 }
                 addProgressLog('warning', 'SSH fetch stop requested');
                 updateProgressStep('Stopping SSH fetch...');
+                // Force-release the UI after a max wait — backend may take up to ~12s for SSH timeout
+                clearTimeout(sshFetchState.abortTimeoutTimer);
+                sshFetchState.abortTimeoutTimer = setTimeout(function() {
+                    if (sshFetchState.abortRequested) {
+                        clearSshFetchPolling();
+                        setSshFetchButtons(false);
+                        completeProgressTracker(false);
+                        const sshStatusEl = document.getElementById('sshStatus');
+                        if (sshStatusEl) {
+                            sshStatusEl.style.background = '#ef6c00';
+                            sshStatusEl.innerHTML = '\u26a0\ufe0f SSH fetch stopped.';
+                        }
+                        showUpgradeStatus('SSH fetch stopped.', 'error');
+                        addProgressLog('warning', 'SSH fetch stopped');
+                    }
+                }, 15000);
             } catch (error) {
                 sshFetchState.abortRequested = false;
                 setSshFetchButtons(true, false);
@@ -29745,7 +29776,7 @@ Ready for translation!`);
                 try {
                     const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : (window.AI_API_BASE || '/api');
                     const targetUrl = `${apiBase.replace(/\/+$/, '')}/preview-ftth-bng`;
-                    const r = await fetch(targetUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ loopback_ip: loopback, cpe_cidr: cpe, cgnat_cidr: cgnat, olt_cidr: olt }) });
+                    const r = await fetch(targetUrl, { method: 'POST', headers: getAuthHeaders('application/json'), body: JSON.stringify({ loopback_ip: loopback, cpe_cidr: cpe, cgnat_cidr: cgnat, olt_cidr: olt }) });
                     if (!r.ok) {
                         const txt = await r.text();
                         errEl.textContent = 'Preview server responded with status ' + r.status + ': ' + (txt || '');
@@ -30488,7 +30519,7 @@ Ready for translation!`);
                 const targetUrl = `${apiBase.replace(/\/+$/, '')}/ftth-home/mf2-package`;
                 const response = await fetch(targetUrl, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: getAuthHeaders('application/json'),
                     body: JSON.stringify({
                         gateway_ip: normalizedGatewayIp,
                         primary_ip: normalizedPrimaryIp,
@@ -31607,7 +31638,7 @@ Ready for translation!`);
                 let fetchDone = false;
                 const fetchPromise = fetch(targetUrl, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: getAuthHeaders('application/json'),
                     body: JSON.stringify(configData)
                 }).then((res) => {
                     fetchDone = true;
@@ -31894,9 +31925,17 @@ Ready for translation!`);
                 const bases = getAviatCandidateBases();
                 const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
                 let lastError = null;
+                const authHeaders = (typeof getAuthHeaders === 'function') ? getAuthHeaders() : {};
+                const mergedOptions = {
+                    ...(options || {}),
+                    headers: {
+                        ...authHeaders,
+                        ...((options && options.headers) || {})
+                    }
+                };
                 for (const base of bases) {
                     try {
-                        const response = await fetch(`${base}${path}`, options);
+                        const response = await fetch(`${base}${path}`, mergedOptions);
                         const shouldRetry = [403, 404, 405].includes(response.status);
                         if (shouldRetry && base !== bases[bases.length - 1]) {
                             continue;
@@ -31934,6 +31973,13 @@ Ready for translation!`);
                     return 'http://localhost:5000/api/aviat';
                 }
                 return `${window.location.origin}/api/aviat`;
+            }
+
+            function getAviatStreamUrl(path) {
+                const token = (typeof getAuthToken === 'function') ? getAuthToken() : (localStorage.getItem('auth_token') || '');
+                const url = new URL(`${getAviatStreamBase()}${path}`, window.location.origin);
+                if (token) url.searchParams.set('token', token);
+                return url.toString();
             }
 
             async function aviatFetchWithTimeout(path, options, timeoutMs = 15000) {
@@ -32912,7 +32958,7 @@ Ready for translation!`);
             function aviatStartGlobalLogStream() {
                 if (aviatState.globalStreamStarted) return;
                 aviatState.globalStreamStarted = true;
-                const eventSource = new EventSource(`${getAviatStreamBase()}/stream/global`);
+                const eventSource = new EventSource(getAviatStreamUrl('/stream/global'));
                 eventSource.onopen = function () {
                     aviatAddLog('Live log stream connected', 'info');
                 };
