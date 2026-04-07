@@ -2578,7 +2578,8 @@
 
         /* Live Progress Tracker (Inline Horizontal) */
         .progress-tracker {
-            display: none;
+            display: flex;
+            flex-direction: column;
             position: fixed;
             bottom: 0;
             left: 0;
@@ -2587,14 +2588,19 @@
             background: #1e1e1e;
             border-top: 2px solid #4CAF50;
             box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.5);
-            flex-direction: column;
             transform: translateY(100%);
-            transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            visibility: hidden;
+            pointer-events: none;
+            transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                        visibility 0s linear 0.28s;
         }
 
         .progress-tracker.active {
-            display: flex;
             transform: translateY(0);
+            visibility: visible;
+            pointer-events: auto;
+            transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                        visibility 0s linear 0s;
         }
 
         .progress-tracker.collapsed {
@@ -27380,7 +27386,8 @@ Ready for translation!`);
             window.closeProgressTracker = function () {
                 const tracker = document.getElementById('progressTracker');
                 if (tracker) tracker.classList.remove('active');
-                document.body.style.paddingBottom = '';
+                // Clear padding after the slide-down transition finishes (280ms)
+                setTimeout(() => { document.body.style.paddingBottom = ''; }, 300);
 
                 if (progressTrackerInterval) {
                     clearInterval(progressTrackerInterval);
