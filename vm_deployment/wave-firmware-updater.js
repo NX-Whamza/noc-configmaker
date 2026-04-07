@@ -86,6 +86,15 @@
         throw lastError || new Error('Wave FW API unavailable');
     }
 
+    function getWaveStreamUrl(path) {
+        const token = (typeof getAuthToken === 'function')
+            ? getAuthToken()
+            : (localStorage.getItem('auth_token') || '');
+        const url = new URL(`${getWaveApiBase()}${path}`, window.location.origin);
+        if (token) url.searchParams.set('token', token);
+        return url.toString();
+    }
+
     async function parseJson(response) {
         const contentType = response.headers.get('content-type') || '';
         if (!contentType.includes('application/json')) {
@@ -553,6 +562,14 @@
 
     function applyEventPayload(payload) {
         if (!payload) return;
+        if (payload.task && typeof payload.task === 'object') {
+            payload = {
+                ...payload.task,
+                message: payload.message,
+                level: payload.level,
+                ts: payload.ts
+            };
+        }
         if (payload.message) addLog(payload.message, payload.level || 'info', { ts: payload.ts });
         if (Array.isArray(payload.results)) {
             payload.results.forEach(r => {
@@ -575,13 +592,8 @@
         }
         if (typeof EventSource === 'undefined') return;
         let eventSource;
-        // SSE stream endpoint uses token auth via query param
         try {
-            const token = window._nexusAuthToken || (typeof getAuthToken === 'function' ? getAuthToken() : '');
-            const streamUrl = token
-                ? `${getWaveApiBase()}/stream/${encodeURIComponent(taskId)}?token=${encodeURIComponent(token)}`
-                : `${getWaveApiBase()}/stream/${encodeURIComponent(taskId)}`;
-            eventSource = new EventSource(streamUrl);
+            eventSource = new EventSource(getWaveStreamUrl(`/stream/${encodeURIComponent(taskId)}`));
         } catch (err) {
             addLog(`Wave FW stream failed to start: ${err.message}`, 'warning');
             return;
@@ -619,7 +631,8 @@
             const data = await parseJson(response);
             if (!response.ok) throw new Error(data.error || `Status poll failed (${response.status})`);
             applyEventPayload(data);
-            const status = String(data.status || '').toLowerCase();
+            const task = (data && typeof data.task === 'object') ? data.task : data;
+            const status = String((task && task.status) || data.status || '').toLowerCase();
             if (['completed', 'success', 'failed', 'error', 'aborted'].includes(status) || data.done === true) {
                 stopTaskWatchers();
                 waveState.taskId = null;
