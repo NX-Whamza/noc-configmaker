@@ -1222,6 +1222,56 @@ def _wave_fw_upload_dir():
     return _WAVE_FW_UPLOAD_DIR
 
 
+_WAVE_FW_TASK_STORE_DIR = None
+
+
+def _wave_fw_task_store_dir():
+    global _WAVE_FW_TASK_STORE_DIR
+    if _WAVE_FW_TASK_STORE_DIR is None:
+        _WAVE_FW_TASK_STORE_DIR = ensure_secure_data_dir() / 'wave_fw_tasks'
+        _WAVE_FW_TASK_STORE_DIR.mkdir(parents=True, exist_ok=True)
+    return _WAVE_FW_TASK_STORE_DIR
+
+
+def _wave_fw_persist_task(task_id: str, extra: dict = None):
+    """Write task header to disk so other workers can find it."""
+    try:
+        task = dict(wave_fw_tasks.get(task_id, {}))
+        if extra:
+            task.update(extra)
+        task.pop('results', None)  # don't write huge results arrays
+        (_wave_fw_task_store_dir() / f'{task_id}.json').write_text(json.dumps(task))
+    except Exception:
+        pass
+
+
+def _wave_fw_load_task_from_disk(task_id: str) -> dict | None:
+    """Read task header from disk (cross-worker fallback)."""
+    try:
+        p = _wave_fw_task_store_dir() / f'{task_id}.json'
+        if p.exists():
+            return json.loads(p.read_text())
+    except Exception:
+        pass
+    return None
+
+
+def _wave_fw_signal_abort(task_id: str):
+    """Write an abort signal file readable by any worker."""
+    try:
+        (_wave_fw_task_store_dir() / f'{task_id}.abort').touch()
+    except Exception:
+        pass
+
+
+def _wave_fw_check_abort_signal(task_id: str) -> bool:
+    """Check whether an abort signal file exists for this task."""
+    try:
+        return (_wave_fw_task_store_dir() / f'{task_id}.abort').exists()
+    except Exception:
+        return False
+
+
 def _wave_fw_server_firmware_dir():
     """Path where bundled Wave .bin files live inside the container (/opt/firmware/wave)."""
     import pathlib as _pl
@@ -20703,12 +20753,14 @@ def _wave_fw_upgrade_single(device, file_path, target_version, log_cb, should_ab
 def _wave_fw_background_task_inner(task_id, file_path, devices, target_version, firmware_dir=None):
     _purge_stale_tasks(wave_fw_tasks, wave_fw_log_queues)
     wave_fw_tasks[task_id]['status'] = 'running'
+    _wave_fw_persist_task(task_id)
 
     def log_cb(msg, level='info'):
         _wave_fw_broadcast_log(msg, level, task_id=task_id)
 
     def should_abort():
-        return wave_fw_tasks[task_id].get('abort', False)
+        # Check both in-memory flag (same worker) and disk signal (cross-worker)
+        return wave_fw_tasks[task_id].get('abort', False) or _wave_fw_check_abort_signal(task_id)
 
     max_workers = max(1, min(WAVE_FW_MAX_WORKERS, len(devices)))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -20729,6 +20781,7 @@ def _wave_fw_background_task_inner(task_id, file_path, devices, target_version, 
 
     wave_fw_tasks[task_id]['status'] = 'aborted' if should_abort() else 'completed'
     wave_fw_tasks[task_id]['completed_at'] = datetime.utcnow().isoformat() + 'Z'
+    _wave_fw_persist_task(task_id)
     if task_id in wave_fw_log_queues:
         wave_fw_log_queues[task_id].put(None)
 
@@ -20740,6 +20793,7 @@ def _wave_fw_background_task(task_id, file_path, devices, target_version, firmwa
         try:
             wave_fw_tasks[task_id]['status'] = 'failed'
             wave_fw_tasks[task_id]['completed_at'] = datetime.utcnow().isoformat() + 'Z'
+            _wave_fw_persist_task(task_id)
             _wave_fw_broadcast_log(f'[task:{task_id}] Unhandled crash: {_wave_fw_scrub(str(_exc))}', 'error', task_id=task_id)
         except Exception:
             pass
@@ -20866,6 +20920,8 @@ def wave_fw_upgrade_start():
     }
     wave_fw_log_queues[task_id] = queue.Queue()
 
+    _wave_fw_persist_task(task_id)  # write to disk so other workers can find it
+
     t = threading.Thread(
         target=_wave_fw_background_task,
         args=(task_id, file_path, devices, target_version),
@@ -20931,6 +20987,10 @@ def wave_fw_task_status(task_id):
     if not HAS_WAVE_FW:
         return jsonify({'success': False, 'error': 'Wave FW updater not configured.'}), 503
     if task_id not in wave_fw_tasks:
+        # Cross-worker fallback: task was created in a different uvicorn worker
+        disk_task = _wave_fw_load_task_from_disk(task_id)
+        if disk_task:
+            return jsonify({'success': True, 'task': disk_task})
         return jsonify({'success': False, 'error': 'Task not found'}), 404
     t = dict(wave_fw_tasks[task_id])
     t.pop('abort', None)  # Don't expose internal flag
@@ -20977,10 +21037,15 @@ def wave_fw_abort(task_id):
     """Cooperatively abort an in-progress Wave FW upgrade task."""
     if not HAS_WAVE_FW:
         return jsonify({'success': False, 'error': 'Wave FW updater not configured.'}), 503
-    if task_id not in wave_fw_tasks:
-        return jsonify({'success': False, 'error': 'Task not found'}), 404
-    wave_fw_tasks[task_id]['abort'] = True
-    wave_fw_tasks[task_id]['status'] = 'aborting'
+    _wave_fw_signal_abort(task_id)  # write signal file for cross-worker abort
+    if task_id in wave_fw_tasks:
+        wave_fw_tasks[task_id]['abort'] = True
+        wave_fw_tasks[task_id]['status'] = 'aborting'
+    else:
+        # Task is in another worker — signal via file only
+        disk_task = _wave_fw_load_task_from_disk(task_id)
+        if not disk_task:
+            return jsonify({'success': False, 'error': 'Task not found'}), 404
     return jsonify({'success': True, 'status': 'aborting'})
 
 
