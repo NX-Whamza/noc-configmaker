@@ -239,6 +239,10 @@
                 : `${waveState.devices.length} device${waveState.devices.length !== 1 ? 's' : ''} · ${selCount} selected`;
         }
 
+        // Render as a proper grid table — aviat-queue-item has justify-content:space-between
+        // which breaks a single-child row, so we use plain divs with border separators.
+        const rowStyle = 'display:grid;grid-template-columns:20px 1fr;align-items:center;gap:0 10px;padding:7px 12px;border-bottom:1px solid var(--border-color,rgba(255,255,255,0.07));';
+
         list.innerHTML = capped.map(device => {
             const status = normalizeStatus(device.status);
             const rawIp = device.ip || '';
@@ -253,46 +257,37 @@
             const fwFamily = model ? (modelFamily(device.model) === 'nano' ? 'Nano/LR/Pico' : 'AP/Micro/PRO') : '';
             const checked = device.selected !== false ? 'checked' : '';
 
-            // Status badge — only show when not just-discovered
-            const badgeHtml = status !== 'pending'
-                ? `<span class="aviat-status-badge ${status}" title="${status}" style="flex-shrink:0;">${statusIcon(status)}</span>`
+            const statusBadge = status !== 'pending'
+                ? `<span class="aviat-status-badge ${status}" style="font-size:10px;padding:1px 4px;">${statusIcon(status)}</span> `
                 : '';
 
-            // Detail line (errors, progress messages)
             const detailHtml = device.detail
-                ? `<div style="margin-top:3px;font-size:11px;color:var(--text-color-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${waveEscapeHtml(device.detail)}</div>`
+                ? `<div style="font-size:11px;color:var(--text-color-secondary);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${waveEscapeHtml(device.detail)}</div>`
                 : '';
 
-            // Post-upgrade bank info
-            const bankHtml = (activeBank || backupBank)
-                ? `<span class="aviat-pill" style="font-size:11px;">Active: ${activeBank || '?'}</span><span class="aviat-pill" style="font-size:11px;">Backup: ${backupBank || '?'}</span>`
+            const bankLine = (activeBank || backupBank)
+                ? `<span style="font-size:11px;color:var(--text-color-secondary);">Active: ${activeBank || '?'} · Backup: ${backupBank || '?'}</span>`
                 : '';
 
-            return `
-                <div class="aviat-queue-item" style="padding:8px 12px;gap:0;">
-                    <div style="display:flex;align-items:center;gap:8px;min-width:0;width:100%;">
-                        <input type="checkbox" class="wave-fw-device-checkbox" data-ip="${safeIp}"
-                            ${checked} ${waveState.isProcessing ? 'disabled' : ''}
-                            onchange="waveFwToggleDevice('${safeIp}', this.checked)"
-                            style="flex-shrink:0;">
-                        ${badgeHtml}
-                        <div style="min-width:0;flex:1;">
-                            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:nowrap;overflow:hidden;">
-                                <span style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:1;">${name}</span>
-                                <span style="font-size:12px;color:var(--text-color-secondary);flex-shrink:0;">${displayIp}</span>
-                            </div>
-                            <div style="display:flex;align-items:center;gap:5px;margin-top:3px;flex-wrap:wrap;">
-                                ${model ? `<span class="aviat-pill" style="font-size:11px;">${model}</span>` : ''}
-                                ${fwFamily ? `<span class="aviat-pill" style="font-size:11px;opacity:0.75;">${fwFamily}</span>` : ''}
-                                ${version ? `<span class="aviat-pill" style="font-size:11px;">v${version}</span>` : ''}
-                                ${targetVersion ? `<span class="aviat-pill" style="font-size:11px;color:var(--color-success,#22c55e);">→ v${targetVersion}</span>` : ''}
-                                ${bankHtml}
-                            </div>
-                            ${detailHtml}
-                        </div>
+            return `<div style="${rowStyle}">
+                <input type="checkbox" class="wave-fw-device-checkbox" data-ip="${safeIp}"
+                    ${checked} ${waveState.isProcessing ? 'disabled' : ''}
+                    onchange="waveFwToggleDevice('${safeIp}', this.checked)">
+                <div style="min-width:0;">
+                    <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+                        ${statusBadge}<span style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;">${name}</span>
+                        <span style="font-size:12px;color:var(--text-color-secondary);white-space:nowrap;flex-shrink:0;">${displayIp}</span>
                     </div>
+                    <div style="display:flex;align-items:center;gap:5px;margin-top:2px;flex-wrap:wrap;">
+                        ${model ? `<span style="font-size:11px;color:var(--text-color-secondary);">${model}</span>` : ''}
+                        ${fwFamily ? `<span style="font-size:11px;color:var(--text-color-secondary);opacity:0.7;">· ${fwFamily}</span>` : ''}
+                        ${version ? `<span style="font-size:11px;color:var(--text-color-secondary);">· v${version}</span>` : ''}
+                        ${targetVersion ? `<span style="font-size:11px;color:var(--color-success,#22c55e);">→ v${targetVersion}</span>` : ''}
+                        ${bankLine}
+                    </div>
+                    ${detailHtml}
                 </div>
-            `;
+            </div>`;
         }).join('');
 
         if (hasMore) {
