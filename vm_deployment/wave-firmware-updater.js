@@ -9,8 +9,12 @@
         isProcessing: false,
         initComplete: false,
         fileId: null,
-        fileName: null
+        fileName: null,
+        searchTerm: '',
+        showLimit: 100
     };
+
+    const PAGE_SIZE = 100;
 
     let waveApiOverride = null;
 
@@ -194,9 +198,26 @@
         if (statError) statError.textContent = error;
     }
 
+    function stripCidr(ip) {
+        return String(ip || '').split('/')[0];
+    }
+
+    function filteredDevices() {
+        const q = waveState.searchTerm.toLowerCase().trim();
+        if (!q) return waveState.devices;
+        return waveState.devices.filter(d => {
+            const ip = stripCidr(d.ip || '').toLowerCase();
+            const name = (d.name || '').toLowerCase();
+            const model = (d.model || '').toLowerCase();
+            const fw = (d.firmwareVersion || d.version || '').toLowerCase();
+            return ip.includes(q) || name.includes(q) || model.includes(q) || fw.includes(q);
+        });
+    }
+
     function updateDeviceList() {
         const listCard = document.getElementById('waveFwDeviceListCard');
         const list = document.getElementById('waveFwDeviceList');
+        const countEl = document.getElementById('waveFwDeviceCount');
         if (!listCard || !list) return;
 
         if (waveState.devices.length === 0) {
@@ -206,31 +227,48 @@
         listCard.style.display = 'block';
         updateStats();
 
-        list.innerHTML = waveState.devices.map(device => {
+        const visible = filteredDevices();
+        const capped = visible.slice(0, waveState.showLimit);
+        const hasMore = visible.length > waveState.showLimit;
+
+        if (countEl) {
+            const selCount = visible.filter(d => d.selected !== false).length;
+            countEl.textContent = waveState.searchTerm
+                ? `${visible.length} match${visible.length !== 1 ? 'es' : ''} · ${selCount} selected`
+                : `${waveState.devices.length} device${waveState.devices.length !== 1 ? 's' : ''} · ${selCount} selected`;
+        }
+
+        list.innerHTML = capped.map(device => {
             const status = normalizeStatus(device.status);
-            const ip = waveEscapeHtml(device.ip || '');
-            const name = waveEscapeHtml(device.name || device.hostname || device.ip || '');
+            const rawIp = device.ip || '';
+            const displayIp = waveEscapeHtml(stripCidr(rawIp));
+            const safeIp = waveEscapeHtml(rawIp);
+            const name = waveEscapeHtml(device.name || device.hostname || stripCidr(rawIp));
             const model = waveEscapeHtml(device.model || device.device_type || '');
-            const version = waveEscapeHtml(device.version || device.current_version || '');
+            const version = waveEscapeHtml(device.firmwareVersion || device.version || device.current_version || '');
             const targetVersion = waveEscapeHtml(device.target_version || '');
             const activeBank = waveEscapeHtml(device.active_bank || '');
             const backupBank = waveEscapeHtml(device.backup_bank || '');
-            const detail = device.detail ? `<div style="margin-top:6px;color:var(--text-color-secondary);font-size:12px;">${waveEscapeHtml(device.detail)}</div>` : '';
+            const detail = device.detail ? `<div style="margin-top:4px;color:var(--text-color-secondary);font-size:12px;">${waveEscapeHtml(device.detail)}</div>` : '';
             const checked = device.selected !== false ? 'checked' : '';
+            // Only show badge when not pending (pending = just discovered, no meaningful status yet)
+            const badgeHtml = status !== 'pending'
+                ? `<span class="aviat-status-badge ${status}" style="margin-right:6px;">${statusIcon(status)}</span>`
+                : '';
             return `
-                <div class="aviat-queue-item">
-                    <div style="display:flex;align-items:flex-start;gap:10px;">
-                        <input type="checkbox" class="wave-fw-device-checkbox" data-ip="${ip}"
+                <div class="aviat-queue-item" style="padding:10px 14px;">
+                    <div style="display:flex;align-items:flex-start;gap:10px;min-width:0;">
+                        <input type="checkbox" class="wave-fw-device-checkbox" data-ip="${safeIp}"
                             ${checked} ${waveState.isProcessing ? 'disabled' : ''}
-                            onchange="waveFwToggleDevice('${ip}', this.checked)">
-                        <div>
-                            <span class="aviat-status-badge ${status}">${statusIcon(status)}</span>
-                            <strong>${name}</strong>
-                            ${ip !== name ? `<span style="color:var(--text-color-secondary);font-size:12px;"> (${ip})</span>` : ''}
-                            <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+                            onchange="waveFwToggleDevice('${safeIp}', this.checked)"
+                            style="margin-top:3px;flex-shrink:0;">
+                        <div style="min-width:0;">
+                            ${badgeHtml}<strong>${name}</strong>
+                            <span style="color:var(--text-color-secondary);font-size:12px;margin-left:6px;">${displayIp}</span>
+                            <div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap;">
                                 ${model ? `<span class="aviat-pill">${model}</span>` : ''}
-                                ${version ? `<span class="aviat-pill">Current: ${version}</span>` : ''}
-                                ${targetVersion ? `<span class="aviat-pill">Target: ${targetVersion}</span>` : ''}
+                                ${version ? `<span class="aviat-pill">FW: ${version}</span>` : ''}
+                                ${targetVersion ? `<span class="aviat-pill aviat-pill-target">→ ${targetVersion}</span>` : ''}
                                 ${activeBank ? `<span class="aviat-pill">Active: ${activeBank}</span>` : ''}
                                 ${backupBank ? `<span class="aviat-pill">Backup: ${backupBank}</span>` : ''}
                             </div>
@@ -240,11 +278,36 @@
                 </div>
             `;
         }).join('');
+
+        if (hasMore) {
+            list.innerHTML += `
+                <div style="padding:12px 14px;text-align:center;">
+                    <span style="color:var(--text-color-secondary);font-size:13px;">
+                        Showing ${capped.length} of ${visible.length} — use search to narrow down
+                    </span>
+                    <button class="aviat-btn secondary" style="margin-left:12px;padding:4px 12px;font-size:12px;"
+                        onclick="waveFwLoadMore()">Load ${Math.min(PAGE_SIZE, visible.length - capped.length)} more</button>
+                </div>`;
+        }
     }
 
     window.waveFwToggleDevice = function (ip, checked) {
         const device = waveState.devices.find(d => d.ip === ip);
         if (device) device.selected = checked;
+        // Update count display without re-rendering the whole list
+        const countEl = document.getElementById('waveFwDeviceCount');
+        if (countEl) {
+            const vis = filteredDevices();
+            const sel = vis.filter(d => d.selected !== false).length;
+            countEl.textContent = waveState.searchTerm
+                ? `${vis.length} match${vis.length !== 1 ? 'es' : ''} · ${sel} selected`
+                : `${waveState.devices.length} device${waveState.devices.length !== 1 ? 's' : ''} · ${sel} selected`;
+        }
+    };
+
+    window.waveFwLoadMore = function () {
+        waveState.showLimit += PAGE_SIZE;
+        updateDeviceList();
     };
 
     // ── Discover ─────────────────────────────────────────────────────────────
@@ -498,12 +561,15 @@
     // ── Select / deselect all ─────────────────────────────────────────────────
 
     function selectAll() {
-        waveState.devices.forEach(d => { d.selected = true; });
+        // Select only currently filtered devices (respects search)
+        const vis = filteredDevices();
+        vis.forEach(d => { d.selected = true; });
         updateDeviceList();
     }
 
     function deselectAll() {
-        waveState.devices.forEach(d => { d.selected = false; });
+        const vis = filteredDevices();
+        vis.forEach(d => { d.selected = false; });
         updateDeviceList();
     }
 
@@ -528,9 +594,17 @@
         if (fileInput) {
             fileInput.addEventListener('change', () => {
                 if (fileInput.files && fileInput.files.length > 0) {
-                    // Auto-upload on file selection
                     uploadFirmwareFile();
                 }
+            });
+        }
+
+        const searchInput = document.getElementById('waveFwSearch');
+        if (searchInput) {
+            searchInput.addEventListener('input', () => {
+                waveState.searchTerm = searchInput.value;
+                waveState.showLimit = PAGE_SIZE;
+                updateDeviceList();
             });
         }
     }

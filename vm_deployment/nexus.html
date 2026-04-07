@@ -9049,28 +9049,34 @@
                     </div>
                 </div>
 
-                <div class="aviat-card" style="margin-top:16px;">
-                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-                        <h2 style="margin:0;">Step 3 &mdash; Select &amp; Run</h2>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                            <button id="waveFwSelectAllBtn" class="aviat-btn secondary">Select All</button>
-                            <button id="waveFwDeselectAllBtn" class="aviat-btn secondary">Deselect All</button>
-                            <button id="waveFwAbortBtn" class="aviat-btn danger" disabled>Abort</button>
-                            <button id="waveFwRunBtn" class="aviat-btn success">Run Upgrade</button>
+                <div id="waveFwDeviceListCard" style="margin-top:16px;display:none;">
+                    <div class="aviat-card">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+                            <div>
+                                <h2 style="margin:0 0 2px;">Step 3 &mdash; Select &amp; Run</h2>
+                                <span id="waveFwDeviceCount" style="font-size:13px;color:var(--text-color-secondary);"></span>
+                            </div>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                                <button id="waveFwSelectAllBtn" class="aviat-btn secondary">Select All</button>
+                                <button id="waveFwDeselectAllBtn" class="aviat-btn secondary">Deselect All</button>
+                                <button id="waveFwAbortBtn" class="aviat-btn danger" disabled>Abort</button>
+                                <button id="waveFwRunBtn" class="aviat-btn success">Run Upgrade</button>
+                            </div>
                         </div>
-                    </div>
 
-                    <div id="waveFwStatsBar" class="aviat-stat-row" style="margin-top:14px;display:none;">
-                        <div>Total: <span id="waveFwStatTotal">0</span></div>
-                        <div>Pending: <span id="waveFwStatPending">0</span></div>
-                        <div>Running: <span id="waveFwStatProcessing">0</span></div>
-                        <div>Done: <span id="waveFwStatSuccess">0</span></div>
-                        <div>Failed: <span id="waveFwStatError">0</span></div>
-                    </div>
+                        <div id="waveFwStatsBar" class="aviat-stat-row" style="margin-bottom:12px;display:none;">
+                            <div>Total: <span id="waveFwStatTotal">0</span></div>
+                            <div>Pending: <span id="waveFwStatPending">0</span></div>
+                            <div>Running: <span id="waveFwStatProcessing">0</span></div>
+                            <div>Done: <span id="waveFwStatSuccess">0</span></div>
+                            <div>Failed: <span id="waveFwStatError">0</span></div>
+                        </div>
 
-                    <div id="waveFwDeviceListCard" style="margin-top:14px;display:none;">
-                        <h2>Discovered Devices</h2>
-                        <div id="waveFwDeviceList" class="aviat-queue"></div>
+                        <input id="waveFwSearch" type="text"
+                            placeholder="Filter by name, IP, model, or firmware version..."
+                            style="width:100%;box-sizing:border-box;margin-bottom:10px;">
+
+                        <div id="waveFwDeviceList" class="aviat-queue" style="max-height:480px;overflow-y:auto;"></div>
                     </div>
                 </div>
 
