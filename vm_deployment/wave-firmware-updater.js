@@ -250,31 +250,45 @@
             const targetVersion = waveEscapeHtml(device.target_version || '');
             const activeBank = waveEscapeHtml(device.active_bank || '');
             const backupBank = waveEscapeHtml(device.backup_bank || '');
-            const detail = device.detail ? `<div style="margin-top:4px;color:var(--text-color-secondary);font-size:12px;">${waveEscapeHtml(device.detail)}</div>` : '';
+            const fwFamily = model ? (modelFamily(device.model) === 'nano' ? 'Nano/LR/Pico' : 'AP/Micro/PRO') : '';
             const checked = device.selected !== false ? 'checked' : '';
-            // Only show badge when not pending (pending = just discovered, no meaningful status yet)
+
+            // Status badge — only show when not just-discovered
             const badgeHtml = status !== 'pending'
-                ? `<span class="aviat-status-badge ${status}" style="margin-right:6px;">${statusIcon(status)}</span>`
+                ? `<span class="aviat-status-badge ${status}" title="${status}" style="flex-shrink:0;">${statusIcon(status)}</span>`
                 : '';
+
+            // Detail line (errors, progress messages)
+            const detailHtml = device.detail
+                ? `<div style="margin-top:3px;font-size:11px;color:var(--text-color-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${waveEscapeHtml(device.detail)}</div>`
+                : '';
+
+            // Post-upgrade bank info
+            const bankHtml = (activeBank || backupBank)
+                ? `<span class="aviat-pill" style="font-size:11px;">Active: ${activeBank || '?'}</span><span class="aviat-pill" style="font-size:11px;">Backup: ${backupBank || '?'}</span>`
+                : '';
+
             return `
-                <div class="aviat-queue-item" style="padding:10px 14px;">
-                    <div style="display:flex;align-items:flex-start;gap:10px;min-width:0;">
+                <div class="aviat-queue-item" style="padding:8px 12px;gap:0;">
+                    <div style="display:flex;align-items:center;gap:8px;min-width:0;width:100%;">
                         <input type="checkbox" class="wave-fw-device-checkbox" data-ip="${safeIp}"
                             ${checked} ${waveState.isProcessing ? 'disabled' : ''}
                             onchange="waveFwToggleDevice('${safeIp}', this.checked)"
-                            style="margin-top:3px;flex-shrink:0;">
-                        <div style="min-width:0;">
-                            ${badgeHtml}<strong>${name}</strong>
-                            <span style="color:var(--text-color-secondary);font-size:12px;margin-left:6px;">${displayIp}</span>
-                            <div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap;">
-                                ${model ? `<span class="aviat-pill">${model}</span>` : ''}
-                                ${model ? `<span class="aviat-pill" style="opacity:0.7;">${modelFamily(device.model) === 'nano' ? 'Nano/LR/Pico FW' : 'AP/Micro/PRO FW'}</span>` : ''}
-                                ${version ? `<span class="aviat-pill">FW: ${version}</span>` : ''}
-                                ${targetVersion ? `<span class="aviat-pill aviat-pill-target">→ ${targetVersion}</span>` : ''}
-                                ${activeBank ? `<span class="aviat-pill">Active: ${activeBank}</span>` : ''}
-                                ${backupBank ? `<span class="aviat-pill">Backup: ${backupBank}</span>` : ''}
+                            style="flex-shrink:0;">
+                        ${badgeHtml}
+                        <div style="min-width:0;flex:1;">
+                            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:nowrap;overflow:hidden;">
+                                <span style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:1;">${name}</span>
+                                <span style="font-size:12px;color:var(--text-color-secondary);flex-shrink:0;">${displayIp}</span>
                             </div>
-                            ${detail}
+                            <div style="display:flex;align-items:center;gap:5px;margin-top:3px;flex-wrap:wrap;">
+                                ${model ? `<span class="aviat-pill" style="font-size:11px;">${model}</span>` : ''}
+                                ${fwFamily ? `<span class="aviat-pill" style="font-size:11px;opacity:0.75;">${fwFamily}</span>` : ''}
+                                ${version ? `<span class="aviat-pill" style="font-size:11px;">v${version}</span>` : ''}
+                                ${targetVersion ? `<span class="aviat-pill" style="font-size:11px;color:var(--color-success,#22c55e);">→ v${targetVersion}</span>` : ''}
+                                ${bankHtml}
+                            </div>
+                            ${detailHtml}
                         </div>
                     </div>
                 </div>
