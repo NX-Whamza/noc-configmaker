@@ -52,12 +52,24 @@
         return Array.from(new Set(bases.filter(Boolean)));
     }
 
-    async function waveFetch(path, options) {
+    function waveAuthHeaders(extra = {}) {
+        const token = localStorage.getItem('auth_token');
+        const headers = { ...extra };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        return headers;
+    }
+
+    async function waveFetch(path, options = {}) {
         const bases = getWaveCandidateBases();
         let lastError = null;
+        // Inject auth — merge with any caller-supplied headers
+        const merged = {
+            ...options,
+            headers: waveAuthHeaders(options.headers || {})
+        };
         for (const base of bases) {
             try {
-                const response = await fetch(`${base}${path}`, options);
+                const response = await fetch(`${base}${path}`, merged);
                 if (response.ok) waveApiOverride = base;
                 if (![403, 404, 405].includes(response.status) || base === bases[bases.length - 1]) {
                     return response;
@@ -300,9 +312,11 @@
             const bases = getWaveCandidateBases();
             let response = null;
             let lastError = null;
+            // Note: do NOT set Content-Type — browser must set it with multipart boundary
+            const uploadHeaders = waveAuthHeaders();
             for (const base of bases) {
                 try {
-                    response = await fetch(`${base}/upload`, { method: 'POST', body: formData });
+                    response = await fetch(`${base}/upload`, { method: 'POST', headers: uploadHeaders, body: formData });
                     if (response.ok || ![403, 404, 405].includes(response.status)) {
                         waveApiOverride = base;
                         break;
