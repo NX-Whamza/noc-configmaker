@@ -22791,27 +22791,62 @@ def ssh_push_config():
 # PHASE 1B — PER-TENANT API KEYS
 # ============================================================
 
+def _resolve_api_key_tenant(user_info, conn):
+    """Resolve tenant_id for API key operations.
+
+    JWTs only carry user_id + email, so tenant_id may be absent.  Fall back to
+    the user's default (or first active) tenant membership from the DB.
+    Returns (tenant_id, is_platform_admin).
+    """
+    tenant_id = user_info.get('tenant_id') or user_info.get('tenantId')
+    is_platform_admin = _platform_role_for_email(user_info.get('email', '')) == 'platform_admin'
+    if tenant_id:
+        return int(tenant_id), is_platform_admin
+    user_id = user_info.get('id') or user_info.get('user_id')
+    if not user_id:
+        return None, is_platform_admin
+    c = conn.cursor()
+    c.execute(
+        '''SELECT tenant_id FROM user_tenant_memberships
+           WHERE user_id = ? AND status = 'active'
+           ORDER BY is_default DESC LIMIT 1''',
+        (user_id,),
+    )
+    row = c.fetchone()
+    return (row['tenant_id'] if row else None), is_platform_admin
+
+
 @app.route('/api/api-keys', methods=['POST'])
 @require_auth
 def create_api_key():
     """Create a new API key for the current tenant. Returns full key once."""
     user_info = getattr(request, 'current_user', {})
-    tenant_id = user_info.get('tenant_id') or user_info.get('tenantId')
     tenant_role = user_info.get('tenant_role', '')
-    if tenant_role not in ('tenant_admin', 'platform_admin', 'platform_support'):
-        if _platform_role_for_email(user_info.get('email', '')) not in ('platform_admin',):
-            return jsonify({'error': 'tenant_admin or higher required'}), 403
-    data = request.json or {}
-    name = data.get('name', '').strip()
-    if not name:
-        return jsonify({'error': 'name is required'}), 400
-    scopes = data.get('scopes', ['read', 'write'])
-    expires_days = data.get('expires_days')
 
     import hashlib as _hashlib
     db = init_users_db()
     conn = sqlite3.connect(str(db))
     conn.row_factory = sqlite3.Row
+
+    tenant_id, is_platform_admin = _resolve_api_key_tenant(user_info, conn)
+
+    if tenant_role not in ('tenant_admin', 'platform_admin', 'platform_support') and not is_platform_admin:
+        conn.close()
+        return jsonify({'error': 'tenant_admin or higher required'}), 403
+    if not tenant_id:
+        conn.close()
+        return jsonify({'error': 'Could not determine tenant. Please re-login.'}), 400
+
+    data = request.json or {}
+    name = data.get('name', '').strip()
+    if not name:
+        conn.close()
+        return jsonify({'error': 'name is required'}), 400
+    raw_scopes = data.get('scopes', ['read', 'write'])
+    allowed_scopes = {'read', 'write'}
+    scopes = [s for s in raw_scopes if s in allowed_scopes] or ['read', 'write']
+    expires_days = data.get('expires_days')
+
     c = conn.cursor()
     c.execute('SELECT slug FROM tenants WHERE id = ?', (tenant_id,))
     t = c.fetchone()
@@ -22840,14 +22875,17 @@ def create_api_key():
 def list_api_keys():
     """List API keys for current tenant (prefix + metadata only, never full key)."""
     user_info = getattr(request, 'current_user', {})
-    tenant_id = user_info.get('tenant_id') or user_info.get('tenantId')
     tenant_role = user_info.get('tenant_role', '')
-    if tenant_role not in ('tenant_admin', 'platform_admin'):
-        if _platform_role_for_email(user_info.get('email', '')) not in ('platform_admin',):
-            return jsonify({'error': 'tenant_admin or higher required'}), 403
     db = init_users_db()
     conn = sqlite3.connect(str(db))
     conn.row_factory = sqlite3.Row
+    tenant_id, is_platform_admin = _resolve_api_key_tenant(user_info, conn)
+    if tenant_role not in ('tenant_admin', 'platform_admin') and not is_platform_admin:
+        conn.close()
+        return jsonify({'error': 'tenant_admin or higher required'}), 403
+    if not tenant_id:
+        conn.close()
+        return jsonify({'success': True, 'api_keys': []})
     c = conn.cursor()
     c.execute('''SELECT id, name, key_prefix, scopes, last_used_at, expires_at, created_at, is_active
                  FROM api_keys WHERE tenant_id = ? ORDER BY created_at DESC''', (tenant_id,))
@@ -22861,13 +22899,14 @@ def list_api_keys():
 def revoke_api_key(key_id):
     """Revoke an API key (sets is_active=0)."""
     user_info = getattr(request, 'current_user', {})
-    tenant_id = user_info.get('tenant_id') or user_info.get('tenantId')
     tenant_role = user_info.get('tenant_role', '')
-    if tenant_role not in ('tenant_admin', 'platform_admin'):
-        if _platform_role_for_email(user_info.get('email', '')) not in ('platform_admin',):
-            return jsonify({'error': 'tenant_admin or higher required'}), 403
     db = init_users_db()
     conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    tenant_id, is_platform_admin = _resolve_api_key_tenant(user_info, conn)
+    if tenant_role not in ('tenant_admin', 'platform_admin') and not is_platform_admin:
+        conn.close()
+        return jsonify({'error': 'tenant_admin or higher required'}), 403
     conn.execute('UPDATE api_keys SET is_active = 0 WHERE id = ? AND tenant_id = ?', (key_id, tenant_id))
     conn.commit()
     conn.close()

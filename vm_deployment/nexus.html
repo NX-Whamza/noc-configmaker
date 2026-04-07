@@ -7452,6 +7452,10 @@
                             <p style="font-size:12px; color:var(--text-color-secondary); margin-bottom:12px;">Create API keys to authenticate programmatic access to the NEXUS API. The full key is shown only once at creation.</p>
                             <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:flex-end;">
                                 <input id="newApiKeyName" placeholder="Key name (e.g. CI/CD Pipeline)" style="padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px; width:200px;" />
+                                <select id="newApiKeyScopes" style="padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px;" title="Permissions for this key">
+                                    <option value="read,write">Read + Write</option>
+                                    <option value="read">Read only</option>
+                                </select>
                                 <select id="newApiKeyExpiry" style="padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px;">
                                     <option value="">Never expires</option>
                                     <option value="30">30 days</option>
@@ -25886,9 +25890,12 @@ Ready for translation!`);
                     const expired = k.expires_at && new Date(k.expires_at) < new Date();
                     const status = !k.is_active ? 'Revoked' : expired ? 'Expired' : 'Active';
                     const statusColor = !k.is_active || expired ? 'var(--danger-color)' : '#22c55e';
+                    const scopeList = (() => { try { return JSON.parse(k.scopes || '["read","write"]'); } catch(e) { return ['read','write']; } })();
+                    const scopeLabel = scopeList.includes('write') ? 'Read + Write' : 'Read only';
                     return `<tr>
                         <td style="padding:6px 10px;">${escHtml(k.name)}</td>
                         <td style="padding:6px 10px; font-family:monospace;">${escHtml(k.key_prefix)}...</td>
+                        <td style="padding:6px 10px;">${scopeLabel}</td>
                         <td style="padding:6px 10px; color:${statusColor}">${status}</td>
                         <td style="padding:6px 10px;">${k.last_used_at ? new Date(k.last_used_at).toLocaleDateString() : 'Never'}</td>
                         <td style="padding:6px 10px;">${k.expires_at ? new Date(k.expires_at).toLocaleDateString() : 'Never'}</td>
@@ -25899,6 +25906,7 @@ Ready for translation!`);
                     <thead><tr style="background:var(--table-header-bg,var(--container-bg)); font-size:11px; text-transform:uppercase; color:var(--text-color-secondary);">
                         <th style="padding:8px 10px; text-align:left;">Name</th>
                         <th style="padding:8px 10px; text-align:left;">Prefix</th>
+                        <th style="padding:8px 10px; text-align:left;">Scopes</th>
                         <th style="padding:8px 10px; text-align:left;">Status</th>
                         <th style="padding:8px 10px; text-align:left;">Last Used</th>
                         <th style="padding:8px 10px; text-align:left;">Expires</th>
@@ -25914,13 +25922,15 @@ Ready for translation!`);
         async function createApiKey() {
             const name = (document.getElementById('newApiKeyName')?.value || '').trim();
             const expiry = document.getElementById('newApiKeyExpiry')?.value || '';
+            const scopeVal = document.getElementById('newApiKeyScopes')?.value || 'read,write';
+            const scopes = scopeVal.split(',').map(s => s.trim()).filter(Boolean);
             if (!name) { alert('Key name is required.'); return; }
             const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : '/api';
             try {
                 const resp = await fetch(`${apiBase}/api-keys`, {
                     method: 'POST',
                     headers: getAuthHeaders('application/json'),
-                    body: JSON.stringify({ name, expires_days: expiry ? parseInt(expiry) : null })
+                    body: JSON.stringify({ name, scopes, expires_days: expiry ? parseInt(expiry) : null })
                 });
                 const data = await resp.json();
                 if (!data.success) { alert(data.error || 'Failed to create key'); return; }
