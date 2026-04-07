@@ -9070,6 +9070,35 @@
                             </div>
                         </div>
 
+                        <details id="waveFwOptionsDetails" style="margin-bottom:14px;">
+                            <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--text-color-secondary);">&#9881; Upgrade Options</summary>
+                            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:12px;padding:12px;background:var(--bg-secondary,rgba(0,0,0,.15));border-radius:6px;">
+                                <div>
+                                    <label for="waveFwRoleScope" style="font-size:12px;color:var(--text-color-secondary);display:block;margin-bottom:4px;">Device Role</label>
+                                    <select id="waveFwRoleScope" style="width:100%;background:var(--input-bg,#1e293b);color:var(--text-color,#e2e8f0);border:1px solid var(--border-color,#334155);border-radius:4px;padding:6px 8px;font-size:13px;">
+                                        <option value="both">Both APs &amp; Stations</option>
+                                        <option value="ap">APs only</option>
+                                        <option value="station">Stations only</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="waveFwMinFirmware" style="font-size:12px;color:var(--text-color-secondary);display:block;margin-bottom:4px;">Min Current Firmware <span style="opacity:0.6;">(skip devices below)</span></label>
+                                    <input type="text" id="waveFwMinFirmware" placeholder="e.g. 3.0.0  (blank = no minimum)"
+                                        style="width:100%;box-sizing:border-box;background:var(--input-bg,#1e293b);color:var(--text-color,#e2e8f0);border:1px solid var(--border-color,#334155);border-radius:4px;padding:6px 8px;font-size:13px;">
+                                </div>
+                                <div>
+                                    <label for="waveFwDeadlineMinutes" style="font-size:12px;color:var(--text-color-secondary);display:block;margin-bottom:4px;">Max Runtime <span style="opacity:0.6;">(maintenance window)</span></label>
+                                    <div style="display:flex;align-items:center;gap:6px;">
+                                        <input type="number" id="waveFwDeadlineMinutes" min="0" placeholder="0 = unlimited"
+                                            style="flex:1;min-width:0;background:var(--input-bg,#1e293b);color:var(--text-color,#e2e8f0);border:1px solid var(--border-color,#334155);border-radius:4px;padding:6px 8px;font-size:13px;"
+                                            oninput="waveFwUpdateDeadlineHint(this.value)">
+                                        <span style="font-size:12px;color:var(--text-color-secondary);white-space:nowrap;">min</span>
+                                    </div>
+                                    <div id="waveFwDeadlineHint" style="font-size:11px;color:var(--text-color-secondary);margin-top:3px;opacity:0.7;">2am–6am window = 240 min</div>
+                                </div>
+                            </div>
+                        </details>
+
                         <div id="waveFwStatsBar" class="aviat-stat-row" style="margin-bottom:12px;display:none;">
                             <div>Total: <span id="waveFwStatTotal">0</span></div>
                             <div>Pending: <span id="waveFwStatPending">0</span></div>
