@@ -21598,60 +21598,60 @@ def _wave_fw_upgrade_single(device, file_path, target_version, log_cb, should_ab
                 break  # Both banks match — done
 
             log_cb(f'[{name}] Pass {pass_num + 1}/{max_passes}: uploading {file_path.name}...')
-                # Retry upload once on 401/403 (re-login and re-try, matching reference behavior)
-                _up_last_status = None
-                for _up_attempt in range(2):
-                    if _up_attempt > 0:
-                        try:
-                            _s2, _h2, _ = _wave_fw_login_device(ip, ap_pass, sm_pass, role=device_role)
-                            session[0], headers[0] = _s2, _h2
-                        except Exception:
-                            pass
-                    with open(file_path, 'rb') as fh:
-                        up_resp = session[0].post(
-                            f'https://{ip}/api/v1.0/system/upgrade/direct',
-                            headers=headers[0],
-                            files={'file': (file_path.name, fh, 'application/octet-stream')},
-                            verify=False,
-                            timeout=int(deadline_timeout(180)),
-                        )
-                    _up_last_status = up_resp.status_code
-                    if up_resp.status_code not in (401, 403):
-                        break
-                if not up_resp.ok:
-                    return result('failed',
-                                  error=f'Pass {pass_num + 1} upload: HTTP {_up_last_status}',
-                                  active=active, backup=backup)
-
-                # Poll upgrade status.  Only 'in_progress' continues the loop; any other status
-                # (including 'uploading' which indicates the stream is still incoming) exits and is
-                # then validated — we expect 'finished'.
-                log_cb(f'[{name}] Pass {pass_num + 1}: polling upgrade status...')
-                _poll_status = ''
-                _poll_pct_seen = set()
-                for _ in range(int(deadline_timeout(int(os.getenv('WAVE_FW_UPGRADE_TIMEOUT', '180'))) / 2)):
-                    if should_abort():
-                        return result('aborted', active=active, backup=backup)
-                    check_deadline('during upgrade poll')
-                    time.sleep(2)
+            # Retry upload once on 401/403 (re-login and re-try, matching reference behavior)
+            _up_last_status = None
+            for _up_attempt in range(2):
+                if _up_attempt > 0:
                     try:
-                        poll = session[0].get(f'https://{ip}/api/v1.0/system/upgrade',
-                                              headers=headers[0], verify=False, timeout=15)
-                        if poll.ok:
-                            poll_data = poll.json()
-                            pct = poll_data.get('progressPercent')
-                            if pct is not None and pct not in _poll_pct_seen:
-                                _poll_pct_seen.add(pct)
-                                log_cb(f'[{name}] Pass {pass_num + 1} progress: {pct}%')
-                            _poll_status = poll_data.get('status', '')
-                            if _poll_status != 'in_progress':
-                                break  # Any non-in_progress status ends the loop
+                        _s2, _h2, _ = _wave_fw_login_device(ip, ap_pass, sm_pass, role=device_role)
+                        session[0], headers[0] = _s2, _h2
                     except Exception:
                         pass
-                if _poll_status != 'finished':
-                    return result('failed',
-                                  error=f'Pass {pass_num + 1} upgrade did not finish (status: {_poll_status or "unknown"})',
-                                  active=active, backup=backup)
+                with open(file_path, 'rb') as fh:
+                    up_resp = session[0].post(
+                        f'https://{ip}/api/v1.0/system/upgrade/direct',
+                        headers=headers[0],
+                        files={'file': (file_path.name, fh, 'application/octet-stream')},
+                        verify=False,
+                        timeout=int(deadline_timeout(180)),
+                    )
+                _up_last_status = up_resp.status_code
+                if up_resp.status_code not in (401, 403):
+                    break
+            if not up_resp.ok:
+                return result('failed',
+                              error=f'Pass {pass_num + 1} upload: HTTP {_up_last_status}',
+                              active=active, backup=backup)
+
+            # Poll upgrade status.  Only 'in_progress' continues the loop; any other status
+            # (including 'uploading' which indicates the stream is still incoming) exits and is
+            # then validated — we expect 'finished'.
+            log_cb(f'[{name}] Pass {pass_num + 1}: polling upgrade status...')
+            _poll_status = ''
+            _poll_pct_seen = set()
+            for _ in range(int(deadline_timeout(int(os.getenv('WAVE_FW_UPGRADE_TIMEOUT', '180'))) / 2)):
+                if should_abort():
+                    return result('aborted', active=active, backup=backup)
+                check_deadline('during upgrade poll')
+                time.sleep(2)
+                try:
+                    poll = session[0].get(f'https://{ip}/api/v1.0/system/upgrade',
+                                          headers=headers[0], verify=False, timeout=15)
+                    if poll.ok:
+                        poll_data = poll.json()
+                        pct = poll_data.get('progressPercent')
+                        if pct is not None and pct not in _poll_pct_seen:
+                            _poll_pct_seen.add(pct)
+                            log_cb(f'[{name}] Pass {pass_num + 1} progress: {pct}%')
+                        _poll_status = poll_data.get('status', '')
+                        if _poll_status != 'in_progress':
+                            break  # Any non-in_progress status ends the loop
+                except Exception:
+                    pass
+            if _poll_status != 'finished':
+                return result('failed',
+                              error=f'Pass {pass_num + 1} upgrade did not finish (status: {_poll_status or "unknown"})',
+                              active=active, backup=backup)
 
             log_cb(f'[{name}] Pass {pass_num + 1}: rebooting...')
             try:
