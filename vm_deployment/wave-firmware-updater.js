@@ -242,10 +242,19 @@
         const hasMore = visible.length > waveState.showLimit;
 
         if (countEl) {
-            const selCount = visible.filter(d => d.selected !== false).length;
-            countEl.textContent = waveState.searchTerm
-                ? `${visible.length} match${visible.length !== 1 ? 'es' : ''} · ${selCount} selected`
-                : `${waveState.devices.length} device${waveState.devices.length !== 1 ? 's' : ''} · ${selCount} selected`;
+            // Always show TOTAL selected across ALL devices (not just visible) so the
+            // count is accurate even when a search filter is hiding devices.
+            const totalSel = waveState.devices.filter(d => d.selected === true).length;
+            const visSel = visible.filter(d => d.selected === true).length;
+            if (waveState.searchTerm) {
+                const hiddenSel = totalSel - visSel;
+                countEl.innerHTML = `${visible.length} match${visible.length !== 1 ? 'es' : ''} · ${visSel} selected`
+                    + (hiddenSel > 0
+                        ? ` <span style="color:var(--color-warning,#f59e0b);font-weight:600;">⚠ +${hiddenSel} outside filter also selected</span>`
+                        : '');
+            } else {
+                countEl.textContent = `${waveState.devices.length} device${waveState.devices.length !== 1 ? 's' : ''} · ${totalSel} selected`;
+            }
         }
 
         // Render as a proper grid table — aviat-queue-item has justify-content:space-between
@@ -266,7 +275,7 @@
             const fwFamily = model ? (modelFamily(device.model) === 'nano' ? 'Nano/LR/Pico' : 'AP/Micro/PRO') : '';
             const rawRole = (device.role || '').toLowerCase().replace(/[^a-z]/g, '');
             const roleLabel = rawRole.includes('station') ? 'Station' : (rawRole === 'ap' || rawRole.endsWith('ap') ? 'AP' : '');
-            const checked = device.selected !== false ? 'checked' : '';
+            const checked = device.selected === true ? 'checked' : '';
 
             const statusBadge = status !== 'pending'
                 ? `<span class="aviat-status-badge ${status}" style="font-size:10px;padding:1px 4px;">${statusIcon(status)}</span> `
@@ -318,14 +327,7 @@
         const device = waveState.devices.find(d => d.ip === ip);
         if (device) device.selected = checked;
         // Update count display without re-rendering the whole list
-        const countEl = document.getElementById('waveFwDeviceCount');
-        if (countEl) {
-            const vis = filteredDevices();
-            const sel = vis.filter(d => d.selected !== false).length;
-            countEl.textContent = waveState.searchTerm
-                ? `${vis.length} match${vis.length !== 1 ? 'es' : ''} · ${sel} selected`
-                : `${waveState.devices.length} device${waveState.devices.length !== 1 ? 's' : ''} · ${sel} selected`;
-        }
+        updateDeviceList();  // re-render count via updateDeviceList which has accurate logic
     };
 
     window.waveFwLoadMore = function () {
@@ -475,10 +477,28 @@
 
     async function runUpgrade() {
         if (waveState.isProcessing) return;
-        const selectedDevices = waveState.devices.filter(d => d.selected !== false);
+
+        // When a search filter is active, only run on selected devices that are
+        // currently visible.  Running on hidden devices is always an accident —
+        // the user filtered to find something specific.
+        const allSelected = waveState.devices.filter(d => d.selected === true);
+        const visible = filteredDevices();
+        const selectedDevices = waveState.searchTerm
+            ? visible.filter(d => d.selected === true)
+            : allSelected;
+
         if (selectedDevices.length === 0) {
             addLog('Select at least one device to upgrade.', 'warning');
             return;
+        }
+
+        // Warn clearly if a filter is hiding other selected devices that will NOT run
+        if (waveState.searchTerm) {
+            const hiddenSel = allSelected.length - selectedDevices.length;
+            if (hiddenSel > 0) {
+                addLog(`Filter active — running on ${selectedDevices.length} visible selected device(s) only. `
+                    + `${hiddenSel} selected device(s) outside the filter are excluded from this run.`, 'warning');
+            }
         }
         // Require either an uploaded file or server firmware
         const hasServerFirmware = waveState.serverFirmware && waveState.serverFirmware.length > 0;
