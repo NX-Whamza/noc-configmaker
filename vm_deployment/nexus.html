@@ -9118,9 +9118,16 @@
                             <div>Failed: <span id="waveFwStatError">0</span></div>
                         </div>
 
-                        <input id="waveFwSearch" type="text"
-                            placeholder="Filter by name, IP, model, or firmware version..."
-                            style="width:100%;box-sizing:border-box;margin-bottom:10px;">
+                        <div style="display:flex;gap:8px;margin-bottom:10px;">
+                            <input id="waveFwSearch" type="text"
+                                placeholder="Filter by name, IP, model, or firmware version..."
+                                style="flex:1;box-sizing:border-box;">
+                            <select id="waveFwRoleFilter" style="width:140px;box-sizing:border-box;">
+                                <option value="all">All devices</option>
+                                <option value="ap">APs only</option>
+                                <option value="station">Stations only</option>
+                            </select>
+                        </div>
 
                         <div id="waveFwDeviceList" class="aviat-queue" style="max-height:480px;overflow-y:auto;"></div>
                     </div>
