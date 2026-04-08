@@ -20,7 +20,7 @@ def _load_modules():
 def test_immediate_upgrade_waits_for_baseline_before_final(monkeypatch):
     aviat_config, _ = _load_modules()
     events = []
-    version_reads = iter(["2.10.0", "2.11.11", "6.1.0", "6.1.0", "6.1.0", "6.1.0"])
+    version_reads = iter(["2.10.0", "2.11.11", "6.2.4", "6.2.4", "6.2.4", "6.2.4"])
 
     class FakeClient:
         def __init__(self, ip, username, password, port=22):
@@ -75,7 +75,7 @@ def test_immediate_upgrade_waits_for_baseline_before_final(monkeypatch):
 
     assert result.success is True
     assert result.error is None
-    assert result.firmware_version_after == "6.1.0"
+    assert result.firmware_version_after == "6.2.4"
     assert events.index("trigger_baseline") < events.index("wait") < events.index("trigger_final")
     assert events.count("wait") == 2
 
