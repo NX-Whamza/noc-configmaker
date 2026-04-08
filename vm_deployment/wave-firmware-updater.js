@@ -11,6 +11,7 @@
         fileId: null,
         fileName: null,
         searchTerm: '',
+        roleFilter: 'all',
         showLimit: 100,
         serverFirmware: []
     };
@@ -214,14 +215,29 @@
 
     function filteredDevices() {
         const q = waveState.searchTerm.toLowerCase().trim();
-        if (!q) return waveState.devices;
+        const rf = waveState.roleFilter;
         return waveState.devices.filter(d => {
+            if (rf !== 'all') {
+                const classified = _classifyRole(d);
+                if (rf === 'ap' && classified !== 'ap') return false;
+                if (rf === 'station' && classified !== 'station') return false;
+            }
+            if (!q) return true;
             const ip = stripCidr(d.ip || '').toLowerCase();
             const name = (d.name || '').toLowerCase();
             const model = (d.model || '').toLowerCase();
             const fw = (d.firmwareVersion || d.version || '').toLowerCase();
             return ip.includes(q) || name.includes(q) || model.includes(q) || fw.includes(q);
         });
+    }
+
+    function _classifyRole(d) {
+        const role = (d.role || '').toLowerCase().replace(/[^a-z]/g, '');
+        if (role.includes('station')) return 'station';
+        if (role === 'ap' || role === 'accesspoint' || role === 'wirelessap' || role.endsWith('ap')) return 'ap';
+        const name = (d.name || '').toLowerCase();
+        if (name.includes('station') || name.includes('-sm-') || name.includes('/sm/')) return 'station';
+        return 'unknown';
     }
 
     function updateDeviceList() {
@@ -707,6 +723,15 @@
         if (searchInput) {
             searchInput.addEventListener('input', () => {
                 waveState.searchTerm = searchInput.value;
+                waveState.showLimit = PAGE_SIZE;
+                updateDeviceList();
+            });
+        }
+
+        const roleFilter = document.getElementById('waveFwRoleFilter');
+        if (roleFilter) {
+            roleFilter.addEventListener('change', () => {
+                waveState.roleFilter = roleFilter.value;
                 waveState.showLimit = PAGE_SIZE;
                 updateDeviceList();
             });
