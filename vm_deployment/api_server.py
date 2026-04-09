@@ -17820,7 +17820,7 @@ def auth_microsoft():
             'redirect_uri': redirect_uri,
             'response_mode': 'query',
             'scope': 'openid email profile User.Read',
-            'state': secrets.token_urlsafe(32)
+            'state': _issue_sso_state_token()
         }
         auth_url_full = f"{auth_base}?{urlencode(params)}"
 
