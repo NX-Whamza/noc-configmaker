@@ -24,8 +24,16 @@ CONF_TEMPLATE_PATH = os.getenv("BASE_CONFIG_PATH", "") + "/Cambium/"
 DEFAULT_USER = "admin"
 # List of passwords to use to attempt to login, if not specified or incorrect.
 # The device's password is changed to the first entry in this list.
-AP_PASSWORDS = [os.getenv("AP_STANDARD_PW"), "admin", os.getenv("SM_STANDARD_PW")]
-SM_PASSWORDS = [os.getenv("SM_STANDARD_PW"), "admin", os.getenv("AP_STANDARD_PW")]
+AP_PASSWORDS = [
+    pwd.strip()
+    for pwd in [os.getenv("AP_STANDARD_PW"), os.getenv("SM_STANDARD_PW")]
+    if str(pwd or "").strip()
+]
+SM_PASSWORDS = [
+    pwd.strip()
+    for pwd in [os.getenv("SM_STANDARD_PW"), os.getenv("AP_STANDARD_PW")]
+    if str(pwd or "").strip()
+]
 
 # Maximum number of parameters to send at once.
 MAX_CONFIG_SIZE = 1000
@@ -917,6 +925,10 @@ class EPMPConfig:
         # Try supplied password first, then other possible passwords
         pw_options = [self.password] if self.password else []
         pw_options += SM_PASSWORDS if self.is_sm else AP_PASSWORDS
+        if not pw_options:
+            raise ValueError(
+                "No device password candidates configured. Provide password or set AP_STANDARD_PW/SM_STANDARD_PW."
+            )
 
         for password in pw_options:
             resp = self.session.post(

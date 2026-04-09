@@ -43,9 +43,9 @@ except Exception:
 from ido_adapter import apply_compliance as ido_apply_compliance
 from ido_adapter import merge_defaults as ido_merge_defaults
 try:
-    from tenant_defaults import load_tenant_defaults
+    from tenant_defaults import load_infrastructure_defaults, load_runtime_app_config, load_tenant_defaults
 except Exception:
-    from vm_deployment.tenant_defaults import load_tenant_defaults
+    from vm_deployment.tenant_defaults import load_infrastructure_defaults, load_runtime_app_config, load_tenant_defaults
 
 
 router = APIRouter(prefix="/api/v2", tags=["NEXUS API v2"])
@@ -1785,6 +1785,18 @@ def _legacy_api_base() -> str:
     return (os.getenv("NOC_LEGACY_API_BASE") or "http://127.0.0.1:5000").rstrip("/")
 
 
+def _tenant_defaults_data() -> Dict[str, Any]:
+    return load_tenant_defaults(include_sensitive=False)
+
+
+def _runtime_app_config_data() -> Dict[str, Any]:
+    return load_runtime_app_config()
+
+
+def _infrastructure_defaults_data() -> Dict[str, Any]:
+    return load_infrastructure_defaults()
+
+
 def _mt_config_class(config_type: str):
     mapping = {
         "tower": MTTowerConfig,
@@ -3100,9 +3112,9 @@ _ACTION_HANDLERS: Dict[str, Callable[[Dict[str, Any]], Any]] = {
 
     # Dashboard / shared reads
     "health.get": _legacy_get("/api/health"),
-    "tenant.defaults.get": _legacy_get("/api/tenant/defaults"),
-    "app.config.get": _legacy_get("/api/app-config"),
-    "infrastructure.get": _legacy_get("/api/infrastructure"),
+    "tenant.defaults.get": lambda payload: _tenant_defaults_data(),
+    "app.config.get": lambda payload: _runtime_app_config_data(),
+    "infrastructure.get": lambda payload: _infrastructure_defaults_data(),
     "routerboards.list": _legacy_get("/api/get-routerboards"),
 
     # Activity / history
@@ -3912,6 +3924,22 @@ _NEXUS_ACTION_CATALOG: Dict[str, Dict[str, Any]] = {
         "tenant_ready": True,
         "payload_example": {},
     },
+    "app.config.get": {
+        "tab": "Home / Runtime",
+        "delivery": "api",
+        "summary": "Return tenant-aware runtime bootstrap values used by the UI.",
+        "backend_path": "/api/v2/nexus/app-config",
+        "tenant_ready": True,
+        "payload_example": {},
+    },
+    "infrastructure.get": {
+        "tab": "Home / Infrastructure",
+        "delivery": "api",
+        "summary": "Return infrastructure defaults, routing metadata, and policy context.",
+        "backend_path": "/api/v2/nexus/infrastructure",
+        "tenant_ready": True,
+        "payload_example": {},
+    },
 }
 
 _JOB_SUBMIT_OPENAPI_EXAMPLES: Dict[str, Any] = {
@@ -4159,8 +4187,26 @@ def v2_nexus_catalog_actions(_: Dict[str, Any] = Depends(_require_scope("actions
 def v2_nexus_tenant_defaults(_: Dict[str, Any] = Depends(_require_scope("actions.read"))):
     return _envelope(
         status="ok",
-        data=load_tenant_defaults(include_sensitive=False),
+        data=_tenant_defaults_data(),
         message="Tenant defaults",
+    )
+
+
+@router.get("/nexus/app-config", tags=["NEXUS Discovery"], summary="Get runtime app config")
+def v2_nexus_app_config(_: Dict[str, Any] = Depends(_require_scope("actions.read"))):
+    return _envelope(
+        status="ok",
+        data=_runtime_app_config_data(),
+        message="Runtime app config",
+    )
+
+
+@router.get("/nexus/infrastructure", tags=["NEXUS Discovery"], summary="Get infrastructure defaults")
+def v2_nexus_infrastructure(_: Dict[str, Any] = Depends(_require_scope("actions.read"))):
+    return _envelope(
+        status="ok",
+        data=_infrastructure_defaults_data(),
+        message="Infrastructure defaults",
     )
 
 

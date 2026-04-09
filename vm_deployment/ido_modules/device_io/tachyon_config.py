@@ -104,26 +104,23 @@ DEVICE_TYPES = [
     ("Tachyon TNS-100", "TYT100", "T100", "0", "SWT"),
 ]
 
+def _login_payloads(*passwords):
+    payloads = []
+    seen = set()
+    for password in passwords:
+        pw = str(password or "").strip()
+        if not pw or pw in seen:
+            continue
+        seen.add(pw)
+        payloads.append(json.dumps({"username": "admin", "password": pw}))
+        payloads.append(json.dumps({"username": "root", "password": pw}))
+    return payloads
+
+
 LOGINS = {
-    "AP": [
-        f"""{{"username": "admin", "password": "{os.getenv("AP_STANDARD_PW")}"}}""",
-        f"""{{"username": "root", "password": "{os.getenv("AP_STANDARD_PW")}"}}""",
-        """{"username": "root", "password": "admin"}""",
-        f"""{{"username": "admin", "password": "{os.getenv("SM_STANDARD_PW")}"}}""",
-        f"""{{"username": "root", "password": "{os.getenv("SM_STANDARD_PW")}"}}""",
-    ],
-    "SM": [
-        f"""{{"username": "admin", "password": "{os.getenv("SM_STANDARD_PW")}"}}""",
-        f"""{{"username": "root", "password": "{os.getenv("SM_STANDARD_PW")}"}}""",
-        """{"username": "root", "password": "admin"}""",
-        f"""{{"username": "admin", "password": "{os.getenv("AP_STANDARD_PW")}"}}""",
-        f"""{{"username": "root", "password": "{os.getenv("AP_STANDARD_PW")}"}}""",
-    ],
-    "SWT": [
-        f"""{{"username": "admin", "password": "{os.getenv("SWT_STANDARD_PW")}"}}""",
-        f"""{{"username": "root", "password": "{os.getenv("SWT_STANDARD_PW")}"}}""",
-        """{"username": "root", "password": "admin"}""",
-    ],
+    "AP": _login_payloads(os.getenv("AP_STANDARD_PW"), os.getenv("SM_STANDARD_PW")),
+    "SM": _login_payloads(os.getenv("SM_STANDARD_PW"), os.getenv("AP_STANDARD_PW")),
+    "SWT": _login_payloads(os.getenv("SWT_STANDARD_PW")),
 }
 
 VALID_CHANNELS = [1, 2, 3, 4, 5, 6]
@@ -241,7 +238,11 @@ class TachyonConfig:
         if not self.session:
             raise Exception("Failed to initialize session.")
 
-        logins = LOGINS[self.device_category]
+        logins = list(LOGINS[self.device_category])
+        if not logins and not str(self.password or "").strip():
+            raise ValueError(
+                "No login credentials configured. Provide password or set AP_STANDARD_PW/SM_STANDARD_PW/SWT_STANDARD_PW."
+            )
         if self.password:
             logins.insert(
                 0,

@@ -130,7 +130,11 @@ def test_nexus_catalog_exposes_action_metadata_and_frontend_only_flags(monkeypat
     assert "switch.generate_mikrotik" in actions
     assert "ftth.generate_fiber_customer" in actions
     assert "command.vault.catalog" in actions
+    assert "app.config.get" in actions
+    assert "infrastructure.get" in actions
     assert actions["switch.generate_mikrotik"]["backend_path"] == "/api/generate-mt-switch-config"
+    assert actions["app.config.get"]["backend_path"] == "/api/v2/nexus/app-config"
+    assert actions["infrastructure.get"]["backend_path"] == "/api/v2/nexus/infrastructure"
 
     r_workflows = client.get("/api/v2/nexus/workflows", headers={"X-API-Key": "test-key"})
     assert r_workflows.status_code == 200
@@ -151,6 +155,29 @@ def test_openapi_contains_nexus_job_examples(monkeypatch):
     assert "nokia_configurator_generate" in examples
     assert "enterprise_generate_mpls" in examples
     assert "command_vault_catalog" in examples
+
+
+def test_nexus_discovery_endpoints_return_tenant_runtime_data(monkeypatch):
+    monkeypatch.setenv("NEXUS_TENANT_CODE", "tenant-a")
+    monkeypatch.setenv("NEXUS_TENANT_NAME", "Acme Telecom")
+    monkeypatch.setenv("NEXUS_DEFAULT_ASN", "64512")
+    monkeypatch.setenv("NEXUS_DNS_SERVERS", "1.1.1.1,8.8.8.8")
+    _, client = _load_api_v2(monkeypatch, require_signature="false", require_idempotency="false")
+    headers = {"X-API-Key": "test-key"}
+
+    tenant_defaults = client.get("/api/v2/nexus/tenant/defaults", headers=headers)
+    assert tenant_defaults.status_code == 200
+    assert tenant_defaults.json()["data"]["tenant"]["code"] == "tenant-a"
+
+    app_config = client.get("/api/v2/nexus/app-config", headers=headers)
+    assert app_config.status_code == 200
+    assert app_config.json()["data"]["tenant"]["name"] == "Acme Telecom"
+    assert app_config.json()["data"]["routing_defaults"]["asn"] == "64512"
+
+    infrastructure = client.get("/api/v2/nexus/infrastructure", headers=headers)
+    assert infrastructure.status_code == 200
+    assert infrastructure.json()["data"]["tenant"]["code"] == "tenant-a"
+    assert infrastructure.json()["data"]["dns_servers"]["all"] == ["1.1.1.1", "8.8.8.8"]
 
 
 def test_nexus_direct_tool_endpoints_work(monkeypatch):

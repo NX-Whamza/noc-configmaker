@@ -25,7 +25,10 @@ from typing import Any, Dict, Type
 from fastapi.openapi.utils import get_openapi
 from fastapi.openapi.docs import get_swagger_ui_html
 
-from a2wsgi import WSGIMiddleware
+try:
+    from a2wsgi import WSGIMiddleware
+except Exception:
+    from starlette.middleware.wsgi import WSGIMiddleware
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
@@ -59,6 +62,40 @@ from api_v2 import (
     _maintenance_list,
     _maintenance_update,
 )
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = (os.getenv(name) or "").strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "y", "on"}
+
+
+def _parse_cors_policy():
+    raw = (os.getenv("NOC_CORS_ORIGINS") or "").strip()
+    if raw:
+        origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+    else:
+        origins = [
+            "http://localhost",
+            "http://127.0.0.1",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "null",
+        ]
+
+    deduped = []
+    for origin in origins:
+        if origin not in deduped:
+            deduped.append(origin)
+
+    allow_credentials = _env_flag("NOC_CORS_ALLOW_CREDENTIALS", True)
+    if "*" in deduped and allow_credentials:
+        allow_credentials = False
+        print("[SECURITY] Disabled credentialed CORS because NOC_CORS_ORIGINS includes '*'.")
+    return deduped, allow_credentials
 
 
 @asynccontextmanager
@@ -115,12 +152,12 @@ app = FastAPI(
     },
 )
 
-# Match current permissive CORS behavior from Flask setup.
+cors_origins, cors_allow_credentials = _parse_cors_policy()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=cors_origins,
+    allow_credentials=cors_allow_credentials,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 app.include_router(api_v2_router)
