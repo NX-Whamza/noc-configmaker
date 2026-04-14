@@ -12310,10 +12310,17 @@ def _warehouse_sm_parse_ports(value, defaults=None):
             continue
         if 1 <= port <= 65535 and port not in parsed:
             parsed.append(port)
+    if parsed:
+        return parsed
+    fallback = []
     for default_port in defaults:
-        if default_port not in parsed:
-            parsed.append(default_port)
-    return parsed or list(defaults)
+        try:
+            port = int(default_port)
+        except Exception:
+            continue
+        if 1 <= port <= 65535 and port not in fallback:
+            fallback.append(port)
+    return fallback or [22]
 
 
 def _warehouse_sm_interface_candidates(port_value: str) -> list[str]:
@@ -12340,6 +12347,19 @@ def _warehouse_sm_detect_switch_profile(text: str) -> str:
 def _warehouse_sm_scan_commands_for_profile(profile: str, selected_port: str) -> list[str]:
     iface_candidates = _warehouse_sm_interface_candidates(selected_port)
     commands = ["show version"]
+    if profile == "netonix":
+        # Netonix uses a Linux shell with `switch` tooling, not `show ...` network CLI syntax.
+        return _warehouse_sm_unique(
+            [
+                "uname -a",
+                "switch -m",
+                "switch -d",
+                f"switch -p {selected_port}",
+                "cat /proc/net/arp",
+                "ip neigh show 2>/dev/null",
+                "route -n 2>/dev/null",
+            ]
+        )
     if profile == "edgeswitch":
         for iface in iface_candidates:
             commands.append(f"show mac-addr-table interface {iface}")
@@ -12641,6 +12661,18 @@ def _warehouse_sm_switch_probe(
     outputs = full_probe.get("commands") or []
     all_text = "\n".join((x.get("output") or "") for x in outputs)
     detected_profile = str(switch_profile or "").strip().lower() or _warehouse_sm_detect_switch_profile(all_text)
+    netonix_port_line = ""
+    netonix_link_up = None
+    if detected_profile == "netonix":
+        rx = re.compile(rf"Port\s+{re.escape(str(selected_port).strip())}\s*:\s*([^\n\r]+)", flags=re.IGNORECASE)
+        match = rx.search(all_text)
+        if match:
+            netonix_port_line = match.group(0).strip()
+            details = match.group(1).strip().lower()
+            if "link down" in details:
+                netonix_link_up = False
+            elif "link " in details:
+                netonix_link_up = True
     iface_candidates = _warehouse_sm_interface_candidates(selected_port)
     port_text = "\n".join(
         (x.get("output") or "")
@@ -12670,6 +12702,10 @@ def _warehouse_sm_switch_probe(
         "arp_entries": arp_entries,
         "switch_mgmt_cidrs": _warehouse_sm_extract_switch_mgmt_cidrs(outputs, switch_ip),
         "ip_candidates": _warehouse_sm_unique(matched_ips),
+        "selected_port_state": {
+            "line": netonix_port_line,
+            "link_up": netonix_link_up,
+        },
     }
 
 
@@ -12994,8 +13030,7 @@ def _warehouse_sm_apply_baseline(discovery: dict, payload: dict) -> dict:
     payload_longitude = str(payload.get("longitude") or "").strip()
     payload_height = str(payload.get("height_m") or "").strip()
     password = str(
-        payload.get("device_password")
-        or os.getenv("NEXTLINK_SSH_PASSWORD")
+        os.getenv("NEXTLINK_SSH_PASSWORD")
         or os.getenv("SM_STANDARD_PW")
         or "admin"
     ).strip()
@@ -13137,13 +13172,17 @@ def _warehouse_sm_switch_set_profile(payload: dict, profile: str) -> dict:
     if not switch_ip or not switch_username or not switch_password:
         return {"success": False, "error": "switch_ip, switch_username, and switch_password are required"}
 
+    requested_profile = str(payload.get("switch_profile") or "").strip().lower() or "generic"
+    probe_commands = _warehouse_sm_scan_commands_for_profile(requested_profile, selected_port)
     profile_probe = _warehouse_sm_switch_run_interactive(
         switch_ip=switch_ip,
         switch_username=switch_username,
         switch_password=switch_password,
         ssh_ports=ssh_ports,
-        commands=["show version"],
+        commands=probe_commands,
         enter_enable=False,
+        fail_on_cli_error=False,
+        settle_seconds=0.30,
     )
     if not profile_probe.get("success"):
         return profile_probe
@@ -13151,6 +13190,19 @@ def _warehouse_sm_switch_set_profile(payload: dict, profile: str) -> dict:
     detected_profile = str(payload.get("switch_profile") or "").strip().lower() or _warehouse_sm_detect_switch_profile(
         str(profile_probe.get("output") or "")
     )
+    if detected_profile == "netonix":
+        # We intentionally avoid automatic VLAN mutation on live Netonix staging switches in this workflow.
+        return {
+            "success": True,
+            "profile": profile,
+            "switch_profile": detected_profile,
+            "validated_profile": False,
+            "selected_port": selected_port,
+            "switch_ssh_port": profile_probe.get("switch_ssh_port"),
+            "skipped": True,
+            "message": "Netonix switch profile toggle skipped (no automatic port VLAN mutation).",
+        }
+
     validated_profile = _warehouse_sm_switch_profile_validated_for_config(detected_profile)
     force_unvalidated = bool(payload.get("force_unvalidated_switch_cli"))
     if not validated_profile and not force_unvalidated:
@@ -13192,7 +13244,7 @@ def _warehouse_sm_switch_set_profile(payload: dict, profile: str) -> dict:
         ssh_ports=ssh_ports,
         commands=commands,
         enter_enable=True,
-        enable_password=str(payload.get("switch_enable_password") or switch_password).strip(),
+        enable_password=switch_password,
     )
     result["profile"] = profile
     result["switch_profile"] = detected_profile
@@ -13204,8 +13256,7 @@ def _warehouse_sm_switch_set_profile(payload: dict, profile: str) -> dict:
 def _warehouse_sm_discover(data: dict) -> dict:
     required_firmware = str(data.get('required_firmware') or "5.10.4").strip()
     device_password = str(
-        data.get('device_password')
-        or os.getenv('NEXTLINK_SSH_PASSWORD')
+        os.getenv('NEXTLINK_SSH_PASSWORD')
         or os.getenv('SM_STANDARD_PW')
         or "admin"
     ).strip()
@@ -13250,6 +13301,7 @@ def _warehouse_sm_discover(data: dict) -> dict:
                 "active_scan": {},
                 "switch_probe_error": switch_probe_error or None,
                 "fallback_target_ip": fallback_target_ip,
+                "selected_port_state": {},
             },
             "fallback_target_ip": fallback_target_ip,
             "status_code": switch_probe_status,
@@ -13281,7 +13333,6 @@ def _warehouse_sm_discover(data: dict) -> dict:
     enable_active_scan = bool(data.get("enable_active_scan"))
     if not discovered and enable_active_scan:
         cidr_candidates = []
-        cidr_candidates.extend(_warehouse_sm_parse_cidr_list(data.get("discovery_cidrs")))
         cidr_candidates.extend(_warehouse_sm_parse_cidr_list(os.getenv("WAREHOUSE_SM_DISCOVERY_CIDRS", "")))
         cidr_candidates.extend(_warehouse_sm_parse_cidr_list(switch_probe.get("switch_mgmt_cidrs", [])))
         cidr_candidates = _warehouse_sm_unique(cidr_candidates)
@@ -13318,6 +13369,7 @@ def _warehouse_sm_discover(data: dict) -> dict:
                 "active_scan": active_scan_result or {},
                 "switch_probe_error": switch_probe_error or None,
                 "fallback_target_ip": fallback_target_ip,
+                "selected_port_state": switch_probe.get("selected_port_state") or {},
             },
             "fallback_target_ip": fallback_target_ip,
             "status_code": 404 if switch_probe_ok else switch_probe_status,
@@ -13357,6 +13409,7 @@ def _warehouse_sm_discover(data: dict) -> dict:
             "probed": probed,
             "active_scan": active_scan_result or {},
             "switch_probe_error": switch_probe_error or None,
+            "selected_port_state": switch_probe.get("selected_port_state") or {},
         },
         "discovery": {
             "ip_address": autofill["target_ip"],
@@ -13418,6 +13471,8 @@ def _warehouse_sm_background_task(task_id: str, payload: dict, username: str):
         untagged_result = _warehouse_sm_switch_set_profile(payload, "untagged")
         if not untagged_result.get("success"):
             _warehouse_sm_task_log(task_id, f"Untagged profile warning: {untagged_result.get('error') or 'switch command was not accepted'}", "warning", "switch-untagged")
+        elif untagged_result.get("skipped"):
+            _warehouse_sm_task_log(task_id, str(untagged_result.get("message") or "Switch profile change skipped."), "info", "switch-untagged")
 
         _abort_if_needed()
         _warehouse_sm_task_log(task_id, "Step 2/7: Discover SM on selected port.", "info", "discover")
@@ -13454,8 +13509,7 @@ def _warehouse_sm_background_task(task_id: str, payload: dict, username: str):
                     },
                     "device_info": {},
                     "device_password": str(
-                        payload.get("device_password")
-                        or os.getenv("NEXTLINK_SSH_PASSWORD")
+                        os.getenv("NEXTLINK_SSH_PASSWORD")
                         or os.getenv("SM_STANDARD_PW")
                         or "admin"
                     ).strip(),
@@ -13505,6 +13559,8 @@ def _warehouse_sm_background_task(task_id: str, payload: dict, username: str):
         tagged_result = _warehouse_sm_switch_set_profile(payload, "tagged")
         if not tagged_result.get("success"):
             _warehouse_sm_task_log(task_id, f"Tagged profile warning: {tagged_result.get('error') or 'switch command was not accepted'}", "warning", "switch-tagged")
+        elif tagged_result.get("skipped"):
+            _warehouse_sm_task_log(task_id, str(tagged_result.get("message") or "Switch profile change skipped."), "info", "switch-tagged")
 
         _abort_if_needed()
         _warehouse_sm_task_log(task_id, "Step 6/7: Confirm SM still reachable after VLAN profile toggle.", "info", "verify-tagged")
@@ -13517,6 +13573,8 @@ def _warehouse_sm_background_task(task_id: str, payload: dict, username: str):
         reset_result = _warehouse_sm_switch_set_profile(payload, "untagged")
         if not reset_result.get("success"):
             _warehouse_sm_task_log(task_id, f"Reset profile warning: {reset_result.get('error') or 'switch command was not accepted'}", "warning", "switch-reset")
+        elif reset_result.get("skipped"):
+            _warehouse_sm_task_log(task_id, str(reset_result.get("message") or "Switch profile change skipped."), "info", "switch-reset")
 
         closeout_gate = _warehouse_sm_closeout_gate(payload)
         if payload.get("closeout_requested") and not closeout_gate.get("ready"):
@@ -13609,32 +13667,42 @@ def warehouse_sm_scan():
             return jsonify({'success': False, 'error': 'Invalid switch_ip format'}), 400
         scan_timeout_seconds = int(os.getenv("WAREHOUSE_SM_SCAN_TIMEOUT_SECONDS") or 20)
         scan_timeout_seconds = min(max(scan_timeout_seconds, 5), 60)
-        with ThreadPoolExecutor(max_workers=1) as scan_executor:
-            scan_future = scan_executor.submit(_warehouse_sm_discover, data)
+        scan_executor = ThreadPoolExecutor(max_workers=1)
+        scan_future = scan_executor.submit(_warehouse_sm_discover, data)
+        try:
+            discovery_result = scan_future.result(timeout=scan_timeout_seconds)
+        except FuturesTimeoutError:
             try:
-                discovery_result = scan_future.result(timeout=scan_timeout_seconds)
-            except FuturesTimeoutError:
-                ip_candidates = []
-                ip_candidates.extend([str(x).strip() for x in (data.get('ip_candidates') or []) if str(x).strip()])
-                ip_candidates.append(str(data.get("target_ip") or "").strip())
-                ip_candidates.extend(_WAREHOUSE_SM_DEFAULT_IPS)
-                ip_candidates = _warehouse_sm_unique([ip for ip in ip_candidates if ip])
-                fallback_target_ip = _warehouse_sm_pick_default_target_ip(ip_candidates)
-                return jsonify({
-                    "success": False,
-                    "error": f"Warehouse SM scan timed out after {scan_timeout_seconds}s.",
-                    "scan": {
-                        "selected_port": selected_port,
-                        "switch_profile": "unknown",
-                        "switch_ssh_port": None,
-                        "ip_candidates": ip_candidates,
-                        "probed": [],
-                        "active_scan": {},
-                        "switch_probe_error": "scan-timeout",
-                        "fallback_target_ip": fallback_target_ip,
-                    },
+                scan_future.cancel()
+            except Exception:
+                pass
+            ip_candidates = []
+            ip_candidates.extend([str(x).strip() for x in (data.get('ip_candidates') or []) if str(x).strip()])
+            ip_candidates.append(str(data.get("target_ip") or "").strip())
+            ip_candidates.extend(_WAREHOUSE_SM_DEFAULT_IPS)
+            ip_candidates = _warehouse_sm_unique([ip for ip in ip_candidates if ip])
+            fallback_target_ip = _warehouse_sm_pick_default_target_ip(ip_candidates)
+            return jsonify({
+                "success": False,
+                "error": f"Warehouse SM scan timed out after {scan_timeout_seconds}s.",
+                "scan": {
+                    "selected_port": selected_port,
+                    "switch_profile": str(data.get("switch_profile") or "unknown"),
+                    "switch_ssh_port": None,
+                    "ip_candidates": ip_candidates,
+                    "probed": [],
+                    "active_scan": {},
+                    "switch_probe_error": "scan-timeout",
                     "fallback_target_ip": fallback_target_ip,
-                }), 200
+                    "selected_port_state": {},
+                },
+                "fallback_target_ip": fallback_target_ip,
+            }), 200
+        finally:
+            try:
+                scan_executor.shutdown(wait=False, cancel_futures=True)
+            except TypeError:
+                scan_executor.shutdown(wait=False)
         if not discovery_result.get("success"):
             return jsonify({
                 "success": False,
