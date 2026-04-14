@@ -61,7 +61,7 @@ from functools import wraps
 import threading
 import queue
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 from pathlib import Path
 from ftth_renderer import render_ftth_config
 from typing import Optional
@@ -12276,6 +12276,8 @@ _WAREHOUSE_SM_MAC_RE = re.compile(r'(?i)\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b')
 _WAREHOUSE_SM_MAC_DOT_RE = re.compile(r'(?i)\b[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4}\b')
 _WAREHOUSE_SM_IP_RE = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
 _WAREHOUSE_SM_TASK_KIND = "warehouse_sm"
+_WAREHOUSE_SM_DEFAULT_ACCESS_LOCK = threading.Lock()
+_WAREHOUSE_SM_DEFAULT_ACCESS_ALIASES = set()
 _WAREHOUSE_SM_CLOSEOUT_REQUIRED = [
     ("latitude", "Latitude"),
     ("longitude", "Longitude"),
@@ -12388,10 +12390,169 @@ def _warehouse_sm_parse_ports(value, defaults=None):
             continue
         if 1 <= port <= 65535 and port not in parsed:
             parsed.append(port)
+    if parsed:
+        return parsed
+    fallback = []
     for default_port in defaults:
-        if default_port not in parsed:
-            parsed.append(default_port)
-    return parsed or list(defaults)
+        try:
+            port = int(default_port)
+        except Exception:
+            continue
+        if 1 <= port <= 65535 and port not in fallback:
+            fallback.append(port)
+    return fallback or [22]
+
+
+def _warehouse_sm_env_bool(name: str, default: bool = False) -> bool:
+    raw = str(os.getenv(name, "")).strip().lower()
+    if not raw:
+        return bool(default)
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _warehouse_sm_default_access_alias_for_ip(ip_value: str) -> str | None:
+    try:
+        ip_obj = ipaddress.IPv4Address(str(ip_value).strip())
+    except Exception:
+        return None
+    if ip_obj in ipaddress.IPv4Network("192.168.0.0/24"):
+        return str(os.getenv("WAREHOUSE_SM_ALIAS_192_168_0", "192.168.0.254/24")).strip()
+    if ip_obj in ipaddress.IPv4Network("192.168.1.0/24"):
+        return str(os.getenv("WAREHOUSE_SM_ALIAS_192_168_1", "192.168.1.254/24")).strip()
+    return None
+
+
+def _warehouse_sm_detect_interface_for_switch(switch_ip: str) -> str:
+    override = str(os.getenv("WAREHOUSE_SM_SWITCH_INTERFACE", "")).strip()
+    if override:
+        return override
+    try:
+        route = subprocess.run(
+            ["ip", "route", "get", str(switch_ip).strip()],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        output = str(route.stdout or "") + "\n" + str(route.stderr or "")
+        match = re.search(r"\bdev\s+(\S+)", output)
+        if match:
+            return str(match.group(1) or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _warehouse_sm_interface_cidrs(interface_name: str) -> list[str]:
+    if not interface_name:
+        return []
+    try:
+        result = subprocess.run(
+            ["ip", "-o", "-4", "addr", "show", "dev", interface_name],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except Exception:
+        return []
+    cidrs = []
+    for line in str(result.stdout or "").splitlines():
+        match = re.search(r"\binet\s+(\d+\.\d+\.\d+\.\d+/\d+)", line)
+        if match:
+            cidrs.append(str(match.group(1)))
+    return _warehouse_sm_unique(cidrs)
+
+
+def _warehouse_sm_bootstrap_default_access(switch_ip: str, candidate_ips: list[str]) -> dict:
+    """
+    Best-effort Linux host alias bootstrap for default Cambium subnets (192.168.0/24, 192.168.1/24).
+    This is only applied when explicitly enabled or left at default-enabled.
+    """
+    result = {
+        "enabled": False,
+        "attempted": False,
+        "interface": "",
+        "required_aliases": [],
+        "added_aliases": [],
+        "existing_aliases": [],
+        "errors": [],
+    }
+
+    enabled = _warehouse_sm_env_bool("WAREHOUSE_SM_AUTO_DEFAULT_ACCESS", True)
+    result["enabled"] = enabled
+    if not enabled:
+        return result
+
+    if os.name != "posix":
+        result["enabled"] = False
+        return result
+
+    aliases = _warehouse_sm_unique(
+        [alias for alias in (_warehouse_sm_default_access_alias_for_ip(ip) for ip in (candidate_ips or [])) if alias]
+    )
+    result["required_aliases"] = aliases
+    if not aliases:
+        return result
+
+    iface = _warehouse_sm_detect_interface_for_switch(switch_ip)
+    result["interface"] = iface
+    if not iface:
+        result["errors"].append("unable to detect egress interface toward switch_ip")
+        return result
+
+    result["attempted"] = True
+    existing_cidrs = _warehouse_sm_interface_cidrs(iface)
+    existing_networks = set()
+    for cidr in existing_cidrs:
+        try:
+            existing_networks.add(str(ipaddress.ip_interface(cidr).network))
+        except Exception:
+            continue
+
+    for alias in aliases:
+        alias_key = f"{iface}|{alias}"
+        try:
+            alias_network = str(ipaddress.ip_interface(alias).network)
+        except Exception:
+            result["errors"].append(f"invalid alias CIDR configured: {alias}")
+            continue
+
+        if alias_network in existing_networks:
+            result["existing_aliases"].append(alias)
+            continue
+
+        with _WAREHOUSE_SM_DEFAULT_ACCESS_LOCK:
+            if alias_key in _WAREHOUSE_SM_DEFAULT_ACCESS_ALIASES:
+                result["existing_aliases"].append(alias)
+                continue
+
+        try:
+            add_result = subprocess.run(
+                ["ip", "address", "add", alias, "dev", iface],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            )
+        except Exception as exc:
+            result["errors"].append(f"failed to add alias {alias} on {iface}: {exc}")
+            continue
+
+        add_stdout = str(add_result.stdout or "")
+        add_stderr = str(add_result.stderr or "")
+        add_text = f"{add_stdout}\n{add_stderr}".lower()
+        if add_result.returncode == 0 or "file exists" in add_text:
+            with _WAREHOUSE_SM_DEFAULT_ACCESS_LOCK:
+                _WAREHOUSE_SM_DEFAULT_ACCESS_ALIASES.add(alias_key)
+            result["added_aliases"].append(alias)
+            continue
+
+        result["errors"].append(
+            f"failed to add alias {alias} on {iface} (rc={add_result.returncode}): {add_stderr.strip() or add_stdout.strip()}"
+        )
+
+    return result
 
 
 def _warehouse_sm_interface_candidates(port_value: str) -> list[str]:
@@ -12418,6 +12579,19 @@ def _warehouse_sm_detect_switch_profile(text: str) -> str:
 def _warehouse_sm_scan_commands_for_profile(profile: str, selected_port: str) -> list[str]:
     iface_candidates = _warehouse_sm_interface_candidates(selected_port)
     commands = ["show version"]
+    if profile == "netonix":
+        # Netonix uses a Linux shell with `switch` tooling, not `show ...` network CLI syntax.
+        return _warehouse_sm_unique(
+            [
+                "uname -a",
+                "switch -m",
+                "switch -d",
+                f"switch -p {selected_port}",
+                "cat /proc/net/arp",
+                "ip neigh show 2>/dev/null",
+                "route -n 2>/dev/null",
+            ]
+        )
     if profile == "edgeswitch":
         for iface in iface_candidates:
             commands.append(f"show mac-addr-table interface {iface}")
@@ -12425,8 +12599,7 @@ def _warehouse_sm_scan_commands_for_profile(profile: str, selected_port: str) ->
             [
                 "show mac-addr-table",
                 "show network",
-                "show ip brief",
-                "show ip route",
+                "show arp",
             ]
         )
         return _warehouse_sm_unique(commands)
@@ -12445,10 +12618,9 @@ def _warehouse_sm_scan_commands_for_profile(profile: str, selected_port: str) ->
             "show mac-addr-table",
             "show mac-address-table",
             "show mac address-table",
-            "show ip brief",
-            "show ip route",
             "show ip arp",
             "show arp",
+            "show network",
         ]
     )
     return _warehouse_sm_unique(commands)
@@ -12639,20 +12811,20 @@ def _warehouse_sm_switch_run_interactive(
                 allow_agent=False,
             )
             channel = client.invoke_shell()
-            output = _read_for(channel, max(0.8, settle_seconds))
+            output = _read_for(channel, max(0.35, settle_seconds))
 
             if enter_enable:
                 channel.send("enable\n")
-                enable_out = _read_for(channel, max(0.8, settle_seconds))
+                enable_out = _read_for(channel, max(0.35, settle_seconds))
                 output += enable_out
                 if "password" in enable_out.lower():
                     channel.send(f"{(enable_password or switch_password or '').strip()}\n")
-                    output += _read_for(channel, max(0.8, settle_seconds))
+                    output += _read_for(channel, max(0.35, settle_seconds))
 
             command_outputs = []
             for cmd in commands:
                 channel.send(str(cmd) + "\n")
-                cmd_out = _read_for(channel, max(0.8, settle_seconds))
+                cmd_out = _read_for(channel, max(0.35, settle_seconds))
                 command_outputs.append({"command": cmd, "output": cmd_out[:12000]})
                 output += cmd_out
 
@@ -12703,35 +12875,41 @@ def _warehouse_sm_switch_probe(
     ssh_ports: list[int],
     switch_profile: str | None = None,
 ) -> dict:
-    first_pass = _warehouse_sm_switch_run_interactive(
-        switch_ip=switch_ip,
-        switch_username=switch_username,
-        switch_password=switch_password,
-        ssh_ports=ssh_ports,
-        commands=["show version"],
-        enter_enable=False,
-    )
-    if not first_pass.get("success"):
-        return first_pass
-
-    version_text = str(first_pass.get("output") or "")
-    detected_profile = str(switch_profile or "").strip().lower() or _warehouse_sm_detect_switch_profile(version_text)
-    cmd_list = _warehouse_sm_scan_commands_for_profile(detected_profile, selected_port)
-
+    requested_profile = str(switch_profile or "").strip().lower() or "generic"
+    cmd_list = _warehouse_sm_scan_commands_for_profile(requested_profile, selected_port)
     full_probe = _warehouse_sm_switch_run_interactive(
         switch_ip=switch_ip,
         switch_username=switch_username,
         switch_password=switch_password,
-        ssh_ports=[int(first_pass.get("switch_ssh_port") or ssh_ports[0])],
+        ssh_ports=ssh_ports,
         commands=cmd_list,
         enter_enable=False,
         fail_on_cli_error=False,
+        settle_seconds=0.30,
     )
     if not full_probe.get("success"):
         return full_probe
 
     outputs = full_probe.get("commands") or []
     all_text = "\n".join((x.get("output") or "") for x in outputs)
+    detected_profile = str(switch_profile or "").strip().lower() or _warehouse_sm_detect_switch_profile(all_text)
+    netonix_port_line = ""
+    netonix_link_up = None
+    if detected_profile == "netonix":
+        rx = re.compile(rf"Port\s+{re.escape(str(selected_port).strip())}\s*:\s*([^\n\r]+)", flags=re.IGNORECASE)
+        match = rx.search(all_text)
+        if match:
+            netonix_port_line = match.group(0).strip()
+            details = match.group(1).strip().lower()
+            if "link down" in details:
+                netonix_link_up = False
+            elif "link " in details:
+                netonix_link_up = True
+    netonix_poe_mode = None
+    if netonix_port_line:
+        poe_match = re.search(r"poe\s+([A-Za-z0-9]+)", netonix_port_line, flags=re.IGNORECASE)
+        if poe_match:
+            netonix_poe_mode = str(poe_match.group(1) or "").strip()
     iface_candidates = _warehouse_sm_interface_candidates(selected_port)
     port_text = "\n".join(
         (x.get("output") or "")
@@ -12761,6 +12939,11 @@ def _warehouse_sm_switch_probe(
         "arp_entries": arp_entries,
         "switch_mgmt_cidrs": _warehouse_sm_extract_switch_mgmt_cidrs(outputs, switch_ip),
         "ip_candidates": _warehouse_sm_unique(matched_ips),
+        "selected_port_state": {
+            "line": netonix_port_line,
+            "link_up": netonix_link_up,
+            "poe_mode": netonix_poe_mode,
+        },
     }
 
 
@@ -12864,6 +13047,81 @@ def _warehouse_sm_build_dynamic_updates(device_props: dict, payload: dict) -> di
     applied_targets = []
     unresolved_targets = []
 
+    def _bool_on_value(current):
+        if isinstance(current, bool):
+            return True
+        if str(current or "").strip().isdigit():
+            return 1
+        return "enabled"
+
+    def _bool_off_value(current):
+        if isinstance(current, bool):
+            return False
+        if str(current or "").strip().isdigit():
+            return 0
+        return "disabled"
+
+    def _set_scan_family(label: str, include_channels: list[str], key_tokens: list[str]):
+        keys = _warehouse_sm_find_prop_keys(props, key_tokens)
+        if not keys:
+            unresolved_targets.append(label)
+            return
+        include = {str(ch).strip() for ch in include_channels}
+        set_count = 0
+        for key in keys:
+            key_lower = str(key or "").lower()
+            current = props.get(key)
+
+            # Per-channel boolean style keys (e.g. ...20..., ...80..., ...160...)
+            per_channel_match = re.search(r"(?<!\d)(20|40|80|160)(?!\d)", key_lower)
+            if per_channel_match:
+                channel = per_channel_match.group(1)
+                if channel in include:
+                    updates[key] = _bool_on_value(current)
+                    set_count += 1
+                continue
+
+            # Generic aggregate key: preserve value shape where possible.
+            if isinstance(current, list):
+                if all(str(item).strip().isdigit() for item in current):
+                    bw_map = {"20": 1, "40": 2, "80": 5, "160": 6}
+                    updates[key] = [bw_map[ch] for ch in include if ch in bw_map]
+                elif any("mhz" in str(item).lower() for item in current):
+                    updates[key] = [f"{ch}MHz" for ch in include]
+                else:
+                    updates[key] = include_channels[:]
+            elif isinstance(current, str):
+                if "mhz" in current.lower():
+                    updates[key] = ",".join(f"{ch}MHz" for ch in include)
+                elif re.fullmatch(r"[\d,\s]+", current.strip() or ""):
+                    bw_map = {"20": "1", "40": "2", "80": "5", "160": "6"}
+                    updates[key] = ",".join(bw_map[ch] for ch in include if ch in bw_map)
+                else:
+                    updates[key] = ",".join(include_channels)
+            else:
+                updates[key] = ",".join(include_channels)
+            set_count += 1
+
+        if set_count:
+            applied_targets.append(label)
+        else:
+            unresolved_targets.append(label)
+
+    def _set_timezone_cst():
+        keys = _warehouse_sm_find_prop_keys(props, ["timezone"])
+        if not keys:
+            unresolved_targets.append("Timezone")
+            return
+        key = keys[0]
+        current = str(props.get(key) or "").strip()
+        if re.fullmatch(r"[A-Za-z]{3}\d", current):
+            updates[key] = "CST6"
+        elif "utc" in current.lower() or "(" in current:
+            updates[key] = "(UTC-06) CST - Central Standard Time (North America)"
+        else:
+            updates[key] = "CST6"
+        applied_targets.append("Timezone")
+
     def _set_first(tokens, value, label, exclude=None, match_mode="text"):
         keys = _warehouse_sm_find_prop_keys(props, tokens, exclude_tokens=exclude or [])
         if not keys:
@@ -12871,19 +13129,9 @@ def _warehouse_sm_build_dynamic_updates(device_props: dict, payload: dict) -> di
             return
         key = keys[0]
         if match_mode == "bool_on":
-            if isinstance(props.get(key), bool):
-                updates[key] = True
-            elif str(props.get(key, "")).strip().isdigit():
-                updates[key] = 1
-            else:
-                updates[key] = "enabled"
+            updates[key] = _bool_on_value(props.get(key))
         elif match_mode == "bool_off":
-            if isinstance(props.get(key), bool):
-                updates[key] = False
-            elif str(props.get(key, "")).strip().isdigit():
-                updates[key] = 0
-            else:
-                updates[key] = "disabled"
+            updates[key] = _bool_off_value(props.get(key))
         else:
             updates[key] = value
         applied_targets.append(label)
@@ -12892,6 +13140,16 @@ def _warehouse_sm_build_dynamic_updates(device_props: dict, payload: dict) -> di
     _set_first(["tx", "power"], "11", "Transmitter output power")
     _set_first(["driver", "mode"], "TDD WLR", "Driver mode")
     _set_first(["antenna", "gain"], "25", "Antenna gain")
+    _set_scan_family(
+        label="Scan Channel Bandwidth (80/160)",
+        include_channels=["80", "160"],
+        key_tokens=["scan", "channel", "bandwidth", "enable"],
+    )
+    _set_scan_family(
+        label="Scan List Enable (20/40/80/160)",
+        include_channels=["20", "40", "80", "160"],
+        key_tokens=["scan", "list", "enable"],
+    )
 
     # Proxy baseline.
     proxy_ip_keys = _warehouse_sm_find_prop_keys(props, ["proxy", "ip"])
@@ -12919,11 +13177,30 @@ def _warehouse_sm_build_dynamic_updates(device_props: dict, payload: dict) -> di
     _set_first(["proxy", "enable"], "enabled", "Proxy enabled", match_mode="bool_on")
 
     # System baseline.
+    _set_first(["ntp", "mode"], "static", "NTP Server IP Assignment")
     _set_first(["ntp", "server"], "ntp-pool.nxlink.com", "Preferred NTP server")
-    _set_first(["timezone"], "CST6", "Timezone")
+    _set_timezone_cst()
     _set_first(["snmp", "community", "read"], "FBZ1yYdphf", "SNMP read community")
     _set_first(["snmp", "community", "write"], "FBZ1yYdphf", "SNMP write community")
     _set_first(["snmp", "remote"], "enabled", "SNMP remote access", match_mode="bool_on")
+    sm_standard_pw = str(os.getenv("SM_STANDARD_PW") or "").strip()
+    if sm_standard_pw:
+        pw_keys = _warehouse_sm_find_prop_keys(
+            props,
+            ["password"],
+            exclude_tokens=["max", "history", "encryption", "key", "radius", "community", "snmp"],
+        )
+        admin_pw_keys = [
+            key for key in pw_keys
+            if any(token in str(key).lower() for token in ("admin", "login", "account", "system", "web"))
+        ]
+        if admin_pw_keys:
+            updates[admin_pw_keys[0]] = sm_standard_pw
+            applied_targets.append("Administrative password")
+        else:
+            unresolved_targets.append("Administrative password")
+    else:
+        unresolved_targets.append("Administrative password")
     _set_first(["cnm", "remote"], "enabled", "cnMaestro Remote Management", match_mode="bool_on")
 
     # Network baseline.
@@ -13010,10 +13287,33 @@ def _warehouse_sm_build_verification(info: dict, required_firmware: str, payload
     _add_check("Radio", "Antenna gain", "25", value, value is not None and _warehouse_sm_match_numeric(value, "25"))
 
     proxy_text = running_text.lower()
+    scan_bw_ok = ("scan" in proxy_text and "bandwidth" in proxy_text and "80" in proxy_text and "160" in proxy_text)
+    scan_list_ok = ("scan" in proxy_text and "list" in proxy_text and all(x in proxy_text for x in ("20", "40", "80", "160")))
+    _add_check(
+        "Radio",
+        "Scan Channel Bandwidth Enable",
+        "80MHz,160MHz",
+        "present" if scan_bw_ok else "missing",
+        scan_bw_ok,
+    )
+    _add_check(
+        "Radio",
+        "Scan List Enable",
+        "20MHz,40MHz,80MHz,160MHz",
+        "present" if scan_list_ok else "missing",
+        scan_list_ok,
+    )
     _add_check("Proxy", "Proxy Server IP #1", "132.147.147.21", "present" if "132.147.147.21" in proxy_text else "missing", "132.147.147.21" in proxy_text)
     _add_check("Proxy", "Proxy Server IP #2", "132.147.147.52", "present" if "132.147.147.52" in proxy_text else "missing", "132.147.147.52" in proxy_text)
     _add_check("Proxy", "Proxy Server Port", "3128", "present" if "3128" in proxy_text else "missing", "3128" in proxy_text)
 
+    _add_check(
+        "System",
+        "NTP assignment mode",
+        "static",
+        "present" if ("ntp" in proxy_text and "static" in proxy_text) else "missing",
+        "ntp" in proxy_text and "static" in proxy_text,
+    )
     _add_check(
         "System",
         "Preferred NTP server",
@@ -13066,10 +13366,19 @@ def _warehouse_sm_apply_baseline(discovery: dict, payload: dict) -> dict:
     except Exception as exc:
         return {"success": False, "error": f"Cambium module unavailable: {exc}"}
 
-    target_ip = str(discovery.get("ip_address") or "").strip()
+    target_ip = str(discovery.get("ip_address") or payload.get("target_ip") or "").strip()
     device_type = str(discovery.get("device_type") or "F4600C").strip() or "F4600C"
     if not target_ip:
-        return {"success": False, "error": "No target SM IP for baseline apply"}
+        target_ip = _warehouse_sm_pick_default_target_ip(_WAREHOUSE_SM_PREFERRED_FALLBACK_IPS[:2])
+    target_candidates = _warehouse_sm_unique(
+        [
+            target_ip,
+            str(payload.get("target_ip") or "").strip(),
+            *_WAREHOUSE_SM_PREFERRED_FALLBACK_IPS[:2],
+        ]
+    )
+    switch_ip = str(payload.get("switch_ip") or "").strip()
+    default_access = _warehouse_sm_bootstrap_default_access(switch_ip=switch_ip, candidate_ips=target_candidates)
 
     mac_address = str(payload.get("mac_address") or discovery.get("wireless_mac") or "").strip()
     payload_user_number = str(payload.get("user_number") or "").strip()
@@ -13078,8 +13387,7 @@ def _warehouse_sm_apply_baseline(discovery: dict, payload: dict) -> dict:
     payload_longitude = str(payload.get("longitude") or "").strip()
     payload_height = str(payload.get("height_m") or "").strip()
     password = str(
-        payload.get("device_password")
-        or os.getenv("NEXTLINK_SSH_PASSWORD")
+        os.getenv("NEXTLINK_SSH_PASSWORD")
         or os.getenv("SM_STANDARD_PW")
         or "admin"
     ).strip()
@@ -13087,93 +13395,107 @@ def _warehouse_sm_apply_baseline(discovery: dict, payload: dict) -> dict:
     if not cnm_url:
         return {"success": False, "error": "cnm_url is required for baseline configuration"}
 
-    existing_info = EPMPConfig.get_device_info(target_ip, device_type, password=password, run_tests=True)
-    existing_props = _warehouse_sm_extract_device_props(existing_info)
-    discovery_name = str(discovery.get("device_name") or "").strip()
-    existing_name = str(existing_props.get("systemConfigDeviceName") or existing_props.get("snmpSystemName") or "").strip()
-    discovery_match = re.search(r'NX-(\d+)', discovery_name, flags=re.IGNORECASE)
-    existing_match = re.search(r'NX-(\d+)', existing_name, flags=re.IGNORECASE)
-    user_number = payload_user_number or (discovery_match.group(1) if discovery_match else "") or (existing_match.group(1) if existing_match else "") or "000000"
-    latitude = payload_latitude or str(discovery.get("latitude") or existing_props.get("systemDeviceLocLatitude") or "0").strip()
-    longitude = payload_longitude or str(discovery.get("longitude") or existing_props.get("systemDeviceLocLongitude") or "0").strip()
-    height = payload_height or str(discovery.get("height") or existing_props.get("systemDeviceLocHeight") or "").strip()
-
-    params = {
-        "ip_address": target_ip,
-        "device_type": device_type,
-        "password": password,
-        "latitude": latitude or "0",
-        "longitude": longitude or "0",
-        "height": height if height else None,
-        "cnm_url": cnm_url,
-        "mac_address": mac_address,
-        "user_number": user_number,
-    }
-    params = {k: v for k, v in params.items() if v is not None}
-
-    d = None
-    reboot_requested = False
-    try:
-        d = EPMPConfig(**params, use_default=False)
-        d.init_session()
-        d._verify_configuration_valid()
-        plan = _warehouse_sm_build_dynamic_updates(existing_props, payload)
-
-        config = {"device_props": {}}
+    attempt_errors = []
+    for candidate_ip in target_candidates:
+        d = None
+        reboot_requested = False
         try:
-            loaded = d.get_standard_config()
-            if isinstance(loaded, dict):
-                config = loaded
-        except Exception:
+            existing_info = EPMPConfig.get_device_info(candidate_ip, device_type, password=password, run_tests=False)
+            existing_props = _warehouse_sm_extract_device_props(existing_info)
+            discovery_name = str(discovery.get("device_name") or "").strip()
+            existing_name = str(existing_props.get("systemConfigDeviceName") or existing_props.get("snmpSystemName") or "").strip()
+            discovery_match = re.search(r'NX-(\d+)', discovery_name, flags=re.IGNORECASE)
+            existing_match = re.search(r'NX-(\d+)', existing_name, flags=re.IGNORECASE)
+            user_number = payload_user_number or (discovery_match.group(1) if discovery_match else "") or (existing_match.group(1) if existing_match else "") or "000000"
+            latitude = payload_latitude or str(discovery.get("latitude") or existing_props.get("systemDeviceLocLatitude") or "0").strip()
+            longitude = payload_longitude or str(discovery.get("longitude") or existing_props.get("systemDeviceLocLongitude") or "0").strip()
+            height = payload_height or str(discovery.get("height") or existing_props.get("systemDeviceLocHeight") or "").strip()
+
+            params = {
+                "ip_address": candidate_ip,
+                "device_type": device_type,
+                "password": password,
+                "latitude": latitude or "0",
+                "longitude": longitude or "0",
+                "height": height if height else None,
+                "cnm_url": cnm_url,
+                "mac_address": mac_address,
+                "user_number": user_number,
+            }
+            params = {k: v for k, v in params.items() if v is not None}
+
+            d = EPMPConfig(**params, use_default=False)
+            d.init_session()
+            d._verify_configuration_valid()
+            plan = _warehouse_sm_build_dynamic_updates(existing_props, payload)
+
             config = {"device_props": {}}
-        if not isinstance(config.get("device_props"), dict):
-            config["device_props"] = {}
+            try:
+                loaded = d.get_standard_config()
+                if isinstance(loaded, dict):
+                    config = loaded
+            except Exception:
+                config = {"device_props": {}}
+            if not isinstance(config.get("device_props"), dict):
+                config["device_props"] = {}
 
-        d._configure_device_params(config)
+            d._configure_device_params(config)
 
-        def _restore_or_drop(prop_key: str):
-            prior = str(existing_props.get(prop_key) or "").strip()
-            if prior:
-                config["device_props"][prop_key] = prior
-            else:
-                config["device_props"].pop(prop_key, None)
+            def _restore_or_drop(prop_key: str):
+                prior = str(existing_props.get(prop_key) or "").strip()
+                if prior:
+                    config["device_props"][prop_key] = prior
+                else:
+                    config["device_props"].pop(prop_key, None)
 
-        if not payload_user_number:
-            _restore_or_drop("systemConfigDeviceName")
-            _restore_or_drop("snmpSystemName")
-            _restore_or_drop("snmpSystemDescription")
-        if not (payload_latitude and payload_longitude):
-            _restore_or_drop("sysLocation")
-            _restore_or_drop("systemDeviceLocLatitude")
-            _restore_or_drop("systemDeviceLocLongitude")
-        if not payload_height:
-            _restore_or_drop("systemDeviceLocHeight")
+            if not payload_user_number:
+                _restore_or_drop("systemConfigDeviceName")
+                _restore_or_drop("snmpSystemName")
+                _restore_or_drop("snmpSystemDescription")
+            if not (payload_latitude and payload_longitude):
+                _restore_or_drop("sysLocation")
+                _restore_or_drop("systemDeviceLocLatitude")
+                _restore_or_drop("systemDeviceLocLongitude")
+            if not payload_height:
+                _restore_or_drop("systemDeviceLocHeight")
 
-        config["device_props"].update(plan["updates"])
-        d.send_configuration({"device_props": config["device_props"]})
+            config["device_props"].update(plan["updates"])
+            d.send_configuration({"device_props": config["device_props"]})
 
-        if bool(payload.get("reboot_after_config", True)):
-            d.reboot()
-            reboot_requested = True
-            time.sleep(8)
+            if bool(payload.get("reboot_after_config", True)):
+                d.reboot()
+                reboot_requested = True
+                time.sleep(8)
 
-        return {
-            "success": True,
-            "target_ip": target_ip,
-            "device_type": device_type,
-            "reboot_requested": reboot_requested,
-            "applied_target_count": len(plan["applied_targets"]),
-            "applied_targets": plan["applied_targets"],
-            "unresolved_targets": plan["unresolved_targets"],
-        }
-    except Exception as exc:
-        return {"success": False, "error": str(exc), "target_ip": target_ip, "device_type": device_type}
-    finally:
-        try:
-            if d:
-                d.logout(suppress_info_log=True)
-        except Exception:
-            pass
+            return {
+                "success": True,
+                "target_ip": candidate_ip,
+                "device_type": device_type,
+                "reboot_requested": reboot_requested,
+                "applied_target_count": len(plan["applied_targets"]),
+                "applied_targets": plan["applied_targets"],
+                "unresolved_targets": plan["unresolved_targets"],
+                "attempted_target_ips": target_candidates,
+                "default_access": default_access,
+            }
+        except Exception as exc:
+            attempt_errors.append(f"{candidate_ip}: {exc}")
+        finally:
+            try:
+                if d:
+                    d.logout(suppress_info_log=True)
+            except Exception:
+                pass
+
+    return {
+        "success": False,
+        "error": "Baseline configuration failed on all target IP attempts",
+        "target_ip": target_ip,
+        "device_type": device_type,
+        "attempted_target_ips": target_candidates,
+        "default_access": default_access,
+        "details": attempt_errors,
+    }
 
 
 def _warehouse_sm_switch_run_script(
@@ -13209,13 +13531,17 @@ def _warehouse_sm_switch_set_profile(payload: dict, profile: str) -> dict:
     if not switch_ip or not switch_username or not switch_password:
         return {"success": False, "error": "switch_ip, switch_username, and switch_password are required"}
 
+    requested_profile = str(payload.get("switch_profile") or "").strip().lower() or "generic"
+    probe_commands = _warehouse_sm_scan_commands_for_profile(requested_profile, selected_port)
     profile_probe = _warehouse_sm_switch_run_interactive(
         switch_ip=switch_ip,
         switch_username=switch_username,
         switch_password=switch_password,
         ssh_ports=ssh_ports,
-        commands=["show version"],
+        commands=probe_commands,
         enter_enable=False,
+        fail_on_cli_error=False,
+        settle_seconds=0.30,
     )
     if not profile_probe.get("success"):
         return profile_probe
@@ -13223,6 +13549,19 @@ def _warehouse_sm_switch_set_profile(payload: dict, profile: str) -> dict:
     detected_profile = str(payload.get("switch_profile") or "").strip().lower() or _warehouse_sm_detect_switch_profile(
         str(profile_probe.get("output") or "")
     )
+    if detected_profile == "netonix":
+        # We intentionally avoid automatic VLAN mutation on live Netonix staging switches in this workflow.
+        return {
+            "success": True,
+            "profile": profile,
+            "switch_profile": detected_profile,
+            "validated_profile": False,
+            "selected_port": selected_port,
+            "switch_ssh_port": profile_probe.get("switch_ssh_port"),
+            "skipped": True,
+            "message": "Netonix switch profile toggle skipped (no automatic port VLAN mutation).",
+        }
+
     validated_profile = _warehouse_sm_switch_profile_validated_for_config(detected_profile)
     force_unvalidated = bool(payload.get("force_unvalidated_switch_cli"))
     if not validated_profile and not force_unvalidated:
@@ -13264,7 +13603,7 @@ def _warehouse_sm_switch_set_profile(payload: dict, profile: str) -> dict:
         ssh_ports=ssh_ports,
         commands=commands,
         enter_enable=True,
-        enable_password=str(payload.get("switch_enable_password") or switch_password).strip(),
+        enable_password=switch_password,
     )
     result["profile"] = profile
     result["switch_profile"] = detected_profile
@@ -13276,8 +13615,7 @@ def _warehouse_sm_switch_set_profile(payload: dict, profile: str) -> dict:
 def _warehouse_sm_discover(data: dict) -> dict:
     required_firmware = str(data.get('required_firmware') or "5.10.4").strip()
     device_password = str(
-        data.get('device_password')
-        or os.getenv('NEXTLINK_SSH_PASSWORD')
+        os.getenv('NEXTLINK_SSH_PASSWORD')
         or os.getenv('SM_STANDARD_PW')
         or "admin"
     ).strip()
@@ -13307,6 +13645,7 @@ def _warehouse_sm_discover(data: dict) -> dict:
         ip_candidates.extend([str(x).strip() for x in (data.get('ip_candidates') or []) if str(x).strip()])
         ip_candidates.extend(_WAREHOUSE_SM_DEFAULT_IPS)
         ip_candidates = [ip for ip in _warehouse_sm_unique(ip_candidates) if ip != switch_ip][:probe_limit]
+        default_access = _warehouse_sm_bootstrap_default_access(switch_ip=switch_ip, candidate_ips=ip_candidates)
         fallback_target_ip = _warehouse_sm_pick_default_target_ip(ip_candidates)
         return {
             "success": False,
@@ -13322,6 +13661,8 @@ def _warehouse_sm_discover(data: dict) -> dict:
                 "active_scan": {},
                 "switch_probe_error": switch_probe_error or None,
                 "fallback_target_ip": fallback_target_ip,
+                "selected_port_state": {},
+                "default_access": default_access,
             },
             "fallback_target_ip": fallback_target_ip,
             "status_code": switch_probe_status,
@@ -13332,6 +13673,7 @@ def _warehouse_sm_discover(data: dict) -> dict:
     ip_candidates.extend(_WAREHOUSE_SM_DEFAULT_IPS)
     ip_candidates.extend(switch_probe.get("ip_candidates", []))
     ip_candidates = [ip for ip in _warehouse_sm_unique(ip_candidates) if ip != switch_ip][:probe_limit]
+    default_access = _warehouse_sm_bootstrap_default_access(switch_ip=switch_ip, candidate_ips=ip_candidates)
 
     probed = []
     discovered = None
@@ -13353,7 +13695,6 @@ def _warehouse_sm_discover(data: dict) -> dict:
     enable_active_scan = bool(data.get("enable_active_scan"))
     if not discovered and enable_active_scan:
         cidr_candidates = []
-        cidr_candidates.extend(_warehouse_sm_parse_cidr_list(data.get("discovery_cidrs")))
         cidr_candidates.extend(_warehouse_sm_parse_cidr_list(os.getenv("WAREHOUSE_SM_DISCOVERY_CIDRS", "")))
         cidr_candidates.extend(_warehouse_sm_parse_cidr_list(switch_probe.get("switch_mgmt_cidrs", [])))
         cidr_candidates = _warehouse_sm_unique(cidr_candidates)
@@ -13376,6 +13717,8 @@ def _warehouse_sm_discover(data: dict) -> dict:
         base_error = "No Cambium SM discovered from selected switch port/IP candidates"
         if switch_probe_error:
             base_error = f"{switch_probe_error}. {base_error}"
+        if (default_access.get("errors") or []) and default_access.get("required_aliases"):
+            base_error = f"{base_error}. Default subnet bootstrap failed: {(default_access.get('errors') or ['unknown error'])[0]}"
         return {
             "success": False,
             "error": base_error,
@@ -13390,6 +13733,8 @@ def _warehouse_sm_discover(data: dict) -> dict:
                 "active_scan": active_scan_result or {},
                 "switch_probe_error": switch_probe_error or None,
                 "fallback_target_ip": fallback_target_ip,
+                "selected_port_state": switch_probe.get("selected_port_state") or {},
+                "default_access": default_access,
             },
             "fallback_target_ip": fallback_target_ip,
             "status_code": 404 if switch_probe_ok else switch_probe_status,
@@ -13429,6 +13774,8 @@ def _warehouse_sm_discover(data: dict) -> dict:
             "probed": probed,
             "active_scan": active_scan_result or {},
             "switch_probe_error": switch_probe_error or None,
+            "selected_port_state": switch_probe.get("selected_port_state") or {},
+            "default_access": default_access,
         },
         "discovery": {
             "ip_address": autofill["target_ip"],
@@ -13490,6 +13837,8 @@ def _warehouse_sm_background_task(task_id: str, payload: dict, username: str):
         untagged_result = _warehouse_sm_switch_set_profile(payload, "untagged")
         if not untagged_result.get("success"):
             _warehouse_sm_task_log(task_id, f"Untagged profile warning: {untagged_result.get('error') or 'switch command was not accepted'}", "warning", "switch-untagged")
+        elif untagged_result.get("skipped"):
+            _warehouse_sm_task_log(task_id, str(untagged_result.get("message") or "Switch profile change skipped."), "info", "switch-untagged")
 
         _abort_if_needed()
         _warehouse_sm_task_log(task_id, "Step 2/7: Discover SM on selected port.", "info", "discover")
@@ -13526,8 +13875,7 @@ def _warehouse_sm_background_task(task_id: str, payload: dict, username: str):
                     },
                     "device_info": {},
                     "device_password": str(
-                        payload.get("device_password")
-                        or os.getenv("NEXTLINK_SSH_PASSWORD")
+                        os.getenv("NEXTLINK_SSH_PASSWORD")
                         or os.getenv("SM_STANDARD_PW")
                         or "admin"
                     ).strip(),
@@ -13535,6 +13883,21 @@ def _warehouse_sm_background_task(task_id: str, payload: dict, username: str):
                 payload["target_ip"] = fallback_ip
             else:
                 raise RuntimeError(discovery_result.get("error") or "SM discovery failed")
+        default_access = (discovery_result.get("scan") or {}).get("default_access") or {}
+        if (default_access.get("errors") or []) and (default_access.get("required_aliases") or []):
+            _warehouse_sm_task_log(
+                task_id,
+                f"Default-subnet access bootstrap warning: {(default_access.get('errors') or ['unknown error'])[0]}",
+                "warning",
+                "discover",
+            )
+        elif default_access.get("added_aliases"):
+            _warehouse_sm_task_log(
+                task_id,
+                f"Default-subnet access bootstrap added alias(es): {', '.join(default_access.get('added_aliases') or [])}",
+                "info",
+                "discover",
+            )
         discovery = discovery_result.get("discovery", {})
         payload["target_ip"] = discovery.get("ip_address")
         payload["mac_address"] = payload.get("mac_address") or discovery.get("wireless_mac")
@@ -13577,6 +13940,8 @@ def _warehouse_sm_background_task(task_id: str, payload: dict, username: str):
         tagged_result = _warehouse_sm_switch_set_profile(payload, "tagged")
         if not tagged_result.get("success"):
             _warehouse_sm_task_log(task_id, f"Tagged profile warning: {tagged_result.get('error') or 'switch command was not accepted'}", "warning", "switch-tagged")
+        elif tagged_result.get("skipped"):
+            _warehouse_sm_task_log(task_id, str(tagged_result.get("message") or "Switch profile change skipped."), "info", "switch-tagged")
 
         _abort_if_needed()
         _warehouse_sm_task_log(task_id, "Step 6/7: Confirm SM still reachable after VLAN profile toggle.", "info", "verify-tagged")
@@ -13589,6 +13954,8 @@ def _warehouse_sm_background_task(task_id: str, payload: dict, username: str):
         reset_result = _warehouse_sm_switch_set_profile(payload, "untagged")
         if not reset_result.get("success"):
             _warehouse_sm_task_log(task_id, f"Reset profile warning: {reset_result.get('error') or 'switch command was not accepted'}", "warning", "switch-reset")
+        elif reset_result.get("skipped"):
+            _warehouse_sm_task_log(task_id, str(reset_result.get("message") or "Switch profile change skipped."), "info", "switch-reset")
 
         closeout_gate = _warehouse_sm_closeout_gate(payload)
         if payload.get("closeout_requested") and not closeout_gate.get("ready"):
@@ -13679,7 +14046,46 @@ def warehouse_sm_scan():
             ipaddress.IPv4Address(switch_ip)
         except Exception:
             return jsonify({'success': False, 'error': 'Invalid switch_ip format'}), 400
-        discovery_result = _warehouse_sm_discover(data)
+        scan_timeout_seconds = int(os.getenv("WAREHOUSE_SM_SCAN_TIMEOUT_SECONDS") or 20)
+        scan_timeout_seconds = min(max(scan_timeout_seconds, 5), 60)
+        scan_executor = ThreadPoolExecutor(max_workers=1)
+        scan_future = scan_executor.submit(_warehouse_sm_discover, data)
+        try:
+            discovery_result = scan_future.result(timeout=scan_timeout_seconds)
+        except FuturesTimeoutError:
+            try:
+                scan_future.cancel()
+            except Exception:
+                pass
+            ip_candidates = []
+            ip_candidates.extend([str(x).strip() for x in (data.get('ip_candidates') or []) if str(x).strip()])
+            ip_candidates.append(str(data.get("target_ip") or "").strip())
+            ip_candidates.extend(_WAREHOUSE_SM_DEFAULT_IPS)
+            ip_candidates = _warehouse_sm_unique([ip for ip in ip_candidates if ip])
+            default_access = _warehouse_sm_bootstrap_default_access(switch_ip=switch_ip, candidate_ips=ip_candidates)
+            fallback_target_ip = _warehouse_sm_pick_default_target_ip(ip_candidates)
+            return jsonify({
+                "success": False,
+                "error": f"Warehouse SM scan timed out after {scan_timeout_seconds}s.",
+                "scan": {
+                    "selected_port": selected_port,
+                    "switch_profile": str(data.get("switch_profile") or "unknown"),
+                    "switch_ssh_port": None,
+                    "ip_candidates": ip_candidates,
+                    "probed": [],
+                    "active_scan": {},
+                    "switch_probe_error": "scan-timeout",
+                    "fallback_target_ip": fallback_target_ip,
+                    "selected_port_state": {},
+                    "default_access": default_access,
+                },
+                "fallback_target_ip": fallback_target_ip,
+            }), 200
+        finally:
+            try:
+                scan_executor.shutdown(wait=False, cancel_futures=True)
+            except TypeError:
+                scan_executor.shutdown(wait=False)
         if not discovery_result.get("success"):
             return jsonify({
                 "success": False,

@@ -5922,11 +5922,11 @@
                             </div>
                             <div class="ido-tools-input-grid" style="grid-template-columns: 1fr 1fr;">
                                 <input type="text" id="warehouseSmSwitchIp" value="10.46.220.11" placeholder="Switch IP">
-                                <input type="text" id="warehouseSmSwitchUser" value="ubnt" placeholder="Switch Username">
+                                <input type="text" id="warehouseSmSwitchUser" value="admin" placeholder="Switch Username">
                                 <input type="password" id="warehouseSmSwitchPass" value="xGA9KDm9o9" placeholder="Switch Password">
                                 <input type="text" id="warehouseSmTargetIp" placeholder="Discovered SM IP" readonly style="background: var(--output-bg);">
                             </div>
-                            <div class="field-config-helper">Pick the physical port where the installer plugged the SM.</div>
+                            <div class="field-config-helper">Pick the physical port where the installer plugged the SM (Netonix 26-port switch).</div>
                             <div id="warehouseSmPortGrid" class="warehouse-sm-port-grid"></div>
                         </div>
 
@@ -17912,8 +17912,9 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 }
             }
 
-            const WAREHOUSE_SM_PORT_COUNT = 24;
-            let warehouseSmSelectedPort = 3;
+            const WAREHOUSE_SM_PORT_COUNT = 26;
+            const WAREHOUSE_SM_SWITCH_PROFILE = 'netonix';
+            let warehouseSmSelectedPort = 1;
             let warehouseSmLastScan = null;
             let warehouseSmLastTaskId = '';
 
@@ -17957,6 +17958,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     switch_password: (document.getElementById('warehouseSmSwitchPass')?.value || '').trim(),
                     target_ip: (document.getElementById('warehouseSmTargetIp')?.value || '').trim(),
                     selected_port: warehouseSmSelectedPort,
+                    switch_profile: WAREHOUSE_SM_SWITCH_PROFILE,
                     cnm_url: (document.getElementById('warehouseSmRegion')?.value || '').trim(),
                     encryption_key: (document.getElementById('warehouseSmEncryptionKey')?.value || '').trim(),
                     required_firmware: (document.getElementById('warehouseSmFirmware')?.value || '').trim(),
@@ -17989,6 +17991,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                         username: input.switch_username,
                         password: input.switch_password,
                         selected_port: input.selected_port,
+                        switch_profile: input.switch_profile || null,
                         staging_profile: 'untagged-provisioning',
                         verify_profile: 'tagged-vlan-verify',
                     },
@@ -18097,6 +18100,8 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     switch_username: input.switch_username,
                     switch_password: input.switch_password,
                     selected_port: input.selected_port,
+                    switch_profile: input.switch_profile || WAREHOUSE_SM_SWITCH_PROFILE,
+                    switch_ssh_ports: [22],
                     required_firmware: input.required_firmware || undefined,
                     ip_candidates: input.target_ip ? [input.target_ip] : [],
                 };
@@ -18149,8 +18154,21 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                         setWarehouseSmInputValue('warehouseSmTargetIp', fallbackTargetIp);
                         warehouseSmLastScan = body;
                         const switchSshPort = body?.scan?.switch_ssh_port;
+                        const selectedPortState = body?.scan?.selected_port_state || {};
+                        const rawPortStateLine = String(selectedPortState?.line || '').trim();
+                        const poeMode = String(selectedPortState?.poe_mode || '').trim();
+                        const defaultAccess = body?.scan?.default_access || {};
+                        const defaultAccessErrors = Array.isArray(defaultAccess?.errors) ? defaultAccess.errors : [];
+                        const defaultAccessAdded = Array.isArray(defaultAccess?.added_aliases) ? defaultAccess.added_aliases : [];
+                        const portStateHint = typeof selectedPortState?.link_up === 'boolean'
+                            ? ` Port ${input.selected_port} link is ${selectedPortState.link_up ? 'up' : 'down'}.`
+                            : (rawPortStateLine ? ` ${rawPortStateLine}` : '');
+                        const poeHint = poeMode ? ` PoE mode: ${poeMode}.` : '';
+                        const defaultAccessHint = defaultAccessErrors.length
+                            ? ` Default IP access bootstrap warning: ${defaultAccessErrors[0]}`
+                            : (defaultAccessAdded.length ? ` Default IP access bootstrap added ${defaultAccessAdded.join(', ')}.` : '');
                         const switchHint = switchSshPort ? ` Switch SSH connected on port ${switchSshPort}.` : '';
-                        setWarehouseSmStatus(`Scan returned no definitive SM identity. Using default target IP ${fallbackTargetIp} for staging.${switchHint}`);
+                        setWarehouseSmStatus(`Scan returned no definitive SM identity. Using default target IP ${fallbackTargetIp} for staging.${switchHint}${portStateHint}${poeHint}${defaultAccessHint}`);
                         return;
                     }
                     if (resp.status === 504) {
@@ -18175,14 +18193,27 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 const fwMatch = body?.discovery?.firmware_match;
                 const fwSuffix = fwMatch === false ? ' Firmware mismatch against required target.' : '';
                 const switchSshPort = body?.scan?.switch_ssh_port;
+                const selectedPortState = body?.scan?.selected_port_state || {};
+                const rawPortStateLine = String(selectedPortState?.line || '').trim();
+                const poeMode = String(selectedPortState?.poe_mode || '').trim();
+                const defaultAccess = body?.scan?.default_access || {};
+                const defaultAccessErrors = Array.isArray(defaultAccess?.errors) ? defaultAccess.errors : [];
+                const defaultAccessAdded = Array.isArray(defaultAccess?.added_aliases) ? defaultAccess.added_aliases : [];
+                const portStateHint = typeof selectedPortState?.link_up === 'boolean'
+                    ? ` Port ${input.selected_port} link is ${selectedPortState.link_up ? 'up' : 'down'}.`
+                    : (rawPortStateLine ? ` ${rawPortStateLine}` : '');
+                const poeHint = poeMode ? ` PoE mode: ${poeMode}.` : '';
+                const defaultAccessHint = defaultAccessErrors.length
+                    ? ` Default IP access bootstrap warning: ${defaultAccessErrors[0]}`
+                    : (defaultAccessAdded.length ? ` Default IP access bootstrap added ${defaultAccessAdded.join(', ')}.` : '');
                 const switchHint = switchSshPort ? ` Switch SSH connected on port ${switchSshPort}.` : '';
                 setWarehouseSmStatus(
                     discoveredIp
-                        ? `Scan completed. Discovered SM at ${discoveredIp}${discoveredMac ? ` (${discoveredMac})` : ''}.${fwSuffix}${switchHint}`
+                        ? `Scan completed. Discovered SM at ${discoveredIp}${discoveredMac ? ` (${discoveredMac})` : ''}.${fwSuffix}${switchHint}${portStateHint}${poeHint}${defaultAccessHint}`
                         : (() => {
                             const fallbackTargetIp = String(body?.fallback_target_ip || body?.scan?.fallback_target_ip || '192.168.0.1').trim();
                             setWarehouseSmInputValue('warehouseSmTargetIp', fallbackTargetIp);
-                            return `Scan completed without definitive SM identity. Using default target IP ${fallbackTargetIp} for staging.${switchHint}`;
+                            return `Scan completed without definitive SM identity. Using default target IP ${fallbackTargetIp} for staging.${switchHint}${portStateHint}${poeHint}${defaultAccessHint}`;
                         })()
                 );
             }
@@ -18195,7 +18226,8 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     switch_username: input.switch_username,
                     switch_password: input.switch_password,
                     selected_port: input.selected_port,
-                    switch_ssh_ports: [22, 2222],
+                    switch_profile: input.switch_profile || WAREHOUSE_SM_SWITCH_PROFILE,
+                    switch_ssh_ports: [22],
                     target_ip: input.target_ip || undefined,
                     cnm_url: input.cnm_url,
                     encryption_key: input.encryption_key || undefined,
