@@ -12673,6 +12673,11 @@ def _warehouse_sm_switch_probe(
                 netonix_link_up = False
             elif "link " in details:
                 netonix_link_up = True
+    netonix_poe_mode = None
+    if netonix_port_line:
+        poe_match = re.search(r"poe\s+([A-Za-z0-9]+)", netonix_port_line, flags=re.IGNORECASE)
+        if poe_match:
+            netonix_poe_mode = str(poe_match.group(1) or "").strip()
     iface_candidates = _warehouse_sm_interface_candidates(selected_port)
     port_text = "\n".join(
         (x.get("output") or "")
@@ -12705,6 +12710,7 @@ def _warehouse_sm_switch_probe(
         "selected_port_state": {
             "line": netonix_port_line,
             "link_up": netonix_link_up,
+            "poe_mode": netonix_poe_mode,
         },
     }
 
@@ -12809,6 +12815,81 @@ def _warehouse_sm_build_dynamic_updates(device_props: dict, payload: dict) -> di
     applied_targets = []
     unresolved_targets = []
 
+    def _bool_on_value(current):
+        if isinstance(current, bool):
+            return True
+        if str(current or "").strip().isdigit():
+            return 1
+        return "enabled"
+
+    def _bool_off_value(current):
+        if isinstance(current, bool):
+            return False
+        if str(current or "").strip().isdigit():
+            return 0
+        return "disabled"
+
+    def _set_scan_family(label: str, include_channels: list[str], key_tokens: list[str]):
+        keys = _warehouse_sm_find_prop_keys(props, key_tokens)
+        if not keys:
+            unresolved_targets.append(label)
+            return
+        include = {str(ch).strip() for ch in include_channels}
+        set_count = 0
+        for key in keys:
+            key_lower = str(key or "").lower()
+            current = props.get(key)
+
+            # Per-channel boolean style keys (e.g. ...20..., ...80..., ...160...)
+            per_channel_match = re.search(r"(?<!\d)(20|40|80|160)(?!\d)", key_lower)
+            if per_channel_match:
+                channel = per_channel_match.group(1)
+                if channel in include:
+                    updates[key] = _bool_on_value(current)
+                    set_count += 1
+                continue
+
+            # Generic aggregate key: preserve value shape where possible.
+            if isinstance(current, list):
+                if all(str(item).strip().isdigit() for item in current):
+                    bw_map = {"20": 1, "40": 2, "80": 5, "160": 6}
+                    updates[key] = [bw_map[ch] for ch in include if ch in bw_map]
+                elif any("mhz" in str(item).lower() for item in current):
+                    updates[key] = [f"{ch}MHz" for ch in include]
+                else:
+                    updates[key] = include_channels[:]
+            elif isinstance(current, str):
+                if "mhz" in current.lower():
+                    updates[key] = ",".join(f"{ch}MHz" for ch in include)
+                elif re.fullmatch(r"[\d,\s]+", current.strip() or ""):
+                    bw_map = {"20": "1", "40": "2", "80": "5", "160": "6"}
+                    updates[key] = ",".join(bw_map[ch] for ch in include if ch in bw_map)
+                else:
+                    updates[key] = ",".join(include_channels)
+            else:
+                updates[key] = ",".join(include_channels)
+            set_count += 1
+
+        if set_count:
+            applied_targets.append(label)
+        else:
+            unresolved_targets.append(label)
+
+    def _set_timezone_cst():
+        keys = _warehouse_sm_find_prop_keys(props, ["timezone"])
+        if not keys:
+            unresolved_targets.append("Timezone")
+            return
+        key = keys[0]
+        current = str(props.get(key) or "").strip()
+        if re.fullmatch(r"[A-Za-z]{3}\d", current):
+            updates[key] = "CST6"
+        elif "utc" in current.lower() or "(" in current:
+            updates[key] = "(UTC-06) CST - Central Standard Time (North America)"
+        else:
+            updates[key] = "CST6"
+        applied_targets.append("Timezone")
+
     def _set_first(tokens, value, label, exclude=None, match_mode="text"):
         keys = _warehouse_sm_find_prop_keys(props, tokens, exclude_tokens=exclude or [])
         if not keys:
@@ -12816,19 +12897,9 @@ def _warehouse_sm_build_dynamic_updates(device_props: dict, payload: dict) -> di
             return
         key = keys[0]
         if match_mode == "bool_on":
-            if isinstance(props.get(key), bool):
-                updates[key] = True
-            elif str(props.get(key, "")).strip().isdigit():
-                updates[key] = 1
-            else:
-                updates[key] = "enabled"
+            updates[key] = _bool_on_value(props.get(key))
         elif match_mode == "bool_off":
-            if isinstance(props.get(key), bool):
-                updates[key] = False
-            elif str(props.get(key, "")).strip().isdigit():
-                updates[key] = 0
-            else:
-                updates[key] = "disabled"
+            updates[key] = _bool_off_value(props.get(key))
         else:
             updates[key] = value
         applied_targets.append(label)
@@ -12837,6 +12908,16 @@ def _warehouse_sm_build_dynamic_updates(device_props: dict, payload: dict) -> di
     _set_first(["tx", "power"], "11", "Transmitter output power")
     _set_first(["driver", "mode"], "TDD WLR", "Driver mode")
     _set_first(["antenna", "gain"], "25", "Antenna gain")
+    _set_scan_family(
+        label="Scan Channel Bandwidth (80/160)",
+        include_channels=["80", "160"],
+        key_tokens=["scan", "channel", "bandwidth", "enable"],
+    )
+    _set_scan_family(
+        label="Scan List Enable (20/40/80/160)",
+        include_channels=["20", "40", "80", "160"],
+        key_tokens=["scan", "list", "enable"],
+    )
 
     # Proxy baseline.
     proxy_ip_keys = _warehouse_sm_find_prop_keys(props, ["proxy", "ip"])
@@ -12864,11 +12945,30 @@ def _warehouse_sm_build_dynamic_updates(device_props: dict, payload: dict) -> di
     _set_first(["proxy", "enable"], "enabled", "Proxy enabled", match_mode="bool_on")
 
     # System baseline.
+    _set_first(["ntp", "mode"], "static", "NTP Server IP Assignment")
     _set_first(["ntp", "server"], "ntp-pool.nxlink.com", "Preferred NTP server")
-    _set_first(["timezone"], "CST6", "Timezone")
+    _set_timezone_cst()
     _set_first(["snmp", "community", "read"], "FBZ1yYdphf", "SNMP read community")
     _set_first(["snmp", "community", "write"], "FBZ1yYdphf", "SNMP write community")
     _set_first(["snmp", "remote"], "enabled", "SNMP remote access", match_mode="bool_on")
+    sm_standard_pw = str(os.getenv("SM_STANDARD_PW") or "").strip()
+    if sm_standard_pw:
+        pw_keys = _warehouse_sm_find_prop_keys(
+            props,
+            ["password"],
+            exclude_tokens=["max", "history", "encryption", "key", "radius", "community", "snmp"],
+        )
+        admin_pw_keys = [
+            key for key in pw_keys
+            if any(token in str(key).lower() for token in ("admin", "login", "account", "system", "web"))
+        ]
+        if admin_pw_keys:
+            updates[admin_pw_keys[0]] = sm_standard_pw
+            applied_targets.append("Administrative password")
+        else:
+            unresolved_targets.append("Administrative password")
+    else:
+        unresolved_targets.append("Administrative password")
     _set_first(["cnm", "remote"], "enabled", "cnMaestro Remote Management", match_mode="bool_on")
 
     # Network baseline.
@@ -12955,10 +13055,33 @@ def _warehouse_sm_build_verification(info: dict, required_firmware: str, payload
     _add_check("Radio", "Antenna gain", "25", value, value is not None and _warehouse_sm_match_numeric(value, "25"))
 
     proxy_text = running_text.lower()
+    scan_bw_ok = ("scan" in proxy_text and "bandwidth" in proxy_text and "80" in proxy_text and "160" in proxy_text)
+    scan_list_ok = ("scan" in proxy_text and "list" in proxy_text and all(x in proxy_text for x in ("20", "40", "80", "160")))
+    _add_check(
+        "Radio",
+        "Scan Channel Bandwidth Enable",
+        "80MHz,160MHz",
+        "present" if scan_bw_ok else "missing",
+        scan_bw_ok,
+    )
+    _add_check(
+        "Radio",
+        "Scan List Enable",
+        "20MHz,40MHz,80MHz,160MHz",
+        "present" if scan_list_ok else "missing",
+        scan_list_ok,
+    )
     _add_check("Proxy", "Proxy Server IP #1", "132.147.147.21", "present" if "132.147.147.21" in proxy_text else "missing", "132.147.147.21" in proxy_text)
     _add_check("Proxy", "Proxy Server IP #2", "132.147.147.52", "present" if "132.147.147.52" in proxy_text else "missing", "132.147.147.52" in proxy_text)
     _add_check("Proxy", "Proxy Server Port", "3128", "present" if "3128" in proxy_text else "missing", "3128" in proxy_text)
 
+    _add_check(
+        "System",
+        "NTP assignment mode",
+        "static",
+        "present" if ("ntp" in proxy_text and "static" in proxy_text) else "missing",
+        "ntp" in proxy_text and "static" in proxy_text,
+    )
     _add_check(
         "System",
         "Preferred NTP server",
