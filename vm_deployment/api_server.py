@@ -12372,6 +12372,97 @@ def _warehouse_sm_extract_arp_pairs(text: str) -> list[dict]:
     return [{"ip": ip_val, "mac": mac_val} for ip_val, mac_val in by_ip.items()]
 
 
+def _warehouse_sm_extract_json_block(text: str, anchor_key: str) -> str:
+    body = str(text or "")
+    anchor = str(anchor_key or "").strip()
+    if not anchor:
+        return ""
+    pos = body.find(anchor)
+    if pos < 0:
+        return ""
+    start = body.rfind("{", 0, pos + 1)
+    if start < 0:
+        return ""
+    depth = 0
+    for idx in range(start, len(body)):
+        char = body[idx]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return body[start : idx + 1]
+    return ""
+
+
+def _warehouse_sm_parse_netonix_discovery(text: str) -> list[dict]:
+    payload_text = _warehouse_sm_extract_json_block(text, '"Discovery"')
+    if not payload_text:
+        return []
+    try:
+        payload = json.loads(payload_text)
+    except Exception:
+        return []
+    items = payload.get("Discovery") if isinstance(payload, dict) else []
+    if not isinstance(items, list):
+        return []
+    entries = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        mac = _warehouse_sm_normalize_mac(str(item.get("MAC") or ""))
+        ip_value = str(item.get("IP") or "").strip()
+        try:
+            ip_value = str(ipaddress.IPv4Address(ip_value))
+        except Exception:
+            ip_value = ""
+        entries.append(
+            {
+                "mac": mac,
+                "ip": ip_value,
+                "port": str(item.get("Port") or "").strip(),
+                "product": str(item.get("Product") or "").strip(),
+                "name": str(item.get("Name") or "").strip(),
+                "protocol": str(item.get("Protocol") or "").strip(),
+                "vlan": str(item.get("VLAN") or "").strip(),
+            }
+        )
+    return entries
+
+
+def _warehouse_sm_parse_netonix_mactable(text: str) -> list[dict]:
+    payload_text = _warehouse_sm_extract_json_block(text, '"MACTable"')
+    if not payload_text:
+        return []
+    try:
+        payload = json.loads(payload_text)
+    except Exception:
+        return []
+    items = payload.get("MACTable") if isinstance(payload, dict) else []
+    if not isinstance(items, list):
+        return []
+    entries = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        mac = _warehouse_sm_normalize_mac(str(item.get("MAC") or ""))
+        last_ip = str(item.get("Last_IP") or "").strip()
+        try:
+            last_ip = str(ipaddress.IPv4Address(last_ip))
+        except Exception:
+            last_ip = ""
+        entries.append(
+            {
+                "mac": mac,
+                "port": str(item.get("Port") or "").strip(),
+                "vlan": str(item.get("VLAN_ID") or "").strip(),
+                "last_ip": last_ip,
+                "manufacturer": str(item.get("Manufacturer") or "").strip(),
+            }
+        )
+    return entries
+
+
 def _warehouse_sm_parse_ports(value, defaults=None):
     defaults = defaults or [22, 2222]
     parsed = []
@@ -12440,6 +12531,23 @@ def _warehouse_sm_detect_interface_for_switch(switch_ip: str) -> str:
             return str(match.group(1) or "").strip()
     except Exception:
         pass
+    try:
+        with open("/proc/net/route", "r", encoding="utf-8", errors="ignore") as fh:
+            for line in fh.read().splitlines()[1:]:
+                parts = [p for p in line.split("\t") if p]
+                if len(parts) < 4:
+                    continue
+                iface = parts[0].strip()
+                destination_hex = parts[1].strip()
+                flags_hex = parts[3].strip()
+                try:
+                    flags = int(flags_hex, 16)
+                except Exception:
+                    flags = 0
+                if destination_hex == "00000000" and (flags & 0x1):
+                    return iface
+    except Exception:
+        pass
     return ""
 
 
@@ -12454,13 +12562,35 @@ def _warehouse_sm_interface_cidrs(interface_name: str) -> list[str]:
             timeout=2,
             check=False,
         )
+        cidrs = []
+        for line in str(result.stdout or "").splitlines():
+            match = re.search(r"\binet\s+(\d+\.\d+\.\d+\.\d+/\d+)", line)
+            if match:
+                cidrs.append(str(match.group(1)))
+        return _warehouse_sm_unique(cidrs)
+    except Exception:
+        pass
+    cidrs = []
+    try:
+        result = subprocess.run(
+            ["ifconfig", interface_name],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        for line in str(result.stdout or "").splitlines():
+            match = re.search(r"\binet (?:addr:)?(\d+\.\d+\.\d+\.\d+)\s+(?:Bcast:\d+\.\d+\.\d+\.\d+\s+)?Mask:(\d+\.\d+\.\d+\.\d+)", line)
+            if not match:
+                continue
+            ip_text = match.group(1)
+            mask_text = match.group(2)
+            try:
+                cidrs.append(str(ipaddress.IPv4Interface(f"{ip_text}/{mask_text}")))
+            except Exception:
+                continue
     except Exception:
         return []
-    cidrs = []
-    for line in str(result.stdout or "").splitlines():
-        match = re.search(r"\binet\s+(\d+\.\d+\.\d+\.\d+/\d+)", line)
-        if match:
-            cidrs.append(str(match.group(1)))
     return _warehouse_sm_unique(cidrs)
 
 
@@ -12535,22 +12665,37 @@ def _warehouse_sm_bootstrap_default_access(switch_ip: str, candidate_ips: list[s
                 timeout=3,
                 check=False,
             )
+            add_stdout = str(add_result.stdout or "")
+            add_stderr = str(add_result.stderr or "")
+            add_text = f"{add_stdout}\n{add_stderr}".lower()
+            if add_result.returncode == 0 or "file exists" in add_text:
+                with _WAREHOUSE_SM_DEFAULT_ACCESS_LOCK:
+                    _WAREHOUSE_SM_DEFAULT_ACCESS_ALIASES.add(alias_key)
+                result["added_aliases"].append(alias)
+                continue
+        except Exception:
+            add_result = None
+
+        ip_text = alias.split("/", 1)[0]
+        try:
+            ifconfig_result = subprocess.run(
+                ["ifconfig", iface, ip_text, "netmask", "255.255.255.0", "up"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            )
+            if ifconfig_result.returncode == 0:
+                with _WAREHOUSE_SM_DEFAULT_ACCESS_LOCK:
+                    _WAREHOUSE_SM_DEFAULT_ACCESS_ALIASES.add(alias_key)
+                result["added_aliases"].append(alias)
+                continue
+            ifconfig_msg = str(ifconfig_result.stderr or ifconfig_result.stdout or "").strip()
+            result["errors"].append(
+                f"failed to add alias {alias} on {iface}: {ifconfig_msg or 'ip/ifconfig add failed'}"
+            )
         except Exception as exc:
             result["errors"].append(f"failed to add alias {alias} on {iface}: {exc}")
-            continue
-
-        add_stdout = str(add_result.stdout or "")
-        add_stderr = str(add_result.stderr or "")
-        add_text = f"{add_stdout}\n{add_stderr}".lower()
-        if add_result.returncode == 0 or "file exists" in add_text:
-            with _WAREHOUSE_SM_DEFAULT_ACCESS_LOCK:
-                _WAREHOUSE_SM_DEFAULT_ACCESS_ALIASES.add(alias_key)
-            result["added_aliases"].append(alias)
-            continue
-
-        result["errors"].append(
-            f"failed to add alias {alias} on {iface} (rc={add_result.returncode}): {add_stderr.strip() or add_stdout.strip()}"
-        )
 
     return result
 
@@ -12587,6 +12732,8 @@ def _warehouse_sm_scan_commands_for_profile(profile: str, selected_port: str) ->
                 "switch -m",
                 "switch -d",
                 f"switch -p {selected_port}",
+                "cat /tmp/discovery.json 2>/dev/null",
+                "cat /tmp/mactable.json 2>/dev/null",
                 "cat /proc/net/arp",
                 "ip neigh show 2>/dev/null",
                 "route -n 2>/dev/null",
@@ -12785,7 +12932,10 @@ def _warehouse_sm_switch_run_interactive(
         while time.time() < end_time:
             try:
                 if channel.recv_ready():
-                    output += channel.recv(65535).decode("utf-8", errors="replace")
+                    chunk = channel.recv(65535).decode("utf-8", errors="replace")
+                    output += chunk
+                    # Read until link is quiet for `seconds`, instead of fixed absolute window.
+                    end_time = time.time() + seconds
                 else:
                     time.sleep(0.05)
             except Exception:
@@ -12885,13 +13035,18 @@ def _warehouse_sm_switch_probe(
         commands=cmd_list,
         enter_enable=False,
         fail_on_cli_error=False,
-        settle_seconds=0.30,
+        settle_seconds=0.55,
     )
     if not full_probe.get("success"):
         return full_probe
 
     outputs = full_probe.get("commands") or []
     all_text = "\n".join((x.get("output") or "") for x in outputs)
+    outputs_by_command = {}
+    for item in outputs:
+        cmd_key = str(item.get("command") or "").strip()
+        if cmd_key and cmd_key not in outputs_by_command:
+            outputs_by_command[cmd_key] = str(item.get("output") or "")
     detected_profile = str(switch_profile or "").strip().lower() or _warehouse_sm_detect_switch_profile(all_text)
     netonix_port_line = ""
     netonix_link_up = None
@@ -12910,6 +13065,35 @@ def _warehouse_sm_switch_probe(
         poe_match = re.search(r"poe\s+([A-Za-z0-9]+)", netonix_port_line, flags=re.IGNORECASE)
         if poe_match:
             netonix_poe_mode = str(poe_match.group(1) or "").strip()
+    netonix_discovery_entries = []
+    netonix_selected_entries = []
+    if detected_profile == "netonix":
+        netonix_discovery_entries = _warehouse_sm_parse_netonix_discovery(outputs_by_command.get("cat /tmp/discovery.json 2>/dev/null", ""))
+        mactable_entries = _warehouse_sm_parse_netonix_mactable(outputs_by_command.get("cat /tmp/mactable.json 2>/dev/null", ""))
+        selected_port_text = str(selected_port or "").strip()
+        netonix_selected_entries = [
+            entry for entry in netonix_discovery_entries if str(entry.get("port") or "").strip() == selected_port_text
+        ]
+        # Merge mactable entries for selected port when discovery entries are partial.
+        for row in mactable_entries:
+            if str(row.get("port") or "").strip() != selected_port_text:
+                continue
+            mac = _warehouse_sm_normalize_mac(str(row.get("mac") or ""))
+            if not mac:
+                continue
+            exists = any(_warehouse_sm_normalize_mac(str(entry.get("mac") or "")) == mac for entry in netonix_selected_entries)
+            if not exists:
+                netonix_selected_entries.append(
+                    {
+                        "mac": mac,
+                        "ip": str(row.get("last_ip") or "").strip(),
+                        "port": selected_port_text,
+                        "product": str(row.get("manufacturer") or "").strip(),
+                        "name": "",
+                        "protocol": "MACTable",
+                        "vlan": str(row.get("vlan") or "").strip(),
+                    }
+                )
     iface_candidates = _warehouse_sm_interface_candidates(selected_port)
     port_text = "\n".join(
         (x.get("output") or "")
@@ -12917,6 +13101,11 @@ def _warehouse_sm_switch_probe(
         if any(token in str(x.get("command") or "") for token in iface_candidates)
     )
     port_macs = _warehouse_sm_extract_macs(port_text)
+    for entry in netonix_selected_entries:
+        mac = _warehouse_sm_normalize_mac(str(entry.get("mac") or ""))
+        if mac and mac not in port_macs:
+            port_macs.append(mac)
+    port_macs = _warehouse_sm_unique(port_macs)
     all_macs = _warehouse_sm_extract_macs(all_text)
     arp_entries = _warehouse_sm_extract_arp_pairs(all_text)
     arp_by_mac = {}
@@ -12926,8 +13115,17 @@ def _warehouse_sm_switch_probe(
     matched_ips = []
     for mac in port_macs:
         matched_ips.extend(arp_by_mac.get(mac, []))
+    for entry in netonix_selected_entries:
+        ip_value = str(entry.get("ip") or "").strip()
+        try:
+            ip_value = str(ipaddress.IPv4Address(ip_value))
+        except Exception:
+            ip_value = ""
+        if ip_value:
+            matched_ips.append(ip_value)
     if not matched_ips:
         matched_ips = _warehouse_sm_extract_ips(all_text)
+    matched_ips = _warehouse_sm_unique(matched_ips)
 
     return {
         "success": True,
@@ -12938,11 +13136,15 @@ def _warehouse_sm_switch_probe(
         "all_mac_candidates": all_macs,
         "arp_entries": arp_entries,
         "switch_mgmt_cidrs": _warehouse_sm_extract_switch_mgmt_cidrs(outputs, switch_ip),
-        "ip_candidates": _warehouse_sm_unique(matched_ips),
+        "ip_candidates": matched_ips,
         "selected_port_state": {
             "line": netonix_port_line,
             "link_up": netonix_link_up,
             "poe_mode": netonix_poe_mode,
+        },
+        "switch_discovery": {
+            "selected_port_entries": netonix_selected_entries[:20],
+            "entries": netonix_discovery_entries[:120],
         },
     }
 
@@ -13663,6 +13865,7 @@ def _warehouse_sm_discover(data: dict) -> dict:
                 "fallback_target_ip": fallback_target_ip,
                 "selected_port_state": {},
                 "default_access": default_access,
+                "switch_discovery": {},
             },
             "fallback_target_ip": fallback_target_ip,
             "status_code": switch_probe_status,
@@ -13712,11 +13915,108 @@ def _warehouse_sm_discover(data: dict) -> dict:
                 discovered_ip = str(chosen.get("ip") or "").strip()
                 probed.extend(active_scan_result.get("probed") or [])
 
+    switch_discovery = (switch_probe.get("switch_discovery") or {}) if switch_probe_ok else {}
+    all_discovery_entries = list(switch_discovery.get("entries") or [])
+    selected_discovery_entries = list(switch_discovery.get("selected_port_entries") or [])
+    switch_discovery_hint = {}
+    discovery_port_hints = []
+    selected_port_text = str(data.get("selected_port", "")).strip()
+    if not discovered and selected_discovery_entries:
+        def _is_cambium_like(entry: dict) -> bool:
+            text = " ".join(
+                [
+                    str(entry.get("product") or ""),
+                    str(entry.get("name") or ""),
+                    str(entry.get("protocol") or ""),
+                ]
+            ).lower()
+            return any(token in text for token in ["cambium", "force", "f4600", "4600c", "f4525", "f300"])
+
+        def _entry_rank(entry: dict):
+            ip_ok = bool(str(entry.get("ip") or "").strip())
+            return (1 if _is_cambium_like(entry) else 0, 1 if ip_ok else 0)
+
+        selected_discovery_entries.sort(key=_entry_rank, reverse=True)
+        chosen_entry = selected_discovery_entries[0]
+        chosen_ip = str(chosen_entry.get("ip") or "").strip()
+        if chosen_ip:
+            discovered_ip = chosen_ip
+        else:
+            discovered_ip = _warehouse_sm_pick_default_target_ip(ip_candidates)
+
+        product_text = str(chosen_entry.get("product") or "")
+        name_text = str(chosen_entry.get("name") or "")
+        fw_match = re.search(r"version\s+(\d+\.\d+\.\d+(?:\.\d+)?)", product_text, flags=re.IGNORECASE)
+        inferred_fw = fw_match.group(1) if fw_match else ""
+        inferred_type = "F4600C"
+        lower_text = f"{product_text} {name_text}".lower()
+        if "f4525" in lower_text:
+            inferred_type = "F4525"
+        elif "f300-13" in lower_text:
+            inferred_type = "F300-13"
+        elif "f300-16" in lower_text:
+            inferred_type = "F300-16"
+        elif "f300-25" in lower_text:
+            inferred_type = "F300-25"
+        elif "f300-csm" in lower_text:
+            inferred_type = "F300-CSM"
+
+        discovered = {
+            "success": True,
+            "device_type": inferred_type,
+            "message": "Identified from Netonix discovery table",
+            "info": {
+                "name": name_text,
+                "wireless_mac": _warehouse_sm_normalize_mac(str(chosen_entry.get("mac") or "")),
+                "running_config": "",
+                "test_results": (
+                    [{"name": "Firmware Version", "actual": inferred_fw, "expected": required_firmware, "pass": _warehouse_sm_versions_match(required_firmware, inferred_fw)}]
+                    if inferred_fw
+                    else []
+                ),
+            },
+        }
+        switch_discovery_hint = {
+            "source": "netonix-discovery",
+            "entry": chosen_entry,
+            "firmware_hint": inferred_fw,
+            "probe_reachable": False,
+        }
+        probed.append(
+            {
+                "ip": discovered_ip,
+                "success": False,
+                "device_type": inferred_type,
+                "message": "Identified from switch discovery table; backend HTTP probe not yet successful",
+            }
+        )
+    elif not discovered and all_discovery_entries:
+        def _is_cambium_like(entry: dict) -> bool:
+            text = " ".join(
+                [
+                    str(entry.get("product") or ""),
+                    str(entry.get("name") or ""),
+                    str(entry.get("protocol") or ""),
+                ]
+            ).lower()
+            return any(token in text for token in ["cambium", "force", "f4600", "4600c", "f4525", "f300"])
+
+        for entry in all_discovery_entries:
+            if not _is_cambium_like(entry):
+                continue
+            port_value = str(entry.get("port") or "").strip()
+            if not port_value or port_value == selected_port_text:
+                continue
+            discovery_port_hints.append(port_value)
+        discovery_port_hints = _warehouse_sm_unique(discovery_port_hints)
+
     if not discovered:
         fallback_target_ip = _warehouse_sm_pick_default_target_ip(ip_candidates)
         base_error = "No Cambium SM discovered from selected switch port/IP candidates"
         if switch_probe_error:
             base_error = f"{switch_probe_error}. {base_error}"
+        if discovery_port_hints:
+            base_error = f"{base_error}. Switch discovery currently sees Cambium device(s) on port(s): {', '.join(discovery_port_hints)}"
         if (default_access.get("errors") or []) and default_access.get("required_aliases"):
             base_error = f"{base_error}. Default subnet bootstrap failed: {(default_access.get('errors') or ['unknown error'])[0]}"
         return {
@@ -13735,6 +14035,8 @@ def _warehouse_sm_discover(data: dict) -> dict:
                 "fallback_target_ip": fallback_target_ip,
                 "selected_port_state": switch_probe.get("selected_port_state") or {},
                 "default_access": default_access,
+                "switch_discovery": switch_discovery,
+                "discovery_port_hints": discovery_port_hints,
             },
             "fallback_target_ip": fallback_target_ip,
             "status_code": 404 if switch_probe_ok else switch_probe_status,
@@ -13743,6 +14045,8 @@ def _warehouse_sm_discover(data: dict) -> dict:
     info = discovered.get("info", {}) or {}
     device_props = _warehouse_sm_extract_device_props(info)
     firmware = _warehouse_sm_extract_firmware(info)
+    if not firmware:
+        firmware = str((switch_discovery_hint or {}).get("firmware_hint") or "").strip()
     firmware_match = _warehouse_sm_versions_match(required_firmware, firmware)
     discovered_name = str(device_props.get("systemConfigDeviceName") or info.get("name") or "").strip()
     user_match = re.search(r'NX-(\d+)', discovered_name or "", flags=re.IGNORECASE)
@@ -13776,6 +14080,9 @@ def _warehouse_sm_discover(data: dict) -> dict:
             "switch_probe_error": switch_probe_error or None,
             "selected_port_state": switch_probe.get("selected_port_state") or {},
             "default_access": default_access,
+            "switch_discovery": switch_discovery,
+            "switch_discovery_hint": switch_discovery_hint,
+            "discovery_port_hints": discovery_port_hints,
         },
         "discovery": {
             "ip_address": autofill["target_ip"],
