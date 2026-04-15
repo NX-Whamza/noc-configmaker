@@ -618,6 +618,23 @@ curl -fsS http://127.0.0.1:8000/api/health
 uvicorn --app-dir vm_deployment fastapi_server:app --host 0.0.0.0 --port 5000
 ```
 
+**Warehouse SM Default-Radio Mode (required for 192.168.0.x factory provisioning)**
+```bash
+# Linux Docker engine only (not Docker Desktop bridge mode)
+# 1) Set these in .env:
+# PROVISIONING_LAN_PARENT=eth0
+# PROVISIONING_LAN_SUBNET=192.168.0.0/24
+# PROVISIONING_LAN_BACKEND_IP=192.168.0.254
+# WAREHOUSE_SM_SWITCH_INTERFACE=eth1
+#
+# 2) Start with macvlan overlay:
+docker compose -f docker-compose.yml -f docker-compose.provisioning-lan.yml up -d --build
+
+# 3) Verify backend has provisioning-lan interface and can reach default radio subnet:
+docker compose exec backend ip -4 addr
+docker compose exec backend ping -c 2 192.168.0.2
+```
+
 **6. Configure Reverse Proxy**
 
 Use the host-nginx helper for production:
