@@ -1,0 +1,23 @@
+services:
+  backend:
+    # Keep backend on default Docker network for frontend/API, and add a real L2
+    # attachment for factory-default radio provisioning (Linux Docker engine).
+    networks:
+      default: {}
+      provisioning_lan:
+        ipv4_address: ${PROVISIONING_LAN_BACKEND_IP:-192.168.0.254}
+    environment:
+      # Prefer the macvlan interface for default-subnet bootstrap aliases.
+      WAREHOUSE_SM_SWITCH_INTERFACE: ${WAREHOUSE_SM_SWITCH_INTERFACE:-eth1}
+      WAREHOUSE_SM_AUTO_DEFAULT_ACCESS: ${WAREHOUSE_SM_AUTO_DEFAULT_ACCESS:-true}
+      WAREHOUSE_SM_ALIAS_192_168_0: ${WAREHOUSE_SM_ALIAS_192_168_0:-192.168.0.254/24}
+      WAREHOUSE_SM_ALIAS_192_168_1: ${WAREHOUSE_SM_ALIAS_192_168_1:-192.168.1.254/24}
+
+networks:
+  provisioning_lan:
+    driver: macvlan
+    driver_opts:
+      parent: ${PROVISIONING_LAN_PARENT:-eth0}
+    ipam:
+      config:
+        - subnet: ${PROVISIONING_LAN_SUBNET:-192.168.0.0/24}

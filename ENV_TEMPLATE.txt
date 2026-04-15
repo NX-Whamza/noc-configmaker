@@ -49,6 +49,14 @@ AZURE_CLIENT_SECRET=PASTE_YOUR_CLIENT_SECRET_HERE
 # NEXTLINK_SSH_USERNAME=
 # NEXTLINK_SSH_PASSWORD=CHANGE_ME
 
+# Warehouse SM factory-default access (Linux Docker engine + macvlan override)
+# Use with: docker compose -f docker-compose.yml -f docker-compose.provisioning-lan.yml up -d --build
+# PROVISIONING_LAN_PARENT=eth0
+# PROVISIONING_LAN_SUBNET=192.168.0.0/24
+# PROVISIONING_LAN_BACKEND_IP=192.168.0.254
+# WAREHOUSE_SM_SWITCH_INTERFACE=eth1
+# WAREHOUSE_SM_AUTO_DEFAULT_ACCESS=true
+
 # Field Config Studio / IDO device login defaults (optional)
 # For most Cambium/Tachyon/backhaul tools username is fixed to admin in upstream modules.
 # Set these so Running Config / Standard Config actions can authenticate correctly.

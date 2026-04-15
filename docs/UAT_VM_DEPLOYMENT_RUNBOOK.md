@@ -39,6 +39,17 @@ Example command:
 docker compose --env-file .env.dev -p nexus-dev up -d --build
 ```
 
+If you are validating Warehouse SM provisioning to factory-default radios (`192.168.0.x`), start dev with the provisioning LAN overlay:
+```powershell
+docker compose --env-file .env.dev -p nexus-dev -f docker-compose.yml -f docker-compose.provisioning-lan.yml up -d --build
+```
+
+Set these in `.env.dev` first:
+- `PROVISIONING_LAN_PARENT` (host NIC connected to provisioning switch)
+- `PROVISIONING_LAN_SUBNET` (typically `192.168.0.0/24`)
+- `PROVISIONING_LAN_BACKEND_IP` (typically `192.168.0.254`)
+- `WAREHOUSE_SM_SWITCH_INTERFACE` (typically `eth1`)
+
 ## Step 3: Add Nginx Host Routing
 Add a server block for the dev hostname and proxy to dev frontend/backend container ports.
 
