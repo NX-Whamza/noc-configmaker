@@ -12955,6 +12955,83 @@ def _warehouse_sm_switch_run_interactive(
     return {"success": False, "error": "Failed to connect to switch over SSH", "status_code": 502, "details": errors}
 
 
+def _warehouse_sm_switch_run_exec(
+    switch_ip: str,
+    switch_username: str,
+    switch_password: str,
+    ssh_ports: list[int],
+    commands: list[str],
+    fail_on_cli_error: bool = False,
+    command_timeout: float = 4.0,
+) -> dict:
+    try:
+        import paramiko
+    except Exception:
+        return {"success": False, "error": "paramiko not installed on server", "status_code": 500}
+
+    errors = []
+    for ssh_port in ssh_ports:
+        client = None
+        try:
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            client.connect(
+                hostname=switch_ip,
+                port=ssh_port,
+                username=switch_username,
+                password=switch_password,
+                timeout=8,
+                banner_timeout=8,
+                auth_timeout=8,
+                look_for_keys=False,
+                allow_agent=False,
+            )
+
+            command_outputs = []
+            all_output = ""
+            for cmd in commands:
+                output_text = ""
+                try:
+                    _, stdout, stderr = client.exec_command(str(cmd), timeout=command_timeout)
+                    stdout.channel.settimeout(command_timeout)
+                    stderr.channel.settimeout(command_timeout)
+                    out_text = stdout.read().decode("utf-8", errors="replace")
+                    err_text = stderr.read().decode("utf-8", errors="replace")
+                    output_text = (out_text + ("\n" + err_text if err_text else "")).strip()
+                except Exception as exc:
+                    output_text = f"[exec-error] {exc}"
+                command_outputs.append({"command": cmd, "output": output_text[:12000]})
+                all_output += "\n" + output_text
+
+            lowered = all_output.lower()
+            hard_error = any(
+                token in lowered for token in ["invalid input", "unknown command", "unrecognized command", "command not found"]
+            )
+            return {
+                "success": (not hard_error) or (not fail_on_cli_error),
+                "switch_ssh_port": ssh_port,
+                "commands": command_outputs,
+                "output": all_output[-24000:],
+                "error": "Switch CLI rejected one or more commands" if hard_error else "",
+            }
+        except paramiko.AuthenticationException:
+            return {
+                "success": False,
+                "error": "Switch SSH authentication failed. Check switch credentials.",
+                "status_code": 401,
+            }
+        except Exception as exc:
+            errors.append(f"port {ssh_port}: {exc}")
+        finally:
+            try:
+                if client:
+                    client.close()
+            except Exception:
+                pass
+
+    return {"success": False, "error": "Failed to connect to switch over SSH", "status_code": 502, "details": errors}
+
+
 def _warehouse_sm_switch_probe(
     switch_ip: str,
     switch_username: str,
@@ -12965,16 +13042,27 @@ def _warehouse_sm_switch_probe(
 ) -> dict:
     requested_profile = str(switch_profile or "").strip().lower() or "generic"
     cmd_list = _warehouse_sm_scan_commands_for_profile(requested_profile, selected_port)
-    full_probe = _warehouse_sm_switch_run_interactive(
-        switch_ip=switch_ip,
-        switch_username=switch_username,
-        switch_password=switch_password,
-        ssh_ports=ssh_ports,
-        commands=cmd_list,
-        enter_enable=False,
-        fail_on_cli_error=False,
-        settle_seconds=0.70,
-    )
+    if requested_profile == "netonix":
+        full_probe = _warehouse_sm_switch_run_exec(
+            switch_ip=switch_ip,
+            switch_username=switch_username,
+            switch_password=switch_password,
+            ssh_ports=ssh_ports,
+            commands=cmd_list,
+            fail_on_cli_error=False,
+            command_timeout=3.0,
+        )
+    else:
+        full_probe = _warehouse_sm_switch_run_interactive(
+            switch_ip=switch_ip,
+            switch_username=switch_username,
+            switch_password=switch_password,
+            ssh_ports=ssh_ports,
+            commands=cmd_list,
+            enter_enable=False,
+            fail_on_cli_error=False,
+            settle_seconds=0.70,
+        )
     if not full_probe.get("success"):
         return full_probe
 
@@ -13006,11 +13094,15 @@ def _warehouse_sm_switch_probe(
     netonix_discovery_entries = []
     netonix_selected_entries = []
     if detected_profile == "netonix":
-        netonix_discovery_entries = _warehouse_sm_parse_netonix_discovery(outputs_by_command.get("cat /tmp/discovery.json 2>/dev/null", ""))
-        mactable_entries = _warehouse_sm_parse_netonix_mactable(outputs_by_command.get("cat /tmp/mactable.json 2>/dev/null", ""))
+        netonix_discovery_entries = _warehouse_sm_parse_netonix_discovery(
+            outputs_by_command.get("cat /tmp/discovery.json 2>/dev/null", "") or all_text
+        )
+        mactable_entries = _warehouse_sm_parse_netonix_mactable(
+            outputs_by_command.get("cat /tmp/mactable.json 2>/dev/null", "") or all_text
+        )
         if not netonix_discovery_entries:
             # Retry with focused commands when discovery output is not captured on first pass.
-            retry_probe = _warehouse_sm_switch_run_interactive(
+            retry_probe = _warehouse_sm_switch_run_exec(
                 switch_ip=switch_ip,
                 switch_username=switch_username,
                 switch_password=switch_password,
@@ -13020,9 +13112,8 @@ def _warehouse_sm_switch_probe(
                     "cat /tmp/discovery.json 2>/dev/null",
                     "cat /tmp/mactable.json 2>/dev/null",
                 ],
-                enter_enable=False,
                 fail_on_cli_error=False,
-                settle_seconds=0.90,
+                command_timeout=3.2,
             )
             if retry_probe.get("success"):
                 retry_outputs = retry_probe.get("commands") or []
@@ -13034,8 +13125,12 @@ def _warehouse_sm_switch_probe(
                         if cmd_key and cmd_out:
                             outputs_by_command[cmd_key] = cmd_out
                     all_text = "\n".join((x.get("output") or "") for x in outputs)
-                    netonix_discovery_entries = _warehouse_sm_parse_netonix_discovery(outputs_by_command.get("cat /tmp/discovery.json 2>/dev/null", ""))
-                    mactable_entries = _warehouse_sm_parse_netonix_mactable(outputs_by_command.get("cat /tmp/mactable.json 2>/dev/null", ""))
+                    netonix_discovery_entries = _warehouse_sm_parse_netonix_discovery(
+                        outputs_by_command.get("cat /tmp/discovery.json 2>/dev/null", "") or all_text
+                    )
+                    mactable_entries = _warehouse_sm_parse_netonix_mactable(
+                        outputs_by_command.get("cat /tmp/mactable.json 2>/dev/null", "") or all_text
+                    )
                     if not netonix_port_line:
                         rx = re.compile(rf"Port\s+{re.escape(str(selected_port).strip())}\s*:\s*([^\n\r]+)", flags=re.IGNORECASE)
                         match = rx.search(all_text)
@@ -13714,16 +13809,27 @@ def _warehouse_sm_switch_set_profile(payload: dict, profile: str) -> dict:
 
     requested_profile = str(payload.get("switch_profile") or "").strip().lower() or "generic"
     probe_commands = _warehouse_sm_scan_commands_for_profile(requested_profile, selected_port)
-    profile_probe = _warehouse_sm_switch_run_interactive(
-        switch_ip=switch_ip,
-        switch_username=switch_username,
-        switch_password=switch_password,
-        ssh_ports=ssh_ports,
-        commands=probe_commands,
-        enter_enable=False,
-        fail_on_cli_error=False,
-        settle_seconds=0.30,
-    )
+    if requested_profile == "netonix":
+        profile_probe = _warehouse_sm_switch_run_exec(
+            switch_ip=switch_ip,
+            switch_username=switch_username,
+            switch_password=switch_password,
+            ssh_ports=ssh_ports,
+            commands=probe_commands,
+            fail_on_cli_error=False,
+            command_timeout=3.0,
+        )
+    else:
+        profile_probe = _warehouse_sm_switch_run_interactive(
+            switch_ip=switch_ip,
+            switch_username=switch_username,
+            switch_password=switch_password,
+            ssh_ports=ssh_ports,
+            commands=probe_commands,
+            enter_enable=False,
+            fail_on_cli_error=False,
+            settle_seconds=0.30,
+        )
     if not profile_probe.get("success"):
         return profile_probe
 
