@@ -25,6 +25,7 @@ def _patch_dbs(monkeypatch, api_server):
         lambda p: True if str(p) == "secure_data" else orig_exists(p),
     )
     monkeypatch.setattr(api_server.os, "makedirs", lambda *a, **k: None)
+    monkeypatch.setattr(api_server, "DEFAULT_PASSWORD", "nexus-test-pw")
     return uri, anchor
 
 
