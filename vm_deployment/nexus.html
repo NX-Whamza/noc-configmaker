@@ -35455,6 +35455,10 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
                     compShowDetail(compScanDetailIdx);
                     nocToast(`Compliance fix applied for ${r.name} — download started`, 'success');
                 } else if (fixed && fixed.compliant) {
+                    // Update table row to reflect fresh compliant status
+                    compScanResults[compScanDetailIdx] = compNormalizeResult({ ...r, ...fixed });
+                    compRenderTable();
+                    compShowDetail(compScanDetailIdx);
                     nocToast(`${r.name} is already compliant after re-check!`, 'success');
                 } else {
                     nocToast('Could not generate fixed config — ' + (fixed?.fix_error || fixed?.error || 'unknown error'), 'warning');
