@@ -83,3 +83,10 @@ api_keys.txt
 *.img
 *.bin
 *.swpack
+
+# VM deploy backup files (created by vm_deploy.sh)
+*.bak
+*.bak.*
+nexus-backups/
+weekly_summary.log
+cambium_shared_queue.json

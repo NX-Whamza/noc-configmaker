@@ -1,5 +1,5 @@
 from __future__ import annotations
-import importlib, os, sqlite3, sys
+import importlib, os, sqlite3, sys, time, types
 from pathlib import Path
 
 
@@ -30,7 +30,7 @@ def _login(client, api_server, email):
 
 # Security: sensitive credentials not in browser HTML
 def test_ospf_key_not_in_html():
-    html = (Path(__file__).resolve().parents[1] / "vm_deployment" / "NOC-configMaker.html").read_text(encoding="utf-8")
+    html = (Path(__file__).resolve().parents[1] / "vm_deployment" / "nexus.html").read_text(encoding="utf-8")
     assert 'm8M5JwvdYM' not in html, "OSPF/BGP MD5 key must not appear in browser-served HTML"
 
 
@@ -50,6 +50,94 @@ def test_fetch_config_ssh_requires_auth(monkeypatch):
         client = api.app.test_client()
         r = client.post("/api/fetch-config-ssh", json={"ip": "10.0.0.1", "username": "test", "password": "test"})
         assert r.status_code == 401, f"Expected 401, got {r.status_code}"
+    finally:
+        anchor.close()
+
+
+def test_fetch_config_ssh_async_task_can_be_aborted(monkeypatch):
+    api = _load_api_server()
+    _, anchor = _patch_dbs(monkeypatch, api)
+    try:
+        class _FakeChannel:
+            def __init__(self):
+                self.closed = False
+
+            def settimeout(self, _timeout):
+                return None
+
+            def recv_ready(self):
+                return False
+
+            def recv_stderr_ready(self):
+                return False
+
+            def exit_status_ready(self):
+                return self.closed
+
+            def close(self):
+                self.closed = True
+
+        class _FakeStream:
+            def __init__(self, channel):
+                self.channel = channel
+
+        class _FakeSSHClient:
+            def __init__(self):
+                self.channel = _FakeChannel()
+
+            def set_missing_host_key_policy(self, _policy):
+                return None
+
+            def connect(self, **_kwargs):
+                return None
+
+            def exec_command(self, _command, timeout=None):
+                return None, _FakeStream(self.channel), _FakeStream(self.channel)
+
+            def close(self):
+                self.channel.close()
+
+        fake_paramiko = types.SimpleNamespace(
+            SSHClient=_FakeSSHClient,
+            AutoAddPolicy=lambda: object(),
+            AuthenticationException=type("AuthenticationException", (Exception,), {}),
+            SSHException=type("SSHException", (Exception,), {}),
+        )
+        monkeypatch.setitem(sys.modules, "paramiko", fake_paramiko)
+
+        client = api.app.test_client()
+        token = _login(client, api, "whamza@team.nxlink.com")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        start = client.post(
+            "/api/fetch-config-ssh",
+            json={
+                "host": "10.0.0.1",
+                "username": "test",
+                "password": "test",
+                "async_task": True,
+            },
+            headers=headers,
+        )
+        assert start.status_code == 202, start.get_data(as_text=True)
+        task_id = (start.get_json() or {}).get("task_id")
+        assert task_id
+
+        abort_resp = client.post(f"/api/fetch-config-ssh/abort/{task_id}", headers=headers)
+        assert abort_resp.status_code == 200, abort_resp.get_data(as_text=True)
+
+        deadline = time.time() + 2.0
+        final_status = None
+        while time.time() < deadline:
+            status_resp = client.get(f"/api/fetch-config-ssh/status/{task_id}", headers=headers)
+            assert status_resp.status_code == 200, status_resp.get_data(as_text=True)
+            payload = status_resp.get_json() or {}
+            final_status = payload.get("status")
+            if final_status == "aborted":
+                break
+            time.sleep(0.05)
+
+        assert final_status == "aborted"
     finally:
         anchor.close()
 
@@ -117,7 +205,7 @@ def test_legacy_activity_endpoint_works(monkeypatch):
 
 # Frontend: auth headers present on key fetch calls
 def test_get_activity_fetches_use_auth_headers():
-    html = (Path(__file__).resolve().parents[1] / "vm_deployment" / "NOC-configMaker.html").read_text(encoding="utf-8")
+    html = (Path(__file__).resolve().parents[1] / "vm_deployment" / "nexus.html").read_text(encoding="utf-8")
     # All get-activity fetches should now use getAuthHeaders
     import re
     fetches = re.findall(r"fetch\([^)]*get-activity[^)]*\)", html, re.DOTALL)

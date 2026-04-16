@@ -16,9 +16,17 @@ sys.path.insert(0, str(repo_root / "vm_deployment"))
 os.environ.setdefault("NOC_CONFIGMAKER_TESTS", "1")
 
 from fastapi_server import app  # noqa: E402
+import api_server  # noqa: E402
 
 
 client = TestClient(app)
+
+
+def _auth_headers():
+    admin_email = os.getenv("PLATFORM_ADMIN_EMAILS", "whamza@team.nxlink.com").split(",")[0].strip()
+    r = client.post("/api/auth/login", json={"email": admin_email, "password": api_server.DEFAULT_PASSWORD})
+    token = (r.json() or {}).get("token", "")
+    return {"Authorization": f"Bearer {token}"}
 
 
 def _ui_payload(deployment_type: str) -> dict:
@@ -61,7 +69,7 @@ def _ui_payload(deployment_type: str) -> dict:
 
 
 def test_ftth_ui_contract_outstate_renders_nebraska_style_blocks():
-    response = client.post("/api/generate-ftth-bng", json=_ui_payload("outstate"))
+    response = client.post("/api/generate-ftth-bng", json=_ui_payload("outstate"), headers=_auth_headers())
     assert response.status_code == 200
     payload = response.json()
     assert payload.get("success") is True
@@ -89,7 +97,7 @@ def test_ftth_ui_contract_outstate_renders_nebraska_style_blocks():
 
 
 def test_ftth_ui_contract_instate_keeps_standard_bridge_layout():
-    response = client.post("/api/generate-ftth-bng", json=_ui_payload("instate"))
+    response = client.post("/api/generate-ftth-bng", json=_ui_payload("instate"), headers=_auth_headers())
     assert response.status_code == 200
     payload = response.json()
     assert payload.get("success") is True
@@ -121,12 +129,33 @@ def test_ftth_outstate_allows_missing_ftth_pool_fields():
     payload["cgnat_public"] = ""
     payload["unauth_network"] = ""
 
-    response = client.post("/api/generate-ftth-bng", json=payload)
+    response = client.post("/api/generate-ftth-bng", json=payload, headers=_auth_headers())
     assert response.status_code == 200
     data = response.json()
     assert data.get("success") is True
     config = data.get("config", "")
     assert "name=vpls1000-bng1" in config
+
+
+def test_ftth_outstate_allows_200g_only_olt_network():
+    payload = _ui_payload("outstate")
+    payload["olt_network"] = ""
+    payload["olt_network_secondary"] = ""
+    payload["olt_network_100g"] = "10.249.181.0/29"
+    payload["olt_name_primary"] = ""
+    payload["olt_name_secondary"] = ""
+    payload["olt_name_100g"] = "NE-WESTERN-MF2-100G"
+    payload["olt_ports"] = [
+        {"port": "sfp28-5", "speed": "auto", "comment": "NOKIA OLT 200G", "group": "100g"},
+        {"port": "sfp28-6", "speed": "auto", "comment": "NOKIA OLT 200G", "group": "100g"},
+    ]
+
+    response = client.post("/api/generate-ftth-bng", json=payload, headers=_auth_headers())
+    assert response.status_code == 200
+    data = response.json()
+    assert data.get("success") is True
+    config = data.get("config", "")
+    assert "10.249.181." in config
 
 
 def test_ftth_outstate_state_profile_ia_maps_ospf_and_vpls_ids():
@@ -136,7 +165,7 @@ def test_ftth_outstate_state_profile_ia_maps_ospf_and_vpls_ids():
     payload["ospf_area_id"] = "0.0.0.42"
     payload["vpls_state_id"] = "245"
 
-    response = client.post("/api/generate-ftth-bng", json=payload)
+    response = client.post("/api/generate-ftth-bng", json=payload, headers=_auth_headers())
     assert response.status_code == 200
     data = response.json()
     assert data.get("success") is True
@@ -154,7 +183,7 @@ def test_ftth_auto_speed_renders_auto_negotiation_yes_without_speed():
     payload["olt_ports"][0]["speed"] = "auto"
     payload["olt_ports"][1]["speed"] = "25G-baseSR-LR"
 
-    response = client.post("/api/generate-ftth-bng", json=payload)
+    response = client.post("/api/generate-ftth-bng", json=payload, headers=_auth_headers())
     assert response.status_code == 200
     data = response.json()
     assert data.get("success") is True
@@ -172,7 +201,7 @@ def test_ftth_forced_speed_keeps_auto_negotiation_no_with_speed():
     payload["uplinks"][0]["speed"] = "25G-baseSR-LR"
     payload["olt_ports"][0]["speed"] = "25G-baseSR-LR"
 
-    response = client.post("/api/generate-ftth-bng", json=payload)
+    response = client.post("/api/generate-ftth-bng", json=payload, headers=_auth_headers())
     assert response.status_code == 200
     data = response.json()
     assert data.get("success") is True
@@ -185,12 +214,13 @@ def test_ftth_forced_speed_keeps_auto_negotiation_no_with_speed():
 def test_ftth_bgp_connections_use_dynamic_peer_inputs_and_loopback_router_id():
     payload = _ui_payload("instate")
     payload["loopback_ip"] = "10.26.1.108/32"
+    payload["asn"] = "26077"
     payload["peer_1_name"] = "CR7"
     payload["peer_1_address"] = "10.2.0.107/32"
     payload["peer_2_name"] = "CR8"
     payload["peer_2_address"] = "10.2.0.108/32"
 
-    response = client.post("/api/generate-ftth-bng", json=payload)
+    response = client.post("/api/generate-ftth-bng", json=payload, headers=_auth_headers())
     assert response.status_code == 200
     data = response.json()
     assert data.get("success") is True
@@ -199,3 +229,30 @@ def test_ftth_bgp_connections_use_dynamic_peer_inputs_and_loopback_router_id():
     assert "set default as=26077 disabled=no output.network=bgp-networks router-id=10.26.1.108" in config
     assert "add as=26077 cisco-vpls-nlri-len-fmt=auto-bits connect=yes disabled=no listen=yes local.address=10.26.1.108 .role=ibgp multihop=yes name=CR7 output.network=bgp-networks remote.address=10.2.0.107/32 .as=26077 .port=179 router-id=10.26.1.108 routing-table=main" in config
     assert "add as=26077 cisco-vpls-nlri-len-fmt=auto-bits connect=yes disabled=no listen=yes local.address=10.26.1.108 .role=ibgp multihop=yes name=CR8 output.network=bgp-networks remote.address=10.2.0.108/32 .as=26077 .port=179 router-id=10.26.1.108 routing-table=main" in config
+
+
+def test_ftth_bng_prefers_tenant_defaults_when_payload_values_are_omitted(monkeypatch):
+    monkeypatch.setenv("NEXUS_DEFAULT_ASN", "64512")
+    monkeypatch.setenv(
+        "NEXUS_ROUTE_REFLECTOR_PEERS_JSON",
+        '[{"name":"RR-PRIMARY","remote":"10.10.10.10/32"},{"name":"RR-SECONDARY","remote":"10.10.10.11/32"}]',
+    )
+    monkeypatch.setenv("NEXUS_BNG_PEERS_JSON", '{"TX":"10.20.30.40","NE":"10.20.30.41"}')
+    monkeypatch.setenv("NEXUS_SNMP_CONTACT", "noc@acme.example")
+
+    payload = _ui_payload("instate")
+    payload["loopback_ip"] = "10.26.1.108/32"
+
+    response = client.post("/api/generate-ftth-bng", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data.get("success") is True
+    config = data.get("config", "")
+
+    assert "set default as=64512 disabled=no output.network=bgp-networks router-id=10.26.1.108" in config
+    assert "name=RR-PRIMARY" in config
+    assert "remote.address=10.10.10.10/32" in config
+    assert "name=RR-SECONDARY" in config
+    assert "remote.address=10.10.10.11/32" in config
+    assert "name=vpls1000-bng1" not in config
+    assert "noc@acme.example" in config

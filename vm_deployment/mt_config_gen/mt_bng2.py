@@ -13,6 +13,10 @@ ROUTER_TYPES = {
         "config_template": "mt_2004_bng2_config.rsc",
         "port_map_template": "mt_2004_bng2_port_map.txt",
     },
+    "CCR2216": {
+        "config_template": "mt_ccr2216_bng2_config.rsc",
+        "port_map_template": "mt_ccr2216_bng2_port_map.txt",
+    },
     "7535": {
         "config_template": "7535_bng2_config.txt",
         "port_map_template": "7535_bng2_port_map.txt",
@@ -30,6 +34,15 @@ BNG2_PORT_POLICY = {
             "sfp-sfpplus4", "sfp-sfpplus5", "sfp-sfpplus6", "sfp-sfpplus7",
             "sfp-sfpplus8", "sfp-sfpplus9", "sfp-sfpplus10", "sfp-sfpplus11",
             "sfp-sfpplus12", "sfp28-1", "sfp28-2"
+        ],
+    },
+    "CCR2216": {
+        "management": "ether1",
+        "backhaul": [
+            "sfp28-4", "sfp28-5", "sfp28-6", "sfp28-7", "sfp28-8", "sfp28-9",
+            "sfp28-10", "sfp28-11", "sfp28-12",
+            "qsfp28-1-1", "qsfp28-1-2", "qsfp28-1-3", "qsfp28-1-4",
+            "qsfp28-2-1", "qsfp28-2-2", "qsfp28-2-3", "qsfp28-2-4",
         ],
     },
     "7535": {
@@ -54,16 +67,29 @@ MSTP_STATES = {
 }
 MSTP_STATE_CODES = frozenset(MSTP_STATES.values())
 
-TARANA_SECTORS = [
-    {"name": "Alpha", "port": "sfp-sfpplus9", "address_offset": 2},
-    {"name": "Beta", "port": "sfp-sfpplus10", "address_offset": 3},
-    {"name": "Gamma", "port": "sfp-sfpplus11", "address_offset": 4},
-    {"name": "Delta", "port": "sfp-sfpplus6", "address_offset": 5},
-]
+TARANA_SECTORS = {
+    "MT2004": [
+        {"name": "Alpha", "port": "sfp-sfpplus9", "address_offset": 2},
+        {"name": "Beta", "port": "sfp-sfpplus10", "address_offset": 3},
+        {"name": "Gamma", "port": "sfp-sfpplus11", "address_offset": 4},
+        {"name": "Delta", "port": "sfp-sfpplus6", "address_offset": 5},
+    ],
+    "CCR2216": [
+        {"name": "Alpha", "port": "sfp28-8", "address_offset": 2},
+        {"name": "Beta", "port": "sfp28-9", "address_offset": 3},
+        {"name": "Gamma", "port": "sfp28-10", "address_offset": 4},
+        {"name": "Delta", "port": "sfp28-6", "address_offset": 5},
+    ],
+}
+TARANA_SECTORS_DEFAULT = TARANA_SECTORS["MT2004"]
 
 PORT_COUNT = 12
 
-BBU_PORT = "sfp-sfpplus3"
+BBU_PORT = {
+    "MT2004": "sfp-sfpplus3",
+    "CCR2216": "sfp28-3",
+}
+BBU_PORT_DEFAULT = "sfp-sfpplus3"
 
 AP_MODEL_NON_6GHZ = "CNEP3K-5-AL060"
 AP_MODEL_6GHZ = "CN4600-6-AL060"
@@ -83,7 +109,7 @@ def _base_config_path() -> Path:
         required = configured / "Router" / "BNG2" / "config"
         if required.is_dir():
             return configured
-    # Bundled fallback inside noc-configmaker repo
+    # Bundled fallback inside nexus repo
     return Path(__file__).resolve().parent.parent / "base_configs"
 
 
@@ -159,9 +185,10 @@ class MTBNG2Config:
                 self.tarana_subnet = IPNetwork(params["tarana_subnet"])
                 self.tarana_sector_count = int(params.get("tarana_sector_count", 3))
                 self.tarana_sector_start = int(params.get("tarana_sector_start", 0))
-                if self.tarana_sector_count < 1 or self.tarana_sector_count > len(TARANA_SECTORS):
+                _sector_list = TARANA_SECTORS.get(self.router_type, TARANA_SECTORS_DEFAULT)
+                if self.tarana_sector_count < 1 or self.tarana_sector_count > len(_sector_list):
                     raise ValueError(
-                        f"Tarana sector count must be between 1 and {len(TARANA_SECTORS)}."
+                        f"Tarana sector count must be between 1 and {len(_sector_list)}."
                     )
                 # Accept custom sector port assignments from frontend.
                 self._custom_sectors = self._extract_custom_tarana_sectors(params)
@@ -172,6 +199,11 @@ class MTBNG2Config:
             self.is_326 = params.get("is_326", False)
             if self.is_326:
                 self.crs_326_mgmt_subnet = IPNetwork(params["326_mgmt_subnet"])
+                _is_2216 = self.router_type == "CCR2216"
+                _default_port_1 = "sfp28-8" if _is_2216 else "sfp-sfpplus8"
+                _default_port_2 = "sfp28-9" if _is_2216 else "sfp-sfpplus9"
+                self.crs_326_port_1 = str(params.get("crs_326_port_1", _default_port_1)).strip()
+                self.crs_326_port_2 = str(params.get("crs_326_port_2", _default_port_2)).strip()
 
             self.is_6ghz = params.get("is_6ghz", False)
             if self.is_6ghz:
@@ -186,19 +218,6 @@ class MTBNG2Config:
             self._ospf_auth_type = os.getenv("NEXTLINK_OSPF_AUTH_TYPE", "md5")
             self._ospf_auth_id = os.getenv("NEXTLINK_OSPF_AUTH_ID", "1")
             self._ospf_md5_key = os.getenv("NEXTLINK_OSPF_MD5_KEY", "m8M5JwvdYM")
-            self._bgp_md5_key = str(
-                params.get("bgp_md5_key")
-                or os.getenv("NEXTLINK_BGP_MD5_KEY", "m8M5JwvdYM")
-            ).strip()
-            self.asn = str(params.get("asn", "26077")).strip()
-            self.peer_1_name = str(params.get("peer_1_name", "CR7")).strip() or "CR7"
-            self.peer_2_name = str(params.get("peer_2_name", "CR8")).strip() or "CR8"
-            self.peer_1_address = self._strip_prefix(
-                params.get("peer_1_address", "10.2.0.107/32")
-            )
-            self.peer_2_address = self._strip_prefix(
-                params.get("peer_2_address", "10.2.0.108/32")
-            )
 
             # Validate backhauls
             self.backhauls = params["backhauls"]
@@ -316,18 +335,19 @@ class MTBNG2Config:
 
         # Use custom sector ports from frontend if provided
         custom = getattr(self, "_custom_sectors", None)
+        sector_defaults = TARANA_SECTORS.get(self.router_type, TARANA_SECTORS_DEFAULT)
         result = []
         for i in range(self.tarana_sector_count):
             if custom and i < len(custom) and custom[i].get("port"):
                 port = str(custom[i]["port"]).strip()
-                name = custom[i].get("name", TARANA_SECTORS[i]["name"])
+                name = custom[i].get("name", sector_defaults[i]["name"])
             else:
-                port = TARANA_SECTORS[i]["port"]
-                name = TARANA_SECTORS[i]["name"]
+                port = sector_defaults[i]["port"]
+                name = sector_defaults[i]["name"]
             result.append({
                 "name": name,
                 "port": port,
-                "address_offset": TARANA_SECTORS[i]["address_offset"],
+                "address_offset": sector_defaults[i]["address_offset"],
                 "azimuth": azimuths[i],
             })
         return result
@@ -355,12 +375,6 @@ class MTBNG2Config:
         params["ospf_auth_type"] = self._ospf_auth_type
         params["ospf_auth_id"] = self._ospf_auth_id
         params["ospf_md5_key"] = self._ospf_md5_key
-        params["bgp_md5_key"] = self._bgp_md5_key
-        params["asn"] = self.asn
-        params["peer1_name"] = self.peer_1_name
-        params["peer2_name"] = self.peer_2_name
-        params["peer1"] = self.peer_1_address
-        params["peer2"] = self.peer_2_address
         state_mesh_base = f"10.{self.ospf_area}.0"
         params["mesh_peer_1"] = str(params.get("mesh_peer_1") or f"{state_mesh_base}.3")
         params["mesh_peer_2"] = str(params.get("mesh_peer_2") or f"{state_mesh_base}.4")
@@ -414,7 +428,7 @@ class MTBNG2Config:
         params["bbu_mgmt_subnet"] = str(self.bbu_mgmt_subnet.netmask)
         params["bbu_mgmt_subnet_mask"] = self.bbu_mgmt_subnet.prefixlen
         params["bbu_mgmt_subnet_network"] = self.bbu_mgmt_subnet.network
-        params["bbu_port"] = BBU_PORT
+        params["bbu_port"] = BBU_PORT.get(self.router_type, BBU_PORT_DEFAULT)
 
         return params
 
@@ -492,7 +506,10 @@ class MTBNG2Config:
         params["crs_326_mgmt_mask_bits"] = (
             self.crs_326_mgmt_subnet.netmask.netmask_bits()
         )
-        params["crs_326_mgmt_address"] = self.crs_326_mgmt_subnet
+        # Use first usable host (.1) as the bridge3000 gateway address
+        params["crs_326_mgmt_address"] = str(self.crs_326_mgmt_subnet.network + 1)
+        params["crs_326_port_1"] = self.crs_326_port_1
+        params["crs_326_port_2"] = self.crs_326_port_2
 
         return params
 
@@ -554,9 +571,11 @@ class MTBNG2Config:
             if any(fragment in line for fragment in banned_fragments):
                 continue
             normalized = line.strip()
-            if normalized and normalized in seen:
+            # Never deduplicate RouterOS section headers (/interface vlan, /ip address, etc.)
+            # They must repeat to switch context and are always valid multiple times.
+            if normalized and not normalized.startswith('/') and normalized in seen:
                 continue
-            if normalized:
+            if normalized and not normalized.startswith('/'):
                 seen.add(normalized)
             kept.append(line)
         return "\n".join(kept).strip() + "\n"

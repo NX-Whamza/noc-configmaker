@@ -24,6 +24,10 @@ set [ find default-name={{ sw.port }} ] comment="{{ sw.comment or sw.name }}" l2
 {% for bh in backhauls %}
 set [ find default-name={{ bh.port }} ] comment={{ bh.bhname }} l2mtu=9212 mtu=9198
 {% endfor %}
+{% if is_326 %}
+set [ find default-name={{ crs_326_port_1 }} ] comment="SWT-CRS326 Uplink #1 - BONDED"
+set [ find default-name={{ crs_326_port_2 }} ] comment="SWT-CRS326 Uplink #2 - BONDED"
+{% endif %}
 {% if is_tarana %}
 {% for s in tarana_sectors %}
 set [ find default-name={{ s.port }} ] comment="{{ s.name }} {{ s.azimuth }} deg" l2mtu=9212 mtu=9198
@@ -40,10 +44,25 @@ add cisco-static-id={{ vpls2000 }} comment=VPLS2000-BNG-{{ state }} name=vpls200
 add cisco-static-id={{ vpls3000 }} comment=VPLS3000-BNG-{{ state }} name=vpls3000-bng1 peer={{ bng1_ip }} pw-l2mtu={{ vpls_l2mtu }} pw-type=raw-ethernet
 add cisco-static-id={{ vpls4000 }} comment=VPLS4000-BNG-{{ state }} name=vpls4000-bng1 peer={{ bng1_ip }} pw-l2mtu={{ vpls_l2mtu }} pw-type=raw-ethernet
 
-/interface bridge port
+{% if switches %}
+/interface vlan
 {% for sw in switches %}
-add bridge=vpls-bridge ingress-filtering=no interface={{ sw.port }} internal-path-cost=10 path-cost=10
+add interface={{ sw.port }} name=vlan1000-{{ sw.port }} vlan-id=1000
+add interface={{ sw.port }} name=vlan2000-{{ sw.port }} vlan-id=2000
+add interface={{ sw.port }} name=vlan3000-{{ sw.port }} vlan-id=3000
+add interface={{ sw.port }} name=vlan4000-{{ sw.port }} vlan-id=4000
 {% endfor %}
+
+{% endif %}
+/interface bridge port
+{% if switches %}
+{% for sw in switches %}
+add bridge=bridge1000 ingress-filtering=no interface=vlan1000-{{ sw.port }} internal-path-cost=10 path-cost=10
+add bridge=bridge2000 ingress-filtering=no interface=vlan2000-{{ sw.port }} internal-path-cost=10 path-cost=10
+add bridge=bridge3000 ingress-filtering=no interface=vlan3000-{{ sw.port }} internal-path-cost=10 path-cost=10
+add bridge=bridge4000 ingress-filtering=no interface=vlan4000-{{ sw.port }} internal-path-cost=10 path-cost=10
+{% endfor %}
+{% endif %}
 add bridge=vpls-bridge edge=yes horizon=1 ingress-filtering=no interface=vpls-bng1 internal-path-cost=10 path-cost=10
 add bridge=vpls-bridge edge=yes horizon=1 ingress-filtering=no interface=vpls-bng2 internal-path-cost=10 path-cost=10
 add bridge=bridge600 edge=yes horizon=1 ingress-filtering=no interface=vpls600-bng-{{ state_lc }}-net internal-path-cost=10 path-cost=10
@@ -52,6 +71,23 @@ add bridge=bridge1000 edge=yes horizon=1 ingress-filtering=no interface=vpls1000
 add bridge=bridge2000 edge=yes horizon=1 ingress-filtering=no interface=vpls2000-bng1 internal-path-cost=10 path-cost=10
 add bridge=bridge3000 edge=yes horizon=1 ingress-filtering=no interface=vpls3000-bng1 internal-path-cost=10 path-cost=10
 add bridge=bridge4000 edge=yes horizon=1 ingress-filtering=no interface=vpls4000-bng1 internal-path-cost=10 path-cost=10
+
+{% if is_326 %}
+/interface bonding
+add lacp-user-key=1 mode=802.3ad name=bonding1 slaves={{ crs_326_port_1 }},{{ crs_326_port_2 }} transmit-hash-policy=layer-2-and-3
+
+/interface vlan
+add interface=bonding1 name=vlan1000-bonding1 vlan-id=1000
+add interface=bonding1 name=vlan2000-bonding1 vlan-id=2000
+add interface=bonding1 name=vlan3000-bonding1 vlan-id=3000
+add interface=bonding1 name=vlan4000-bonding1 vlan-id=4000
+
+/interface bridge port
+add bridge=bridge1000 interface=vlan1000-bonding1 internal-path-cost=10 path-cost=10
+add bridge=bridge2000 interface=vlan2000-bonding1 internal-path-cost=10 path-cost=10
+add bridge=bridge3000 interface=vlan3000-bonding1 internal-path-cost=10 path-cost=10
+add bridge=bridge4000 interface=vlan4000-bonding1 internal-path-cost=10 path-cost=10
+{% endif %}
 
 /ip address
 add address={{ loopip }} comment=loop0 interface=loop0 network={{ loopip }}
@@ -68,7 +104,7 @@ add address={{ six_ghz_address }}/{{ six_ghz_prefixlen }} interface=bridge3000 n
 add address={{ ub_wave_address }}/{{ ub_wave_prefixlen }} interface=bridge3000 network={{ ub_wave_network }} comment=UB-WAVE
 {% endif %}
 {% if is_326 %}
-add address={{ crs_326_mgmt_address.ip }}/{{ crs_326_mgmt_mask_bits }} interface=bridge3000 network={{ crs_326_mgmt_network }} comment=CRS326-MGMT
+add address={{ crs_326_mgmt_address }}/{{ crs_326_mgmt_mask_bits }} interface=bridge3000 network={{ crs_326_mgmt_network }} comment=CRS326-MGMT
 {% endif %}
 
 /routing ospf instance
@@ -90,17 +126,14 @@ add area=area{{ OSPF_area }}-v2 comment="6Ghz Equipment" cost=10 disabled=no int
 add area=area{{ OSPF_area }}-v2 comment="UB WAVE" cost=10 disabled=no interfaces=bridge3000 networks={{ ub_wave_network }}/{{ ub_wave_prefixlen }} priority=1
 {% endif %}
 
-/routing bgp template
-set default as={{ asn }} disabled=no output.network=bgp-networks router-id={{ loopip }}
-
-/routing bgp connection
-add cisco-vpls-nlri-len-fmt=auto-bits connect=yes listen=yes local.address={{ loopip }} .role=ibgp multihop=yes name={{ peer1_name }} remote.address={{ peer1 }} .as={{ asn }} .port=179 tcp-md5-key={{ bgp_md5_key }} templates=default
-add cisco-vpls-nlri-len-fmt=auto-bits connect=yes listen=yes local.address={{ loopip }} .role=ibgp multihop=yes name={{ peer2_name }} remote.address={{ peer2 }} .as={{ asn }} .port=179 tcp-md5-key={{ bgp_md5_key }} templates=default
-
 /mpls interface
 add interface=all mpls-mtu={{ mpls_mtu }}
 /mpls ldp
 add disabled=no lsr-id={{ loopip }} transport-addresses={{ loopip }}
+/mpls ldp interface
+{% for bh in backhauls %}
+add interface={{ bh.port }} disabled=no
+{% endfor %}
 
 {% if is_lte %}
 /ip address

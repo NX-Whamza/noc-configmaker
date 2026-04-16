@@ -25,6 +25,7 @@ def _patch_dbs(monkeypatch, api_server):
         lambda p: True if str(p) == "secure_data" else orig_exists(p),
     )
     monkeypatch.setattr(api_server.os, "makedirs", lambda *a, **k: None)
+    monkeypatch.setattr(api_server, "DEFAULT_PASSWORD", "nexus-test-pw")
     return uri, anchor
 
 
@@ -134,7 +135,7 @@ def test_custom_tenant_compliance_checks_differ_from_nextlink(monkeypatch):
 
 def test_html_uses_tenant_infra_variable_for_noc_monitor(monkeypatch):
     html = (
-        Path(__file__).resolve().parents[1] / "vm_deployment" / "NOC-configMaker.html"
+        Path(__file__).resolve().parents[1] / "vm_deployment" / "nexus.html"
     ).read_text(encoding="utf-8")
     import re
 

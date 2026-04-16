@@ -9,7 +9,9 @@ import requests
 import logging
 import os
 
-DEFAULT_PASSWORDS = [os.getenv("AP_STANDARD_PW"), "admin"]
+DEFAULT_PASSWORDS = [
+    pwd for pwd in [os.getenv("AP_STANDARD_PW"), os.getenv("SM_STANDARD_PW")] if str(pwd or "").strip()
+]
 
 DEVICES = {
     "EP3K": {
@@ -38,9 +40,15 @@ DEVICES = {
 
 
 class CambiumSpectrumAnalyzer:
-    def __init__(self, ip_address, device_type, password=DEFAULT_PASSWORDS[0]):
+    def __init__(self, ip_address, device_type, password=None):
         self.ip_address = ip_address
         self.device_type = device_type
+        if password is None:
+            if not DEFAULT_PASSWORDS:
+                raise ValueError(
+                    "No AP default passwords configured. Set AP_STANDARD_PW or SM_STANDARD_PW."
+                )
+            password = DEFAULT_PASSWORDS[0]
         self.password = password
         self.secure = False
 
@@ -107,9 +115,7 @@ class CambiumSpectrumAnalyzer:
             except Exception as err:
                 # Try all passwords in DEFAULT_PASSWORDS
                 password_index += 1
-                while DEFAULT_PASSWORDS[
-                    password_index
-                ] == self.password and password_index < len(DEFAULT_PASSWORDS):
+                while password_index < len(DEFAULT_PASSWORDS) and DEFAULT_PASSWORDS[password_index] == self.password:
                     password_index += 1
                 if password_index >= len(DEFAULT_PASSWORDS):
                     raise Exception(f"Failed to acquire AP authentication token. {err}")

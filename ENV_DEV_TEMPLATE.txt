@@ -1,15 +1,15 @@
 # =============================================================================
-# NOC Config Maker – DEV environment variables
+# NEXUS – DEV environment variables
 # =============================================================================
 # This file is a TEMPLATE — it is committed to GitHub with placeholders only.
 # Real secrets are NEVER stored in this file.
 #
 # USAGE:
-#   setup_dev.sh copies this to ~/noc-configmaker-dev/.env
+#   setup_dev.sh copies this to ~/nexus-dev/.env
 #   Then you MUST manually fill in every CHANGE_ME value in .env
 #   (The .env file itself is git-ignored and never pushed.)
 #
-# The production clone (~/noc-configmaker/) keeps its own .env file untouched.
+# The production clone (~/nexus/) keeps its own .env file untouched.
 # =============================================================================
 
 # ── Dev-specific overrides ──
@@ -27,6 +27,11 @@ JWT_SECRET=CHANGE_ME
 NOC_API_KEY=CHANGE_ME
 NOC_API_KEYS_JSON=
 NOC_API_SIGNING_KEYS_JSON=CHANGE_ME
+AUTH_EXPOSE_RESET_TOKEN=true
+PASSWORD_HASH_ITERATIONS=310000
+SSO_STATE_MAX_AGE_SECONDS=600
+NOC_CORS_ORIGINS=http://localhost:8100,http://127.0.0.1:8100
+NOC_CORS_ALLOW_CREDENTIALS=true
 NOC_API_V2_REQUIRE_SIGNATURE=false
 NOC_API_V2_REQUIRE_IDEMPOTENCY=false
 
@@ -48,6 +53,14 @@ SWT_STANDARD_PW=CHANGE_ME
 RPC_STANDARD_PW=CHANGE_ME
 CNMATRIX_STANDARD_PW=CHANGE_ME
 WAVE_AP_PASS=CHANGE_ME
+
+# ── Warehouse SM factory-default reachability (Linux Docker engine) ──
+# Enable by starting compose with docker-compose.provisioning-lan.yml
+PROVISIONING_LAN_PARENT=eth0
+PROVISIONING_LAN_SUBNET=192.168.0.0/24
+PROVISIONING_LAN_BACKEND_IP=192.168.0.254
+WAREHOUSE_SM_SWITCH_INTERFACE=eth1
+WAREHOUSE_SM_AUTO_DEFAULT_ACCESS=true
 
 # ── FTTH passwords ──
 FTTH_USER_ROOT_PASSWORD=CHANGE_ME

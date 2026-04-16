@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-NOC Config Maker - AI Backend Server
+NEXUS - AI Configuration Engine
 Secure OpenAI API integration for RouterOS config generation and validation
 """
 
 import sys
 import io
+import faulthandler
+from collections import deque
 # Fix Windows console encoding for Unicode - but only if not already wrapped
 # In PyInstaller, stdout/stderr might already be wrapped, so check first
 if sys.platform == 'win32':
@@ -19,6 +21,11 @@ if sys.platform == 'win32':
     except (AttributeError, ValueError):
         # If wrapping fails (e.g., in PyInstaller), just continue
         pass
+
+try:
+    faulthandler.enable(all_threads=True)
+except Exception:
+    pass
 
 from flask import Flask, request, jsonify, send_file, send_from_directory, stream_with_context
 from flask import make_response, abort, Response
@@ -48,12 +55,13 @@ except ImportError:
     ZoneInfo = None
 import sqlite3
 import hashlib
+import hmac
 import secrets
 from functools import wraps
 import threading
 import queue
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 from pathlib import Path
 from ftth_renderer import render_ftth_config
 from typing import Optional
@@ -216,13 +224,35 @@ def _health_check_secure_data():
     return result
 
 
-def _health_check_ido_backend():
-    backend_url = _ido_backend_url()
+def _configured_ido_backend_url():
+    candidates = (
+        "IDO_BACKEND_URL",
+        "IDO_TOOLS_BACKEND_URL",
+        "NETLAUNCH_IDO_BACKEND_URL",
+        "NEXTLINK_IDO_BACKEND_URL",
+        "NETLAUNCH_TOOLS_BACKEND_URL",
+    )
+    for key in candidates:
+        value = (os.getenv(key) or "").strip()
+        if value:
+            if not value.startswith(("http://", "https://")):
+                value = f"http://{value}"
+            return value.rstrip("/")
+    return ""
+
+
+def _health_check_ido_backend(allow_autostart: bool = False):
+    backend_url = _configured_ido_backend_url()
+    autostart_attempted = False
+    if not backend_url and allow_autostart:
+        autostart_attempted = True
+        backend_url = _ensure_local_ido_backend()
     result = {
         'name': 'ido_backend',
         'ok': True,
         'configured': bool(backend_url),
         'backend_url': backend_url,
+        'autostart_attempted': autostart_attempted,
         'detail': 'IDO backend reachable',
     }
     if not backend_url:
@@ -249,25 +279,29 @@ def _health_check_ido_backend():
 
 
 _HEALTH_CHECKS_CACHE: dict[str, object] = {
-    'timestamp': 0.0,
-    'checks': None,
+    'basic_timestamp': 0.0,
+    'basic_checks': None,
+    'full_timestamp': 0.0,
+    'full_checks': None,
 }
 _HEALTH_CHECKS_TTL_SECONDS = 30.0
 
 
-def _collect_health_checks(force: bool = False):
+def _collect_health_checks(force: bool = False, include_dependencies: bool = False):
+    cache_prefix = 'full' if include_dependencies else 'basic'
+    timestamp_key = f'{cache_prefix}_timestamp'
+    checks_key = f'{cache_prefix}_checks'
     now = time.time()
-    cached_checks = _HEALTH_CHECKS_CACHE.get('checks')
-    cached_at = float(_HEALTH_CHECKS_CACHE.get('timestamp') or 0.0)
+    cached_checks = _HEALTH_CHECKS_CACHE.get(checks_key)
+    cached_at = float(_HEALTH_CHECKS_CACHE.get(timestamp_key) or 0.0)
     if not force and cached_checks is not None and (now - cached_at) < _HEALTH_CHECKS_TTL_SECONDS:
         return cached_checks
 
-    checks = [
-        _health_check_secure_data(),
-        _health_check_ido_backend(),
-    ]
-    _HEALTH_CHECKS_CACHE['checks'] = checks
-    _HEALTH_CHECKS_CACHE['timestamp'] = now
+    checks = [_health_check_secure_data()]
+    if include_dependencies:
+        checks.append(_health_check_ido_backend(allow_autostart=True))
+    _HEALTH_CHECKS_CACHE[checks_key] = checks
+    _HEALTH_CHECKS_CACHE[timestamp_key] = now
     return checks
 
 
@@ -292,7 +326,20 @@ def _load_app_version_config():
     return config
 
 
-def _git_metadata():
+_GIT_METADATA_CACHE: dict[str, object] = {
+    'timestamp': 0.0,
+    'value': {'sha': None, 'count': None},
+}
+_GIT_METADATA_TTL_SECONDS = 300.0
+
+
+def _git_metadata(force: bool = False):
+    now = time.time()
+    cached_value = _GIT_METADATA_CACHE.get('value')
+    cached_at = float(_GIT_METADATA_CACHE.get('timestamp') or 0.0)
+    if not force and cached_value is not None and (now - cached_at) < _GIT_METADATA_TTL_SECONDS:
+        return dict(cached_value)
+
     repo_root = Path(__file__).resolve().parent.parent
     result = {'sha': None, 'count': None}
     try:
@@ -302,6 +349,7 @@ def _git_metadata():
             capture_output=True,
             text=True,
             check=True,
+            timeout=5,
         ).stdout.strip()
         if sha:
             result['sha'] = sha
@@ -314,11 +362,14 @@ def _git_metadata():
             capture_output=True,
             text=True,
             check=True,
+            timeout=5,
         ).stdout.strip()
         if count_raw:
             result['count'] = int(count_raw)
     except Exception:
         pass
+    _GIT_METADATA_CACHE['value'] = dict(result)
+    _GIT_METADATA_CACHE['timestamp'] = now
     return result
 
 
@@ -352,6 +403,23 @@ def get_app_version_meta():
         'release_date': release_date,
         'git_sha': git_sha,
         'environment': os.getenv('NOC_ENVIRONMENT', 'production'),
+    }
+
+
+def build_health_payload(include_dependencies: bool = False, force: bool = False):
+    checks = _collect_health_checks(force=force, include_dependencies=include_dependencies)
+    degraded = any(not check.get('ok') for check in checks)
+    return {
+        'status': 'online',
+        'degraded': degraded,
+        'checks_mode': 'full' if include_dependencies else 'basic',
+        'dependencies_checked': include_dependencies,
+        'app': get_app_version_meta(),
+        'ai_provider': AI_PROVIDER,
+        'api_key_configured': bool(OPENAI_API_KEY) if AI_PROVIDER == 'openai' else None,
+        'timestamp': get_cst_timestamp(),
+        'message': 'Unified backend (api_server.py) is online and ready',
+        'checks': checks,
     }
 
 
@@ -515,16 +583,193 @@ def safe_print(*args, **kwargs):
 # Make the module's print resilient on Windows consoles that can't encode certain Unicode characters.
 print = safe_print
 
+# ── Tenant Secret Encryption ───────────────────────────────────────────────
+from cryptography.fernet import Fernet, InvalidToken as _FernetInvalidToken
+import base64 as _b64
+
+def _get_fernet() -> Fernet:
+    """Return a Fernet instance from TENANT_SECRET_KEY env var. Generates ephemeral key if unset."""
+    key = os.environ.get('TENANT_SECRET_KEY', '')
+    if not key:
+        # Ephemeral key - only warn once
+        if not getattr(_get_fernet, '_warned', False):
+            safe_print('[SECURITY WARNING] TENANT_SECRET_KEY not set. Tenant secrets will use an ephemeral key and cannot be recovered after restart. Set TENANT_SECRET_KEY=<base64-32-bytes> in your .env')
+            _get_fernet._warned = True
+        if not getattr(_get_fernet, '_ephemeral', None):
+            _get_fernet._ephemeral = Fernet(Fernet.generate_key())
+        return _get_fernet._ephemeral
+    # Pad/truncate to 32 bytes for Fernet URL-safe base64
+    raw = key.encode()
+    padded = (raw + b'=' * 32)[:44]  # Fernet keys are 44 base64 chars
+    try:
+        return Fernet(padded)
+    except Exception:
+        return Fernet(Fernet.generate_key())
+
+_ENCRYPTED_FIELDS = {'ssh_password', 'radius_secret', 'ospf_auth_key', 'nokia_root_password', 'nokia_snmp_community'}
+
+def encrypt_secret(plaintext: str) -> str:
+    """Encrypt a secret string. Returns Fernet token as string."""
+    if not plaintext:
+        return plaintext
+    return _get_fernet().encrypt(plaintext.encode()).decode()
+
+def decrypt_secret(ciphertext: str) -> str:
+    """Decrypt a Fernet token. If decryption fails (legacy plaintext), returns as-is."""
+    if not ciphertext:
+        return ciphertext
+    try:
+        return _get_fernet().decrypt(ciphertext.encode()).decode()
+    except (_FernetInvalidToken, Exception):
+        return ciphertext  # Legacy plaintext - caller should re-encrypt
+# ── End Tenant Secret Encryption ───────────────────────────────────────────
+
+# ── Email System ──────────────────────────────────────────────────────────
+import smtplib as _smtplib
+import ssl as _ssl
+from email.mime.text import MIMEText as _MIMEText
+from email.mime.multipart import MIMEMultipart as _MIMEMultipart
+
+def send_email(to: str, subject: str, html_body: str, text_body: str = ''):
+    """Send an email via SMTP. Fails silently with a warning if SMTP is not configured."""
+    host = os.environ.get('SMTP_HOST', '')
+    if not host:
+        safe_print(f'[EMAIL] SMTP not configured — would have sent "{subject}" to {to}')
+        return False
+    port = int(os.environ.get('SMTP_PORT', '587'))
+    user = os.environ.get('SMTP_USER', '')
+    password = os.environ.get('SMTP_PASSWORD', '')
+    from_addr = os.environ.get('SMTP_FROM', user)
+    try:
+        msg = _MIMEMultipart('alternative')
+        msg['Subject'] = subject
+        msg['From'] = from_addr
+        msg['To'] = to
+        if text_body:
+            msg.attach(_MIMEText(text_body, 'plain'))
+        msg.attach(_MIMEText(html_body, 'html'))
+        context = _ssl.create_default_context()
+        with _smtplib.SMTP(host, port) as smtp:
+            smtp.ehlo()
+            smtp.starttls(context=context)
+            if user and password:
+                smtp.login(user, password)
+            smtp.sendmail(from_addr, to, msg.as_string())
+        safe_print(f'[EMAIL] Sent "{subject}" to {to}')
+        return True
+    except Exception as e:
+        safe_print(f'[EMAIL] Failed to send "{subject}" to {to}: {e}')
+        return False
+
+def _email_template(title: str, body_html: str, cta_url: str = '', cta_label: str = '') -> str:
+    """Wrap content in a simple branded HTML email template."""
+    cta_block = f'<div style="text-align:center;margin:32px 0"><a href="{cta_url}" style="background:#2563eb;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;font-size:15px">{cta_label}</a></div>' if cta_url else ''
+    return f'''<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:0">
+<div style="max-width:560px;margin:40px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08)">
+<div style="background:#2563eb;padding:24px 32px"><h1 style="color:#fff;margin:0;font-size:20px">NEXUS</h1></div>
+<div style="padding:32px"><h2 style="margin-top:0;color:#1e293b">{title}</h2>{body_html}{cta_block}</div>
+<div style="padding:16px 32px;background:#f8fafc;font-size:12px;color:#94a3b8">This is an automated message from NEXUS. Do not reply to this email.</div>
+</div></body></html>'''
+# ── End Email System ──────────────────────────────────────────────────────
+
+# ── Per-Tenant Feature Flags ───────────────────────────────────────────────
+_DEFAULT_FEATURES = {
+    'mikrotik': True, 'nokia': True, 'cambium': True, 'aviat': True,
+    'ftth': True, 'bulk_ops': True, 'compliance': True,
+    'ai_assistant': True, 'config_diff': True
+}
+
+def _get_tenant_features(tenant_id) -> dict:
+    """Return feature flags for a tenant. Defaults to all enabled."""
+    if not tenant_id:
+        return dict(_DEFAULT_FEATURES)
+    try:
+        db = init_users_db()
+        conn = sqlite3.connect(str(db))
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute('SELECT features FROM tenant_features WHERE tenant_id = ?', (tenant_id,))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return {**_DEFAULT_FEATURES, **json.loads(row['features'] or '{}')}
+        return dict(_DEFAULT_FEATURES)
+    except Exception:
+        return dict(_DEFAULT_FEATURES)
+
+def _require_feature(feature_name: str):
+    """Check if current tenant has a feature enabled. Returns 403 if not."""
+    tenant_ctx = _get_request_tenant_context()
+    tenant_id = tenant_ctx['tenant'].get('id')
+    features = _get_tenant_features(tenant_id)
+    if not features.get(feature_name, True):
+        abort(403, description=f"Feature '{feature_name}' is not enabled for your organization. Contact your administrator.")
+# ── End Per-Tenant Feature Flags ───────────────────────────────────────────
+
+# ── Quota Helpers ──────────────────────────────────────────────────────────
+def _get_today_usage(tenant_id):
+    """Get today's usage counters for a tenant."""
+    from datetime import date as _date
+    today = str(_date.today())
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT * FROM usage_daily WHERE tenant_id = ? AND date = ?', (tenant_id, today))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else {'configs_generated': 0, 'api_calls': 0}
+
+def _increment_usage(tenant_id, counter: str):
+    """Increment a usage counter for today. counter = 'configs_generated' or 'api_calls'."""
+    from datetime import date as _date
+    today = str(_date.today())
+    if not tenant_id:
+        return
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.execute(f'''
+        INSERT INTO usage_daily (tenant_id, date, {counter}) VALUES (?, ?, 1)
+        ON CONFLICT(tenant_id, date) DO UPDATE SET {counter} = {counter} + 1
+    ''', (tenant_id, today))
+    conn.commit()
+    conn.close()
+
+def _check_quota(tenant_id, quota_type: str):
+    """Check quota. Raises HTTP 429 if exceeded. quota_type: 'configs_generated' or 'api_calls'."""
+    if not tenant_id:
+        return  # No tenant context, skip quota
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT * FROM tenant_quotas WHERE tenant_id = ?', (tenant_id,))
+    quota_row = c.fetchone()
+    conn.close()
+    if not quota_row:
+        return  # No quota set = unlimited
+    usage = _get_today_usage(tenant_id)
+    field_map = {
+        'configs_generated': ('max_configs_per_day', 'daily config generation'),
+        'api_calls': ('max_api_calls_per_day', 'daily API calls'),
+    }
+    limit_field, label = field_map.get(quota_type, ('max_api_calls_per_day', 'API calls'))
+    limit = quota_row[limit_field]
+    current = usage.get(quota_type, 0)
+    if current >= limit:
+        abort(429, description=f'Daily {quota_type} quota of {limit} exceeded. Resets at midnight UTC.')
+# ── End Quota Helpers ──────────────────────────────────────────────────────
+
 # ========================================
 # AVIAT BACKHAUL UPDATER STATE
 # ========================================
 aviat_tasks = {}
 aviat_log_queues = {}
 aviat_global_log_queues = set()
-aviat_global_log_history = []
+AVIAT_GLOBAL_LOG_LIMIT = 2000
+aviat_global_log_history = deque(maxlen=AVIAT_GLOBAL_LOG_LIMIT)
 aviat_shared_queue = []
 AVIAT_SHARED_QUEUE_STORE = Path(__file__).resolve().parent / "aviat_shared_queue.json"
-AVIAT_GLOBAL_LOG_LIMIT = 2000
 aviat_scheduled_queue = []
 AVIAT_SCHEDULED_STORE = Path(__file__).resolve().parent / "aviat_scheduled_queue.json"
 
@@ -552,11 +797,17 @@ _aviat_background_threads_lock = threading.Lock()
 cambium_tasks = {}
 cambium_log_queues = {}
 cambium_global_log_queues = set()
-cambium_global_log_history = []
+CAMBIUM_GLOBAL_LOG_LIMIT = 2000
+cambium_global_log_history = deque(maxlen=CAMBIUM_GLOBAL_LOG_LIMIT)
 cambium_shared_queue = []
 CAMBIUM_SHARED_QUEUE_STORE = Path(__file__).resolve().parent / "cambium_shared_queue.json"
-CAMBIUM_GLOBAL_LOG_LIMIT = 2000
 CAMBIUM_MAX_WORKERS = int(os.getenv("CAMBIUM_MAX_WORKERS", "4"))
+
+# ========================================
+# SSH FETCH TASK STATE
+# ========================================
+ssh_fetch_tasks = {}
+ssh_fetch_tasks_lock = threading.Lock()
 
 
 def _cambium_load_shared_queue():
@@ -727,6 +978,10 @@ def _aviat_remaining_tasks_for_reboot(task_types):
 
 def _aviat_queue_remove(ip):
     aviat_shared_queue[:] = [e for e in aviat_shared_queue if e.get("ip") != ip]
+
+
+def _aviat_queue_for_tenant(tenant_id):
+    return [entry for entry in aviat_shared_queue if _queue_entry_matches_tenant(entry, tenant_id)]
 
 def _aviat_error_is_transient(error_text):
     text = str(error_text or "").strip().lower()
@@ -1017,8 +1272,620 @@ def _aviat_reboot_device(ip, callback=None):
                 pass
 
 
+_TASK_TTL_SECONDS = 7200  # 2 hours — keep completed/aborted task state for status queries
+
+# ── Wave Firmware Updater state ───────────────────────────────────────────────
+_BACKGROUND_TASK_STORE_DIR = None
+_BACKGROUND_TASK_DB_PATH = None
+
+
+def _background_task_db_path() -> Path:
+    global _BACKGROUND_TASK_DB_PATH
+    if _BACKGROUND_TASK_DB_PATH is None:
+        _BACKGROUND_TASK_DB_PATH = ensure_secure_data_dir() / 'background_tasks.db'
+    return _BACKGROUND_TASK_DB_PATH
+
+
+def _background_task_db_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(str(_background_task_db_path()), check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA journal_mode=WAL')
+    conn.execute('PRAGMA busy_timeout=5000')
+    return conn
+
+
+def init_background_tasks_db() -> Path:
+    db_path = _background_task_db_path()
+    conn = _background_task_db_conn()
+    try:
+        conn.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS background_tasks (
+                kind TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                status TEXT,
+                tenant_id TEXT,
+                tenant_slug TEXT,
+                created_at TEXT,
+                started_at TEXT,
+                completed_at TEXT,
+                updated_at TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                PRIMARY KEY (kind, task_id)
+            )
+            '''
+        )
+        conn.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS background_task_logs (
+                kind TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                ts TEXT NOT NULL,
+                entry_json TEXT NOT NULL
+            )
+            '''
+        )
+        conn.execute(
+            'CREATE INDEX IF NOT EXISTS idx_background_tasks_kind_updated ON background_tasks(kind, updated_at DESC)'
+        )
+        conn.execute(
+            'CREATE INDEX IF NOT EXISTS idx_background_task_logs_kind_ts ON background_task_logs(kind, ts DESC)'
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return db_path
+
+
+def _background_task_cleanup_stale(ttl_seconds: int | None = None) -> None:
+    effective_ttl = int(ttl_seconds or _TASK_TTL_SECONDS)
+    cutoff_dt = get_utc_now() - timedelta(seconds=max(effective_ttl, 60))
+    cutoff = cutoff_dt.isoformat().replace('+00:00', 'Z')
+    stale_pairs: list[tuple[str, str]] = []
+    try:
+        init_background_tasks_db()
+        conn = _background_task_db_conn()
+        try:
+            rows = conn.execute(
+                '''
+                SELECT kind, task_id
+                FROM background_tasks
+                WHERE updated_at < ?
+                  AND COALESCE(status, '') IN ('completed', 'failed', 'aborted')
+                ''',
+                (cutoff,),
+            ).fetchall()
+            stale_pairs = [(str(row['kind']), str(row['task_id'])) for row in rows]
+            conn.execute(
+                '''
+                DELETE FROM background_task_logs
+                WHERE ts < ?
+                  AND task_id IN (
+                    SELECT task_id
+                    FROM background_tasks
+                    WHERE updated_at < ?
+                      AND COALESCE(status, '') IN ('completed', 'failed', 'aborted')
+                  )
+                ''',
+                (cutoff, cutoff),
+            )
+            conn.execute(
+                '''
+                DELETE FROM background_tasks
+                WHERE updated_at < ?
+                  AND COALESCE(status, '') IN ('completed', 'failed', 'aborted')
+                ''',
+                (cutoff,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    for kind, task_id in stale_pairs:
+        state_path, log_path, abort_path = _background_task_paths(kind, task_id)
+        for path in (state_path, log_path, abort_path):
+            try:
+                path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def _background_task_store_dir(kind: str) -> Path:
+    global _BACKGROUND_TASK_STORE_DIR
+    if _BACKGROUND_TASK_STORE_DIR is None:
+        _BACKGROUND_TASK_STORE_DIR = ensure_secure_data_dir() / 'background_tasks'
+        _BACKGROUND_TASK_STORE_DIR.mkdir(parents=True, exist_ok=True)
+    kind_dir = _BACKGROUND_TASK_STORE_DIR / kind
+    kind_dir.mkdir(parents=True, exist_ok=True)
+    return kind_dir
+
+
+def _background_task_paths(kind: str, task_id: str) -> tuple[Path, Path, Path]:
+    base_dir = _background_task_store_dir(kind)
+    return (
+        base_dir / f'{task_id}.json',
+        base_dir / f'{task_id}.log.jsonl',
+        base_dir / f'{task_id}.abort',
+    )
+
+
+def _background_task_snapshot(task: dict | None) -> dict | None:
+    if not isinstance(task, dict):
+        return None
+    return json.loads(json.dumps(task))
+
+
+def _background_task_persist(kind: str, task_id: str, task: dict | None = None, extra: dict | None = None) -> None:
+    payload = _background_task_snapshot(task)
+    if payload is None:
+        return
+    if extra:
+        payload.update(extra)
+    payload['task_id'] = payload.get('task_id') or task_id
+    payload['updated_at'] = get_utc_timestamp()
+    state_path, _, _ = _background_task_paths(kind, task_id)
+    tmp_path = state_path.with_suffix('.json.tmp')
+    try:
+        tmp_path.write_text(json.dumps(payload), encoding='utf-8')
+        tmp_path.replace(state_path)
+    except Exception:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+    try:
+        init_background_tasks_db()
+        conn = _background_task_db_conn()
+        try:
+            conn.execute(
+                '''
+                INSERT INTO background_tasks (
+                    kind, task_id, status, tenant_id, tenant_slug,
+                    created_at, started_at, completed_at, updated_at, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(kind, task_id) DO UPDATE SET
+                    status=excluded.status,
+                    tenant_id=excluded.tenant_id,
+                    tenant_slug=excluded.tenant_slug,
+                    created_at=excluded.created_at,
+                    started_at=excluded.started_at,
+                    completed_at=excluded.completed_at,
+                    updated_at=excluded.updated_at,
+                    payload_json=excluded.payload_json
+                ''',
+                (
+                    kind,
+                    task_id,
+                    payload.get('status'),
+                    str(payload.get('_tenant_id') or payload.get('tenant_id') or '') or None,
+                    payload.get('_tenant_slug') or payload.get('tenant_slug'),
+                    payload.get('created_at'),
+                    payload.get('started_at'),
+                    payload.get('completed_at'),
+                    payload.get('updated_at'),
+                    json.dumps(payload),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def _background_task_load(kind: str, task_id: str) -> dict | None:
+    try:
+        init_background_tasks_db()
+        conn = _background_task_db_conn()
+        try:
+            row = conn.execute(
+                'SELECT payload_json FROM background_tasks WHERE kind = ? AND task_id = ?',
+                (kind, task_id),
+            ).fetchone()
+            if row and row['payload_json']:
+                return json.loads(row['payload_json'])
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    state_path, _, _ = _background_task_paths(kind, task_id)
+    try:
+        if state_path.exists():
+            return json.loads(state_path.read_text(encoding='utf-8'))
+    except Exception:
+        pass
+    return None
+
+
+def _background_task_append_log(kind: str, task_id: str, entry: dict) -> None:
+    _, log_path, _ = _background_task_paths(kind, task_id)
+    try:
+        with log_path.open('a', encoding='utf-8') as handle:
+            handle.write(json.dumps(entry) + '\n')
+    except Exception:
+        pass
+    try:
+        init_background_tasks_db()
+        conn = _background_task_db_conn()
+        try:
+            conn.execute(
+                'INSERT INTO background_task_logs (kind, task_id, ts, entry_json) VALUES (?, ?, ?, ?)',
+                (
+                    kind,
+                    task_id,
+                    entry.get('ts') or entry.get('timestamp') or get_utc_timestamp(),
+                    json.dumps(entry),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def _background_task_signal_abort(kind: str, task_id: str) -> None:
+    _, _, abort_path = _background_task_paths(kind, task_id)
+    try:
+        abort_path.touch()
+    except Exception:
+        pass
+
+
+def _background_task_has_abort(kind: str, task_id: str) -> bool:
+    _, _, abort_path = _background_task_paths(kind, task_id)
+    try:
+        return abort_path.exists()
+    except Exception:
+        return False
+
+
+def _background_task_status_payload(task: dict | None) -> dict | None:
+    payload = _background_task_snapshot(task)
+    if payload is None:
+        return None
+    payload.pop('abort', None)
+    payload.pop('_tenant_id', None)
+    payload.pop('_tenant_slug', None)
+    return payload
+
+
+def _background_task_matches_tenant(task: dict, tenant_id) -> bool:
+    if not tenant_id:
+        return True
+    task_tenant = task.get('_tenant_id') or task.get('tenant_id')
+    if task_tenant in (None, '', 'None'):
+        return False
+    return str(task_tenant) == str(tenant_id)
+
+
+def _request_tenant_id():
+    user_info = getattr(request, 'current_user', {}) or {}
+    return user_info.get('tenant_id') or user_info.get('tenantId')
+
+
+def _request_is_platform_admin() -> bool:
+    user_info = getattr(request, 'current_user', {}) or {}
+    return _platform_role_for_email(user_info.get('email', '')) == 'platform_admin'
+
+
+def _background_task_access_allowed(task: dict | None) -> bool:
+    if not isinstance(task, dict):
+        return False
+    if _request_is_platform_admin():
+        return True
+    return _background_task_matches_tenant(task, _request_tenant_id())
+
+
+def _queue_entry_matches_tenant(entry: dict, tenant_id) -> bool:
+    if not tenant_id:
+        return True
+    if not isinstance(entry, dict):
+        return False
+    entry_tenant = entry.get('_tenant_id') or entry.get('tenant_id')
+    if entry_tenant in (None, '', 'None'):
+        return False
+    return str(entry_tenant) == str(tenant_id)
+
+
+def _queue_payload(entries: list[dict], tenant_id=None) -> list[dict]:
+    payload = []
+    for entry in entries:
+        if not _queue_entry_matches_tenant(entry, tenant_id):
+            continue
+        item = dict(entry)
+        item.pop('_tenant_id', None)
+        item.pop('_tenant_slug', None)
+        payload.append(item)
+    return payload
+
+
+def _background_task_list(kind: str, limit: int = 50) -> list[dict]:
+    try:
+        init_background_tasks_db()
+        conn = _background_task_db_conn()
+        try:
+            rows = conn.execute(
+                '''
+                SELECT payload_json
+                FROM background_tasks
+                WHERE kind = ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                ''',
+                (kind, max(1, int(limit or 50))),
+            ).fetchall()
+            items = []
+            for row in rows:
+                try:
+                    payload = json.loads(row['payload_json'])
+                except Exception:
+                    continue
+                if isinstance(payload, dict):
+                    items.append(payload)
+            if items:
+                return items
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+    items = []
+    base_dir = _background_task_store_dir(kind)
+    for path in base_dir.glob('*.json'):
+        try:
+            payload = json.loads(path.read_text(encoding='utf-8'))
+            if isinstance(payload, dict):
+                items.append(payload)
+        except Exception:
+            continue
+
+    def _sort_key(item: dict):
+        return (
+            item.get('updated_at')
+            or item.get('created_at')
+            or item.get('started_at')
+            or item.get('completed_at')
+            or ''
+        )
+
+    items.sort(key=_sort_key, reverse=True)
+    return items[: max(1, int(limit or 50))]
+
+
+def _background_task_recent_logs(kind: str, limit: int = 200) -> list[dict]:
+    try:
+        init_background_tasks_db()
+        conn = _background_task_db_conn()
+        try:
+            rows = conn.execute(
+                '''
+                SELECT entry_json
+                FROM background_task_logs
+                WHERE kind = ?
+                ORDER BY ts DESC
+                LIMIT ?
+                ''',
+                (kind, max(1, int(limit or 200))),
+            ).fetchall()
+            entries = []
+            for row in reversed(rows):
+                try:
+                    payload = json.loads(row['entry_json'])
+                except Exception:
+                    continue
+                if isinstance(payload, dict):
+                    entries.append(payload)
+            if entries:
+                return entries
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+    entries = []
+    base_dir = _background_task_store_dir(kind)
+    files = sorted(base_dir.glob('*.log.jsonl'), key=lambda p: p.stat().st_mtime, reverse=True)
+    for path in files:
+        try:
+            with path.open('r', encoding='utf-8') as handle:
+                lines = handle.readlines()
+        except Exception:
+            continue
+        for line in reversed(lines):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(payload, dict):
+                entries.append(payload)
+            if len(entries) >= limit:
+                break
+        if len(entries) >= limit:
+            break
+    entries.reverse()
+    return entries
+
+
+wave_fw_tasks: dict = {}
+wave_fw_log_queues: dict = {}
+_WAVE_FW_UPLOAD_DIR = None   # resolved lazily to avoid import-time secure_data dependency
+WAVE_FW_FILE_TTL_SECONDS = max(_TASK_TTL_SECONDS, 7200)  # must be >= _TASK_TTL_SECONDS
+WAVE_FW_MAX_WORKERS = int(os.getenv('WAVE_FW_MAX_WORKERS', '3'))
+HAS_WAVE_FW = bool(os.getenv('WAVE_AP_PASS', '').strip())
+
+
+def _wave_fw_upload_dir():
+    global _WAVE_FW_UPLOAD_DIR
+    if _WAVE_FW_UPLOAD_DIR is None:
+        _WAVE_FW_UPLOAD_DIR = ensure_secure_data_dir() / 'wave_fw_uploads'
+        _WAVE_FW_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    return _WAVE_FW_UPLOAD_DIR
+
+
+_WAVE_FW_TASK_STORE_DIR = None
+
+
+def _wave_fw_task_store_dir():
+    global _WAVE_FW_TASK_STORE_DIR
+    if _WAVE_FW_TASK_STORE_DIR is None:
+        _WAVE_FW_TASK_STORE_DIR = _background_task_store_dir('wave_fw')
+    return _WAVE_FW_TASK_STORE_DIR
+
+
+def _wave_fw_persist_task(task_id: str, extra: dict = None):
+    """Write task header to disk so other workers can find it."""
+    task = dict(wave_fw_tasks.get(task_id, {}))
+    if extra:
+        task.update(extra)
+    task.pop('results', None)  # don't write huge results arrays
+    _background_task_persist('wave_fw', task_id, task)
+
+
+def _wave_fw_load_task_from_disk(task_id: str) -> dict | None:
+    """Read task header from disk (cross-worker fallback)."""
+    return _background_task_load('wave_fw', task_id)
+
+
+def _wave_fw_signal_abort(task_id: str):
+    """Write an abort signal file readable by any worker."""
+    _background_task_signal_abort('wave_fw', task_id)
+
+
+def _wave_fw_check_abort_signal(task_id: str) -> bool:
+    """Check whether an abort signal file exists for this task."""
+    return _background_task_has_abort('wave_fw', task_id)
+
+
+def _wave_fw_server_firmware_dir():
+    """Path where bundled Wave .bin files live inside the container (/opt/firmware/wave)."""
+    import pathlib as _pl
+    return _pl.Path(os.getenv('FIRMWARE_PATH', '/opt/firmware')) / 'wave'
+
+
+def _wave_fw_normalize_model(model: str) -> str:
+    """Normalize UISP model and firmware file names for family matching."""
+    import re as _re
+    return _re.sub(r'[^a-z0-9]', '', (model or '').lower())
+
+
+def _wave_fw_model_family(model: str) -> str:
+    """Return 'nano' for Wave Nano/LR/Pico, 'ap' for Wave AP/Micro/PRO."""
+    m = _wave_fw_normalize_model(model)
+    if any(k in m for k in ('wavenano', 'wavelr', 'wavelongrange', 'wavepico', 'nano', 'lr', 'wlr', 'pico')):
+        return 'nano'
+    if any(k in m for k in ('waveapmicro', 'waveappro', 'waveap', 'apmicro', 'micro', 'pro')):
+        return 'ap'
+    return 'ap'
+
+
+def _wave_fw_family_label(family: str) -> str:
+    return 'Nano/LR/Pico' if family == 'nano' else 'AP/Micro/PRO'
+
+
+def _wave_fw_version_tuple(v: str):
+    """Parse '3.4.0' → (3, 4, 0). Returns (0, 0, 0) on failure."""
+    import re as _re
+    m = _re.search(r'(\d+)\.(\d+)\.(\d+)', v or '')
+    return tuple(int(x) for x in m.groups()) if m else (0, 0, 0)
+
+
+def _wave_fw_normalize_version(v: str) -> str:
+    """Extract X.Y.Z from a version string, stripping leading 'v', build suffixes, etc.
+    '4.1.0.1234', 'v4.1.0-beta', '4.1.0+hotfix' → '4.1.0'.
+    Returns the original stripped string if no X.Y.Z match (preserves intent)."""
+    import re as _re
+    m = _re.search(r'v?(\d+\.\d+\.\d+)', v or '')
+    return m.group(1) if m else (v or '').strip()
+
+
+def _wave_fw_version_below(v: str, minimum: str) -> bool:
+    """Return True if version v is strictly below minimum.
+    Returns False if minimum is empty or if v cannot be parsed (let upgrade proceed)."""
+    if not minimum:
+        return False
+    vt = _wave_fw_version_tuple(v)
+    if vt == (0, 0, 0) and not (v or '').strip().startswith('0.0.0'):
+        return False  # Unparseable active version — don't silently block
+    return vt < _wave_fw_version_tuple(minimum)
+
+
+def _wave_fw_classify_role(device: dict) -> str:
+    """Return 'ap', 'station', 'backhaul', or 'unknown' from a UISP device dict."""
+    import re as _re
+    name = (device.get('name') or '').strip()
+    upper_name = name.upper()
+    if upper_name.startswith('BH-'):
+        return 'backhaul'
+    if upper_name.startswith('AP-'):
+        return 'ap'
+    role = _re.sub(r'[^a-z]', '', (device.get('role') or '').lower())
+    if 'station' in role:
+        return 'station'
+    if role in ('ap', 'accesspoint', 'wirelessap') or role.endswith('ap'):
+        return 'ap'
+    # Fallback: check name for station/SM patterns only when it wasn't explicitly named.
+    name = name.lower()
+    if any(k in name for k in ('station', '-sm-', '/sm/', ' sm ')):
+        return 'station'
+    return 'station' if name else 'unknown'
+
+
+def _wave_fw_select_firmware(model: str, firmware_dir) -> 'pathlib.Path | None':
+    """Pick the right server-side .bin file for a given device model."""
+    import pathlib as _pl
+    fdir = _pl.Path(firmware_dir)
+    if not fdir.exists():
+        return None
+    bin_files = sorted(fdir.glob('*.bin'))
+    if not bin_files:
+        return None
+    if len(bin_files) == 1:
+        return bin_files[0]
+    family = _wave_fw_model_family(model)
+    nano_keywords = ('wavenanolrpico', 'nanolrpico', 'wavenano', 'wavelr', 'wavelongrange', 'wavepico', 'nano', 'lr', 'pico')
+    ap_keywords = ('waveapmicropro', 'apmicropro', 'waveapmicro', 'waveappro', 'waveap', 'apmicro', 'micro', 'pro')
+    for f in bin_files:
+        name_lower = _wave_fw_normalize_model(f.name)
+        if family == 'nano' and any(k in name_lower for k in nano_keywords):
+            return f
+        if family == 'ap' and any(k in name_lower for k in ap_keywords):
+            return f
+    return bin_files[0]  # fallback
+
+
+def _purge_stale_tasks(tasks_dict, log_queues_dict):
+    """Remove completed/aborted tasks older than _TASK_TTL_SECONDS to prevent OOM."""
+    cutoff = datetime.utcnow().isoformat() + 'Z'
+    to_delete = []
+    for tid, task in list(tasks_dict.items()):
+        status = task.get('status', '')
+        if status not in ('completed', 'aborted', 'failed'):
+            continue
+        completed_at = task.get('completed_at')
+        if not completed_at:
+            continue
+        try:
+            age = (datetime.utcnow() - datetime.fromisoformat(completed_at.rstrip('Z'))).total_seconds()
+            if age > _TASK_TTL_SECONDS:
+                to_delete.append(tid)
+        except Exception:
+            pass
+    for tid in to_delete:
+        tasks_dict.pop(tid, None)
+        log_queues_dict.pop(tid, None)
+
+
 def _aviat_loading_check_loop():
     while True:
+        try:
+            _purge_stale_tasks(aviat_tasks, aviat_log_queues)
+        except Exception:
+            pass
         if not HAS_AVIAT:
             time.sleep(AVIAT_LOADING_CHECK_INTERVAL)
             continue
@@ -1352,6 +2219,7 @@ def _aviat_resume_remaining_tasks(entry, callback=None):
 
 def _aviat_activate_entries(task_id, to_activate, username=None):
     aviat_tasks[task_id]['status'] = 'running'
+    _background_task_persist('aviat', task_id, aviat_tasks.get(task_id))
 
     def log_callback(message, level):
         _aviat_broadcast_log(message, level, task_id=task_id)
@@ -1442,9 +2310,11 @@ def _aviat_activate_entries(task_id, to_activate, username=None):
                     "targetVersion": res_dict.get("target_version") or _aviat_target_version(entry),
                 })
                 _aviat_save_shared_queue()
+            _background_task_persist('aviat', task_id, aviat_tasks.get(task_id))
 
     aviat_tasks[task_id]['status'] = 'completed'
     _aviat_save_shared_queue()
+    _background_task_persist('aviat', task_id, aviat_tasks.get(task_id))
     if task_id in aviat_log_queues:
         aviat_log_queues[task_id].put(None)
 
@@ -1462,17 +2332,22 @@ def _aviat_software_state(client) -> str:
 
 def _aviat_auto_activate_loop():
     while True:
-        time.sleep(AVIAT_AUTO_ACTIVATE_POLL)
-        if not AVIAT_AUTO_ACTIVATE:
-            continue
-        if not HAS_AVIAT:
-            continue
-        now = datetime.now()
-        if not (2 <= now.hour < 5):
-            continue
-        if not aviat_scheduled_queue:
-            continue
-        if not aviat_activation_lock.acquire(blocking=False):
+        try:
+            time.sleep(AVIAT_AUTO_ACTIVATE_POLL)
+            if not AVIAT_AUTO_ACTIVATE:
+                continue
+            if not HAS_AVIAT:
+                continue
+            now = datetime.now()
+            if not (2 <= now.hour < 5):
+                continue
+            if not aviat_scheduled_queue:
+                continue
+            if not aviat_activation_lock.acquire(blocking=False):
+                continue
+        except Exception as _pre_exc:
+            print(f"[AVIAT] Auto-activate loop pre-check error (continuing): {_pre_exc}")
+            time.sleep(AVIAT_AUTO_ACTIVATE_POLL)
             continue
         try:
             to_activate = []
@@ -2040,7 +2915,7 @@ def get_enterprise_device_profile(device_name: str):
         return ENTERPRISE_DEVICE_PROFILES[normalized].copy()
     model_key = resolve_routerboard_model_key(device_name)
     if model_key:
-        series = (ROUTERBOARD_MODELS.get(model_key, {}).get('series') or '').lower()
+        series = (ROUTERBOARD_INTERFACES.get(model_key, {}).get('series') or '').lower()
         if series in ENTERPRISE_DEVICE_PROFILES:
             return ENTERPRISE_DEVICE_PROFILES[series].copy()
     return ENTERPRISE_DEVICE_PROFILES['rb5009'].copy()
@@ -2051,7 +2926,7 @@ def get_mikrotik_identity_prefix(device_name: str, compact: bool = False) -> str
     if normalized not in ENTERPRISE_DEVICE_PROFILES:
         model_key = resolve_routerboard_model_key(device_name)
         if model_key:
-            normalized = (ROUTERBOARD_MODELS.get(model_key, {}).get('series') or '').lower() or normalized
+            normalized = (ROUTERBOARD_INTERFACES.get(model_key, {}).get('series') or '').lower() or normalized
 
     family_tokens = {
         'ccr1036': 'MTCCR1036',
@@ -2100,7 +2975,94 @@ def _extract_used_physical_interfaces(config_text, source_device):
     return physical
 
 
-def analyze_nextlink_port_mapping(config_text, source_device, target_device):
+def _extract_physical_interface_references(config_text):
+    refs = []
+    patterns = [
+        r'\bdefault-name=([^\s\]]+)',
+        r'\binterface=([^\s,]+)',
+        r'\bin-interface=([^\s,]+)',
+        r'\bout-interface=([^\s,]+)',
+        r'\binterfaces=([^\s]+)',
+        r'\bslaves=([^\s]+)',
+    ]
+    for pattern in patterns:
+        for match in re.finditer(pattern, config_text or '', re.MULTILINE):
+            raw = (match.group(1) or '').strip().strip('"')
+            if not raw:
+                continue
+            for token in [part.strip().strip('"') for part in raw.split(',') if part.strip()]:
+                if re.fullmatch(r'(?:ether\d+|sfp\d+(?:-\d+)?|sfp-sfpplus\d+|sfp28-\d+|qsfpplus\d+-\d+|qsfp28-\d+-\d+|qsfp\d+(?:-\d+)?|combo\d+)', token):
+                    refs.append(token)
+    return refs
+
+
+def audit_target_interface_consistency(config_text, target_device):
+    if target_device not in ROUTERBOARD_INTERFACES:
+        return {
+            'valid': False,
+            'target_device': target_device,
+            'invalid_interfaces': [],
+            'invalid_reference_count': 0,
+            'warnings': ['Unknown target device'],
+        }
+    target_ports = set(_all_device_ports(target_device))
+    invalid = sorted({port for port in _extract_physical_interface_references(config_text) if port not in target_ports})
+    return {
+        'valid': len(invalid) == 0,
+        'target_device': target_device,
+        'target_ports': sorted(target_ports, key=_port_sort_key),
+        'invalid_interfaces': invalid,
+        'invalid_reference_count': len(invalid),
+        'warnings': [] if not invalid else [f"Config references ports not present on {target_device}: {', '.join(invalid[:10])}"],
+    }
+
+
+def _set_target_qsfp_state(config_text, target_device, allow_qsfp_ports):
+    if target_device != 'CCR2216-1G-12XS-2XQ':
+        return config_text
+
+    qsfp_ports = ['qsfp28-1-1', 'qsfp28-2-1']
+    lines = (config_text or '').splitlines()
+    out_lines = []
+    in_ethernet_section = False
+    seen_ports = set()
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('/'):
+            in_ethernet_section = stripped == '/interface ethernet'
+            out_lines.append(line)
+            continue
+        if in_ethernet_section:
+            matched_port = next((port for port in qsfp_ports if re.search(rf'\bdefault-name={re.escape(port)}\b', line)), None)
+            if matched_port:
+                seen_ports.add(matched_port)
+                if allow_qsfp_ports:
+                    out_lines.append(line)
+                else:
+                    out_lines.append(f"set [ find default-name={matched_port} ] disabled=yes")
+                continue
+        out_lines.append(line)
+
+    if not allow_qsfp_ports:
+        desired_lines = [f"set [ find default-name={port} ] disabled=yes" for port in qsfp_ports if port not in seen_ports]
+        if desired_lines:
+            try:
+                ethernet_idx = next(i for i, line in enumerate(out_lines) if line.strip() == '/interface ethernet')
+            except StopIteration:
+                ethernet_idx = None
+            if ethernet_idx is None:
+                out_lines.extend(['/interface ethernet', *desired_lines])
+            else:
+                insert_at = ethernet_idx + 1
+                for desired in desired_lines:
+                    out_lines.insert(insert_at, desired)
+                    insert_at += 1
+
+    return '\n'.join(out_lines)
+
+
+def analyze_nextlink_port_mapping(config_text, source_device, target_device, allow_qsfp_ports=None):
     """
     Analyze source interfaces against Nextlink target port policy and build a deterministic map.
 
@@ -2124,6 +3086,8 @@ def analyze_nextlink_port_mapping(config_text, source_device, target_device):
     config_text = config_text or ''
     source_specs = ROUTERBOARD_INTERFACES[source_device]
     target_specs = ROUTERBOARD_INTERFACES[target_device]
+    if allow_qsfp_ports is None:
+        allow_qsfp_ports = target_device != 'CCR2216-1G-12XS-2XQ'
     source_mgmt = source_specs.get('management_port', 'ether1')
     target_mgmt = target_specs.get('management_port', 'ether1')
     source_ports = set(_all_device_ports(source_device))
@@ -2365,7 +3329,8 @@ def analyze_nextlink_port_mapping(config_text, source_device, target_device):
         if family_name != primary_family_name:
             secondary_ports.extend(family_ports)
     ordered_policy_ports = primary_family_ports + secondary_ports
-    qsfp_ports = sorted([p for p in target_ports if p.startswith('qsfp')], key=_port_sort_key)
+    all_qsfp_ports = sorted([p for p in target_ports if p.startswith('qsfp')], key=_port_sort_key)
+    qsfp_ports = list(all_qsfp_ports) if allow_qsfp_ports else []
 
     switch_pool = ordered_policy_ports[0:2]
     reserved_pool = ordered_policy_ports[2:3]
@@ -2517,6 +3482,8 @@ def analyze_nextlink_port_mapping(config_text, source_device, target_device):
             'radio_ports': radio_pool,
             'overflow_ports': overflow_pool,
             'primary_family': primary_family_name,
+            'allow_qsfp_ports': bool(allow_qsfp_ports),
+            'qsfp_ports': all_qsfp_ports,
         },
         'manual_review_required': manual_review_required,
     }
@@ -2617,7 +3584,7 @@ def find_best_target_port(source_port, source_type, target_device, used_ports):
     
     return None
 
-def migrate_interface_config(config_text, interface_map):
+def migrate_interface_config(config_text, interface_map, source_device=None, target_device=None):
     """
     Migrate all interface-related configuration
     
@@ -2649,6 +3616,33 @@ def migrate_interface_config(config_text, interface_map):
 
     for placeholder, new_interface in placeholders.items():
         migrated_config = migrated_config.replace(placeholder, new_interface)
+
+    # Remove stale ethernet defaults for source-only ports that cannot exist on the target.
+    # This avoids outputs like `default-name=sfp1` on targets such as CCR2004/CCR2216.
+    if source_device in ROUTERBOARD_INTERFACES and target_device in ROUTERBOARD_INTERFACES:
+        source_ports = set(_all_device_ports(source_device))
+        target_ports = set(_all_device_ports(target_device))
+        stale_source_ports = sorted(
+            port for port in source_ports
+            if port not in target_ports and port not in interface_map
+        )
+        if stale_source_ports:
+            stale_patterns = [
+                re.compile(rf'\bdefault-name={re.escape(port)}\b')
+                for port in stale_source_ports
+            ]
+            lines = []
+            in_ethernet_section = False
+            for line in migrated_config.splitlines():
+                stripped = line.strip()
+                if stripped.startswith('/'):
+                    in_ethernet_section = stripped == '/interface ethernet'
+                    lines.append(line)
+                    continue
+                if in_ethernet_section and any(pattern.search(line) for pattern in stale_patterns):
+                    continue
+                lines.append(line)
+            migrated_config = '\n'.join(lines)
     
     return migrated_config
 
@@ -2662,49 +3656,81 @@ def detect_device_from_config(config_text):
     3. Board name in comments
     """
     import re
+
+    text = str(config_text or "")
+    if not text.strip():
+        return None
+    text_lower = text.lower()
+
+    # Prefer explicit model metadata from RouterOS exports.
+    explicit_patterns = [
+        r'(?mi)^\s*#\s*model\s*=\s*([^\r\n#]+)',
+        r'(?mi)^\s*#\s*board-name\s*:\s*([^\r\n#]+)',
+        r'(?mi)^\s*#\s*board-name\s*=\s*([^\r\n#]+)',
+    ]
+    for pattern in explicit_patterns:
+        match = re.search(pattern, text)
+        if match:
+            resolved = resolve_routerboard_model_key(match.group(1).strip())
+            if resolved in ROUTERBOARD_INTERFACES:
+                return resolved
+
+    # Handle common identity patterns like RTR-MT1072-AR1 or MTRB5009-FOO.
+    identity_match = re.search(
+        r'(?mi)^\s*set\s+name=(?:"([^"]+)"|([^\s\r\n]+))',
+        text,
+    )
+    if identity_match:
+        identity = (identity_match.group(1) or identity_match.group(2) or "").strip()
+        alias_patterns = [
+            r'\bmt(ccr\d{4}|rb\d{4})\b',
+            r'\b(ccr\d{4}|rb\d{4})\b',
+        ]
+        for pattern in alias_patterns:
+            alias_match = re.search(pattern, identity, re.IGNORECASE)
+            if alias_match:
+                resolved = resolve_routerboard_model_key(alias_match.group(1))
+                if resolved in ROUTERBOARD_INTERFACES:
+                    return resolved
     
-    # Try to find explicit device model mentions
+    # Try to find explicit device model mentions anywhere, case-insensitive.
     for model in ROUTERBOARD_INTERFACES.keys():
-        if model in config_text:
+        if model.lower() in text_lower:
             return model
     
     # Detect by interface pattern
     # CCR2004-1G-12S+2XS has sfp-sfpplus1-12 and sfp28-1-2
-    if 'sfp-sfpplus12' in config_text and 'sfp28-' in config_text:
+    if 'sfp-sfpplus12' in text and 'sfp28-' in text:
         return 'CCR2004-1G-12S+2XS'
     
     # CCR2004-16G-2S+ has ether1-16 and sfp-sfpplus1-2
-    if 'ether16' in config_text and 'sfp-sfpplus2' in config_text and 'sfp-sfpplus3' not in config_text:
+    if 'ether16' in text and 'sfp-sfpplus2' in text and 'sfp-sfpplus3' not in text:
         return 'CCR2004-16G-2S+'
     
     # CCR1036-12G-4S has ether1-12 and sfp1-4
-    if 'ether12' in config_text and 'sfp4' in config_text and 'sfp-sfpplus' not in config_text:
+    if 'ether12' in text and 'sfp4' in text and 'sfp-sfpplus' not in text:
         return 'CCR1036-12G-4S'
     
     # CCR2116-12G-4S+ has ether1-12 and sfp-sfpplus1-4
-    if 'ether12' in config_text and 'sfp-sfpplus4' in config_text and 'sfp-sfpplus5' not in config_text:
+    if 'ether12' in text and 'sfp-sfpplus4' in text and 'sfp-sfpplus5' not in text:
         return 'CCR2116-12G-4S+'
 
     # RB1009UG+S+ has ether1-9 and a single SFP+/combo port
-    if ('RB1009' in config_text or 'MT1009' in config_text or
-            ('ether9' in config_text and 'sfp-sfpplus1' in config_text and 'ether10' not in config_text)):
+    if ('rb1009' in text_lower or 'mt1009' in text_lower or
+            ('ether9' in text and ('sfp-sfpplus1' in text or 'combo1' in text) and 'ether10' not in text)):
         return 'RB1009UG+S+'
     
     # CCR2216 has sfp28-1 through sfp28-12
-    if 'sfp28-12' in config_text:
+    if 'sfp28-12' in text:
         return 'CCR2216-1G-12XS-2XQ'
 
     # RB5009UG+S+ has ether1-10 and sfp-sfpplus1
-    if 'RB5009' in config_text or ('ether10' in config_text and 'sfp-sfpplus1' in config_text and 'ether11' not in config_text):
+    if 'rb5009' in text_lower or 'mt5009' in text_lower or ('ether10' in text and 'sfp-sfpplus1' in text and 'ether11' not in text):
         return 'RB5009UG+S+'
 
     # RB2011UiAS has ether1-10 and sfp1
-    if 'RB2011' in config_text or 'MT2011' in config_text or ('ether10' in config_text and 'sfp1' in config_text and 'sfp2' not in config_text and 'sfp-sfpplus' not in config_text):
+    if 'rb2011' in text_lower or 'mt2011' in text_lower or ('ether10' in text and 'sfp1' in text and 'sfp2' not in text and 'sfp-sfpplus' not in text):
         return 'RB2011UiAS'
-
-    # RB1009UG+S+ has ether1-9 and sfp-sfpplus1 (combo)
-    if 'RB1009' in config_text or 'MT1009' in config_text or ('ether9' in config_text and 'sfp-sfpplus1' in config_text and 'ether10' not in config_text):
-        return 'RB1009UG+S+'
     
     return None
 
@@ -3622,12 +4648,124 @@ def ensure_chat_db():
             print(f"[CHAT] Error initializing database: {e}")
             _chat_db_initialized = True  # Mark as attempted to prevent loops
 
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = (os.getenv(name) or "").strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "y", "on"}
+
+
+def _env_int(name: str, default: int, minimum: Optional[int] = None) -> int:
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        value = default
+    else:
+        try:
+            value = int(raw)
+        except ValueError:
+            value = default
+    if minimum is not None:
+        value = max(value, minimum)
+    return value
+
+
+def _parse_cors_policy():
+    raw = (os.getenv("NOC_CORS_ORIGINS") or "").strip()
+    if raw:
+        origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+    else:
+        # Restrict cross-origin by default to local development origins.
+        origins = [
+            "http://localhost",
+            "http://127.0.0.1",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "null",
+        ]
+
+    deduped = []
+    for origin in origins:
+        if origin not in deduped:
+            deduped.append(origin)
+
+    allow_credentials = _env_flag("NOC_CORS_ALLOW_CREDENTIALS", True)
+    if "*" in deduped and allow_credentials:
+        # Browsers reject wildcard + credentials and this is an unsafe configuration.
+        allow_credentials = False
+        print("[SECURITY] Disabled credentialed CORS because NOC_CORS_ORIGINS includes '*'.")
+
+    return deduped, allow_credentials
+
+
+_CORS_ORIGINS, _CORS_ALLOW_CREDENTIALS = _parse_cors_policy()
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
-CORS(app)  # Enable CORS for local HTML file access
+CORS(
+    app,
+    origins=_CORS_ORIGINS,
+    supports_credentials=_CORS_ALLOW_CREDENTIALS,
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-API-Key",
+        "X-Key-Id",
+        "X-Timestamp",
+        "X-Nonce",
+        "X-Signature",
+        "Idempotency-Key",
+    ],
+)
+
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+limiter = Limiter(get_remote_address, app=app, default_limits=[], storage_uri="memory://")
+
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    return jsonify({'error': 'Too many requests. Please wait before trying again.'}), 429
+
+@app.errorhandler(400)
+def bad_request_handler(e):
+    return jsonify({'error': str(e.description) if hasattr(e, 'description') else 'Bad request'}), 400
+
+@app.errorhandler(401)
+def unauthorized_handler(e):
+    return jsonify({'error': 'Authentication required'}), 401
+
+@app.errorhandler(403)
+def forbidden_handler(e):
+    return jsonify({'error': 'Forbidden'}), 403
+
+@app.errorhandler(404)
+def not_found_handler(e):
+    return jsonify({'error': 'Not found'}), 404
+
+@app.errorhandler(405)
+def method_not_allowed_handler(e):
+    return jsonify({'error': 'Method not allowed'}), 405
+
+@app.errorhandler(415)
+def unsupported_media_handler(e):
+    return jsonify({'error': 'Unsupported media type — send Content-Type: application/json'}), 415
+
+@app.errorhandler(500)
+def internal_error_handler(e):
+    try:
+        print(
+            f"[FLASK][500] method={request.method} path={request.path} "
+            f"remote={request.remote_addr} error={e}"
+        )
+    except Exception:
+        pass
+    return jsonify({'error': 'Internal server error'}), 500
 
 # Trust X-Forwarded-* headers from the reverse proxy so request.host_url
-# returns the real public URL (e.g. https://noc-configmaker.nxlink.com/)
+# returns the real public URL (e.g. https://nexus.nxlink.com/)
 # instead of http://127.0.0.1:5000/.  Required for OAuth redirect_uri.
 from werkzeug.middleware.proxy_fix import ProxyFix
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
@@ -3637,13 +4775,13 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 @app.route("/", methods=["GET"])
 @app.route("/app", methods=["GET"])
 @app.route("/tool", methods=["GET"])
-@app.route("/NOC-configMaker.html", methods=["GET"])
+@app.route("/nexus.html", methods=["GET"])
 def serve_ui():
     # Try to find HTML file in multiple locations
     possible_paths = [
-        Path.cwd() / "NOC-configMaker.html",
-        Path.cwd() / "vm_deployment" / "NOC-configMaker.html",
-        Path(__file__).parent / "NOC-configMaker.html",
+        Path.cwd() / "nexus.html",
+        Path.cwd() / "vm_deployment" / "nexus.html",
+        Path(__file__).parent / "nexus.html",
     ]
     
     for html_path in possible_paths:
@@ -3651,7 +4789,7 @@ def serve_ui():
             return send_file(str(html_path), mimetype='text/html')
     
     # Fallback: return error if file not found
-    return jsonify({'error': 'NOC-configMaker.html not found'}), 404
+    return jsonify({'error': 'nexus.html not found'}), 404
 
 # Serve login page
 @app.route("/login", methods=["GET"])
@@ -3739,7 +4877,15 @@ def log_request(response):
     # Only log legitimate requests (optional - can be removed for cleaner logs)
     # if response.status_code < 400:
     #     app.logger.info(f'{client_ip} - {request.method} {request.path} - {response.status_code}')
-    
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    response.headers.setdefault('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+
+    forwarded_proto = (request.headers.get('X-Forwarded-Proto') or '').lower()
+    if request.is_secure or forwarded_proto == 'https':
+        response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+
     return response
 
 # Hot-reload endpoint (now that app exists)
@@ -3774,6 +4920,9 @@ def reload_training():
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
+    _, _auth_err = _authenticate_request_context()
+    if _auth_err:
+        return _auth_err
     try:
         data = request.get_json(force=True)
         msgs = data.get('messages')
@@ -3829,6 +4978,9 @@ def chat():
 @app.route('/api/chat/history/<session_id>', methods=['GET'])
 def get_chat_history_endpoint(session_id):
     """Get chat history for a session"""
+    _, _auth_err = _authenticate_request_context()
+    if _auth_err:
+        return _auth_err
     try:
         limit = request.args.get('limit', 20, type=int)
         history = get_chat_history(session_id, limit)
@@ -3850,6 +5002,9 @@ def get_chat_history_endpoint(session_id):
 @app.route('/api/chat/context/<session_id>', methods=['GET'])
 def get_user_context_endpoint(session_id):
     """Get user context and preferences"""
+    _, _auth_err = _authenticate_request_context()
+    if _auth_err:
+        return _auth_err
     try:
         context = get_user_context(session_id)
         return jsonify({"success": True, "context": context})
@@ -3859,6 +5014,9 @@ def get_user_context_endpoint(session_id):
 @app.route('/api/chat/context/<session_id>', methods=['POST'])
 def update_user_context_endpoint(session_id):
     """Update user context and preferences"""
+    _, _auth_err = _authenticate_request_context()
+    if _auth_err:
+        return _auth_err
     try:
         data = request.get_json(force=True)
         preferred_model = data.get('preferred_model')
@@ -3872,6 +5030,9 @@ def update_user_context_endpoint(session_id):
 @app.route('/api/chat/export/<session_id>', methods=['GET'])
 def export_chat_history(session_id):
     """Export chat history as JSON"""
+    _, _auth_err = _authenticate_request_context()
+    if _auth_err:
+        return _auth_err
     try:
         history = get_chat_history(session_id, limit=1000)
         
@@ -3910,7 +5071,7 @@ def web_chat():
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>NOC Config Maker - AI Chat</title>
+  <title>NEXUS - AI Chat</title>
   <style>
     body{font-family:Segoe UI,Arial,sans-serif;background:#0f1115;color:#eee;margin:0;padding:0}
     .wrap{ %(wrap_extra)s padding:20px; background:%(bg)s; border-radius:%(radius)s; box-shadow:%(shadow)s; z-index:99999; position:relative }
@@ -3989,7 +5150,7 @@ def v1_models():
     return jsonify({
         "object": "list",
         "data": [
-            {"id": model_name, "object": "model", "created": int(datetime.utcnow().timestamp()), "owned_by": "noc-configmaker"}
+            {"id": model_name, "object": "model", "created": int(datetime.utcnow().timestamp()), "owned_by": "nexus"}
         ]
     })
 
@@ -9307,10 +10468,26 @@ Output (copy every line, update device model to {target_device.upper()}, preserv
         return jsonify({'error': str(e)}), 500
 
 # ========================================
+# AUTH DECORATOR (used by endpoints below and above)
+# ========================================
+
+def require_auth(f):
+    """Decorator to require authentication"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        _, error_response = _authenticate_request_context()
+        if error_response:
+            return error_response
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+# ========================================
 # ENDPOINT 4: Apply Compliance to Config
 # ========================================
 
 @app.route('/api/apply-compliance', methods=['POST'])
+@require_auth
 def apply_compliance():
     """
     Apply RFC-09-10-25 compliance standards to a RouterOS configuration.
@@ -9352,28 +10529,26 @@ def apply_compliance():
                 }
             })
         
-        # Extract loopback IP from config if not provided
+        # Extract loopback IP robustly if not provided.
         if not loopback_ip:
-            loopback_match = re.search(r'/ip address\s+add address=([0-9.]+/[0-9]+)\s+interface=loop0', config, re.IGNORECASE)
-            if loopback_match:
-                loopback_ip = loopback_match.group(1)
-            else:
-                # Try alternative pattern
-                loopback_match = re.search(r'interface=loop0.*?address=([0-9.]+/[0-9]+)', config, re.IGNORECASE)
-                if loopback_match:
-                    loopback_ip = loopback_match.group(1)
-        
-        if not loopback_ip:
-            loopback_ip = "10.0.0.1/32"  # Default fallback
+            loopback_ip = _extract_loopback_ip_cidr(config, default="10.0.0.1/32")
         
         print(f"[COMPLIANCE] Applying RFC-09-10-25 compliance to configuration (additive, non-destructive)...")
         
         # Get compliance blocks (GitLab-first, hardcoded fallback)
         _lip = (loopback_ip or "10.0.0.1/32").split("/")[0]
-        compliance_blocks = _get_dynamic_compliance_blocks(loopback_ip)
+        compliance_blocks, compliance_source = _get_dynamic_compliance_blocks(loopback_ip, return_source=True)
+        raw_text = _get_raw_gitlab_compliance_text(_lip)
         
-        # Inject compliance into config (additive, preserves existing configs)
-        compliant_config = inject_compliance_blocks(config, compliance_blocks, loopback_ip=_lip)
+        # Inject compliance into config. In "apply compliance" mode we always
+        # refresh from current source-of-truth to replace stale blocks.
+        compliant_config = inject_compliance_blocks(
+            config,
+            compliance_blocks,
+            loopback_ip=_lip,
+            raw_text_override=raw_text,
+            force_refresh=True,
+        )
         
         # Validate compliance
         compliance_validation = validate_compliance(compliant_config)
@@ -9386,7 +10561,8 @@ def apply_compliance():
         return jsonify({
             'success': True,
             'config': compliant_config,
-            'compliance': compliance_validation
+            'compliance': compliance_validation,
+            'compliance_source': compliance_source,
         })
         
     except Exception as e:
@@ -9553,7 +10729,7 @@ def _cidr_details_gen(cidr: str) -> dict:
 
 
 app.register_blueprint(create_runtime_blueprint())
-app.register_blueprint(create_ftth_blueprint(render_ftth_config, _cidr_details_gen))
+app.register_blueprint(create_ftth_blueprint(render_ftth_config, _cidr_details_gen, require_auth))
 
 
 def _ros_quote(value: str) -> str:
@@ -9562,8 +10738,13 @@ def _ros_quote(value: str) -> str:
 
 @app.route('/api/gen-enterprise-non-mpls', methods=['POST'])
 @app.route('/api/gen-enterprise-Non-MPLS', methods=['POST'])  # Legacy UI alias
+@require_auth
 def gen_enterprise_non_mpls():
     try:
+        _tenant_ctx = _get_request_tenant_context()
+        _tenant_id = _tenant_ctx['tenant'].get('id')
+        _check_quota(_tenant_id, 'configs_generated')
+        _increment_usage(_tenant_id, 'configs_generated')
         data = request.get_json(force=True)
         device = (data.get('device') or 'RB5009').upper()
         target_version = data.get('target_version', '7.19.4')
@@ -10180,6 +11361,7 @@ def inject_compliance_blocks(
     loopback_ip: str = "10.0.0.1",
     stripped_ips_out: set = None,
     raw_text_override: str | None = None,
+    force_refresh: bool = False,
 ) -> str:
     """
     Inject compliance into a RouterOS configuration.
@@ -10229,8 +11411,17 @@ def inject_compliance_blocks(
     
     # Check if compliance section already exists (to avoid double-injection)
     if "# RFC-09-10-25 COMPLIANCE STANDARDS" in config or "RFC-09-10-25 COMPLIANCE STANDARDS" in config[-3000:]:
-        print("[COMPLIANCE] Compliance section already exists, skipping duplicate injection")
-        return config
+        if not force_refresh:
+            print("[COMPLIANCE] Compliance section already exists, skipping duplicate injection")
+            return config
+        # Force-refresh mode is used by Compliance Scanner "Apply Fix":
+        # remove the old appended compliance section and rebuild from current
+        # dynamic source of truth.
+        marker_match = re.search(r'(?m)^#\s*RFC-09-10-25 COMPLIANCE STANDARDS\s*$', config)
+        if marker_match:
+            marker_idx = marker_match.start()
+            config = config[:marker_idx].rstrip() + "\n"
+            print("[COMPLIANCE] Existing compliance section removed for dynamic refresh")
 
     # ── 0. Obtain the compliance text we will append ──
     # Get it FIRST so we can parse it for dynamic section extraction.
@@ -10336,6 +11527,271 @@ def inject_compliance_blocks(
     
     print(f"[COMPLIANCE] Injected GitLab parsed blocks compliance")
     return config.rstrip() + "\n" + compliance_section
+
+
+def _normalize_compliance_token_value(value: str, key: str = "") -> str:
+    text = str(value or "").strip()
+    if len(text) >= 2 and ((text[0] == '"' and text[-1] == '"') or (text[0] == "'" and text[-1] == "'")):
+        text = text[1:-1]
+    text = re.sub(r"\s+", " ", text.strip().lower())
+
+    # RouterOS policy/token lists are order-insensitive for compliance checks.
+    if key in {"policy", "connection-state", "service", "topics", "topic"} and "," in text:
+        parts = [p.strip() for p in text.split(",") if p.strip()]
+        if parts:
+            text = ",".join(sorted(parts))
+    return text
+
+
+def _extract_loopback_ip_cidr(config_text: str, default: str = "10.0.0.1/32") -> str:
+    """
+    Extract loopback IP CIDR from RouterOS export text.
+
+    Supports both inline and section-style exports, including lines where
+    additional keys appear between address and interface:
+      add address=10.3.0.84 comment=loop0 interface=loop0 network=10.3.0.84
+    """
+    text = str(config_text or "")
+    current_section = ""
+
+    def _extract_from_command(cmd: str) -> str | None:
+        line = str(cmd or "").strip()
+        if not line:
+            return None
+        if "address=" not in line.lower():
+            return None
+        if not re.search(r"\binterface=(loop0|loopback|lo)\b", line, flags=re.IGNORECASE):
+            return None
+        m = re.search(r"\baddress=(\d+\.\d+\.\d+\.\d+(?:/\d{1,2})?)\b", line, flags=re.IGNORECASE)
+        if not m:
+            return None
+        cidr = str(m.group(1) or "").strip()
+        if "/" not in cidr:
+            cidr = f"{cidr}/32"
+        return cidr
+
+    # Try section-aware parsing first.
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("/"):
+            if line.lower().startswith("/ip address"):
+                current_section = "/ip address"
+                inline = line[len("/ip address"):].strip()
+                if inline:
+                    found = _extract_from_command(inline)
+                    if found:
+                        return found
+                continue
+            current_section = ""
+            continue
+        if current_section == "/ip address":
+            found = _extract_from_command(line)
+            if found:
+                return found
+
+    # Fallback: broad scan over full text when section markers are unusual.
+    found = _extract_from_command(text.replace("\r", " "))
+    if found:
+        return found
+    return str(default or "10.0.0.1/32")
+
+
+def _extract_compliance_kv_tokens(line: str) -> set[str]:
+    tokens = set()
+    for match in re.finditer(r'([A-Za-z0-9_.:-]+)=("([^"\\]|\\.)*"|\[[^\]]+\]|[^\s]+)', str(line or "")):
+        key = str(match.group(1) or "").strip().lower()
+        if not key or key in {"comment", "secret", "password", "passphrase"}:
+            continue
+        value = _normalize_compliance_token_value(match.group(2) or "", key=key)
+        if value:
+            tokens.add(f"{key}={value}")
+    return tokens
+
+
+def _iter_routeros_logical_lines(config_text: str) -> list[str]:
+    """
+    Join RouterOS line continuations (trailing backslash) into logical lines.
+    """
+    logical_lines = []
+    buffer = ""
+    for raw in str(config_text or "").splitlines():
+        line = str(raw or "").rstrip()
+        if not buffer:
+            buffer = line
+        else:
+            segment = line.lstrip()
+            if buffer and not buffer.endswith((" ", "\t")) and segment and not segment.startswith((" ", "\t", "/")):
+                buffer += " "
+            buffer += segment
+
+        if buffer.endswith("\\"):
+            buffer = buffer[:-1]
+            continue
+
+        logical_lines.append(buffer)
+        buffer = ""
+
+    if buffer:
+        logical_lines.append(buffer)
+    return logical_lines
+
+
+def _iter_compliance_managed_tokens(config_text: str, managed_sections: set[str], managed_lists: set[str]) -> list[dict]:
+    rows = []
+    current_section = ""
+    managed_sections_l = {str(s or "").strip().lower() for s in (managed_sections or set()) if str(s or "").strip()}
+    managed_lists_l = {str(s or "").strip().lower() for s in (managed_lists or set()) if str(s or "").strip()}
+
+    for line in _iter_routeros_logical_lines(config_text):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or stripped.startswith(":"):
+            continue
+
+        section = current_section
+        command_text = stripped
+        if stripped.startswith("/"):
+            # Inline command style: /ip service set ... OR plain header style: /ip service
+            match = re.match(
+                r'^(/[A-Za-z0-9 _./:-]+?)(?:\s+(add|set|rem|remove|enable|disable|print|find)\b(.*))?$',
+                stripped,
+                flags=re.IGNORECASE,
+            )
+            if not match:
+                current_section = stripped.split()[0].strip().lower()
+                continue
+            section = str(match.group(1) or "").strip().lower()
+            current_section = section
+            verb = str(match.group(2) or "").strip().lower()
+            rest = str(match.group(3) or "").strip()
+            if not verb:
+                continue
+            command_text = f"{verb} {rest}".strip()
+        elif not section:
+            continue
+
+        section_l = section.lower()
+        if section_l != "/ip firewall address-list" and section_l not in managed_sections_l:
+            continue
+
+        command_l = command_text.lower()
+        if command_l.startswith(("rem ", "remove ", "print ", "find ", ":foreach")):
+            continue
+
+        tokens = _extract_compliance_kv_tokens(command_text)
+        # RouterOS export often uses positional object identifiers:
+        #   set ssh disabled=no port=22
+        # Normalize that to name=<id> so it can match compliance lines that use
+        # find/name syntax:
+        #   set [find name=ssh] disabled=no port=22
+        cmd_l = command_text.lower().strip()
+        if cmd_l.startswith("set "):
+            parts = command_text.split()
+            if len(parts) >= 2:
+                second = str(parts[1] or "").strip()
+                if second and "=" not in second and not second.startswith("["):
+                    if section_l in {
+                        "/ip service",
+                        "/system logging action",
+                        "/system logging",
+                        "/ip firewall service-port",
+                        "/snmp community",
+                        "/user group",
+                    }:
+                        tokens.add(f"name={_normalize_compliance_token_value(second)}")
+        if not tokens:
+            continue
+
+        if section_l == "/ip firewall address-list":
+            list_token = next((t for t in tokens if t.startswith("list=")), "")
+            if not list_token:
+                continue
+            list_name = list_token.split("=", 1)[1].strip().lower()
+            if managed_lists_l and list_name not in managed_lists_l:
+                continue
+
+        rows.append({"section": section_l, "tokens": tokens})
+
+    return rows
+
+
+def _evaluate_dynamic_compliance_scan(
+    config_text: str,
+    fixed_config: str,
+    managed_sections: set[str],
+    managed_lists: set[str],
+    max_checks: int = 240,
+) -> dict:
+    expected_rows = _iter_compliance_managed_tokens(fixed_config, managed_sections, managed_lists)
+    if max_checks > 0 and len(expected_rows) > max_checks:
+        expected_rows = expected_rows[:max_checks]
+    actual_rows = _iter_compliance_managed_tokens(config_text, managed_sections, managed_lists)
+
+    actual_by_section = {}
+    actual_by_section_anchor = {}
+
+    def _anchors_for(tokens: set[str]) -> set[str]:
+        anchors = set()
+        for token in (tokens or set()):
+            if token.startswith(("name=", "list=", "chain=", "topics=", "topic=")):
+                anchors.add(token)
+        return anchors
+
+    for row in actual_rows:
+        actual_by_section.setdefault(row["section"], []).append(row["tokens"])
+        for anchor in _anchors_for(row["tokens"]):
+            sec_map = actual_by_section_anchor.setdefault(row["section"], {})
+            sec_map.setdefault(anchor, set()).update(row["tokens"])
+
+    checks = []
+    missing_items = []
+    passed = 0
+    for idx, row in enumerate(expected_rows):
+        section = row["section"]
+        expected_tokens = row["tokens"]
+        candidates = actual_by_section.get(section, [])
+        is_match = any(expected_tokens.issubset(c) for c in candidates)
+        # Handle split commands on the same object: allow union-of-tokens across
+        # lines that share a stable anchor (name/list/chain/topics).
+        if not is_match:
+            expected_anchors = _anchors_for(expected_tokens)
+            if expected_anchors:
+                sec_anchors = actual_by_section_anchor.get(section, {})
+                for anchor in expected_anchors:
+                    union_tokens = sec_anchors.get(anchor, set())
+                    if union_tokens and expected_tokens.issubset(union_tokens):
+                        is_match = True
+                        break
+        if is_match:
+            passed += 1
+        label_tokens = sorted(expected_tokens)
+        short_label = ", ".join(label_tokens[:3]) if label_tokens else "(no tokens)"
+        label = f"{section}: {short_label}"
+        check = {
+            "id": f"dyn_{idx+1}",
+            "category": section,
+            "label": label[:220],
+            "severity": "hard",
+            "passed": is_match,
+        }
+        checks.append(check)
+        if not is_match:
+            missing_items.append(label[:220])
+
+    total = len(expected_rows)
+    score = round((passed / total) * 100) if total else 100
+    return {
+        "checks": checks,
+        "hard_passed": passed,
+        "hard_total": total,
+        "soft_passed": 0,
+        "soft_total": 0,
+        "score": score,
+        "compliant": (passed == total),
+        "missing_items": missing_items[:120],
+        "warnings": [],
+    }
 
 def validate_translation(source, translated, compliance_replaced_ips=None):
     """Comprehensive validation to ensure all important information is preserved.
@@ -10625,12 +12081,17 @@ def validate_tarana_config(config_text, device, routeros_version):
     return is_valid, errors, warnings
 
 @app.route('/api/gen-tarana-config', methods=['POST'])
+@require_auth
 def gen_tarana_config():
     """
     Generates and validates Tarana sector configuration with AI-powered network calculation.
     Only returns success if configuration is accurate and device-ready.
     """
     try:
+        _tenant_ctx = _get_request_tenant_context()
+        _tenant_id = _tenant_ctx['tenant'].get('id')
+        _check_quota(_tenant_id, 'configs_generated')
+        _increment_usage(_tenant_id, 'configs_generated')
         data = request.get_json(force=True)
         raw_config = data.get('config', '')
         device = data.get('device', 'ccr2004')
@@ -10858,36 +12319,2695 @@ Return the corrected configuration with proper network calculations and formatti
 # SSH CONFIG FETCH
 # ========================================
 
+def _ssh_fetch_update_task(task_id: str, **fields) -> None:
+    with ssh_fetch_tasks_lock:
+        task = ssh_fetch_tasks.get(task_id)
+        if task is None:
+            # Task may have been lost from memory (server restart / cross-worker).
+            # Recover from shared store so the update is not silently dropped.
+            stored = _background_task_load('ssh_fetch', task_id)
+            if stored:
+                ssh_fetch_tasks[task_id] = stored
+                task = ssh_fetch_tasks[task_id]
+        if task:
+            task.update(fields)
+            _background_task_persist('ssh_fetch', task_id, task)
+
+
+def _ssh_fetch_should_abort(task_id: str) -> bool:
+    with ssh_fetch_tasks_lock:
+        task = ssh_fetch_tasks.get(task_id)
+        if task and task.get('abort') is True:
+            return True
+    return _background_task_has_abort('ssh_fetch', task_id)
+
+
+def _run_mikrotik_ssh_fetch(
+    host: str,
+    ssh_username: str,
+    ssh_password: str,
+    ssh_ports: list[int],
+    command: str,
+    *,
+    should_abort=None,
+    progress_callback=None,
+):
+    try:
+        import paramiko
+    except ImportError:
+        return {'success': False, 'error': 'paramiko library not installed. Run: pip install paramiko', 'status_code': 500}
+
+    client = None
+    last_error = None
+    ports_tried = []
+    connection_errors = []
+
+    def _emit(message: str, **extra):
+        if callable(progress_callback):
+            try:
+                progress_callback(message, **extra)
+            except Exception:
+                pass
+
+    def _aborted_result():
+        return {
+            'success': False,
+            'aborted': True,
+            'error': 'SSH fetch aborted by user',
+            'status_code': 499,
+            'ports_tried': list(dict.fromkeys(ports_tried)) or list(ssh_ports),
+        }
+
+    def _close_client():
+        nonlocal client
+        if client:
+            try:
+                client.close()
+            except Exception:
+                pass
+            client = None
+
+    print(f"[SSH] Attempting connection to {host}, trying ports: {ssh_ports}")
+
+    for port in ssh_ports:
+        if callable(should_abort) and should_abort():
+            _emit('Abort requested before next port attempt', phase='aborting')
+            _close_client()
+            return _aborted_result()
+        try:
+            _emit(f'Trying SSH port {port}', phase='connecting', current_port=port)
+            print(f"[SSH] Trying port {port}...")
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            client.connect(
+                hostname=host,
+                port=port,
+                username=ssh_username,
+                password=ssh_password,
+                timeout=10,
+                banner_timeout=10,
+                auth_timeout=10
+            )
+
+            print(f"[SSH] Successfully connected on port {port}")
+            ports_tried.append(port)
+            _emit(f'Connected on port {port}', phase='connected', current_port=port)
+
+            if callable(should_abort) and should_abort():
+                _emit('Abort requested after connect', phase='aborting', current_port=port)
+                _close_client()
+                return _aborted_result()
+
+            stdin, stdout, stderr = client.exec_command(command, timeout=30)
+            channel = stdout.channel
+            channel.settimeout(1.0)
+            deadline = time.time() + 30
+            output_chunks = []
+            error_chunks = []
+            _emit('Running export command', phase='executing', current_port=port)
+
+            while True:
+                if callable(should_abort) and should_abort():
+                    _emit('Abort requested while reading command output', phase='aborting', current_port=port)
+                    try:
+                        channel.close()
+                    except Exception:
+                        pass
+                    _close_client()
+                    return _aborted_result()
+
+                drained = False
+                while channel.recv_ready():
+                    output_chunks.append(channel.recv(65535).decode('utf-8', errors='replace'))
+                    drained = True
+                while channel.recv_stderr_ready():
+                    error_chunks.append(channel.recv_stderr(65535).decode('utf-8', errors='replace'))
+                    drained = True
+
+                if channel.exit_status_ready():
+                    if not channel.recv_ready() and not channel.recv_stderr_ready():
+                        break
+
+                if time.time() > deadline:
+                    raise TimeoutError(f'Export command timed out on port {port}')
+
+                if not drained:
+                    time.sleep(0.1)
+
+            output = ''.join(output_chunks)
+            error_output = ''.join(error_chunks)
+
+            if error_output and 'error' in error_output.lower():
+                _close_client()
+                return {
+                    'success': False,
+                    'error': f'Device returned error on port {port}: {error_output[:200]}',
+                    'status_code': 500,
+                    'ports_tried': list(dict.fromkeys(ports_tried)),
+                }
+
+            if not output or not output.strip():
+                _close_client()
+                return {
+                    'success': False,
+                    'error': f'Device returned empty configuration on port {port}. Check RouterOS version and command.',
+                    'status_code': 500,
+                    'ports_tried': list(dict.fromkeys(ports_tried)),
+                }
+
+            normalized_output = normalize_line_breaks(output)
+            print(f"[SSH] Successfully fetched config from {host}:{port}")
+            _close_client()
+            return {
+                'success': True,
+                'config': normalized_output,
+                'host': host,
+                'port': port,
+                'command': command,
+                'message': f'Successfully connected on port {port}',
+                'ports_tried': list(dict.fromkeys(ports_tried)),
+                'status_code': 200,
+            }
+
+        except paramiko.AuthenticationException as e:
+            error_msg = f'SSH authentication failed on port {port}'
+            print(f"[SSH] {error_msg}: {str(e)}")
+            _close_client()
+            return {
+                'success': False,
+                'error': f'{error_msg}. Check credentials. Tried ports: {", ".join(map(str, ssh_ports))}',
+                'status_code': 401,
+                'ports_tried': list(dict.fromkeys(ports_tried)) or list(ssh_ports),
+            }
+        except paramiko.SSHException as e:
+            error_msg = f'SSH error on port {port}: {str(e)}'
+            print(f"[SSH] {error_msg}")
+            last_error = error_msg
+            connection_errors.append(f"Port {port}: {str(e)}")
+            ports_tried.append(port)
+            _close_client()
+            continue
+        except (OSError, ConnectionError, TimeoutError) as e:
+            error_msg = f'Connection error on port {port}: {str(e)}'
+            print(f"[SSH] {error_msg}")
+            last_error = error_msg
+            connection_errors.append(f"Port {port}: {str(e)}")
+            ports_tried.append(port)
+            _close_client()
+            continue
+        except Exception as e:
+            error_msg = f'Unexpected error on port {port}: {str(e)}'
+            print(f"[SSH] {error_msg}")
+            last_error = error_msg
+            connection_errors.append(f"Port {port}: {str(e)}")
+            ports_tried.append(port)
+            _close_client()
+            continue
+
+    ports_str = ', '.join(map(str, dict.fromkeys(ports_tried))) if ports_tried else ', '.join(map(str, ssh_ports))
+    error_details = '; '.join(connection_errors) if connection_errors else (last_error or "Unable to connect")
+    print(f"[SSH] All ports failed for {host}. Tried: {ports_str}. Errors: {error_details}")
+    return {
+        'success': False,
+        'error': f'Connection failed on all ports ({ports_str}). Errors: {error_details}',
+        'ports_tried': list(dict.fromkeys(ports_tried)) if ports_tried else list(ssh_ports),
+        'status_code': 502,
+    }
+
+
+_WAREHOUSE_SM_PREFERRED_FALLBACK_IPS = [
+    "192.168.0.1",
+    "192.168.0.2",
+    "169.254.1.1",
+    "169.254.1.2",
+    "192.168.1.1",
+    "192.168.1.20",
+    "10.0.0.1",
+]
+_WAREHOUSE_SM_DEFAULT_IPS = list(_WAREHOUSE_SM_PREFERRED_FALLBACK_IPS)
+_WAREHOUSE_SM_DEVICE_TYPES = ["F4600C", "F4525", "F300-13", "F300-16", "F300-25", "F300-CSM", "CN4600"]
+_WAREHOUSE_SM_MAC_RE = re.compile(r'(?i)\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b')
+_WAREHOUSE_SM_MAC_DOT_RE = re.compile(r'(?i)\b[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4}\b')
+_WAREHOUSE_SM_IP_RE = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
+_WAREHOUSE_SM_TASK_KIND = "warehouse_sm"
+_WAREHOUSE_SM_DEFAULT_ACCESS_LOCK = threading.Lock()
+_WAREHOUSE_SM_DEFAULT_ACCESS_ALIASES = set()
+_WAREHOUSE_SM_CLOSEOUT_REQUIRED = [
+    ("latitude", "Latitude"),
+    ("longitude", "Longitude"),
+    ("height_m", "Height (m)"),
+    ("azimuth_true_north", "True North Azimuth"),
+    ("tilt", "Tilt"),
+    ("ssid", "SSID"),
+    ("encryption_key", "Encryption Key"),
+    ("preferred_ap", "Preferred AP"),
+]
+warehouse_sm_tasks = {}
+
+
+def _warehouse_sm_unique(values):
+    seen = set()
+    result = []
+    for value in values:
+        key = str(value or "").strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(key)
+    return result
+
+
+def _warehouse_sm_pick_default_target_ip(candidates=None) -> str:
+    candidate_list = _warehouse_sm_unique(candidates or [])
+    candidate_set = {str(ip).strip() for ip in candidate_list if str(ip).strip()}
+    for default_ip in _WAREHOUSE_SM_PREFERRED_FALLBACK_IPS:
+        if default_ip in candidate_set:
+            return default_ip
+    if candidate_list:
+        return candidate_list[0]
+    return _WAREHOUSE_SM_PREFERRED_FALLBACK_IPS[0]
+
+
+def _warehouse_sm_normalize_mac(raw_value: str) -> str:
+    value = str(raw_value or "").strip().lower()
+    if not value:
+        return ""
+    if "." in value:
+        value = value.replace(".", "")
+        if len(value) != 12:
+            return ""
+        return ":".join(value[i:i + 2] for i in range(0, 12, 2))
+    value = value.replace("-", ":")
+    parts = [p for p in value.split(":") if p]
+    if len(parts) != 6:
+        return ""
+    try:
+        return ":".join(f"{int(p, 16):02x}" for p in parts)
+    except Exception:
+        return ""
+
+
+def _warehouse_sm_extract_macs(text: str) -> list[str]:
+    macs = []
+    for mac in _WAREHOUSE_SM_MAC_RE.findall(text or ""):
+        n = _warehouse_sm_normalize_mac(mac)
+        if n:
+            macs.append(n)
+    for mac in _WAREHOUSE_SM_MAC_DOT_RE.findall(text or ""):
+        n = _warehouse_sm_normalize_mac(mac)
+        if n:
+            macs.append(n)
+    return _warehouse_sm_unique(macs)
+
+
+def _warehouse_sm_extract_ips(text: str) -> list[str]:
+    ips = []
+    for token in _WAREHOUSE_SM_IP_RE.findall(text or ""):
+        try:
+            ips.append(str(ipaddress.IPv4Address(token)))
+        except Exception:
+            continue
+    return _warehouse_sm_unique(ips)
+
+
+def _warehouse_sm_extract_arp_pairs(text: str) -> list[dict]:
+    entries = []
+    for line in str(text or "").splitlines():
+        line_ips = _warehouse_sm_extract_ips(line)
+        line_macs = _warehouse_sm_extract_macs(line)
+        if not line_ips or not line_macs:
+            continue
+        for ip_val in line_ips:
+            entries.append({"ip": ip_val, "mac": line_macs[0]})
+    # Keep latest mapping per IP.
+    by_ip = {}
+    for entry in entries:
+        by_ip[entry["ip"]] = entry["mac"]
+    return [{"ip": ip_val, "mac": mac_val} for ip_val, mac_val in by_ip.items()]
+
+
+def _warehouse_sm_extract_json_block(text: str, anchor_key: str) -> str:
+    body = str(text or "")
+    anchor = str(anchor_key or "").strip()
+    if not anchor:
+        return ""
+    pos = body.find(anchor)
+    if pos < 0:
+        return ""
+    start = body.rfind("{", 0, pos + 1)
+    if start < 0:
+        return ""
+    depth = 0
+    for idx in range(start, len(body)):
+        char = body[idx]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return body[start : idx + 1]
+    return ""
+
+
+def _warehouse_sm_parse_netonix_discovery(text: str) -> list[dict]:
+    payload_text = _warehouse_sm_extract_json_block(text, '"Discovery"')
+    if not payload_text:
+        return []
+    try:
+        payload = json.loads(payload_text)
+    except Exception:
+        return []
+    items = payload.get("Discovery") if isinstance(payload, dict) else []
+    if not isinstance(items, list):
+        return []
+    entries = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        mac = _warehouse_sm_normalize_mac(str(item.get("MAC") or ""))
+        ip_value = str(item.get("IP") or "").strip()
+        try:
+            ip_value = str(ipaddress.IPv4Address(ip_value))
+        except Exception:
+            ip_value = ""
+        entries.append(
+            {
+                "mac": mac,
+                "ip": ip_value,
+                "port": str(item.get("Port") or "").strip(),
+                "product": str(item.get("Product") or "").strip(),
+                "name": str(item.get("Name") or "").strip(),
+                "protocol": str(item.get("Protocol") or "").strip(),
+                "vlan": str(item.get("VLAN") or "").strip(),
+            }
+        )
+    return entries
+
+
+def _warehouse_sm_parse_netonix_mactable(text: str) -> list[dict]:
+    payload_text = _warehouse_sm_extract_json_block(text, '"MACTable"')
+    if not payload_text:
+        return []
+    try:
+        payload = json.loads(payload_text)
+    except Exception:
+        return []
+    items = payload.get("MACTable") if isinstance(payload, dict) else []
+    if not isinstance(items, list):
+        return []
+    entries = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        mac = _warehouse_sm_normalize_mac(str(item.get("MAC") or ""))
+        last_ip = str(item.get("Last_IP") or "").strip()
+        try:
+            last_ip = str(ipaddress.IPv4Address(last_ip))
+        except Exception:
+            last_ip = ""
+        entries.append(
+            {
+                "mac": mac,
+                "port": str(item.get("Port") or "").strip(),
+                "vlan": str(item.get("VLAN_ID") or "").strip(),
+                "last_ip": last_ip,
+                "manufacturer": str(item.get("Manufacturer") or "").strip(),
+            }
+        )
+    return entries
+
+
+def _warehouse_sm_parse_ports(value, defaults=None):
+    defaults = defaults or [22, 2222]
+    parsed = []
+    if value is None:
+        value = []
+    if isinstance(value, (list, tuple)):
+        tokens = value
+    elif isinstance(value, str):
+        tokens = re.split(r"[\s,]+", value.strip())
+    else:
+        tokens = [value]
+    for token in tokens:
+        try:
+            port = int(str(token).strip())
+        except Exception:
+            continue
+        if 1 <= port <= 65535 and port not in parsed:
+            parsed.append(port)
+    if parsed:
+        return parsed
+    fallback = []
+    for default_port in defaults:
+        try:
+            port = int(default_port)
+        except Exception:
+            continue
+        if 1 <= port <= 65535 and port not in fallback:
+            fallback.append(port)
+    return fallback or [22]
+
+
+def _warehouse_sm_env_bool(name: str, default: bool = False) -> bool:
+    raw = str(os.getenv(name, "")).strip().lower()
+    if not raw:
+        return bool(default)
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _warehouse_sm_default_access_alias_for_ip(ip_value: str) -> str | None:
+    try:
+        ip_obj = ipaddress.IPv4Address(str(ip_value).strip())
+    except Exception:
+        return None
+    if ip_obj in ipaddress.IPv4Network("192.168.0.0/24"):
+        return str(os.getenv("WAREHOUSE_SM_ALIAS_192_168_0", "192.168.0.254/24")).strip()
+    if ip_obj in ipaddress.IPv4Network("192.168.1.0/24"):
+        return str(os.getenv("WAREHOUSE_SM_ALIAS_192_168_1", "192.168.1.254/24")).strip()
+    return None
+
+
+def _warehouse_sm_detect_interface_for_switch(switch_ip: str) -> str:
+    override = str(os.getenv("WAREHOUSE_SM_SWITCH_INTERFACE", "")).strip()
+    if override:
+        return override
+    try:
+        route = subprocess.run(
+            ["ip", "route", "get", str(switch_ip).strip()],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        output = str(route.stdout or "") + "\n" + str(route.stderr or "")
+        match = re.search(r"\bdev\s+(\S+)", output)
+        if match:
+            return str(match.group(1) or "").strip()
+    except Exception:
+        pass
+    try:
+        with open("/proc/net/route", "r", encoding="utf-8", errors="ignore") as fh:
+            for line in fh.read().splitlines()[1:]:
+                parts = [p for p in line.split("\t") if p]
+                if len(parts) < 4:
+                    continue
+                iface = parts[0].strip()
+                destination_hex = parts[1].strip()
+                flags_hex = parts[3].strip()
+                try:
+                    flags = int(flags_hex, 16)
+                except Exception:
+                    flags = 0
+                if destination_hex == "00000000" and (flags & 0x1):
+                    return iface
+    except Exception:
+        pass
+    return ""
+
+
+def _warehouse_sm_interface_cidrs(interface_name: str) -> list[str]:
+    if not interface_name:
+        return []
+    try:
+        result = subprocess.run(
+            ["ip", "-o", "-4", "addr", "show", "dev", interface_name],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        cidrs = []
+        for line in str(result.stdout or "").splitlines():
+            match = re.search(r"\binet\s+(\d+\.\d+\.\d+\.\d+/\d+)", line)
+            if match:
+                cidrs.append(str(match.group(1)))
+        return _warehouse_sm_unique(cidrs)
+    except Exception:
+        pass
+    cidrs = []
+    try:
+        result = subprocess.run(
+            ["ifconfig", interface_name],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        for line in str(result.stdout or "").splitlines():
+            match = re.search(r"\binet (?:addr:)?(\d+\.\d+\.\d+\.\d+)\s+(?:Bcast:\d+\.\d+\.\d+\.\d+\s+)?Mask:(\d+\.\d+\.\d+\.\d+)", line)
+            if not match:
+                continue
+            ip_text = match.group(1)
+            mask_text = match.group(2)
+            try:
+                cidrs.append(str(ipaddress.IPv4Interface(f"{ip_text}/{mask_text}")))
+            except Exception:
+                continue
+    except Exception:
+        return []
+    return _warehouse_sm_unique(cidrs)
+
+
+def _warehouse_sm_bootstrap_default_access(switch_ip: str, candidate_ips: list[str]) -> dict:
+    """
+    Best-effort Linux host alias bootstrap for default Cambium subnets (192.168.0/24, 192.168.1/24).
+    This is only applied when explicitly enabled or left at default-enabled.
+    """
+    result = {
+        "enabled": False,
+        "attempted": False,
+        "interface": "",
+        "required_aliases": [],
+        "added_aliases": [],
+        "existing_aliases": [],
+        "errors": [],
+    }
+
+    enabled = _warehouse_sm_env_bool("WAREHOUSE_SM_AUTO_DEFAULT_ACCESS", True)
+    result["enabled"] = enabled
+    if not enabled:
+        return result
+
+    if os.name != "posix":
+        result["enabled"] = False
+        return result
+
+    aliases = _warehouse_sm_unique(
+        [alias for alias in (_warehouse_sm_default_access_alias_for_ip(ip) for ip in (candidate_ips or [])) if alias]
+    )
+    result["required_aliases"] = aliases
+    if not aliases:
+        return result
+
+    iface = _warehouse_sm_detect_interface_for_switch(switch_ip)
+    result["interface"] = iface
+    if not iface:
+        result["errors"].append("unable to detect egress interface toward switch_ip")
+        return result
+
+    result["attempted"] = True
+    existing_cidrs = _warehouse_sm_interface_cidrs(iface)
+    existing_networks = set()
+    iface_networks = []
+    switch_ipv4 = None
+    try:
+        switch_ipv4 = ipaddress.IPv4Address(str(switch_ip).strip())
+    except Exception:
+        switch_ipv4 = None
+    for cidr in existing_cidrs:
+        try:
+            iface_obj = ipaddress.ip_interface(cidr)
+            net = iface_obj.network
+            existing_networks.add(str(net))
+            iface_networks.append(net)
+        except Exception:
+            continue
+
+    if Path("/.dockerenv").exists() and iface_networks:
+        docker_bridge_net = ipaddress.ip_network("172.16.0.0/12")
+        all_bridge_like = all((net.network_address in docker_bridge_net) for net in iface_networks)
+        switch_on_iface = bool(switch_ipv4 and any(switch_ipv4 in net for net in iface_networks))
+        if all_bridge_like and not switch_on_iface:
+            result["errors"].append(
+                "docker bridge networking detected; attach backend to provisioning LAN (host or macvlan) to reach factory-default 192.168.0.x radios"
+            )
+            return result
+
+    for alias in aliases:
+        alias_key = f"{iface}|{alias}"
+        try:
+            alias_network = str(ipaddress.ip_interface(alias).network)
+        except Exception:
+            result["errors"].append(f"invalid alias CIDR configured: {alias}")
+            continue
+
+        if alias_network in existing_networks:
+            result["existing_aliases"].append(alias)
+            continue
+
+        with _WAREHOUSE_SM_DEFAULT_ACCESS_LOCK:
+            if alias_key in _WAREHOUSE_SM_DEFAULT_ACCESS_ALIASES:
+                result["existing_aliases"].append(alias)
+                continue
+
+        try:
+            add_result = subprocess.run(
+                ["ip", "address", "add", alias, "dev", iface],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            )
+            add_stdout = str(add_result.stdout or "")
+            add_stderr = str(add_result.stderr or "")
+            add_text = f"{add_stdout}\n{add_stderr}".lower()
+            if add_result.returncode == 0 or "file exists" in add_text:
+                with _WAREHOUSE_SM_DEFAULT_ACCESS_LOCK:
+                    _WAREHOUSE_SM_DEFAULT_ACCESS_ALIASES.add(alias_key)
+                result["added_aliases"].append(alias)
+                continue
+            result["errors"].append(
+                f"failed to add alias {alias} on {iface} (rc={add_result.returncode}): {add_stderr.strip() or add_stdout.strip() or 'ip address add failed'}"
+            )
+            continue
+        except FileNotFoundError:
+            ip_text = alias.split("/", 1)[0]
+            try:
+                ifconfig_result = subprocess.run(
+                    ["ifconfig", iface, ip_text, "netmask", "255.255.255.0", "up"],
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                    check=False,
+                )
+                if ifconfig_result.returncode == 0:
+                    with _WAREHOUSE_SM_DEFAULT_ACCESS_LOCK:
+                        _WAREHOUSE_SM_DEFAULT_ACCESS_ALIASES.add(alias_key)
+                    result["added_aliases"].append(alias)
+                    continue
+                ifconfig_msg = str(ifconfig_result.stderr or ifconfig_result.stdout or "").strip()
+                result["errors"].append(
+                    f"failed to add alias {alias} on {iface}: {ifconfig_msg or 'ifconfig add failed'}"
+                )
+            except Exception as exc:
+                result["errors"].append(f"failed to add alias {alias} on {iface}: {exc}")
+        except Exception as exc:
+            result["errors"].append(f"failed to add alias {alias} on {iface}: {exc}")
+
+    return result
+
+
+def _warehouse_sm_interface_candidates(port_value: str) -> list[str]:
+    raw = str(port_value or "").strip()
+    candidates = []
+    if raw:
+        candidates.extend([raw, f"0/{raw}", f"1/{raw}", f"eth{raw}", f"port{raw}"])
+    return _warehouse_sm_unique(candidates)
+
+
+def _warehouse_sm_detect_switch_profile(text: str) -> str:
+    value = str(text or "").lower()
+    if "edgeswitch" in value or "es-" in value:
+        return "edgeswitch"
+    if "netonix" in value:
+        return "netonix"
+    if "cnmatrix" in value or ("cambium" in value and "switch" in value):
+        return "cambium-switch"
+    if "hyconext" in value or "hycon" in value:
+        return "hyconext"
+    return "generic"
+
+
+def _warehouse_sm_scan_commands_for_profile(profile: str, selected_port: str) -> list[str]:
+    iface_candidates = _warehouse_sm_interface_candidates(selected_port)
+    commands = ["show version"]
+    if profile == "netonix":
+        # Netonix uses a Linux shell with `switch` tooling, not `show ...` network CLI syntax.
+        return _warehouse_sm_unique(
+            [
+                "switch -d",
+                "cat /tmp/discovery.json 2>/dev/null",
+                "cat /tmp/mactable.json 2>/dev/null",
+                "cat /proc/net/arp",
+            ]
+        )
+    if profile == "edgeswitch":
+        for iface in iface_candidates:
+            commands.append(f"show mac-addr-table interface {iface}")
+        commands.extend(
+            [
+                "show mac-addr-table",
+                "show network",
+                "show arp",
+            ]
+        )
+        return _warehouse_sm_unique(commands)
+
+    # Generic mixed-vendor read-only probe fallback.
+    for iface in iface_candidates:
+        commands.extend(
+            [
+                f"show mac-addr-table interface {iface}",
+                f"show mac-address-table interface {iface}",
+                f"show mac address-table interface {iface}",
+            ]
+        )
+    commands.extend(
+        [
+            "show mac-addr-table",
+            "show mac-address-table",
+            "show mac address-table",
+            "show ip arp",
+            "show arp",
+            "show network",
+        ]
+    )
+    return _warehouse_sm_unique(commands)
+
+
+def _warehouse_sm_parse_cidr_list(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        tokens = value
+    elif isinstance(value, str):
+        tokens = re.split(r"[\s,;]+", value.strip())
+    else:
+        tokens = [value]
+    cidrs = []
+    for token in tokens:
+        text = str(token or "").strip()
+        if not text:
+            continue
+        try:
+            net = ipaddress.ip_network(text, strict=False)
+            if isinstance(net, ipaddress.IPv4Network):
+                cidrs.append(str(net))
+        except Exception:
+            continue
+    return _warehouse_sm_unique(cidrs)
+
+
+def _warehouse_sm_extract_switch_mgmt_cidrs(outputs: list[dict], switch_ip: str) -> list[str]:
+    text = "\n".join(str(item.get("output") or "") for item in (outputs or []))
+    ip_match = re.search(r"IP Address[.\s:]+(\d+\.\d+\.\d+\.\d+)", text, flags=re.IGNORECASE)
+    mask_match = re.search(r"Subnet Mask[.\s:]+(\d+\.\d+\.\d+\.\d+)", text, flags=re.IGNORECASE)
+    if not (ip_match and mask_match):
+        return []
+    try:
+        iface = ipaddress.IPv4Interface(f"{ip_match.group(1)}/{mask_match.group(1)}")
+        cidr = str(iface.network)
+        if switch_ip and ipaddress.IPv4Address(switch_ip) in iface.network:
+            return [cidr]
+    except Exception:
+        return []
+    return []
+
+
+def _warehouse_sm_probe_tcp(ip_addr: str, port: int, timeout: float = 0.65) -> bool:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    try:
+        sock.connect((ip_addr, int(port)))
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            sock.close()
+        except Exception:
+            pass
+
+
+def _warehouse_sm_expand_cidrs(cidrs: list[str], max_hosts: int = 768) -> list[str]:
+    hosts = []
+    for cidr in cidrs:
+        try:
+            net = ipaddress.ip_network(str(cidr), strict=False)
+            if not isinstance(net, ipaddress.IPv4Network):
+                continue
+            for host_ip in net.hosts():
+                hosts.append(str(host_ip))
+                if len(hosts) >= max_hosts:
+                    return _warehouse_sm_unique(hosts)
+        except Exception:
+            continue
+    return _warehouse_sm_unique(hosts)
+
+
+def _warehouse_sm_active_discovery(
+    cidrs: list[str],
+    device_password: str,
+    port_mac_candidates: list[str] | None = None,
+    max_hosts_scan: int = 768,
+    max_probe_ips: int = 64,
+) -> dict:
+    port_macs_norm = {_warehouse_sm_normalize_mac(mac) for mac in (port_mac_candidates or [])}
+    port_macs_norm = {m for m in port_macs_norm if m}
+    host_pool = _warehouse_sm_expand_cidrs(cidrs, max_hosts=max_hosts_scan)
+    if not host_pool:
+        return {"success": False, "error": "No hosts available from discovery CIDRs", "cidrs": cidrs}
+
+    responsive_ips = []
+    with ThreadPoolExecutor(max_workers=48) as executor:
+        futures = {executor.submit(_warehouse_sm_probe_tcp, ip_value, 80, 0.5): ip_value for ip_value in host_pool}
+        for future in as_completed(futures):
+            ip_value = futures[future]
+            try:
+                http_open = bool(future.result())
+            except Exception:
+                http_open = False
+            https_open = _warehouse_sm_probe_tcp(ip_value, 443, 0.5) if not http_open else False
+            if http_open or https_open:
+                responsive_ips.append(ip_value)
+            if len(responsive_ips) >= max_probe_ips:
+                break
+
+    responsive_ips = _warehouse_sm_unique(responsive_ips)[:max_probe_ips]
+    probed = []
+    matched = None
+    first_success = None
+    for ip_value in responsive_ips:
+        probe = _warehouse_sm_probe_ip(ip_value, password=device_password)
+        info = probe.get("info") if probe.get("success") else {}
+        wireless_mac = _warehouse_sm_normalize_mac(str((info or {}).get("wireless_mac") or ""))
+        record = {
+            "ip": ip_value,
+            "success": bool(probe.get("success")),
+            "device_type": probe.get("device_type"),
+            "wireless_mac": wireless_mac,
+            "mac_match": bool(wireless_mac and wireless_mac in port_macs_norm),
+        }
+        probed.append(record)
+        if probe.get("success") and not first_success:
+            first_success = {"probe": probe, "ip": ip_value, "record": record}
+        if probe.get("success") and record["mac_match"]:
+            matched = {"probe": probe, "ip": ip_value, "record": record}
+            break
+
+    chosen = matched or first_success
+    return {
+        "success": bool(chosen),
+        "discovery_method": "active-cidr-scan",
+        "cidrs": cidrs,
+        "host_pool_size": len(host_pool),
+        "responsive_ips": responsive_ips,
+        "probed": probed,
+        "chosen": chosen,
+    }
+
+
+def _warehouse_sm_switch_profile_validated_for_config(profile: str) -> bool:
+    # We have live-read validation for EdgeSwitch commands in this warehouse.
+    return profile == "edgeswitch"
+
+
+def _warehouse_sm_switch_run_interactive(
+    switch_ip: str,
+    switch_username: str,
+    switch_password: str,
+    ssh_ports: list[int],
+    commands: list[str],
+    enter_enable: bool = False,
+    enable_password: str | None = None,
+    fail_on_cli_error: bool = True,
+    settle_seconds: float = 0.45,
+) -> dict:
+    try:
+        import paramiko
+    except Exception:
+        return {"success": False, "error": "paramiko not installed on server", "status_code": 500}
+
+    def _read_for(channel, seconds: float) -> str:
+        end_time = time.time() + seconds
+        output = ""
+        while time.time() < end_time:
+            try:
+                if channel.recv_ready():
+                    chunk = channel.recv(65535).decode("utf-8", errors="replace")
+                    output += chunk
+                else:
+                    time.sleep(0.05)
+            except Exception:
+                break
+        return output
+
+    errors = []
+    for ssh_port in ssh_ports:
+        client = None
+        channel = None
+        try:
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            client.connect(
+                hostname=switch_ip,
+                port=ssh_port,
+                username=switch_username,
+                password=switch_password,
+                timeout=8,
+                banner_timeout=8,
+                auth_timeout=8,
+                look_for_keys=False,
+                allow_agent=False,
+            )
+            channel = client.invoke_shell()
+            output = _read_for(channel, max(0.35, settle_seconds))
+
+            if enter_enable:
+                channel.send("enable\n")
+                enable_out = _read_for(channel, max(0.35, settle_seconds))
+                output += enable_out
+                if "password" in enable_out.lower():
+                    channel.send(f"{(enable_password or switch_password or '').strip()}\n")
+                    output += _read_for(channel, max(0.35, settle_seconds))
+
+            command_outputs = []
+            for cmd in commands:
+                channel.send(str(cmd) + "\n")
+                cmd_out = _read_for(channel, max(0.35, settle_seconds))
+                command_outputs.append({"command": cmd, "output": cmd_out[:12000]})
+                output += cmd_out
+
+            lowered = output.lower()
+            hard_error = any(
+                token in lowered for token in ["invalid input", "unknown command", "unrecognized command", "command not found"]
+            )
+            auth_denied = "authentication denied" in lowered
+            return {
+                "success": (not auth_denied) and (not hard_error or not fail_on_cli_error),
+                "switch_ssh_port": ssh_port,
+                "commands": command_outputs,
+                "output": output[-24000:],
+                "error": (
+                    "Switch CLI rejected one or more commands"
+                    if hard_error
+                    else ("Enable/auth escalation failed" if auth_denied else "")
+                ),
+            }
+        except paramiko.AuthenticationException:
+            return {
+                "success": False,
+                "error": "Switch SSH authentication failed. Check switch credentials.",
+                "status_code": 401,
+            }
+        except Exception as exc:
+            errors.append(f"port {ssh_port}: {exc}")
+        finally:
+            try:
+                if channel:
+                    channel.close()
+            except Exception:
+                pass
+            try:
+                if client:
+                    client.close()
+            except Exception:
+                pass
+
+    return {"success": False, "error": "Failed to connect to switch over SSH", "status_code": 502, "details": errors}
+
+
+def _warehouse_sm_switch_run_exec(
+    switch_ip: str,
+    switch_username: str,
+    switch_password: str,
+    ssh_ports: list[int],
+    commands: list[str],
+    fail_on_cli_error: bool = False,
+    command_timeout: float = 4.0,
+) -> dict:
+    try:
+        import paramiko
+    except Exception:
+        return {"success": False, "error": "paramiko not installed on server", "status_code": 500}
+
+    errors = []
+    for ssh_port in ssh_ports:
+        client = None
+        try:
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            client.connect(
+                hostname=switch_ip,
+                port=ssh_port,
+                username=switch_username,
+                password=switch_password,
+                timeout=8,
+                banner_timeout=8,
+                auth_timeout=8,
+                look_for_keys=False,
+                allow_agent=False,
+            )
+
+            command_outputs = []
+            all_output = ""
+            for cmd in commands:
+                output_text = ""
+                try:
+                    _, stdout, stderr = client.exec_command(str(cmd), timeout=command_timeout)
+                    stdout.channel.settimeout(command_timeout)
+                    stderr.channel.settimeout(command_timeout)
+                    out_text = stdout.read().decode("utf-8", errors="replace")
+                    err_text = stderr.read().decode("utf-8", errors="replace")
+                    output_text = (out_text + ("\n" + err_text if err_text else "")).strip()
+                except Exception as exc:
+                    output_text = f"[exec-error] {exc}"
+                command_outputs.append({"command": cmd, "output": output_text[:12000]})
+                all_output += "\n" + output_text
+
+            lowered = all_output.lower()
+            hard_error = any(
+                token in lowered for token in ["invalid input", "unknown command", "unrecognized command", "command not found"]
+            )
+            return {
+                "success": (not hard_error) or (not fail_on_cli_error),
+                "switch_ssh_port": ssh_port,
+                "commands": command_outputs,
+                "output": all_output[-24000:],
+                "error": "Switch CLI rejected one or more commands" if hard_error else "",
+            }
+        except paramiko.AuthenticationException:
+            return {
+                "success": False,
+                "error": "Switch SSH authentication failed. Check switch credentials.",
+                "status_code": 401,
+            }
+        except Exception as exc:
+            errors.append(f"port {ssh_port}: {exc}")
+        finally:
+            try:
+                if client:
+                    client.close()
+            except Exception:
+                pass
+
+    return {"success": False, "error": "Failed to connect to switch over SSH", "status_code": 502, "details": errors}
+
+
+def _warehouse_sm_switch_probe(
+    switch_ip: str,
+    switch_username: str,
+    switch_password: str,
+    selected_port: str,
+    ssh_ports: list[int],
+    switch_profile: str | None = None,
+) -> dict:
+    requested_profile = str(switch_profile or "").strip().lower() or "generic"
+    cmd_list = _warehouse_sm_scan_commands_for_profile(requested_profile, selected_port)
+    if requested_profile == "netonix":
+        full_probe = _warehouse_sm_switch_run_exec(
+            switch_ip=switch_ip,
+            switch_username=switch_username,
+            switch_password=switch_password,
+            ssh_ports=ssh_ports,
+            commands=cmd_list,
+            fail_on_cli_error=False,
+            command_timeout=3.0,
+        )
+    else:
+        full_probe = _warehouse_sm_switch_run_interactive(
+            switch_ip=switch_ip,
+            switch_username=switch_username,
+            switch_password=switch_password,
+            ssh_ports=ssh_ports,
+            commands=cmd_list,
+            enter_enable=False,
+            fail_on_cli_error=False,
+            settle_seconds=0.70,
+        )
+    if not full_probe.get("success"):
+        return full_probe
+
+    outputs = full_probe.get("commands") or []
+    all_text = "\n".join((x.get("output") or "") for x in outputs)
+    outputs_by_command = {}
+    for item in outputs:
+        cmd_key = str(item.get("command") or "").strip()
+        if cmd_key and cmd_key not in outputs_by_command:
+            outputs_by_command[cmd_key] = str(item.get("output") or "")
+    detected_profile = str(switch_profile or "").strip().lower() or _warehouse_sm_detect_switch_profile(all_text)
+    netonix_port_line = ""
+    netonix_link_up = None
+    if detected_profile == "netonix":
+        rx = re.compile(rf"Port\s+{re.escape(str(selected_port).strip())}\s*:\s*([^\n\r]+)", flags=re.IGNORECASE)
+        match = rx.search(all_text)
+        if match:
+            netonix_port_line = match.group(0).strip()
+            details = match.group(1).strip().lower()
+            if "link down" in details:
+                netonix_link_up = False
+            elif "link " in details:
+                netonix_link_up = True
+    netonix_poe_mode = None
+    if netonix_port_line:
+        poe_match = re.search(r"poe\s+([A-Za-z0-9]+)", netonix_port_line, flags=re.IGNORECASE)
+        if poe_match:
+            netonix_poe_mode = str(poe_match.group(1) or "").strip()
+    netonix_discovery_entries = []
+    netonix_selected_entries = []
+    if detected_profile == "netonix":
+        netonix_discovery_entries = _warehouse_sm_parse_netonix_discovery(
+            outputs_by_command.get("cat /tmp/discovery.json 2>/dev/null", "") or all_text
+        )
+        mactable_entries = _warehouse_sm_parse_netonix_mactable(
+            outputs_by_command.get("cat /tmp/mactable.json 2>/dev/null", "") or all_text
+        )
+        if not netonix_discovery_entries:
+            # Retry with focused commands when discovery output is not captured on first pass.
+            retry_probe = _warehouse_sm_switch_run_exec(
+                switch_ip=switch_ip,
+                switch_username=switch_username,
+                switch_password=switch_password,
+                ssh_ports=[int(full_probe.get("switch_ssh_port"))] if full_probe.get("switch_ssh_port") else ssh_ports,
+                commands=[
+                    "switch -d",
+                    "cat /tmp/discovery.json 2>/dev/null",
+                    "cat /tmp/mactable.json 2>/dev/null",
+                ],
+                fail_on_cli_error=False,
+                command_timeout=3.2,
+            )
+            if retry_probe.get("success"):
+                retry_outputs = retry_probe.get("commands") or []
+                if retry_outputs:
+                    outputs.extend(retry_outputs)
+                    for item in retry_outputs:
+                        cmd_key = str(item.get("command") or "").strip()
+                        cmd_out = str(item.get("output") or "")
+                        if cmd_key and cmd_out:
+                            outputs_by_command[cmd_key] = cmd_out
+                    all_text = "\n".join((x.get("output") or "") for x in outputs)
+                    netonix_discovery_entries = _warehouse_sm_parse_netonix_discovery(
+                        outputs_by_command.get("cat /tmp/discovery.json 2>/dev/null", "") or all_text
+                    )
+                    mactable_entries = _warehouse_sm_parse_netonix_mactable(
+                        outputs_by_command.get("cat /tmp/mactable.json 2>/dev/null", "") or all_text
+                    )
+                    if not netonix_port_line:
+                        rx = re.compile(rf"Port\s+{re.escape(str(selected_port).strip())}\s*:\s*([^\n\r]+)", flags=re.IGNORECASE)
+                        match = rx.search(all_text)
+                        if match:
+                            netonix_port_line = match.group(0).strip()
+                            details = match.group(1).strip().lower()
+                            if "link down" in details:
+                                netonix_link_up = False
+                            elif "link " in details:
+                                netonix_link_up = True
+                            poe_match = re.search(r"poe\s+([A-Za-z0-9]+)", netonix_port_line, flags=re.IGNORECASE)
+                            if poe_match:
+                                netonix_poe_mode = str(poe_match.group(1) or "").strip()
+        selected_port_text = str(selected_port or "").strip()
+        netonix_selected_entries = [
+            entry for entry in netonix_discovery_entries if str(entry.get("port") or "").strip() == selected_port_text
+        ]
+        # Merge mactable entries for selected port when discovery entries are partial.
+        for row in mactable_entries:
+            if str(row.get("port") or "").strip() != selected_port_text:
+                continue
+            mac = _warehouse_sm_normalize_mac(str(row.get("mac") or ""))
+            if not mac:
+                continue
+            exists = any(_warehouse_sm_normalize_mac(str(entry.get("mac") or "")) == mac for entry in netonix_selected_entries)
+            if not exists:
+                netonix_selected_entries.append(
+                    {
+                        "mac": mac,
+                        "ip": str(row.get("last_ip") or "").strip(),
+                        "port": selected_port_text,
+                        "product": str(row.get("manufacturer") or "").strip(),
+                        "name": "",
+                        "protocol": "MACTable",
+                        "vlan": str(row.get("vlan") or "").strip(),
+                    }
+                )
+    iface_candidates = _warehouse_sm_interface_candidates(selected_port)
+    port_text = "\n".join(
+        (x.get("output") or "")
+        for x in outputs
+        if any(token in str(x.get("command") or "") for token in iface_candidates)
+    )
+    port_macs = _warehouse_sm_extract_macs(port_text)
+    for entry in netonix_selected_entries:
+        mac = _warehouse_sm_normalize_mac(str(entry.get("mac") or ""))
+        if mac and mac not in port_macs:
+            port_macs.append(mac)
+    port_macs = _warehouse_sm_unique(port_macs)
+    all_macs = _warehouse_sm_extract_macs(all_text)
+    arp_entries = _warehouse_sm_extract_arp_pairs(all_text)
+    arp_by_mac = {}
+    for entry in arp_entries:
+        arp_by_mac.setdefault(entry["mac"], []).append(entry["ip"])
+
+    matched_ips = []
+    for mac in port_macs:
+        matched_ips.extend(arp_by_mac.get(mac, []))
+    for entry in netonix_selected_entries:
+        ip_value = str(entry.get("ip") or "").strip()
+        try:
+            ip_value = str(ipaddress.IPv4Address(ip_value))
+        except Exception:
+            ip_value = ""
+        if ip_value:
+            matched_ips.append(ip_value)
+    if not matched_ips:
+        matched_ips = _warehouse_sm_extract_ips(all_text)
+    matched_ips = _warehouse_sm_unique(matched_ips)
+
+    return {
+        "success": True,
+        "switch_profile": detected_profile,
+        "switch_ssh_port": full_probe.get("switch_ssh_port"),
+        "commands": outputs,
+        "port_mac_candidates": port_macs,
+        "all_mac_candidates": all_macs,
+        "arp_entries": arp_entries,
+        "switch_mgmt_cidrs": _warehouse_sm_extract_switch_mgmt_cidrs(outputs, switch_ip),
+        "ip_candidates": matched_ips,
+        "selected_port_state": {
+            "line": netonix_port_line,
+            "link_up": netonix_link_up,
+            "poe_mode": netonix_poe_mode,
+        },
+        "switch_discovery": {
+            "selected_port_entries": netonix_selected_entries[:20],
+            "entries": netonix_discovery_entries[:120],
+        },
+    }
+
+
+def _warehouse_sm_extract_firmware(info: dict) -> str:
+    for result in info.get("test_results", []) or []:
+        if str(result.get("name", "")).strip().lower() == "firmware version":
+            value = str(result.get("actual") or "").strip()
+            match = re.search(r"\d+\.\d+\.\d+(?:\.\d+)?", value)
+            return match.group(0) if match else value
+    return ""
+
+
+def _warehouse_sm_extract_device_props(info: dict) -> dict:
+    running = info.get("running_config")
+    if not running:
+        return {}
+    try:
+        parsed = json.loads(running) if isinstance(running, str) else running
+        if isinstance(parsed, dict):
+            return parsed.get("device_props", {}) or {}
+    except Exception:
+        return {}
+    return {}
+
+
+def _warehouse_sm_versions_match(expected: str, actual: str) -> bool:
+    expected_text = str(expected or "").strip()
+    actual_text = str(actual or "").strip()
+    if not expected_text or not actual_text:
+        return False
+    if expected_text == actual_text:
+        return True
+
+    def _base(value: str) -> str:
+        match = re.search(r"\d+(?:\.\d+)+", value)
+        return match.group(0) if match else value
+
+    return _base(expected_text) == _base(actual_text)
+
+
+def _warehouse_sm_truthy(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    text = str(value or "").strip().lower()
+    return text in {"1", "true", "yes", "enabled", "enable", "on"}
+
+
+def _warehouse_sm_falsey(value) -> bool:
+    if isinstance(value, bool):
+        return not value
+    if isinstance(value, (int, float)):
+        return value == 0
+    text = str(value or "").strip().lower()
+    return text in {"0", "false", "no", "disabled", "disable", "off"}
+
+
+def _warehouse_sm_find_prop_keys(device_props: dict, include_tokens: list[str], exclude_tokens: list[str] | None = None) -> list[str]:
+    include = [str(token).lower() for token in (include_tokens or []) if str(token).strip()]
+    exclude = [str(token).lower() for token in (exclude_tokens or []) if str(token).strip()]
+    keys = []
+    for key in (device_props or {}).keys():
+        key_text = str(key or "")
+        key_lower = key_text.lower()
+        if include and not all(token in key_lower for token in include):
+            continue
+        if exclude and any(token in key_lower for token in exclude):
+            continue
+        keys.append(key_text)
+    keys.sort(key=len)
+    return keys
+
+
+def _warehouse_sm_match_numeric(actual_value, expected_value) -> bool:
+    try:
+        return abs(float(actual_value)) == float(expected_value)
+    except Exception:
+        return str(actual_value).strip() == str(expected_value).strip()
+
+
+def _warehouse_sm_closeout_gate(data: dict) -> dict:
+    missing = []
+    for field_key, label in _WAREHOUSE_SM_CLOSEOUT_REQUIRED:
+        if not str((data or {}).get(field_key, "")).strip():
+            missing.append(label)
+    return {
+        "ready": not missing,
+        "missing_fields": missing,
+        "required_fields": [label for _, label in _WAREHOUSE_SM_CLOSEOUT_REQUIRED],
+    }
+
+
+def _warehouse_sm_build_dynamic_updates(device_props: dict, payload: dict) -> dict:
+    """
+    Build best-effort SOP config updates from currently exposed device_props keys.
+    This avoids hardcoding unknown firmware-specific key names.
+    """
+    props = device_props or {}
+    updates = {}
+    applied_targets = []
+    unresolved_targets = []
+
+    def _bool_on_value(current):
+        if isinstance(current, bool):
+            return True
+        if str(current or "").strip().isdigit():
+            return 1
+        return "enabled"
+
+    def _bool_off_value(current):
+        if isinstance(current, bool):
+            return False
+        if str(current or "").strip().isdigit():
+            return 0
+        return "disabled"
+
+    def _set_scan_family(label: str, include_channels: list[str], key_tokens: list[str]):
+        keys = _warehouse_sm_find_prop_keys(props, key_tokens)
+        if not keys:
+            unresolved_targets.append(label)
+            return
+        include = {str(ch).strip() for ch in include_channels}
+        set_count = 0
+        for key in keys:
+            key_lower = str(key or "").lower()
+            current = props.get(key)
+
+            # Per-channel boolean style keys (e.g. ...20..., ...80..., ...160...)
+            per_channel_match = re.search(r"(?<!\d)(20|40|80|160)(?!\d)", key_lower)
+            if per_channel_match:
+                channel = per_channel_match.group(1)
+                if channel in include:
+                    updates[key] = _bool_on_value(current)
+                    set_count += 1
+                continue
+
+            # Generic aggregate key: preserve value shape where possible.
+            if isinstance(current, list):
+                if all(str(item).strip().isdigit() for item in current):
+                    bw_map = {"20": 1, "40": 2, "80": 5, "160": 6}
+                    updates[key] = [bw_map[ch] for ch in include if ch in bw_map]
+                elif any("mhz" in str(item).lower() for item in current):
+                    updates[key] = [f"{ch}MHz" for ch in include]
+                else:
+                    updates[key] = include_channels[:]
+            elif isinstance(current, str):
+                if "mhz" in current.lower():
+                    updates[key] = ",".join(f"{ch}MHz" for ch in include)
+                elif re.fullmatch(r"[\d,\s]+", current.strip() or ""):
+                    bw_map = {"20": "1", "40": "2", "80": "5", "160": "6"}
+                    updates[key] = ",".join(bw_map[ch] for ch in include if ch in bw_map)
+                else:
+                    updates[key] = ",".join(include_channels)
+            else:
+                updates[key] = ",".join(include_channels)
+            set_count += 1
+
+        if set_count:
+            applied_targets.append(label)
+        else:
+            unresolved_targets.append(label)
+
+    def _set_timezone_cst():
+        keys = _warehouse_sm_find_prop_keys(props, ["timezone"])
+        if not keys:
+            unresolved_targets.append("Timezone")
+            return
+        key = keys[0]
+        current = str(props.get(key) or "").strip()
+        if re.fullmatch(r"[A-Za-z]{3}\d", current):
+            updates[key] = "CST6"
+        elif "utc" in current.lower() or "(" in current:
+            updates[key] = "(UTC-06) CST - Central Standard Time (North America)"
+        else:
+            updates[key] = "CST6"
+        applied_targets.append("Timezone")
+
+    def _set_first(tokens, value, label, exclude=None, match_mode="text"):
+        keys = _warehouse_sm_find_prop_keys(props, tokens, exclude_tokens=exclude or [])
+        if not keys:
+            unresolved_targets.append(label)
+            return
+        key = keys[0]
+        if match_mode == "bool_on":
+            updates[key] = _bool_on_value(props.get(key))
+        elif match_mode == "bool_off":
+            updates[key] = _bool_off_value(props.get(key))
+        else:
+            updates[key] = value
+        applied_targets.append(label)
+
+    # Radio baseline.
+    _set_first(["tx", "power"], "11", "Transmitter output power")
+    _set_first(["driver", "mode"], "TDD WLR", "Driver mode")
+    _set_first(["antenna", "gain"], "25", "Antenna gain")
+    _set_scan_family(
+        label="Scan Channel Bandwidth (80/160)",
+        include_channels=["80", "160"],
+        key_tokens=["scan", "channel", "bandwidth", "enable"],
+    )
+    _set_scan_family(
+        label="Scan List Enable (20/40/80/160)",
+        include_channels=["20", "40", "80", "160"],
+        key_tokens=["scan", "list", "enable"],
+    )
+
+    # Proxy baseline.
+    proxy_ip_keys = _warehouse_sm_find_prop_keys(props, ["proxy", "ip"])
+    proxy_port_keys = _warehouse_sm_find_prop_keys(props, ["proxy", "port"])
+    if len(proxy_ip_keys) >= 1:
+        updates[proxy_ip_keys[0]] = "132.147.147.21"
+        applied_targets.append("Proxy Server IP #1")
+    else:
+        unresolved_targets.append("Proxy Server IP #1")
+    if len(proxy_ip_keys) >= 2:
+        updates[proxy_ip_keys[1]] = "132.147.147.52"
+        applied_targets.append("Proxy Server IP #2")
+    else:
+        unresolved_targets.append("Proxy Server IP #2")
+    if len(proxy_port_keys) >= 1:
+        updates[proxy_port_keys[0]] = "3128"
+        applied_targets.append("Proxy Server Port #1")
+    else:
+        unresolved_targets.append("Proxy Server Port #1")
+    if len(proxy_port_keys) >= 2:
+        updates[proxy_port_keys[1]] = "3128"
+        applied_targets.append("Proxy Server Port #2")
+    else:
+        unresolved_targets.append("Proxy Server Port #2")
+    _set_first(["proxy", "enable"], "enabled", "Proxy enabled", match_mode="bool_on")
+
+    # System baseline.
+    _set_first(["ntp", "mode"], "static", "NTP Server IP Assignment")
+    _set_first(["ntp", "server"], "ntp-pool.nxlink.com", "Preferred NTP server")
+    _set_timezone_cst()
+    _set_first(["snmp", "community", "read"], "FBZ1yYdphf", "SNMP read community")
+    _set_first(["snmp", "community", "write"], "FBZ1yYdphf", "SNMP write community")
+    _set_first(["snmp", "remote"], "enabled", "SNMP remote access", match_mode="bool_on")
+    sm_standard_pw = str(os.getenv("SM_STANDARD_PW") or "").strip()
+    if sm_standard_pw:
+        pw_keys = _warehouse_sm_find_prop_keys(
+            props,
+            ["password"],
+            exclude_tokens=["max", "history", "encryption", "key", "radius", "community", "snmp"],
+        )
+        admin_pw_keys = [
+            key for key in pw_keys
+            if any(token in str(key).lower() for token in ("admin", "login", "account", "system", "web"))
+        ]
+        if admin_pw_keys:
+            updates[admin_pw_keys[0]] = sm_standard_pw
+            applied_targets.append("Administrative password")
+        else:
+            unresolved_targets.append("Administrative password")
+    else:
+        unresolved_targets.append("Administrative password")
+    _set_first(["cnm", "remote"], "enabled", "cnMaestro Remote Management", match_mode="bool_on")
+
+    # Network baseline.
+    _set_first(["management", "vlan", "enable"], "enabled", "Management VLAN enabled", match_mode="bool_on")
+    _set_first(["management", "vlan", "id"], "4000", "Management VLAN ID")
+    _set_first(["management", "vlan", "priority"], "1", "Management VLAN Priority")
+    _set_first(["data", "vlan", "enable"], "enabled", "Data VLAN enabled", match_mode="bool_on")
+    _set_first(["data", "vlan", "id"], "1000", "Data VLAN ID")
+    _set_first(["data", "vlan", "priority"], "1", "Data VLAN Priority")
+    _set_first(["spanning", "tree"], "disabled", "Spanning Tree Protocol", match_mode="bool_off")
+
+    # Tools.
+    _set_first(["reset", "power", "sequence"], "disabled", "Reset via power sequence", match_mode="bool_off")
+
+    # Explicit naming/location keys known to this codebase.
+    user_number = str(payload.get("user_number") or "").strip()
+    latitude = str(payload.get("latitude") or "").strip()
+    longitude = str(payload.get("longitude") or "").strip()
+    height = str(payload.get("height_m") or "").strip()
+    cnm_url = str(payload.get("cnm_url") or "").strip()
+    if user_number:
+        updates["systemConfigDeviceName"] = f"NX-{user_number}"[:31]
+        updates["snmpSystemName"] = f"NX-{user_number}"
+        updates["snmpSystemDescription"] = f"NX-{user_number}"
+        applied_targets.append("Device naming convention")
+    if latitude and longitude:
+        updates["sysLocation"] = f"{latitude}, {longitude}"
+        updates["systemDeviceLocLatitude"] = latitude
+        updates["systemDeviceLocLongitude"] = longitude
+        applied_targets.append("Location coordinates")
+    elif latitude or longitude:
+        unresolved_targets.append("Location coordinates")
+    if height:
+        updates["systemDeviceLocHeight"] = height
+        applied_targets.append("Height (m)")
+    if cnm_url:
+        updates["cambiumDeviceAgentCNSURL"] = cnm_url
+
+    return {
+        "updates": updates,
+        "applied_targets": _warehouse_sm_unique(applied_targets),
+        "unresolved_targets": _warehouse_sm_unique(unresolved_targets),
+    }
+
+
+def _warehouse_sm_build_verification(info: dict, required_firmware: str, payload: dict | None = None) -> list[dict]:
+    payload = payload or {}
+    checks = []
+    device_props = _warehouse_sm_extract_device_props(info)
+    running_text = str(info.get("running_config") or "")
+    firmware_actual = _warehouse_sm_extract_firmware(info)
+
+    def _add_check(category: str, label: str, expected, actual, passed: bool):
+        checks.append({
+            "category": category,
+            "label": label,
+            "expected": expected,
+            "actual": actual,
+            "pass": bool(passed),
+        })
+
+    _add_check(
+        "Firmware",
+        "Firmware Version",
+        required_firmware,
+        firmware_actual,
+        _warehouse_sm_versions_match(required_firmware, firmware_actual),
+    )
+
+    def _value_from_tokens(tokens: list[str], exclude=None):
+        keys = _warehouse_sm_find_prop_keys(device_props, tokens, exclude_tokens=exclude or [])
+        if not keys:
+            return None, None
+        key = keys[0]
+        return key, device_props.get(key)
+
+    key, value = _value_from_tokens(["tx", "power"])
+    _add_check("Radio", "Transmitter output power", "11", value, value is not None and _warehouse_sm_match_numeric(value, "11"))
+
+    key, value = _value_from_tokens(["driver", "mode"])
+    _add_check("Radio", "Driver mode", "TDD WLR", value, value is not None and "tdd" in str(value).lower() and "wlr" in str(value).lower())
+
+    key, value = _value_from_tokens(["antenna", "gain"])
+    _add_check("Radio", "Antenna gain", "25", value, value is not None and _warehouse_sm_match_numeric(value, "25"))
+
+    proxy_text = running_text.lower()
+    scan_bw_ok = ("scan" in proxy_text and "bandwidth" in proxy_text and "80" in proxy_text and "160" in proxy_text)
+    scan_list_ok = ("scan" in proxy_text and "list" in proxy_text and all(x in proxy_text for x in ("20", "40", "80", "160")))
+    _add_check(
+        "Radio",
+        "Scan Channel Bandwidth Enable",
+        "80MHz,160MHz",
+        "present" if scan_bw_ok else "missing",
+        scan_bw_ok,
+    )
+    _add_check(
+        "Radio",
+        "Scan List Enable",
+        "20MHz,40MHz,80MHz,160MHz",
+        "present" if scan_list_ok else "missing",
+        scan_list_ok,
+    )
+    _add_check("Proxy", "Proxy Server IP #1", "132.147.147.21", "present" if "132.147.147.21" in proxy_text else "missing", "132.147.147.21" in proxy_text)
+    _add_check("Proxy", "Proxy Server IP #2", "132.147.147.52", "present" if "132.147.147.52" in proxy_text else "missing", "132.147.147.52" in proxy_text)
+    _add_check("Proxy", "Proxy Server Port", "3128", "present" if "3128" in proxy_text else "missing", "3128" in proxy_text)
+
+    _add_check(
+        "System",
+        "NTP assignment mode",
+        "static",
+        "present" if ("ntp" in proxy_text and "static" in proxy_text) else "missing",
+        "ntp" in proxy_text and "static" in proxy_text,
+    )
+    _add_check(
+        "System",
+        "Preferred NTP server",
+        "ntp-pool.nxlink.com",
+        "present" if "ntp-pool.nxlink.com" in proxy_text else "missing",
+        "ntp-pool.nxlink.com" in proxy_text,
+    )
+    _add_check(
+        "System",
+        "cnMaestro URL",
+        payload.get("cnm_url") or "configured",
+        "present" if str(payload.get("cnm_url") or "").lower() in proxy_text else "missing",
+        bool(payload.get("cnm_url")) and str(payload.get("cnm_url")).lower() in proxy_text,
+    )
+    _add_check(
+        "SNMP",
+        "SNMP Community",
+        "FBZ1yYdphf",
+        "present" if "fbz1yydphf" in proxy_text else "missing",
+        "fbz1yydphf" in proxy_text,
+    )
+    _add_check(
+        "Network",
+        "Management VLAN ID",
+        "4000",
+        "present" if "4000" in proxy_text and "vlan" in proxy_text else "missing",
+        "4000" in proxy_text and "vlan" in proxy_text,
+    )
+    _add_check(
+        "Network",
+        "Data VLAN ID",
+        "1000",
+        "present" if "1000" in proxy_text and "vlan" in proxy_text else "missing",
+        "1000" in proxy_text and "vlan" in proxy_text,
+    )
+    _add_check(
+        "Network",
+        "Spanning Tree Protocol",
+        "DISABLED",
+        "present" if ("spanning" in proxy_text and "disable" in proxy_text) else "missing",
+        "spanning" in proxy_text and "disable" in proxy_text,
+    )
+
+    return checks
+
+
+def _warehouse_sm_apply_baseline(discovery: dict, payload: dict) -> dict:
+    try:
+        from ido_modules.device_io.epmp_config import EPMPConfig
+    except Exception as exc:
+        return {"success": False, "error": f"Cambium module unavailable: {exc}"}
+
+    target_ip = str(discovery.get("ip_address") or payload.get("target_ip") or "").strip()
+    device_type = str(discovery.get("device_type") or "F4600C").strip() or "F4600C"
+    if not target_ip:
+        target_ip = _warehouse_sm_pick_default_target_ip(_WAREHOUSE_SM_PREFERRED_FALLBACK_IPS[:2])
+    target_candidates = _warehouse_sm_unique(
+        [
+            target_ip,
+            str(payload.get("target_ip") or "").strip(),
+            *_WAREHOUSE_SM_PREFERRED_FALLBACK_IPS[:2],
+        ]
+    )
+    switch_ip = str(payload.get("switch_ip") or "").strip()
+    default_access = _warehouse_sm_bootstrap_default_access(switch_ip=switch_ip, candidate_ips=target_candidates)
+
+    mac_address = str(payload.get("mac_address") or discovery.get("wireless_mac") or "").strip()
+    payload_user_number = str(payload.get("user_number") or "").strip()
+    cnm_url = str(payload.get("cnm_url") or "").strip()
+    payload_latitude = str(payload.get("latitude") or "").strip()
+    payload_longitude = str(payload.get("longitude") or "").strip()
+    payload_height = str(payload.get("height_m") or "").strip()
+    password = str(
+        os.getenv("NEXTLINK_SSH_PASSWORD")
+        or os.getenv("SM_STANDARD_PW")
+        or "admin"
+    ).strip()
+
+    if not cnm_url:
+        return {"success": False, "error": "cnm_url is required for baseline configuration"}
+
+    attempt_errors = []
+    for candidate_ip in target_candidates:
+        d = None
+        reboot_requested = False
+        try:
+            existing_info = EPMPConfig.get_device_info(candidate_ip, device_type, password=password, run_tests=False)
+            existing_props = _warehouse_sm_extract_device_props(existing_info)
+            discovery_name = str(discovery.get("device_name") or "").strip()
+            existing_name = str(existing_props.get("systemConfigDeviceName") or existing_props.get("snmpSystemName") or "").strip()
+            discovery_match = re.search(r'NX-(\d+)', discovery_name, flags=re.IGNORECASE)
+            existing_match = re.search(r'NX-(\d+)', existing_name, flags=re.IGNORECASE)
+            user_number = payload_user_number or (discovery_match.group(1) if discovery_match else "") or (existing_match.group(1) if existing_match else "") or "000000"
+            latitude = payload_latitude or str(discovery.get("latitude") or existing_props.get("systemDeviceLocLatitude") or "0").strip()
+            longitude = payload_longitude or str(discovery.get("longitude") or existing_props.get("systemDeviceLocLongitude") or "0").strip()
+            height = payload_height or str(discovery.get("height") or existing_props.get("systemDeviceLocHeight") or "").strip()
+
+            params = {
+                "ip_address": candidate_ip,
+                "device_type": device_type,
+                "password": password,
+                "latitude": latitude or "0",
+                "longitude": longitude or "0",
+                "height": height if height else None,
+                "cnm_url": cnm_url,
+                "mac_address": mac_address,
+                "user_number": user_number,
+            }
+            params = {k: v for k, v in params.items() if v is not None}
+
+            d = EPMPConfig(**params, use_default=False)
+            d.init_session()
+            d._verify_configuration_valid()
+            plan = _warehouse_sm_build_dynamic_updates(existing_props, payload)
+
+            config = {"device_props": {}}
+            try:
+                loaded = d.get_standard_config()
+                if isinstance(loaded, dict):
+                    config = loaded
+            except Exception:
+                config = {"device_props": {}}
+            if not isinstance(config.get("device_props"), dict):
+                config["device_props"] = {}
+
+            d._configure_device_params(config)
+
+            def _restore_or_drop(prop_key: str):
+                prior = str(existing_props.get(prop_key) or "").strip()
+                if prior:
+                    config["device_props"][prop_key] = prior
+                else:
+                    config["device_props"].pop(prop_key, None)
+
+            if not payload_user_number:
+                _restore_or_drop("systemConfigDeviceName")
+                _restore_or_drop("snmpSystemName")
+                _restore_or_drop("snmpSystemDescription")
+            if not (payload_latitude and payload_longitude):
+                _restore_or_drop("sysLocation")
+                _restore_or_drop("systemDeviceLocLatitude")
+                _restore_or_drop("systemDeviceLocLongitude")
+            if not payload_height:
+                _restore_or_drop("systemDeviceLocHeight")
+
+            config["device_props"].update(plan["updates"])
+            d.send_configuration({"device_props": config["device_props"]})
+
+            if bool(payload.get("reboot_after_config", True)):
+                d.reboot()
+                reboot_requested = True
+                time.sleep(8)
+
+            return {
+                "success": True,
+                "target_ip": candidate_ip,
+                "device_type": device_type,
+                "reboot_requested": reboot_requested,
+                "applied_target_count": len(plan["applied_targets"]),
+                "applied_targets": plan["applied_targets"],
+                "unresolved_targets": plan["unresolved_targets"],
+                "attempted_target_ips": target_candidates,
+                "default_access": default_access,
+            }
+        except Exception as exc:
+            attempt_errors.append(f"{candidate_ip}: {exc}")
+        finally:
+            try:
+                if d:
+                    d.logout(suppress_info_log=True)
+            except Exception:
+                pass
+
+    return {
+        "success": False,
+        "error": "Baseline configuration failed on all target IP attempts",
+        "target_ip": target_ip,
+        "device_type": device_type,
+        "attempted_target_ips": target_candidates,
+        "default_access": default_access,
+        "details": attempt_errors,
+    }
+
+
+def _warehouse_sm_switch_run_script(
+    switch_ip: str,
+    switch_username: str,
+    switch_password: str,
+    ssh_ports: list[int],
+    commands: list[str],
+    enter_enable: bool = False,
+    enable_password: str | None = None,
+    settle_seconds: float = 0.45,
+) -> dict:
+    return _warehouse_sm_switch_run_interactive(
+        switch_ip=switch_ip,
+        switch_username=switch_username,
+        switch_password=switch_password,
+        ssh_ports=ssh_ports,
+        commands=commands,
+        enter_enable=enter_enable,
+        enable_password=enable_password,
+        settle_seconds=settle_seconds,
+    )
+
+
+def _warehouse_sm_switch_set_profile(payload: dict, profile: str) -> dict:
+    selected_port = str(payload.get("selected_port") or "").strip()
+    if not selected_port:
+        return {"success": False, "error": "selected_port is required"}
+    switch_ip = str(payload.get("switch_ip") or "").strip()
+    switch_username = str(payload.get("switch_username") or "").strip()
+    switch_password = str(payload.get("switch_password") or "").strip()
+    ssh_ports = _warehouse_sm_parse_ports(payload.get("switch_ssh_ports"))
+    if not switch_ip or not switch_username or not switch_password:
+        return {"success": False, "error": "switch_ip, switch_username, and switch_password are required"}
+
+    requested_profile = str(payload.get("switch_profile") or "").strip().lower() or "generic"
+    probe_commands = _warehouse_sm_scan_commands_for_profile(requested_profile, selected_port)
+    if requested_profile == "netonix":
+        profile_probe = _warehouse_sm_switch_run_exec(
+            switch_ip=switch_ip,
+            switch_username=switch_username,
+            switch_password=switch_password,
+            ssh_ports=ssh_ports,
+            commands=probe_commands,
+            fail_on_cli_error=False,
+            command_timeout=3.0,
+        )
+    else:
+        profile_probe = _warehouse_sm_switch_run_interactive(
+            switch_ip=switch_ip,
+            switch_username=switch_username,
+            switch_password=switch_password,
+            ssh_ports=ssh_ports,
+            commands=probe_commands,
+            enter_enable=False,
+            fail_on_cli_error=False,
+            settle_seconds=0.30,
+        )
+    if not profile_probe.get("success"):
+        return profile_probe
+
+    detected_profile = str(payload.get("switch_profile") or "").strip().lower() or _warehouse_sm_detect_switch_profile(
+        str(profile_probe.get("output") or "")
+    )
+    if detected_profile == "netonix":
+        # We intentionally avoid automatic VLAN mutation on live Netonix staging switches in this workflow.
+        return {
+            "success": True,
+            "profile": profile,
+            "switch_profile": detected_profile,
+            "validated_profile": False,
+            "selected_port": selected_port,
+            "switch_ssh_port": profile_probe.get("switch_ssh_port"),
+            "skipped": True,
+            "message": "Netonix switch profile toggle skipped (no automatic port VLAN mutation).",
+        }
+
+    validated_profile = _warehouse_sm_switch_profile_validated_for_config(detected_profile)
+    force_unvalidated = bool(payload.get("force_unvalidated_switch_cli"))
+    if not validated_profile and not force_unvalidated:
+        return {
+            "success": False,
+            "error": f"Switch profile '{detected_profile}' is not validated for automatic port profile changes. Use manual switch step or set force_unvalidated_switch_cli=true.",
+            "switch_profile": detected_profile,
+            "selected_port": selected_port,
+        }
+
+    if profile == "tagged":
+        commands = [
+            "configure",
+            f"interface 0/{selected_port}",
+            "switchport mode trunk",
+            "switchport trunk native vlan 1",
+            "switchport trunk allowed vlan add 1000,4000",
+            "exit",
+            "exit",
+            "write memory",
+            "y",
+        ]
+    else:
+        commands = [
+            "configure",
+            f"interface 0/{selected_port}",
+            "switchport mode access",
+            "switchport access vlan 1",
+            "exit",
+            "exit",
+            "write memory",
+            "y",
+        ]
+
+    result = _warehouse_sm_switch_run_script(
+        switch_ip=switch_ip,
+        switch_username=switch_username,
+        switch_password=switch_password,
+        ssh_ports=ssh_ports,
+        commands=commands,
+        enter_enable=True,
+        enable_password=switch_password,
+    )
+    result["profile"] = profile
+    result["switch_profile"] = detected_profile
+    result["validated_profile"] = validated_profile
+    result["selected_port"] = selected_port
+    return result
+
+
+def _warehouse_sm_discover(data: dict) -> dict:
+    required_firmware = str(data.get('required_firmware') or "5.10.4").strip()
+    device_password = str(
+        os.getenv('NEXTLINK_SSH_PASSWORD')
+        or os.getenv('SM_STANDARD_PW')
+        or "admin"
+    ).strip()
+    switch_probe = _warehouse_sm_switch_probe(
+        switch_ip=str(data.get("switch_ip", "")).strip(),
+        switch_username=str(data.get("switch_username", "")).strip(),
+        switch_password=str(data.get("switch_password", "")).strip(),
+        selected_port=str(data.get("selected_port", "")).strip(),
+        ssh_ports=_warehouse_sm_parse_ports(data.get('switch_ssh_ports')),
+        switch_profile=str(data.get("switch_profile") or "").strip().lower() or None,
+    )
+    switch_probe_ok = bool(switch_probe.get("success"))
+    switch_probe_error = ""
+    switch_probe_status = 500
+    if not switch_probe_ok:
+        switch_probe_error = switch_probe.get('error') or 'Switch scan failed'
+        switch_probe_status = int(switch_probe.get("status_code") or 500)
+
+    probe_limit = int(data.get('max_ip_probes') or 2)
+    probe_limit = min(max(probe_limit, 1), 6)
+    max_hosts_scan = int(data.get('max_hosts_scan') or 128)
+    max_hosts_scan = min(max(max_hosts_scan, 32), 512)
+    switch_ip = str(data.get("switch_ip", "")).strip()
+
+    if not switch_probe_ok:
+        ip_candidates = []
+        ip_candidates.extend([str(x).strip() for x in (data.get('ip_candidates') or []) if str(x).strip()])
+        ip_candidates.extend(_WAREHOUSE_SM_DEFAULT_IPS)
+        ip_candidates = [ip for ip in _warehouse_sm_unique(ip_candidates) if ip != switch_ip][:probe_limit]
+        default_access = _warehouse_sm_bootstrap_default_access(switch_ip=switch_ip, candidate_ips=ip_candidates)
+        fallback_target_ip = _warehouse_sm_pick_default_target_ip(ip_candidates)
+        return {
+            "success": False,
+            "error": f"{switch_probe_error}. Continuing with default SM target IP fallback is recommended.",
+            "scan": {
+                "selected_port": str(data.get("selected_port", "")).strip(),
+                "switch_profile": "switch-probe-unavailable",
+                "switch_ssh_port": None,
+                "switch_mgmt_cidrs": [],
+                "port_mac_candidates": [],
+                "ip_candidates": ip_candidates,
+                "probed": [],
+                "active_scan": {},
+                "switch_probe_error": switch_probe_error or None,
+                "fallback_target_ip": fallback_target_ip,
+                "selected_port_state": {},
+                "default_access": default_access,
+                "switch_discovery": {},
+            },
+            "fallback_target_ip": fallback_target_ip,
+            "status_code": switch_probe_status,
+        }
+
+    ip_candidates = []
+    ip_candidates.extend([str(x).strip() for x in (data.get('ip_candidates') or []) if str(x).strip()])
+    ip_candidates.extend(_WAREHOUSE_SM_DEFAULT_IPS)
+    ip_candidates.extend(switch_probe.get("ip_candidates", []))
+    ip_candidates = [ip for ip in _warehouse_sm_unique(ip_candidates) if ip != switch_ip][:probe_limit]
+    default_access = _warehouse_sm_bootstrap_default_access(switch_ip=switch_ip, candidate_ips=ip_candidates)
+
+    probed = []
+    discovered = None
+    discovered_ip = ""
+    for ip_value in ip_candidates:
+        probe = _warehouse_sm_probe_ip(ip_value, password=device_password)
+        probed.append({
+            "ip": ip_value,
+            "success": bool(probe.get("success")),
+            "device_type": probe.get("device_type"),
+            "message": probe.get("message"),
+        })
+        if probe.get("success"):
+            discovered = probe
+            discovered_ip = ip_value
+            break
+
+    active_scan_result = None
+    enable_active_scan = bool(data.get("enable_active_scan"))
+    if not discovered and enable_active_scan:
+        cidr_candidates = []
+        cidr_candidates.extend(_warehouse_sm_parse_cidr_list(os.getenv("WAREHOUSE_SM_DISCOVERY_CIDRS", "")))
+        cidr_candidates.extend(_warehouse_sm_parse_cidr_list(switch_probe.get("switch_mgmt_cidrs", [])))
+        cidr_candidates = _warehouse_sm_unique(cidr_candidates)
+        if cidr_candidates:
+            active_scan_result = _warehouse_sm_active_discovery(
+                cidrs=cidr_candidates,
+                device_password=device_password,
+                port_mac_candidates=switch_probe.get("port_mac_candidates", []),
+                max_hosts_scan=max_hosts_scan,
+                max_probe_ips=probe_limit,
+            )
+            if active_scan_result.get("success"):
+                chosen = active_scan_result.get("chosen") or {}
+                discovered = chosen.get("probe")
+                discovered_ip = str(chosen.get("ip") or "").strip()
+                probed.extend(active_scan_result.get("probed") or [])
+
+    switch_discovery = (switch_probe.get("switch_discovery") or {}) if switch_probe_ok else {}
+    all_discovery_entries = list(switch_discovery.get("entries") or [])
+    selected_discovery_entries = list(switch_discovery.get("selected_port_entries") or [])
+    switch_discovery_hint = {}
+    discovery_port_hints = []
+    selected_port_text = str(data.get("selected_port", "")).strip()
+    if not discovered and selected_discovery_entries:
+        def _is_cambium_like(entry: dict) -> bool:
+            text = " ".join(
+                [
+                    str(entry.get("product") or ""),
+                    str(entry.get("name") or ""),
+                    str(entry.get("protocol") or ""),
+                ]
+            ).lower()
+            return any(token in text for token in ["cambium", "force", "f4600", "4600c", "f4525", "f300"])
+
+        def _entry_rank(entry: dict):
+            ip_ok = bool(str(entry.get("ip") or "").strip())
+            return (1 if _is_cambium_like(entry) else 0, 1 if ip_ok else 0)
+
+        selected_discovery_entries.sort(key=_entry_rank, reverse=True)
+        chosen_entry = selected_discovery_entries[0]
+        chosen_ip = str(chosen_entry.get("ip") or "").strip()
+        if chosen_ip:
+            discovered_ip = chosen_ip
+        else:
+            discovered_ip = _warehouse_sm_pick_default_target_ip(ip_candidates)
+
+        product_text = str(chosen_entry.get("product") or "")
+        name_text = str(chosen_entry.get("name") or "")
+        fw_match = re.search(r"version\s+(\d+\.\d+\.\d+(?:\.\d+)?)", product_text, flags=re.IGNORECASE)
+        inferred_fw = fw_match.group(1) if fw_match else ""
+        inferred_type = "F4600C"
+        lower_text = f"{product_text} {name_text}".lower()
+        if "f4525" in lower_text:
+            inferred_type = "F4525"
+        elif "f300-13" in lower_text:
+            inferred_type = "F300-13"
+        elif "f300-16" in lower_text:
+            inferred_type = "F300-16"
+        elif "f300-25" in lower_text:
+            inferred_type = "F300-25"
+        elif "f300-csm" in lower_text:
+            inferred_type = "F300-CSM"
+
+        discovered = {
+            "success": True,
+            "device_type": inferred_type,
+            "message": "Identified from Netonix discovery table",
+            "info": {
+                "name": name_text,
+                "wireless_mac": _warehouse_sm_normalize_mac(str(chosen_entry.get("mac") or "")),
+                "running_config": "",
+                "test_results": (
+                    [{"name": "Firmware Version", "actual": inferred_fw, "expected": required_firmware, "pass": _warehouse_sm_versions_match(required_firmware, inferred_fw)}]
+                    if inferred_fw
+                    else []
+                ),
+            },
+        }
+        switch_discovery_hint = {
+            "source": "netonix-discovery",
+            "entry": chosen_entry,
+            "firmware_hint": inferred_fw,
+            "probe_reachable": False,
+        }
+        probed.append(
+            {
+                "ip": discovered_ip,
+                "success": False,
+                "device_type": inferred_type,
+                "message": "Identified from switch discovery table; backend HTTP probe not yet successful",
+            }
+        )
+    elif not discovered and all_discovery_entries:
+        def _is_cambium_like(entry: dict) -> bool:
+            text = " ".join(
+                [
+                    str(entry.get("product") or ""),
+                    str(entry.get("name") or ""),
+                    str(entry.get("protocol") or ""),
+                ]
+            ).lower()
+            return any(token in text for token in ["cambium", "force", "f4600", "4600c", "f4525", "f300"])
+
+        for entry in all_discovery_entries:
+            if not _is_cambium_like(entry):
+                continue
+            port_value = str(entry.get("port") or "").strip()
+            if not port_value or port_value == selected_port_text:
+                continue
+            discovery_port_hints.append(port_value)
+        discovery_port_hints = _warehouse_sm_unique(discovery_port_hints)
+
+    if not discovered:
+        fallback_target_ip = _warehouse_sm_pick_default_target_ip(ip_candidates)
+        base_error = "No Cambium SM discovered from selected switch port/IP candidates"
+        if switch_probe_error:
+            base_error = f"{switch_probe_error}. {base_error}"
+        if discovery_port_hints:
+            base_error = f"{base_error}. Switch discovery currently sees Cambium device(s) on port(s): {', '.join(discovery_port_hints)}"
+        if (default_access.get("errors") or []) and default_access.get("required_aliases"):
+            base_error = f"{base_error}. Default subnet bootstrap failed: {(default_access.get('errors') or ['unknown error'])[0]}"
+        return {
+            "success": False,
+            "error": base_error,
+            "scan": {
+                "selected_port": str(data.get("selected_port", "")).strip(),
+                "switch_profile": switch_probe.get("switch_profile") or ("unknown" if switch_probe_ok else "switch-probe-unavailable"),
+                "switch_ssh_port": switch_probe.get("switch_ssh_port") if switch_probe_ok else None,
+                "switch_mgmt_cidrs": switch_probe.get("switch_mgmt_cidrs", []) if switch_probe_ok else [],
+                "port_mac_candidates": switch_probe.get("port_mac_candidates", []) if switch_probe_ok else [],
+                "ip_candidates": ip_candidates,
+                "probed": probed,
+                "active_scan": active_scan_result or {},
+                "switch_probe_error": switch_probe_error or None,
+                "fallback_target_ip": fallback_target_ip,
+                "selected_port_state": switch_probe.get("selected_port_state") or {},
+                "default_access": default_access,
+                "switch_discovery": switch_discovery,
+                "discovery_port_hints": discovery_port_hints,
+            },
+            "fallback_target_ip": fallback_target_ip,
+            "status_code": 404 if switch_probe_ok else switch_probe_status,
+        }
+
+    info = discovered.get("info", {}) or {}
+    device_props = _warehouse_sm_extract_device_props(info)
+    firmware = _warehouse_sm_extract_firmware(info)
+    if not firmware:
+        firmware = str((switch_discovery_hint or {}).get("firmware_hint") or "").strip()
+    firmware_match = _warehouse_sm_versions_match(required_firmware, firmware)
+    discovered_name = str(device_props.get("systemConfigDeviceName") or info.get("name") or "").strip()
+    user_match = re.search(r'NX-(\d+)', discovered_name or "", flags=re.IGNORECASE)
+    user_number = user_match.group(1) if user_match else ""
+    wireless_mac = str(info.get("wireless_mac") or "").strip()
+    latitude = str(info.get("latitude") or device_props.get("systemDeviceLocLatitude") or "").strip()
+    longitude = str(info.get("longitude") or device_props.get("systemDeviceLocLongitude") or "").strip()
+    height = str(device_props.get("systemDeviceLocHeight") or "").strip()
+    autofill = {
+        "target_ip": discovered_ip,
+        "device_type": discovered.get("device_type"),
+        "mac_address": wireless_mac,
+        "firmware": firmware,
+        "firmware_match": firmware_match,
+        "user_number": user_number,
+        "latitude": latitude,
+        "longitude": longitude,
+        "height": height,
+    }
+    return {
+        "success": True,
+        "scan": {
+            "selected_port": str(data.get("selected_port", "")).strip(),
+            "switch_profile": switch_probe.get("switch_profile") or ("unknown" if switch_probe_ok else "switch-probe-unavailable"),
+            "switch_ssh_port": switch_probe.get("switch_ssh_port") if switch_probe_ok else None,
+            "switch_mgmt_cidrs": switch_probe.get("switch_mgmt_cidrs", []) if switch_probe_ok else [],
+            "port_mac_candidates": switch_probe.get("port_mac_candidates", []) if switch_probe_ok else [],
+            "ip_candidates": ip_candidates,
+            "probed": probed,
+            "active_scan": active_scan_result or {},
+            "switch_probe_error": switch_probe_error or None,
+            "selected_port_state": switch_probe.get("selected_port_state") or {},
+            "default_access": default_access,
+            "switch_discovery": switch_discovery,
+            "switch_discovery_hint": switch_discovery_hint,
+            "discovery_port_hints": discovery_port_hints,
+        },
+        "discovery": {
+            "ip_address": autofill["target_ip"],
+            "device_type": discovered.get("device_type"),
+            "device_name": discovered_name,
+            "wireless_mac": wireless_mac,
+            "firmware_version": firmware,
+            "required_firmware": required_firmware,
+            "firmware_match": firmware_match,
+            "autofill": autofill,
+            "latitude": latitude,
+            "longitude": longitude,
+            "height": height,
+        },
+        "device_info": info,
+        "device_password": device_password,
+    }
+
+
+def _warehouse_sm_task_log(task_id: str, message: str, level: str = "info", step: str | None = None):
+    entry = {
+        "timestamp": get_utc_timestamp(),
+        "message": str(message),
+        "level": str(level or "info"),
+    }
+    if step:
+        entry["step"] = step
+    _background_task_append_log(_WAREHOUSE_SM_TASK_KIND, task_id, entry)
+    task = warehouse_sm_tasks.get(task_id)
+    if isinstance(task, dict):
+        task.setdefault("logs", []).append(entry)
+        task["logs"] = task["logs"][-200:]
+        task["updated_at"] = get_utc_timestamp()
+        _background_task_persist(_WAREHOUSE_SM_TASK_KIND, task_id, task)
+
+
+def _warehouse_sm_background_task(task_id: str, payload: dict, username: str):
+    task = warehouse_sm_tasks.get(task_id) or {}
+    task["status"] = "running"
+    task["started_at"] = get_utc_timestamp()
+    task["updated_at"] = get_utc_timestamp()
+    warehouse_sm_tasks[task_id] = task
+    _background_task_persist(_WAREHOUSE_SM_TASK_KIND, task_id, task)
+
+    def _should_abort() -> bool:
+        return (
+            (warehouse_sm_tasks.get(task_id) or {}).get("abort") is True
+            or _background_task_has_abort(_WAREHOUSE_SM_TASK_KIND, task_id)
+        )
+
+    def _abort_if_needed():
+        if _should_abort():
+            raise RuntimeError("Task aborted by user")
+
+    try:
+        _abort_if_needed()
+        _warehouse_sm_task_log(task_id, "Starting warehouse SM provisioning workflow.", "info", "start")
+        _warehouse_sm_task_log(task_id, "Step 1/7: Set switch port to untagged provisioning profile.", "info", "switch-untagged")
+        untagged_result = _warehouse_sm_switch_set_profile(payload, "untagged")
+        if not untagged_result.get("success"):
+            _warehouse_sm_task_log(task_id, f"Untagged profile warning: {untagged_result.get('error') or 'switch command was not accepted'}", "warning", "switch-untagged")
+        elif untagged_result.get("skipped"):
+            _warehouse_sm_task_log(task_id, str(untagged_result.get("message") or "Switch profile change skipped."), "info", "switch-untagged")
+
+        _abort_if_needed()
+        _warehouse_sm_task_log(task_id, "Step 2/7: Discover SM on selected port.", "info", "discover")
+        discovery_result = _warehouse_sm_discover(payload)
+        if not discovery_result.get("success"):
+            fallback_ip = str(
+                payload.get("target_ip")
+                or discovery_result.get("fallback_target_ip")
+                or (discovery_result.get("scan") or {}).get("fallback_target_ip")
+                or ""
+            ).strip()
+            if fallback_ip:
+                _warehouse_sm_task_log(
+                    task_id,
+                    f"Discovery did not return a definitive SM. Falling back to target IP {fallback_ip} for baseline staging.",
+                    "warning",
+                    "discover",
+                )
+                discovery_result = {
+                    "success": True,
+                    "scan": discovery_result.get("scan") or {},
+                    "discovery": {
+                        "ip_address": fallback_ip,
+                        "device_type": "F4600C",
+                        "wireless_mac": str(payload.get("mac_address") or "").strip(),
+                        "firmware_version": "",
+                        "required_firmware": str(payload.get("required_firmware") or "5.10.4").strip(),
+                        "firmware_match": False,
+                        "autofill": {
+                            "target_ip": fallback_ip,
+                            "device_type": "F4600C",
+                            "mac_address": str(payload.get("mac_address") or "").strip(),
+                        },
+                    },
+                    "device_info": {},
+                    "device_password": str(
+                        os.getenv("NEXTLINK_SSH_PASSWORD")
+                        or os.getenv("SM_STANDARD_PW")
+                        or "admin"
+                    ).strip(),
+                }
+                payload["target_ip"] = fallback_ip
+            else:
+                raise RuntimeError(discovery_result.get("error") or "SM discovery failed")
+        default_access = (discovery_result.get("scan") or {}).get("default_access") or {}
+        if (default_access.get("errors") or []) and (default_access.get("required_aliases") or []):
+            _warehouse_sm_task_log(
+                task_id,
+                f"Default-subnet access bootstrap warning: {(default_access.get('errors') or ['unknown error'])[0]}",
+                "warning",
+                "discover",
+            )
+        elif default_access.get("added_aliases"):
+            _warehouse_sm_task_log(
+                task_id,
+                f"Default-subnet access bootstrap added alias(es): {', '.join(default_access.get('added_aliases') or [])}",
+                "info",
+                "discover",
+            )
+        discovery = discovery_result.get("discovery", {})
+        payload["target_ip"] = discovery.get("ip_address")
+        payload["mac_address"] = payload.get("mac_address") or discovery.get("wireless_mac")
+        _warehouse_sm_task_log(
+            task_id,
+            f"Discovered SM {discovery.get('device_type')} at {discovery.get('ip_address')} ({discovery.get('wireless_mac') or 'MAC unknown'}).",
+            "info",
+            "discover",
+        )
+
+        _abort_if_needed()
+        _warehouse_sm_task_log(task_id, "Step 3/7: Apply baseline configuration and firmware policy.", "info", "configure")
+        baseline_result = _warehouse_sm_apply_baseline(discovery, payload)
+        if not baseline_result.get("success"):
+            raise RuntimeError(baseline_result.get("error") or "Baseline configuration failed")
+        if baseline_result.get("unresolved_targets"):
+            _warehouse_sm_task_log(
+                task_id,
+                "Some SOP fields could not be auto-mapped from current firmware keys and require key mapping review.",
+                "warning",
+                "configure",
+            )
+
+        _abort_if_needed()
+        _warehouse_sm_task_log(task_id, "Step 4/7: Verify SM configuration post-baseline.", "info", "verify-baseline")
+        verify_probe = _warehouse_sm_probe_ip(discovery.get("ip_address"), password=discovery_result.get("device_password"))
+        if not verify_probe.get("success"):
+            raise RuntimeError("Post-config verification probe failed")
+        verify_info = verify_probe.get("info") or {}
+        verification_checks = _warehouse_sm_build_verification(
+            verify_info,
+            str(payload.get("required_firmware") or "5.10.4"),
+            payload=payload,
+        )
+        pass_count = sum(1 for check in verification_checks if check.get("pass"))
+        _warehouse_sm_task_log(task_id, f"Baseline verification: {pass_count}/{len(verification_checks)} checks passed.", "info", "verify-baseline")
+
+        _abort_if_needed()
+        _warehouse_sm_task_log(task_id, "Step 5/7: Set switch port to tagged verification profile.", "info", "switch-tagged")
+        tagged_result = _warehouse_sm_switch_set_profile(payload, "tagged")
+        if not tagged_result.get("success"):
+            _warehouse_sm_task_log(task_id, f"Tagged profile warning: {tagged_result.get('error') or 'switch command was not accepted'}", "warning", "switch-tagged")
+        elif tagged_result.get("skipped"):
+            _warehouse_sm_task_log(task_id, str(tagged_result.get("message") or "Switch profile change skipped."), "info", "switch-tagged")
+
+        _abort_if_needed()
+        _warehouse_sm_task_log(task_id, "Step 6/7: Confirm SM still reachable after VLAN profile toggle.", "info", "verify-tagged")
+        tagged_probe = _warehouse_sm_probe_ip(discovery.get("ip_address"), password=discovery_result.get("device_password"))
+        tagged_reachable = bool(tagged_probe.get("success"))
+        _warehouse_sm_task_log(task_id, f"Tagged profile reachability: {'reachable' if tagged_reachable else 'not reachable'}", "info" if tagged_reachable else "warning", "verify-tagged")
+
+        _abort_if_needed()
+        _warehouse_sm_task_log(task_id, "Step 7/7: Return switch port to untagged staging profile.", "info", "switch-reset")
+        reset_result = _warehouse_sm_switch_set_profile(payload, "untagged")
+        if not reset_result.get("success"):
+            _warehouse_sm_task_log(task_id, f"Reset profile warning: {reset_result.get('error') or 'switch command was not accepted'}", "warning", "switch-reset")
+        elif reset_result.get("skipped"):
+            _warehouse_sm_task_log(task_id, str(reset_result.get("message") or "Switch profile change skipped."), "info", "switch-reset")
+
+        closeout_gate = _warehouse_sm_closeout_gate(payload)
+        if payload.get("closeout_requested") and not closeout_gate.get("ready"):
+            raise RuntimeError(f"Closeout gate blocked. Missing: {', '.join(closeout_gate.get('missing_fields') or [])}")
+
+        task.update({
+            "status": "completed",
+            "completed_at": get_utc_timestamp(),
+            "updated_at": get_utc_timestamp(),
+            "result": {
+                "discovery": discovery_result,
+                "baseline": baseline_result,
+                "verification_checks": verification_checks,
+                "switch_profiles": {
+                    "untagged_before": untagged_result,
+                    "tagged_verify": tagged_result,
+                    "untagged_after": reset_result,
+                },
+                "tagged_reachable": tagged_reachable,
+                "closeout_gate": closeout_gate,
+            },
+        })
+        warehouse_sm_tasks[task_id] = task
+        _background_task_persist(_WAREHOUSE_SM_TASK_KIND, task_id, task)
+        _warehouse_sm_task_log(task_id, "Warehouse SM provisioning workflow completed.", "info", "done")
+    except Exception as exc:
+        status = "aborted" if "aborted" in str(exc).lower() else "failed"
+        task.update({
+            "status": status,
+            "completed_at": get_utc_timestamp(),
+            "updated_at": get_utc_timestamp(),
+            "error": str(exc),
+        })
+        warehouse_sm_tasks[task_id] = task
+        _background_task_persist(_WAREHOUSE_SM_TASK_KIND, task_id, task)
+        _warehouse_sm_task_log(task_id, f"Provisioning failed: {exc}", "error", "failed")
+
+
+def _warehouse_sm_probe_ip(ip_address: str, password: str | None = None) -> dict:
+    try:
+        from ido_modules.device_io.epmp_config import EPMPConfig
+    except Exception as exc:
+        return {"success": False, "message": f"Cambium module unavailable: {exc}"}
+
+    # Fast-path probing for warehouse staging.
+    # If no HTTP/HTTPS listener is reachable, skip expensive Cambium login attempts immediately.
+    if not (_warehouse_sm_probe_tcp(ip_address, 80, 0.35) or _warehouse_sm_probe_tcp(ip_address, 443, 0.35)):
+        return {"success": False, "message": "No HTTP/HTTPS response from candidate IP"}
+
+    # Warehouse workflow is focused on new Force 4600C devices.
+    preferred_types = ["F4600C"]
+    device_types = _warehouse_sm_unique(preferred_types)
+    for device_type in device_types:
+        try:
+            info = EPMPConfig.get_device_info(
+                ip_address,
+                device_type,
+                password=password or None,
+                run_tests=False,
+            )
+            if info.get("success"):
+                return {
+                    "success": True,
+                    "device_type": device_type,
+                    "info": info,
+                }
+        except Exception:
+            continue
+    return {"success": False, "message": "No supported Cambium SM responded at this IP"}
+
+
+@app.route('/api/warehouse-sm/scan', methods=['POST'])
+@require_auth
+def warehouse_sm_scan():
+    """
+    Scan selected warehouse switch port and discover connected Cambium SM details.
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        switch_ip = str(data.get('switch_ip', '')).strip()
+        switch_username = str(data.get('switch_username', '')).strip()
+        switch_password = str(data.get('switch_password', '')).strip()
+        selected_port = str(data.get('selected_port', '')).strip()
+        if not switch_ip or not switch_username or not switch_password or not selected_port:
+            return jsonify({'success': False, 'error': 'switch_ip, switch_username, switch_password, and selected_port are required'}), 400
+
+        try:
+            ipaddress.IPv4Address(switch_ip)
+        except Exception:
+            return jsonify({'success': False, 'error': 'Invalid switch_ip format'}), 400
+        scan_timeout_seconds = int(os.getenv("WAREHOUSE_SM_SCAN_TIMEOUT_SECONDS") or 28)
+        scan_timeout_seconds = min(max(scan_timeout_seconds, 5), 60)
+        scan_executor = ThreadPoolExecutor(max_workers=1)
+        scan_future = scan_executor.submit(_warehouse_sm_discover, data)
+        try:
+            discovery_result = scan_future.result(timeout=scan_timeout_seconds)
+        except FuturesTimeoutError:
+            try:
+                scan_future.cancel()
+            except Exception:
+                pass
+            ip_candidates = []
+            ip_candidates.extend([str(x).strip() for x in (data.get('ip_candidates') or []) if str(x).strip()])
+            ip_candidates.append(str(data.get("target_ip") or "").strip())
+            ip_candidates.extend(_WAREHOUSE_SM_DEFAULT_IPS)
+            ip_candidates = _warehouse_sm_unique([ip for ip in ip_candidates if ip])
+            default_access = _warehouse_sm_bootstrap_default_access(switch_ip=switch_ip, candidate_ips=ip_candidates)
+            fallback_target_ip = _warehouse_sm_pick_default_target_ip(ip_candidates)
+            return jsonify({
+                "success": False,
+                "error": f"Warehouse SM scan timed out after {scan_timeout_seconds}s.",
+                "scan": {
+                    "selected_port": selected_port,
+                    "switch_profile": str(data.get("switch_profile") or "unknown"),
+                    "switch_ssh_port": None,
+                    "ip_candidates": ip_candidates,
+                    "probed": [],
+                    "active_scan": {},
+                    "switch_probe_error": "scan-timeout",
+                    "fallback_target_ip": fallback_target_ip,
+                    "selected_port_state": {},
+                    "default_access": default_access,
+                },
+                "fallback_target_ip": fallback_target_ip,
+            }), 200
+        finally:
+            try:
+                scan_executor.shutdown(wait=False, cancel_futures=True)
+            except TypeError:
+                scan_executor.shutdown(wait=False)
+        if not discovery_result.get("success"):
+            return jsonify({
+                "success": False,
+                "error": discovery_result.get("error") or "Warehouse SM scan failed",
+                "scan": discovery_result.get("scan") or {},
+                "details": discovery_result.get("details") or [],
+                "fallback_target_ip": discovery_result.get("fallback_target_ip") or ((discovery_result.get("scan") or {}).get("fallback_target_ip")),
+            }), int(discovery_result.get("status_code") or 500)
+
+        return jsonify({
+            "success": True,
+            "scan": discovery_result.get("scan") or {},
+            "discovery": discovery_result.get("discovery") or {},
+        }), 200
+    except Exception as exc:
+        print(f"[WAREHOUSE-SM] scan error: {exc}")
+        return jsonify({'success': False, 'error': 'Warehouse SM scan failed'}), 500
+
+
+def _warehouse_sm_public_task(task: dict | None) -> dict | None:
+    payload = _background_task_status_payload(task)
+    if not isinstance(payload, dict):
+        return None
+    if isinstance(payload.get("request"), dict):
+        req = dict(payload.get("request") or {})
+        for secret_key in ("switch_password", "device_password", "password"):
+            if secret_key in req:
+                req[secret_key] = "***"
+        payload["request"] = req
+    if isinstance(payload.get("result"), dict) and isinstance(payload["result"].get("discovery"), dict):
+        # Avoid leaking raw device passwords from discovery internals.
+        disc = dict(payload["result"].get("discovery") or {})
+        disc.pop("device_password", None)
+        payload["result"]["discovery"] = disc
+    return payload
+
+
+@app.route('/api/warehouse-sm/closeout-check', methods=['POST'])
+@require_auth
+def warehouse_sm_closeout_check():
+    try:
+        data = request.get_json(force=True) or {}
+        gate = _warehouse_sm_closeout_gate(data)
+        return jsonify({"success": True, "closeout_gate": gate}), 200
+    except Exception as exc:
+        print(f"[WAREHOUSE-SM] closeout-check error: {exc}")
+        return jsonify({"success": False, "error": "Warehouse SM closeout gate check failed"}), 500
+
+
+@app.route('/api/warehouse-sm/provision', methods=['POST'])
+@require_auth
+def warehouse_sm_provision():
+    try:
+        _require_feature('cambium')
+        data = request.get_json(force=True) or {}
+        required_fields = ["switch_ip", "switch_username", "switch_password", "selected_port", "cnm_url"]
+        missing = [name for name in required_fields if not str(data.get(name, "")).strip()]
+        if missing:
+            return jsonify({"success": False, "error": f"Missing required fields: {', '.join(missing)}"}), 400
+
+        switch_ip = str(data.get("switch_ip", "")).strip()
+        try:
+            ipaddress.IPv4Address(switch_ip)
+        except Exception:
+            return jsonify({"success": False, "error": "Invalid switch_ip format"}), 400
+
+        if data.get("closeout_requested"):
+            gate = _warehouse_sm_closeout_gate(data)
+            if not gate.get("ready"):
+                return jsonify({
+                    "success": False,
+                    "error": "Closeout gate blocked",
+                    "closeout_gate": gate,
+                }), 400
+
+        task_id = f"warehouse-sm-{uuid.uuid4().hex[:10]}"
+        user_info = getattr(request, "current_user", {}) or {}
+        username = user_info.get("username") or user_info.get("email") or "warehouse-sm-tool"
+        tenant_ctx = _get_request_tenant_context()
+        tenant_id = tenant_ctx["tenant"].get("id") if tenant_ctx.get("tenant") else None
+        tenant_slug = tenant_ctx["tenant"].get("slug", "") if tenant_ctx.get("tenant") else ""
+
+        request_copy = dict(data)
+        if "switch_password" in request_copy:
+            request_copy["switch_password"] = "***"
+        if "device_password" in request_copy:
+            request_copy["device_password"] = "***"
+
+        warehouse_sm_tasks[task_id] = {
+            "task_id": task_id,
+            "status": "queued",
+            "created_at": get_utc_timestamp(),
+            "updated_at": get_utc_timestamp(),
+            "username": username,
+            "request": request_copy,
+            "logs": [],
+            "_tenant_id": tenant_id,
+            "_tenant_slug": tenant_slug,
+        }
+        _background_task_persist(_WAREHOUSE_SM_TASK_KIND, task_id, warehouse_sm_tasks.get(task_id))
+
+        worker_payload = dict(data)
+        threading.Thread(
+            target=_warehouse_sm_background_task,
+            args=(task_id, worker_payload, username),
+            daemon=True,
+            name=f"warehouse_sm_{task_id[:10]}",
+        ).start()
+
+        return jsonify({
+            "success": True,
+            "task_id": task_id,
+            "status": "queued",
+            "message": "Warehouse SM provisioning task started.",
+        }), 202
+    except Exception as exc:
+        print(f"[WAREHOUSE-SM] provision error: {exc}")
+        return jsonify({"success": False, "error": "Warehouse SM provisioning failed to start"}), 500
+
+
+@app.route('/api/warehouse-sm/status/<task_id>', methods=['GET'])
+@require_auth
+def warehouse_sm_status(task_id):
+    task = warehouse_sm_tasks.get(task_id) or _background_task_load(_WAREHOUSE_SM_TASK_KIND, task_id)
+    if not task:
+        return jsonify({"success": False, "error": "Task not found"}), 404
+    if not _background_task_access_allowed(task):
+        return jsonify({"success": False, "error": "Forbidden"}), 403
+    public_task = _warehouse_sm_public_task(task)
+    return jsonify({"success": True, "task": public_task}), 200
+
+
+@app.route('/api/warehouse-sm/tasks', methods=['GET'])
+@require_auth
+def warehouse_sm_tasks_list():
+    tenant_id = _request_tenant_id()
+    tasks = _background_task_list(_WAREHOUSE_SM_TASK_KIND, limit=100)
+    visible = []
+    for task in tasks:
+        if not _background_task_matches_tenant(task, tenant_id) and not _request_is_platform_admin():
+            continue
+        public_task = _warehouse_sm_public_task(task)
+        if isinstance(public_task, dict):
+            visible.append(public_task)
+    return jsonify({"success": True, "tasks": visible}), 200
+
+
+@app.route('/api/warehouse-sm/abort/<task_id>', methods=['POST'])
+@require_auth
+def warehouse_sm_abort(task_id):
+    task = warehouse_sm_tasks.get(task_id) or _background_task_load(_WAREHOUSE_SM_TASK_KIND, task_id)
+    if not task:
+        return jsonify({"success": False, "error": "Task not found"}), 404
+    if not _background_task_access_allowed(task):
+        return jsonify({"success": False, "error": "Forbidden"}), 403
+
+    _background_task_signal_abort(_WAREHOUSE_SM_TASK_KIND, task_id)
+    if task_id in warehouse_sm_tasks:
+        warehouse_sm_tasks[task_id]["abort"] = True
+        warehouse_sm_tasks[task_id]["status"] = "aborting"
+        warehouse_sm_tasks[task_id]["updated_at"] = get_utc_timestamp()
+        _background_task_persist(_WAREHOUSE_SM_TASK_KIND, task_id, warehouse_sm_tasks.get(task_id))
+    return jsonify({"success": True, "task_id": task_id, "status": "aborting"}), 200
+
+
 @app.route('/api/fetch-config-ssh', methods=['POST'])
+@require_auth
 def fetch_config_ssh():
     """
     SSH into MikroTik device and fetch configuration via export command.
     Credentials can be provided in the request body, or via environment variables.
     """
-    # Auth guard — equivalent to @require_auth (decorator defined later in file)
-    _auth_token = request.headers.get('Authorization', '')
-    if _auth_token.startswith('Bearer '):
-        _auth_token = _auth_token[7:]
-    if not _auth_token:
-        _auth_token = (request.get_json(silent=True) or {}).get('token', '')
-    if not _auth_token:
-        return jsonify({'error': 'Authentication required'}), 401
-    _auth_user = verify_token(_auth_token)
-    if not _auth_user:
-        return jsonify({'error': 'Invalid or expired token'}), 401
-
-    try:
-        import paramiko
-    except ImportError:
-        return jsonify({
-            'error': 'paramiko library not installed. Run: pip install paramiko'
-        }), 500
-
     try:
         data = request.get_json(force=True)
         host = data.get('host', '').strip()
         ros_version = data.get('ros_version', '7')
         command = data.get('command', '').strip()
+        async_task = bool(data.get('async_task'))
         
         if not host:
             return jsonify({'error': 'Device IP address is required'}), 400
@@ -10978,139 +15098,98 @@ def fetch_config_ssh():
         if command not in allowed_commands:
             return jsonify({'error': f'Invalid command. Allowed: {", ".join(allowed_commands)}'}), 400
         
-        # Try connecting via SSH - attempt both ports with detailed logging
-        client = None
-        last_error = None
-        ports_tried = []
-        connection_errors = []
-        
-        print(f"[SSH] Attempting connection to {host}, trying ports: {SSH_PORTS}")
-        
-        for port in SSH_PORTS:
-            try:
-                print(f"[SSH] Trying port {port}...")
-                client = paramiko.SSHClient()
-                client.set_missing_host_key_policy(paramiko.AutoAddPolicy())  # Auto-accept host key for convenience
-                
-                # Connection with timeout
-                client.connect(
-                    hostname=host,
-                    port=port,
-                    username=SSH_USERNAME,
-                    password=SSH_PASSWORD,
-                    timeout=10,
-                    banner_timeout=10,
-                    auth_timeout=10
-                )
-                
-                print(f"[SSH] Successfully connected on port {port}")
-                ports_tried.append(port)
-                
-                # Execute export command
-                stdin, stdout, stderr = client.exec_command(command, timeout=30)
-                
-                # Read output
-                output = stdout.read().decode('utf-8', errors='replace')
-                error_output = stderr.read().decode('utf-8', errors='replace')
-                
-                # Check for errors
-                if error_output and 'error' in error_output.lower():
-                    if client:
-                        try:
-                            client.close()
-                        except:
-                            pass
-                    return jsonify({
-                        'error': f'Device returned error on port {port}: {error_output[:200]}'
-                    }), 500
-                
-                if not output or not output.strip():
-                    if client:
-                        try:
-                            client.close()
-                        except:
-                            pass
-                    return jsonify({
-                        'error': f'Device returned empty configuration on port {port}. Check RouterOS version and command.'
-                    }), 500
-                
-                # Normalize line breaks (remove \ continuations) before returning
-                normalized_output = normalize_line_breaks(output)
-                
-                print(f"[SSH] Successfully fetched config from {host}:{port}")
-                
-                # Success! Return config (do not log sensitive data)
-                return jsonify({
-                    'config': normalized_output,
+        if async_task:
+            task_id = str(uuid.uuid4())
+            with ssh_fetch_tasks_lock:
+                ssh_fetch_tasks[task_id] = {
+                    'task_id': task_id,
+                    'status': 'queued',
                     'host': host,
-                    'port': port,
                     'command': command,
-                    'message': f'Successfully connected on port {port}'
-                })
-                
-            except paramiko.AuthenticationException as e:
-                # Auth failure - don't try other ports, credentials are wrong
-                error_msg = f'SSH authentication failed on port {port}'
-                print(f"[SSH] {error_msg}: {str(e)}")
-                if client:
-                    try:
-                        client.close()
-                    except:
-                        pass
-                return jsonify({
-                    'error': f'{error_msg}. Check credentials. Tried ports: {", ".join(map(str, SSH_PORTS))}'
-                }), 401
-            except paramiko.SSHException as e:
-                # SSH-specific error - try next port
-                error_msg = f'SSH error on port {port}: {str(e)}'
-                print(f"[SSH] {error_msg}")
-                last_error = error_msg
-                connection_errors.append(f"Port {port}: {str(e)}")
-                ports_tried.append(port)
-                if client:
-                    try:
-                        client.close()
-                    except:
-                        pass
-                client = None
-                continue  # Try next port
-            except (OSError, ConnectionError, TimeoutError) as e:
-                # Network/connection error - try next port
-                error_msg = f'Connection error on port {port}: {str(e)}'
-                print(f"[SSH] {error_msg}")
-                last_error = error_msg
-                connection_errors.append(f"Port {port}: {str(e)}")
-                ports_tried.append(port)
-                if client:
-                    try:
-                        client.close()
-                    except:
-                        pass
-                client = None
-                continue  # Try next port
-            except Exception as e:
-                # Other error - try next port
-                error_msg = f'Unexpected error on port {port}: {str(e)}'
-                print(f"[SSH] {error_msg}")
-                last_error = error_msg
-                connection_errors.append(f"Port {port}: {str(e)}")
-                ports_tried.append(port)
-                if client:
-                    try:
-                        client.close()
-                    except:
-                        pass
-                client = None
-                continue  # Try next port
-        
-        # All ports failed
-        ports_str = ', '.join(map(str, set(ports_tried))) if ports_tried else ', '.join(map(str, SSH_PORTS))
-        error_details = '; '.join(connection_errors) if connection_errors else (last_error or "Unable to connect")
-        print(f"[SSH] All ports failed for {host}. Tried: {ports_str}. Errors: {error_details}")
-        return jsonify({
-            'error': f'Connection failed on all ports ({ports_str}). Errors: {error_details}',
-            'ports_tried': list(set(ports_tried)) if ports_tried else SSH_PORTS
-        }), 502
+                    'ports': SSH_PORTS,
+                    'current_port': None,
+                    'message': 'Queued for SSH fetch',
+                    'abort': False,
+                    'started_at': get_utc_timestamp(),
+                    'completed_at': None,
+                }
+                _background_task_persist('ssh_fetch', task_id, ssh_fetch_tasks[task_id])
+
+            def _worker():
+                _ssh_fetch_update_task(task_id, status='running', message='Starting SSH fetch')
+
+                def _should_abort():
+                    return _ssh_fetch_should_abort(task_id)
+
+                def _progress(message, **extra):
+                    payload = {'message': message}
+                    payload.update(extra)
+                    _ssh_fetch_update_task(task_id, **payload)
+
+                result = _run_mikrotik_ssh_fetch(
+                    host,
+                    SSH_USERNAME,
+                    SSH_PASSWORD,
+                    SSH_PORTS,
+                    command,
+                    should_abort=_should_abort,
+                    progress_callback=_progress,
+                )
+                if result.get('aborted'):
+                    _ssh_fetch_update_task(
+                        task_id,
+                        status='aborted',
+                        error=result.get('error'),
+                        completed_at=get_utc_timestamp(),
+                    )
+                    return
+                if result.get('success'):
+                    _ssh_fetch_update_task(
+                        task_id,
+                        status='completed',
+                        completed_at=get_utc_timestamp(),
+                        config=result.get('config'),
+                        port=result.get('port'),
+                        message=result.get('message'),
+                        ports_tried=result.get('ports_tried'),
+                    )
+                    return
+                _ssh_fetch_update_task(
+                    task_id,
+                    status='failed',
+                    error=result.get('error'),
+                    completed_at=get_utc_timestamp(),
+                    ports_tried=result.get('ports_tried'),
+                )
+
+            threading.Thread(target=_worker, daemon=True).start()
+            return jsonify({
+                'success': True,
+                'task_id': task_id,
+                'status': 'queued',
+                'message': 'SSH fetch task started',
+            }), 202
+
+        result = _run_mikrotik_ssh_fetch(
+            host,
+            SSH_USERNAME,
+            SSH_PASSWORD,
+            SSH_PORTS,
+            command,
+        )
+        if result.get('success'):
+            return jsonify({
+                'config': result.get('config'),
+                'host': result.get('host'),
+                'port': result.get('port'),
+                'command': result.get('command'),
+                'message': result.get('message'),
+            }), 200
+        status_code = int(result.get('status_code') or 500)
+        payload = {'error': result.get('error') or 'Backend error while fetching config'}
+        if result.get('ports_tried'):
+            payload['ports_tried'] = result.get('ports_tried')
+        return jsonify(payload), status_code
                     
     except Exception as e:
         # Do not expose internal errors or credentials
@@ -11119,24 +15198,39 @@ def fetch_config_ssh():
             'error': 'Backend error while fetching config'
         }), 500
 
+
+@app.route('/api/fetch-config-ssh/status/<task_id>', methods=['GET'])
+@require_auth
+def fetch_config_ssh_status(task_id):
+    task = ssh_fetch_tasks.get(task_id) or _background_task_load('ssh_fetch', task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    return jsonify(_background_task_status_payload(task))
+
+
+@app.route('/api/fetch-config-ssh/abort/<task_id>', methods=['POST'])
+@require_auth
+def fetch_config_ssh_abort(task_id):
+    task = ssh_fetch_tasks.get(task_id) or _background_task_load('ssh_fetch', task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    if task.get('status') in {'completed', 'failed', 'aborted'}:
+        return jsonify({'status': task.get('status')}), 200
+    _background_task_signal_abort('ssh_fetch', task_id)
+    _ssh_fetch_update_task(task_id, abort=True, status='aborting', message='Abort requested')
+    return jsonify({'status': 'aborting'})
+
 # ========================================
 # NOKIA 7250 CONFIG GENERATION
 # ========================================
 
 @app.route('/api/nokia7250-defaults', methods=['GET'])
+@require_auth
 def nokia7250_defaults():
     """
     Return Nokia 7250 credentials/secrets, resolved per-tenant then falling back to env vars.
     Frontend fetches these at generate-time so secrets are never hardcoded in HTML.
     """
-    # Inline auth guard
-    _nok_token = request.headers.get('Authorization', '').replace('Bearer ', '').strip()
-    if not _nok_token:
-        _nok_token = request.args.get('token', '').strip()
-    if not _nok_token:
-        return jsonify({'error': 'Authentication required', 'authenticated': False}), 401
-    if not verify_token(_nok_token):
-        return jsonify({'error': 'Invalid or expired token', 'authenticated': False}), 401
     # Resolve per-tenant settings
     tenant_ctx = _get_request_tenant_context()
     tenant = tenant_ctx.get('tenant')
@@ -11162,6 +15256,7 @@ def nokia7250_defaults():
 
 
 @app.route('/api/nokia-configurator-defaults', methods=['GET'])
+@require_auth
 def nokia_configurator_defaults():
     return nokia7250_defaults()
 
@@ -11301,7 +15396,13 @@ def _render_nokia_7750_backend(data: dict):
 
 
 @app.route('/api/generate-nokia-configurator', methods=['POST'])
+@require_auth
 def generate_nokia_configurator():
+    _require_feature('nokia')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
     try:
         data = request.get_json(force=True) or {}
         model = (data.get('model') or '7250').strip()
@@ -11343,10 +15444,16 @@ def generate_nokia_configurator():
 
 
 @app.route('/api/generate-nokia7250', methods=['POST'])
+@require_auth
 def generate_nokia7250():
     """
     Generate Nokia 7250 configuration based on provided parameters.
     """
+    _require_feature('nokia')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
     try:
         data = request.json
         system_name = data.get('system_name', '').strip()
@@ -12726,7 +16833,7 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
         L.append(f'# Loopback: NEW {loopback} (overriding MikroTik {parsed.get("loopback_ip", "N/A")})')
     else:
         L.append(f'# Loopback: {loopback} (from MikroTik)')
-    L.append(f'# Generated by NOC Config Maker — Nokia Migration')
+    L.append(f'# Generated by NEXUS — Nokia Migration')
     L.append('# ================================================')
     L.append('')
     L.append('configure global')
@@ -13341,6 +17448,7 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
 
 
 @app.route('/api/parse-mikrotik-for-nokia', methods=['POST'])
+@require_auth
 def parse_mikrotik_for_nokia_endpoint():
     """
     Parse a MikroTik config and return structured extraction data
@@ -13372,6 +17480,7 @@ def parse_mikrotik_for_nokia_endpoint():
 
 
 @app.route('/api/migrate-mikrotik-to-nokia', methods=['POST'])
+@require_auth
 def migrate_mikrotik_to_nokia():
     """
     Convert MikroTik RouterOS configuration to Nokia SR OS classic CLI syntax.
@@ -13594,18 +17703,9 @@ def health():
     Backend is considered 'online' if this endpoint responds.
     The backend will handle AI provider availability and fallbacks internally.
     """
-    checks = _collect_health_checks(force=request.args.get('refresh') == '1')
-    degraded = any(not check.get('ok') for check in checks)
-    return jsonify({
-        'status': 'online',
-        'degraded': degraded,
-        'app': get_app_version_meta(),
-        'ai_provider': AI_PROVIDER,
-        'api_key_configured': bool(OPENAI_API_KEY) if AI_PROVIDER == 'openai' else None,
-        'timestamp': get_cst_timestamp(),
-        'message': 'Unified backend (api_server.py) is online and ready',
-        'checks': checks,
-    })
+    refresh = request.args.get('refresh') == '1'
+    include_dependencies = request.args.get('full') == '1' or request.args.get('include_dependencies') == '1'
+    return jsonify(build_health_payload(include_dependencies=include_dependencies, force=refresh))
 
 
 @app.route('/api/version', methods=['GET'])
@@ -13680,7 +17780,9 @@ _API_REGISTRY = [
     {"method": "GET",  "path": "/api/get-routerboards",      "category": "Device Migration",  "summary": "List all supported RouterBoard models"},
     {"method": "GET",  "path": "/api/toolbox-inventory",     "category": "Device Migration",  "summary": "Toolbox feature inventory used for backend refinement"},
     # ── SSH / Remote ──
-    {"method": "POST", "path": "/api/fetch-config-ssh",      "category": "SSH / Remote",      "summary": "SSH into device and fetch config",          "payload": {"host": "str", "ros_version?": "6|7", "command?": "str"}},
+    {"method": "POST", "path": "/api/fetch-config-ssh",      "category": "SSH / Remote",      "summary": "SSH into device and fetch config",          "payload": {"host": "str", "ros_version?": "6|7", "command?": "str", "async_task?": "bool"}},
+    {"method": "GET",  "path": "/api/fetch-config-ssh/status/<task_id>", "category": "SSH / Remote", "summary": "Get SSH fetch task status"},
+    {"method": "POST", "path": "/api/fetch-config-ssh/abort/<task_id>",  "category": "SSH / Remote", "summary": "Abort a running SSH fetch task"},
     # ── Compliance & Policy ──
     {"method": "GET",  "path": "/api/compliance-status",     "category": "Compliance",        "summary": "GitLab health, active source, cache state"},
     {"method": "POST", "path": "/api/reload-compliance",     "category": "Compliance",        "summary": "Clear compliance TTL cache"},
@@ -14129,7 +18231,18 @@ def submit_feedback():
         conn = sqlite3.connect(str(feedback_db))
         cursor = conn.cursor()
         
-        email = data.get('email', '')
+        email = data.get('email', '').strip()
+        # If no email provided, try to pull it from the auth token so notifications route correctly
+        if not email:
+            try:
+                auth_header = request.headers.get('Authorization', '')
+                if auth_header.startswith('Bearer '):
+                    _tok = auth_header[7:]
+                    _user = verify_token(_tok)
+                    if _user:
+                        email = _user.get('email', '')
+            except Exception:
+                pass
         cursor.execute('''
             INSERT INTO feedback (tenant_id, feedback_type, subject, category, experience, details, name, email, timestamp)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -14138,8 +18251,13 @@ def submit_feedback():
         feedback_id = cursor.lastrowid
         conn.commit()
         conn.close()
-        
+
         safe_print(f"[FEEDBACK] Saved to database (ID: {feedback_id}, tenant={tenant.get('slug', DEFAULT_TENANT_SLUG)}) from {name}: {subject}")
+
+        # Notify all platform admins of the new submission
+        admin_msg = f"New {feedback_type} submitted by {name}: {subject}"
+        for admin_email in _platform_admin_emails():
+            _create_notification(feedback_id, admin_email, subject, admin_msg)
 
         return jsonify({
             'success': True,
@@ -14154,48 +18272,6 @@ def submit_feedback():
 # ========================================
 # ADMIN ENDPOINTS: Feedback Management
 # ========================================
-
-def require_auth(f):
-    """Decorator to require authentication"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        token = request.headers.get('Authorization')
-        if not token:
-            token = request.json.get('token') if request.json else None
-        
-        if token:
-            # Remove 'Bearer ' prefix if present
-            if token.startswith('Bearer '):
-                token = token[7:]
-        
-        if not token:
-            return jsonify({'error': 'Authentication required'}), 401
-        
-        user_info = verify_token(token)
-        if not user_info:
-            return jsonify({'error': 'Invalid or expired token'}), 401
-        
-        # Add user info to request context
-        request.current_user = user_info
-
-        # Update online presence tracker
-        try:
-            uid = user_info.get('id') or user_info.get('user_id')
-            if uid:
-                existing = _active_sessions.get(uid, {})
-                _active_sessions[uid] = {
-                    'email': user_info.get('email', ''),
-                    'display_name': user_info.get('displayName') or user_info.get('email', '').split('@')[0],
-                    'avatar': existing.get('avatar'),   # preserved from login
-                    'tenant_name': existing.get('tenant_name', ''),
-                    'role_label': existing.get('role_label', ''),
-                    'last_seen': _time.time(),
-                }
-        except Exception:
-            pass
-
-        return f(*args, **kwargs)
-    return decorated_function
 
 def is_admin_user():
     """Check if current user is admin"""
@@ -14431,7 +18507,12 @@ def admin_reset_user_password():
         c.execute('SELECT id FROM users WHERE email = ?', (email,))
         user = c.fetchone()
 
-        effective_password = new_password or DEFAULT_PASSWORD
+        if new_password:
+            effective_password = new_password
+            expose_temp_password = False
+        else:
+            effective_password = DEFAULT_PASSWORD or secrets.token_urlsafe(18)
+            expose_temp_password = True
         new_password_hash = hash_password(effective_password)
 
         if not user:
@@ -14448,7 +18529,7 @@ def admin_reset_user_password():
             return jsonify({
                 'success': True,
                 'message': 'User created and password set',
-                'temporaryPassword': effective_password if not new_password else None,
+                'temporaryPassword': effective_password if expose_temp_password else None,
                 'requirePasswordChange': require_change
             })
 
@@ -14468,7 +18549,7 @@ def admin_reset_user_password():
         return jsonify({
             'success': True,
             'message': 'Password reset successfully',
-            'temporaryPassword': effective_password if not new_password else None,
+            'temporaryPassword': effective_password if expose_temp_password else None,
             'requirePasswordChange': require_change
         })
 
@@ -14901,6 +18982,10 @@ def update_tenant_settings():
         updates = {k: v for k, v in data.items() if k in allowed_fields}
         if not updates:
             return jsonify({'error': 'No valid fields provided'}), 400
+        # Encrypt sensitive fields before storing
+        for field in _ENCRYPTED_FIELDS:
+            if field in updates and updates[field]:
+                updates[field] = encrypt_secret(updates[field])
         init_users_db()
         conn = sqlite3.connect(os.path.join('secure_data', 'users.db'))
         _get_tenant_settings_row(conn, tenant_id)  # ensure row exists
@@ -14956,6 +19041,10 @@ def admin_update_tenant_settings(tenant_id):
         updates = {k: v for k, v in data.items() if k in allowed_fields}
         if not updates:
             return jsonify({'error': 'No valid fields provided'}), 400
+        # Encrypt sensitive fields before storing
+        for field in _ENCRYPTED_FIELDS:
+            if field in updates and updates[field]:
+                updates[field] = encrypt_secret(updates[field])
         init_users_db()
         conn = sqlite3.connect(os.path.join('secure_data', 'users.db'))
         _get_tenant_settings_row(conn, tenant_id)
@@ -15034,8 +19123,13 @@ def migrate_config():
         config = data.get('config', '')
         target_device = resolve_routerboard_model_key(data.get('target_device', ''))
         target_version = data.get('target_version', '7')
-        source_device = data.get('source_device', '')
+        source_device = resolve_routerboard_model_key(data.get('source_device', ''))
         apply_compliance = bool(data.get('apply_compliance', True))
+        allow_qsfp_ports = data.get('allow_qsfp_ports')
+        if allow_qsfp_ports is None:
+            allow_qsfp_ports = target_device != 'CCR2216-1G-12XS-2XQ'
+        else:
+            allow_qsfp_ports = bool(allow_qsfp_ports)
         
         if not config:
             return jsonify({'error': 'No configuration provided'}), 400
@@ -15083,11 +19177,16 @@ def migrate_config():
                 )
 
         # Determine what migrations are needed
-        needs_syntax_migration = (source_version == 6 and target_version == '7')
+        needs_syntax_migration = (source_version == 6 and str(target_version).startswith('7'))
         needs_device_migration = (source_device != target_device)
 
         migrated_config = config
-        mapping_analysis = analyze_nextlink_port_mapping(config, effective_source_device, target_device)
+        mapping_analysis = analyze_nextlink_port_mapping(
+            config,
+            effective_source_device,
+            target_device,
+            allow_qsfp_ports=allow_qsfp_ports,
+        )
         interface_map = mapping_analysis.get('interface_map') or {}
         port_analysis = mapping_analysis.get('port_analysis') or []
         policy_summary = mapping_analysis.get('policy_summary') or {}
@@ -15106,10 +19205,13 @@ def migrate_config():
                 return jsonify({
                     'error': f'No migration path available from {effective_source_device} to {target_device}'
                 }), 400
-
             if interface_map:
-                migrated_config = migrate_interface_config(migrated_config, interface_map)
-
+                migrated_config = migrate_interface_config(
+                    migrated_config,
+                    interface_map,
+                    source_device=effective_source_device,
+                    target_device=target_device,
+                )
             safe_print(f"[MIGRATION] Mapped {len(interface_map)} interfaces")
             for old, new in list(interface_map.items())[:5]:
                 safe_print(f"[MIGRATION]   {old} → {new}")
@@ -15125,12 +19227,23 @@ def migrate_config():
             target_device,
             target_version,
         )
+        migrated_config = _set_target_qsfp_state(migrated_config, target_device, allow_qsfp_ports)
         
-        if apply_compliance and HAS_ENGINEERING_COMPLIANCE:
-            loopback_ip = extract_loopback_ip(migrated_config)
-            migrated_config = apply_engineering_compliance(migrated_config, loopback_ip)
+        compliance_source = None
+        if apply_compliance:
+            loopback_ip = extract_loopback_ip(migrated_config) or "10.0.0.1"
+            compliance_blocks, compliance_source = _get_dynamic_compliance_blocks(loopback_ip, return_source=True)
+            migrated_config = inject_compliance_blocks(
+                migrated_config,
+                compliance_blocks,
+                loopback_ip=loopback_ip,
+            )
 
         validation = validate_translation(config, migrated_config)
+        target_interface_audit = audit_target_interface_consistency(migrated_config, target_device)
+        if not target_interface_audit.get('valid'):
+            migration_warnings.extend(target_interface_audit.get('warnings') or [])
+            manual_review_required = True
         migration_analysis = {
             'migration_type': ' + '.join([
                 item for item in (
@@ -15182,8 +19295,11 @@ def migrate_config():
             'syntax_migrated': needs_syntax_migration,
             'device_migrated': needs_device_migration or needs_interface_normalization,
             'interfaces_mapped': len(interface_map) if interface_map else 0,
-            'compliance_applied': bool(apply_compliance and HAS_ENGINEERING_COMPLIANCE),
+            'compliance_applied': bool(apply_compliance),
+            'compliance_source': compliance_source,
+            'allow_qsfp_ports': bool(allow_qsfp_ports),
             'validation': validation,
+            'target_interface_audit': target_interface_audit,
             'migration_analysis': migration_analysis,
             'source_info': {
                 'model': effective_source_device,
@@ -15255,7 +19371,13 @@ def toolbox_inventory():
 
 # JWT Secret Key (in production, use environment variable)
 JWT_SECRET = os.getenv('JWT_SECRET', secrets.token_urlsafe(32))
-DEFAULT_PASSWORD = os.getenv('DEFAULT_PASSWORD', 'NOCConfig2025!')  # Change this in production
+DEFAULT_PASSWORD = (os.getenv('DEFAULT_PASSWORD') or '').strip()
+AUTH_EXPOSE_RESET_TOKEN = _env_flag('AUTH_EXPOSE_RESET_TOKEN', False)
+SSO_STATE_MAX_AGE_SECONDS = _env_int('SSO_STATE_MAX_AGE_SECONDS', 600, minimum=60)
+PASSWORD_HASH_ITERATIONS = _env_int('PASSWORD_HASH_ITERATIONS', 310000, minimum=100000)
+
+if not DEFAULT_PASSWORD:
+    print("[SECURITY] DEFAULT_PASSWORD is not set; implicit new-user bootstrap login is disabled.")
 
 # Azure AD Configuration (for Microsoft SSO)
 AZURE_CLIENT_ID = os.getenv('AZURE_CLIENT_ID', '0563f465-0f3b-466b-a193-90c9e6dd79d6')
@@ -15518,7 +19640,7 @@ def _seed_default_tenant(conn):
 
 
 def _get_tenant_settings_row(conn, tenant_id):
-    """Return settings row for tenant_id, seeding defaults if missing."""
+    """Return settings row for tenant_id, seeding defaults if missing. Decrypts sensitive fields."""
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
     c.execute('SELECT * FROM tenant_settings WHERE tenant_id = ?', (tenant_id,))
@@ -15528,7 +19650,13 @@ def _get_tenant_settings_row(conn, tenant_id):
         conn.commit()
         c.execute('SELECT * FROM tenant_settings WHERE tenant_id = ?', (tenant_id,))
         row = c.fetchone()
-    return dict(row) if row else {}
+    if not row:
+        return {}
+    result = dict(row)
+    for field in _ENCRYPTED_FIELDS:
+        if field in result and result[field]:
+            result[field] = decrypt_secret(result[field])
+    return result
 
 
 def _build_compliance_checks(tenant_settings=None):
@@ -15663,6 +19791,10 @@ def init_users_db():
         c.execute("ALTER TABLE users ADD COLUMN is_platform_admin INTEGER DEFAULT 0")
     if 'profile_photo' not in existing_cols:
         c.execute("ALTER TABLE users ADD COLUMN profile_photo TEXT")
+    if 'email_verification_token' not in existing_cols:
+        c.execute("ALTER TABLE users ADD COLUMN email_verification_token TEXT")
+    if 'email_verified_at' not in existing_cols:
+        c.execute("ALTER TABLE users ADD COLUMN email_verified_at DATETIME")
 
     # User sessions table
     c.execute('''CREATE TABLE IF NOT EXISTS user_sessions
@@ -15700,23 +19832,167 @@ def init_users_db():
     for row in c.fetchall():
         _sync_user_platform_access(conn, row[0], row[1])
 
+    # ── API Keys table ─────────────────────────────────────────────────────
+    c.execute('''CREATE TABLE IF NOT EXISTS api_keys (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL,
+        created_by_user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        key_hash TEXT NOT NULL UNIQUE,
+        key_prefix TEXT NOT NULL,
+        scopes TEXT NOT NULL DEFAULT '["read","write"]',
+        last_used_at DATETIME,
+        expires_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+        FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_api_keys_tenant_id ON api_keys(tenant_id)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash)')
+
+    # ── Quota tables ───────────────────────────────────────────────────────
+    c.execute('''CREATE TABLE IF NOT EXISTS tenant_quotas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL UNIQUE,
+        max_users INTEGER NOT NULL DEFAULT 10,
+        max_configs_per_day INTEGER NOT NULL DEFAULT 100,
+        max_api_calls_per_day INTEGER NOT NULL DEFAULT 1000,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS usage_daily (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        configs_generated INTEGER NOT NULL DEFAULT 0,
+        api_calls INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(tenant_id, date),
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_usage_daily_tenant_date ON usage_daily(tenant_id, date)')
+
+    # ── Invitations table ──────────────────────────────────────────────────
+    c.execute('''CREATE TABLE IF NOT EXISTS invitations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL,
+        invited_by_user_id INTEGER NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'tenant_engineer',
+        token TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'pending',
+        expires_at DATETIME NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+        FOREIGN KEY (invited_by_user_id) REFERENCES users(id)
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_invitations_token ON invitations(token)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_invitations_email ON invitations(email)')
+
+    # ── Tenant domains table ───────────────────────────────────────────────
+    c.execute('''CREATE TABLE IF NOT EXISTS tenant_domains (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL,
+        domain TEXT NOT NULL UNIQUE,
+        verification_token TEXT NOT NULL UNIQUE,
+        verified_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_tenant_domains_domain ON tenant_domains(domain)')
+
+    # ── Tenant feature flags table ─────────────────────────────────────────
+    c.execute('''CREATE TABLE IF NOT EXISTS tenant_features (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL UNIQUE,
+        features TEXT NOT NULL DEFAULT '{"mikrotik":true,"nokia":true,"cambium":true,"aviat":true,"ftth":true,"bulk_ops":true,"compliance":true,"ai_assistant":true,"config_diff":true}',
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+    )''')
+
+    # ── Tenant branding columns (additive migration on tenants table) ──────
+    c.execute("PRAGMA table_info(tenants)")
+    tenant_cols = {r[1] for r in c.fetchall()}
+    for col, coldef in [
+        ('logo_url', 'TEXT'),
+        ('primary_color', "TEXT DEFAULT '#2563eb'"),
+        ('company_name', 'TEXT'),
+        ('custom_domain', 'TEXT'),
+        ('favicon_url', 'TEXT'),
+    ]:
+        if col not in tenant_cols:
+            c.execute(f'ALTER TABLE tenants ADD COLUMN {col} {coldef}')
+
     conn.commit()
     conn.close()
     print(f"[AUTH] Users database initialized at {db_path}")
+    return db_path
+
+def _pbkdf2_sha256(password: str, salt_hex: str, iterations: int) -> str:
+    salt = bytes.fromhex(salt_hex)
+    digest = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, iterations)
+    return digest.hex()
+
+
+def _hash_reset_token(token: str) -> str:
+    return hashlib.sha256(token.encode('utf-8')).hexdigest()
+
 
 def hash_password(password):
-    """Hash password using SHA-256 with salt"""
+    """Hash password using PBKDF2-HMAC-SHA256."""
     salt = secrets.token_hex(16)
-    password_hash = hashlib.sha256((password + salt).encode()).hexdigest()
-    return f"{salt}:{password_hash}"
+    password_hash = _pbkdf2_sha256(password, salt, PASSWORD_HASH_ITERATIONS)
+    return f"pbkdf2_sha256${PASSWORD_HASH_ITERATIONS}${salt}${password_hash}"
 
 def verify_password(password, password_hash):
-    """Verify password against hash"""
+    """Verify password against modern and legacy hashes."""
     try:
-        salt, stored_hash = password_hash.split(':')
-        computed_hash = hashlib.sha256((password + salt).encode()).hexdigest()
-        return computed_hash == stored_hash
+        if not password_hash:
+            return False
+
+        # Current format: pbkdf2_sha256$<iterations>$<salt_hex>$<digest_hex>
+        if str(password_hash).startswith('pbkdf2_sha256$'):
+            _, iterations_raw, salt_hex, stored_hash = str(password_hash).split('$', 3)
+            iterations = int(iterations_raw)
+            computed_hash = _pbkdf2_sha256(password, salt_hex, iterations)
+            return hmac.compare_digest(computed_hash, stored_hash)
+
+        # Legacy format compatibility: <salt_hex>:<sha256_hex>
+        if ':' in str(password_hash):
+            salt, stored_hash = str(password_hash).split(':', 1)
+            computed_hash = hashlib.sha256((password + salt).encode()).hexdigest()
+            return hmac.compare_digest(computed_hash, stored_hash)
+
+        return False
     except:
+        return False
+
+
+def _issue_sso_state_token() -> str:
+    nonce = secrets.token_urlsafe(24)
+    issued_at = int(time.time())
+    payload = f"{nonce}.{issued_at}"
+    signature = hmac.new(JWT_SECRET.encode('utf-8'), payload.encode('utf-8'), hashlib.sha256).hexdigest()
+    return f"{payload}.{signature}"
+
+
+def _verify_sso_state_token(state_token: str) -> bool:
+    try:
+        nonce, issued_at_raw, signature = str(state_token or '').split('.', 2)
+        if not nonce or not issued_at_raw or not signature:
+            return False
+        payload = f"{nonce}.{issued_at_raw}"
+        expected = hmac.new(JWT_SECRET.encode('utf-8'), payload.encode('utf-8'), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, signature):
+            return False
+        issued_at = int(issued_at_raw)
+        now_ts = int(time.time())
+        if now_ts - issued_at > SSO_STATE_MAX_AGE_SECONDS:
+            return False
+        if issued_at > now_ts + 60:
+            return False
+        return True
+    except Exception:
         return False
 
 def generate_token(user_id, email):
@@ -15904,8 +20180,23 @@ def _load_session_bootstrap_for_user(user_id):
 
     # Load tenant settings for active tenant
     tenant_settings = {}
+    active_tenant_id = active_membership['tenantId'] if active_membership else None
     if active_membership:
-        tenant_settings = _get_tenant_settings_row(conn, active_membership['tenantId'])
+        tenant_settings = _get_tenant_settings_row(conn, active_tenant_id)
+
+    # Load per-tenant feature flags
+    tenant_feature_flags = _get_tenant_features(active_tenant_id)
+
+    # Load tenant branding
+    branding = {}
+    if active_tenant_id:
+        try:
+            c.execute('SELECT company_name, logo_url, primary_color, favicon_url FROM tenants WHERE id = ?', (active_tenant_id,))
+            branding_row = c.fetchone()
+            if branding_row:
+                branding = dict(branding_row)
+        except Exception:
+            pass
 
     bootstrap = {
         'user': _serialize_user_row(user),
@@ -15925,8 +20216,10 @@ def _load_session_bootstrap_for_user(user_id):
             'platformAdmin': permissions['platformAdmin'],
             'platformSupport': permissions['platformSupport'],
             'adminPanel': permissions['adminPanel'],
+            **tenant_feature_flags,
         },
         'tenantSettings': tenant_settings,
+        'branding': branding,
     }
     conn.close()
     return bootstrap
@@ -16007,11 +20300,76 @@ def _get_request_token():
         token = token[7:]
     if token:
         return token
+    token = request.args.get('token', '')
+    if token.startswith('Bearer '):
+        token = token[7:]
+    if token:
+        return token
     data = request.get_json(silent=True) or {}
     token = data.get('token', '')
     if token.startswith('Bearer '):
         token = token[7:]
     return token
+
+
+def _authenticate_request_context():
+    token = _get_request_token()
+    if not token:
+        return None, (jsonify({'error': 'Authentication required'}), 401)
+
+    if token.startswith('nck_'):
+        import hashlib as _hlib
+        key_hash = _hlib.sha256(token.encode()).hexdigest()
+        _db = init_users_db()
+        _conn = sqlite3.connect(str(_db))
+        _conn.row_factory = sqlite3.Row
+        _c = _conn.cursor()
+        _c.execute('''SELECT ak.*, t.slug as tenant_slug FROM api_keys ak
+                      JOIN tenants t ON t.id = ak.tenant_id
+                      WHERE ak.key_hash = ? AND ak.is_active = 1''', (key_hash,))
+        ak = _c.fetchone()
+        if ak:
+            if ak['expires_at'] and datetime.utcnow().isoformat() > ak['expires_at']:
+                _conn.close()
+                return None, (jsonify({'error': 'API key expired'}), 401)
+            _conn.execute('UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?', (ak['id'],))
+            _conn.commit()
+            _conn.close()
+            request.current_user = {
+                'user_id': None,
+                'id': None,
+                'email': f'apikey:{ak["key_prefix"]}',
+                'tenant_id': ak['tenant_id'],
+                'tenantId': ak['tenant_id'],
+                'tenant_role': 'api_key',
+                'scopes': json.loads(ak['scopes'] or '["read","write"]'),
+                'auth_type': 'api_key',
+                'api_key_id': ak['id'],
+            }
+            return request.current_user, None
+        _conn.close()
+        return None, (jsonify({'error': 'Invalid or revoked API key'}), 401)
+
+    user_info = verify_token(token)
+    if not user_info:
+        return None, (jsonify({'error': 'Invalid or expired token'}), 401)
+
+    request.current_user = user_info
+    try:
+        uid = user_info.get('id') or user_info.get('user_id')
+        if uid:
+            existing = _active_sessions.get(uid, {})
+            _active_sessions[uid] = {
+                'email': user_info.get('email', ''),
+                'display_name': user_info.get('displayName') or user_info.get('email', '').split('@')[0],
+                'avatar': existing.get('avatar'),
+                'tenant_name': existing.get('tenant_name', ''),
+                'role_label': existing.get('role_label', ''),
+                'last_seen': _time.time(),
+            }
+    except Exception:
+        pass
+    return user_info, None
 
 
 def _get_default_tenant_context():
@@ -16106,13 +20464,41 @@ def _can_reset_passwords():
 def _can_manage_platform():
     return bool(_get_request_access_context()['permissions'].get('platformAdmin'))
 
+
+_AUTH_RATE_LIMIT_LOCK = threading.Lock()
+_AUTH_RATE_LIMIT: dict[str, list[float]] = {}
+
+
+def _rate_limit_allow(bucket: str, limit: int, window_seconds: int) -> bool:
+    now = time.time()
+    cutoff = now - max(window_seconds, 1)
+    with _AUTH_RATE_LIMIT_LOCK:
+        hits = [ts for ts in _AUTH_RATE_LIMIT.get(bucket, []) if ts >= cutoff]
+        if len(hits) >= max(limit, 1):
+            _AUTH_RATE_LIMIT[bucket] = hits
+            return False
+        hits.append(now)
+        _AUTH_RATE_LIMIT[bucket] = hits
+        return True
+
+
+def _rate_limit_reset(bucket: str) -> None:
+    with _AUTH_RATE_LIMIT_LOCK:
+        _AUTH_RATE_LIMIT.pop(bucket, None)
+
 @app.route('/api/auth/login', methods=['POST'])
+@limiter.limit("10 per minute", exempt_when=lambda: bool(os.environ.get('PYTEST_CURRENT_TEST')) or app.config.get('TESTING', False))
 def auth_login():
     """Email/password login endpoint"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         email = data.get('email', '').strip().lower()
         password = data.get('password', '')
+
+        client_ip = str(request.headers.get('X-Forwarded-For') or request.remote_addr or 'unknown').split(',')[0].strip()
+        login_bucket = f"auth_login:{client_ip}:{email}"
+        if not _rate_limit_allow(login_bucket, limit=12, window_seconds=300):
+            return jsonify({'success': False, 'error': 'Too many login attempts. Please wait a few minutes.'}), 429
         
         if not email or not password:
             return jsonify({'success': False, 'error': 'Email and password required'}), 400
@@ -16135,6 +20521,12 @@ def auth_login():
         user = c.fetchone()
         
         if not user:
+            if not DEFAULT_PASSWORD:
+                conn.close()
+                return jsonify({
+                    'success': False,
+                    'error': 'Account not provisioned. Contact an admin to set your password.'
+                }), 401
             # Create new user with default password
             password_hash = hash_password(DEFAULT_PASSWORD)
             c.execute('''INSERT INTO users (email, password_hash, display_name, first_login)
@@ -16158,6 +20550,7 @@ def auth_login():
             conn.commit()
             conn.close()
             _write_audit_log('login', detail={'method': 'password'}, target_email=email)
+            _rate_limit_reset(login_bucket)
             return jsonify({
                 'success': True,
                 'token': token,
@@ -16170,6 +20563,9 @@ def auth_login():
                 'requiresPasswordChange': True
             })
         else:
+            if int(user['is_active'] or 0) != 1:
+                conn.close()
+                return jsonify({'success': False, 'error': 'Account is disabled'}), 403
             # Existing user - verify password
             if not verify_password(password, user['password_hash']):
                 conn.close()
@@ -16187,6 +20583,7 @@ def auth_login():
             token = generate_token(user['id'], email)
             conn.close()
             _write_audit_log('login', detail={'method': 'password'}, target_email=email)
+            _rate_limit_reset(login_bucket)
             return jsonify({
                 'success': True,
                 'token': token,
@@ -16224,7 +20621,7 @@ def auth_microsoft():
             'redirect_uri': redirect_uri,
             'response_mode': 'query',
             'scope': 'openid email profile User.Read',
-            'state': secrets.token_urlsafe(32)
+            'state': _issue_sso_state_token()
         }
         auth_url_full = f"{auth_base}?{urlencode(params)}"
 
@@ -16255,6 +20652,10 @@ def auth_callback():
     code = request.args.get('code')
     if not code:
         return _sso_redirect_with_error("No authorization code received from Microsoft.")
+
+    state_token = (request.args.get('state') or '').strip()
+    if not _verify_sso_state_token(state_token):
+        return _sso_redirect_with_error("Invalid or expired SSO state. Please try logging in again.")
 
     # ── exchange auth code for tokens ──────────────────────────────
     redirect_uri = f"{request.host_url}auth/callback"
@@ -16477,11 +20878,16 @@ def change_password():
 def forgot_password():
     """Request password reset (sends reset link - placeholder)"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         email = data.get('email', '').strip().lower()
         
         if not email:
             return jsonify({'success': False, 'error': 'Email required'}), 400
+
+        client_ip = str(request.headers.get('X-Forwarded-For') or request.remote_addr or 'unknown').split(',')[0].strip()
+        forgot_bucket = f"auth_forgot:{client_ip}:{email}"
+        if not _rate_limit_allow(forgot_bucket, limit=6, window_seconds=900):
+            return jsonify({'success': False, 'error': 'Too many reset attempts. Please try again later.'}), 429
 
         if not validate_email_domain(email):
             return jsonify({'success': False, 'error': 'Invalid email domain'}), 403
@@ -16500,21 +20906,24 @@ def forgot_password():
         if user:
             reset_token = secrets.token_urlsafe(32)
             expires_at = int(time.time()) + (60 * 60)  # 1 hour
+            token_hash = _hash_reset_token(reset_token)
             c.execute('''UPDATE users
                          SET reset_token = ?, reset_token_expires = ?
                          WHERE id = ?''',
-                      (reset_token, expires_at, user['id']))
+                      (token_hash, expires_at, user['id']))
             conn.commit()
 
         conn.close()
 
         # In production, send password reset email.
         # For now, return token when available so UI can redirect to reset.
-        return jsonify({
+        response_payload = {
             'success': True,
             'message': 'If an account exists with this email, a password reset link has been sent.',
-            'resetToken': reset_token
-        })
+        }
+        if AUTH_EXPOSE_RESET_TOKEN and reset_token:
+            response_payload['resetToken'] = reset_token
+        return jsonify(response_payload)
             
     except Exception as e:
         print(f"[AUTH ERROR] Forgot password failed: {e}")
@@ -16524,10 +20933,15 @@ def forgot_password():
 def reset_password():
     """Reset password using a reset token (no current password required)."""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         email = data.get('email', '').strip().lower()
         reset_token = data.get('resetToken', '').strip()
         new_password = data.get('newPassword', '')
+
+        client_ip = str(request.headers.get('X-Forwarded-For') or request.remote_addr or 'unknown').split(',')[0].strip()
+        reset_bucket = f"auth_reset:{client_ip}:{email}"
+        if not _rate_limit_allow(reset_bucket, limit=12, window_seconds=900):
+            return jsonify({'success': False, 'error': 'Too many reset attempts. Please try again later.'}), 429
 
         if not email or not reset_token or not new_password:
             return jsonify({'success': False, 'error': 'Email, reset token, and new password are required'}), 400
@@ -16552,7 +20966,13 @@ def reset_password():
             return jsonify({'success': False, 'error': 'Invalid reset token'}), 400
 
         expires_at = user['reset_token_expires'] or 0
-        if user['reset_token'] != reset_token or int(time.time()) > int(expires_at):
+        stored_token = str(user['reset_token'] or '')
+        token_hash = _hash_reset_token(reset_token)
+        is_valid_token = (
+            hmac.compare_digest(stored_token, token_hash)
+            or hmac.compare_digest(stored_token, reset_token)  # Backward compatibility for legacy plaintext tokens
+        )
+        if (not is_valid_token) or int(time.time()) > int(expires_at):
             conn.close()
             return jsonify({'success': False, 'error': 'Invalid or expired reset token'}), 400
 
@@ -16567,6 +20987,7 @@ def reset_password():
                  (new_password_hash, user['id']))
         conn.commit()
         conn.close()
+        _rate_limit_reset(reset_bucket)
 
         return jsonify({'success': True, 'message': 'Password reset successfully'})
 
@@ -16591,7 +21012,7 @@ def verify_auth():
         bootstrap = _load_session_bootstrap_for_user(user_info['user_id'])
         if not bootstrap:
             return jsonify({'success': False, 'authenticated': False}), 404
-        
+
         return jsonify({
             'success': True,
             'authenticated': True,
@@ -16862,6 +21283,13 @@ def init_feedback_db():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_feedback_type ON feedback(feedback_type)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_feedback_timestamp ON feedback(timestamp)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status)')
+
+    # Migrate: add tenant_id column before creating its index (existing DBs may not have it)
+    cursor.execute("PRAGMA table_info(feedback)")
+    existing_cols = {row[1] for row in cursor.fetchall()}
+    if 'tenant_id' not in existing_cols:
+        cursor.execute("ALTER TABLE feedback ADD COLUMN tenant_id INTEGER")
+
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_feedback_tenant_id ON feedback(tenant_id)')
 
     cursor.execute('''
@@ -16877,11 +21305,6 @@ def init_feedback_db():
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_notif_email ON notifications(user_email)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_notif_read ON notifications(is_read)')
-
-    cursor.execute("PRAGMA table_info(feedback)")
-    existing_cols = {row[1] for row in cursor.fetchall()}
-    if 'tenant_id' not in existing_cols:
-        cursor.execute("ALTER TABLE feedback ADD COLUMN tenant_id INTEGER")
 
     default_tenant = _get_default_tenant_context()
     if default_tenant.get('id') is not None:
@@ -16918,17 +21341,18 @@ def init_configs_db():
         )
     ''')
     
+    # Migrate: add tenant_id before creating its index (existing DBs may not have it)
+    cursor.execute("PRAGMA table_info(completed_configs)")
+    existing_cols = {row[1] for row in cursor.fetchall()}
+    if 'tenant_id' not in existing_cols:
+        cursor.execute("ALTER TABLE completed_configs ADD COLUMN tenant_id INTEGER")
+
     # Create indexes for faster searching
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_config_type ON completed_configs(config_type)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_customer_code ON completed_configs(customer_code)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON completed_configs(created_at)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_device_type ON completed_configs(device_type)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_completed_configs_tenant_id ON completed_configs(tenant_id)')
-
-    cursor.execute("PRAGMA table_info(completed_configs)")
-    existing_cols = {row[1] for row in cursor.fetchall()}
-    if 'tenant_id' not in existing_cols:
-        cursor.execute("ALTER TABLE completed_configs ADD COLUMN tenant_id INTEGER")
 
     default_tenant = _get_default_tenant_context()
     if default_tenant.get('id') is not None:
@@ -17194,15 +21618,29 @@ def extract_port_mapping(config_content):
         interface_to_bridge[interface_clean] = bridge_clean
     
     # Step 6: Map bridge IPs to their member interfaces
-    # If an IP is assigned to a bridge, assign it to all member interfaces
-    # This handles: public-bridge (CX HANDOFF), nat-bridge (NAT), and other bridges
+    # If an IP is assigned to a bridge, assign it to physical member interfaces only.
+    # Skip virtual/logical members (vlan*, vpls*, bridge*) to avoid flooding the port map
+    # with management IPs on every sub-interface (e.g. CRS326-MGMT on all bridge3000 members).
+    def _is_physical_port(name: str) -> bool:
+        n = (name or '').strip().lower()
+        return (
+            n.startswith('ether') or
+            n.startswith('sfp28') or
+            n.startswith('sfp-sfp') or
+            n.startswith('qsfp28') or
+            (n.startswith('sfp') and not n.startswith('sfp-sfpplus') and not n.startswith('sfpplus'))
+            or re.match(r'^sfp\d', n) is not None
+        )
+
     for bridge_name, member_interfaces in bridge_to_interfaces.items():
         # Find IPs assigned to this bridge
         for ip_cidr, interface_name, ip_comment in all_ip_matches:
             if interface_name.strip() == bridge_name:
                 ip_comment_clean = ip_comment.strip().strip('"').strip("'") if ip_comment else None
-                # Assign this IP to all member interfaces
+                # Assign this IP only to physical member interfaces (not vlan/vpls/bridge)
                 for member_if in member_interfaces:
+                    if not _is_physical_port(member_if):
+                        continue
                     if member_if not in port_mapping:
                         port_mapping[member_if] = {}
                         # Infer type from interface name
@@ -17323,6 +21761,7 @@ def format_port_mapping_text(port_mapping, device_name='', customer_code=''):
     return "\n".join(lines)
 
 @app.route('/api/save-completed-config', methods=['POST'])
+@require_auth
 def save_completed_config():
     """Save a completed configuration to the database"""
     try:
@@ -17389,6 +21828,7 @@ def save_completed_config():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/get-completed-configs', methods=['GET'])
+@require_auth
 def get_completed_configs():
     """Get all completed configurations with optional filtering"""
     try:
@@ -17441,6 +21881,7 @@ def get_completed_configs():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/get-completed-config/<int:config_id>', methods=['GET'])
+@require_auth
 def get_completed_config(config_id):
     """Get a specific completed configuration by ID"""
     try:
@@ -17773,6 +22214,7 @@ def log_activity():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/get-activity', methods=['GET'])
+@require_auth
 def get_activity():
     """Get recent activities for live feed with formatted messages"""
     try:
@@ -18006,8 +22448,8 @@ def _aviat_broadcast_log(message, level="info", task_id=None):
         "ts": datetime.utcnow().isoformat() + "Z",
     }
     aviat_global_log_history.append(entry)
-    if len(aviat_global_log_history) > AVIAT_GLOBAL_LOG_LIMIT:
-        del aviat_global_log_history[: len(aviat_global_log_history) - AVIAT_GLOBAL_LOG_LIMIT]
+    if task_id:
+        _background_task_append_log('aviat', task_id, entry)
     for q in list(aviat_global_log_queues):
         try:
             q.put(entry)
@@ -18015,7 +22457,27 @@ def _aviat_broadcast_log(message, level="info", task_id=None):
             pass
 
 def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, username=None):
+    try:
+      _aviat_background_task_inner(task_id, ips, task_types, maintenance_params, username)
+    except Exception as _exc:
+        try:
+            aviat_tasks[task_id]['status'] = 'failed'
+            aviat_tasks[task_id]['completed_at'] = datetime.utcnow().isoformat() + 'Z'
+            aviat_tasks[task_id].setdefault('results', [])
+            _background_task_persist('aviat', task_id, aviat_tasks.get(task_id))
+            _aviat_broadcast_log(f"[task:{task_id}] Unhandled crash: {_exc}", "error", task_id=task_id)
+        except Exception:
+            pass
+        if task_id in aviat_log_queues:
+            try:
+                aviat_log_queues[task_id].put(None)
+            except Exception:
+                pass
+
+
+def _aviat_background_task_inner(task_id, ips, task_types, maintenance_params=None, username=None):
     aviat_tasks[task_id]['status'] = 'running'
+    _background_task_persist('aviat', task_id, aviat_tasks.get(task_id))
     maintenance_params = maintenance_params or {}
     activation_mode = maintenance_params.get('activation_mode')
     target_version = _aviat_target_version({"maintenance_params": maintenance_params})
@@ -18028,7 +22490,7 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
     results = []
 
     def should_abort():
-        return aviat_tasks.get(task_id, {}).get('abort') is True
+        return aviat_tasks.get(task_id, {}).get('abort') is True or _background_task_has_abort('aviat', task_id)
 
     if activation_mode == "scheduled":
         result_list = aviat_process_radios_parallel(
@@ -18137,8 +22599,10 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
                 'error': 'Aborted'
             })
         aviat_tasks[task_id]['status'] = 'aborted'
+        aviat_tasks[task_id]['completed_at'] = datetime.utcnow().isoformat() + 'Z'
     else:
         aviat_tasks[task_id]['status'] = 'completed'
+        aviat_tasks[task_id]['completed_at'] = datetime.utcnow().isoformat() + 'Z'
 
     # Ensure reboot-required devices are captured even outside scheduled mode.
     for res in results:
@@ -18155,6 +22619,7 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
     _aviat_save_reboot_queue()
 
     aviat_tasks[task_id]['results'] = results
+    _background_task_persist('aviat', task_id, aviat_tasks.get(task_id))
     _task_tenant_id = aviat_tasks[task_id].get('_tenant_id')
     _task_tenant_slug = aviat_tasks[task_id].get('_tenant_slug', '')
     for res in results:
@@ -18171,9 +22636,15 @@ def _aviat_background_task(task_id, ips, task_types, maintenance_params=None, us
 
 
 @app.route('/api/aviat/run', methods=['POST'])
+@require_auth
 def aviat_run_tasks():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
+    _require_feature('aviat')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
     data = request.json or {}
     ips = data.get('ips', [])
     task_types = data.get('tasks', [])
@@ -18210,6 +22681,7 @@ def aviat_run_tasks():
         '_tenant_id': _aviat_run_tenant_id,
         '_tenant_slug': _aviat_run_tenant_slug,
     }
+    _background_task_persist('aviat', task_id, aviat_tasks.get(task_id))
     aviat_log_queues[task_id] = queue.Queue()
 
     thread = threading.Thread(
@@ -18221,6 +22693,7 @@ def aviat_run_tasks():
 
 
 @app.route('/api/aviat/activate-scheduled', methods=['POST'])
+@require_auth
 def aviat_activate_scheduled():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -18301,6 +22774,7 @@ def aviat_activate_scheduled():
         '_tenant_id': _aviat_act_tenant_id,
         '_tenant_slug': _aviat_act_tenant_slug,
     }
+    _background_task_persist('aviat', task_id, aviat_tasks.get(task_id))
     aviat_log_queues[task_id] = queue.Queue()
 
     def activation_task():
@@ -18343,33 +22817,39 @@ def aviat_activate_scheduled():
 
 
 @app.route('/api/aviat/scheduled', methods=['GET'])
+@require_auth
 def aviat_get_scheduled():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
+    tenant_id = _request_tenant_id()
     return jsonify({
-        "scheduled": [item.get("ip") for item in aviat_scheduled_queue]
+        "scheduled": [item.get("ip") for item in aviat_scheduled_queue if _queue_entry_matches_tenant(item, tenant_id)]
     })
 
 
 @app.route('/api/aviat/loading', methods=['GET'])
+@require_auth
 def aviat_get_loading():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
+    tenant_id = _request_tenant_id()
     return jsonify({
-        "loading": [item.get("ip") for item in aviat_loading_queue]
+        "loading": [item.get("ip") for item in aviat_loading_queue if _queue_entry_matches_tenant(item, tenant_id)]
     })
 
 
 @app.route('/api/aviat/reboot-required', methods=['GET'])
+@require_auth
 def aviat_get_reboot_required():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
     return jsonify({
-        "reboot_required": aviat_reboot_queue
+        "reboot_required": _queue_payload(aviat_reboot_queue, tenant_id=_request_tenant_id())
     })
 
 
 @app.route('/api/aviat/reboot-required/run', methods=['POST'])
+@require_auth
 def aviat_run_reboot_required():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -18473,6 +22953,7 @@ def aviat_run_reboot_required():
 
 
 @app.route('/api/aviat/scheduled/sync', methods=['POST'])
+@require_auth
 def aviat_sync_scheduled():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -18499,11 +22980,15 @@ def aviat_sync_scheduled():
     return jsonify({"scheduled": [item.get("ip") for item in aviat_scheduled_queue]})
 
 @app.route('/api/aviat/queue', methods=['GET', 'POST'])
+@require_auth
 def aviat_queue_state():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
+    tenant_ctx = _get_request_tenant_context()
+    tenant_id = tenant_ctx['tenant'].get('id') if tenant_ctx.get('tenant') else None
+    tenant_slug = tenant_ctx['tenant'].get('slug', '') if tenant_ctx.get('tenant') else ''
     if request.method == 'GET':
-        return jsonify({"radios": aviat_shared_queue})
+        return jsonify({"radios": _queue_payload(aviat_shared_queue, tenant_id=tenant_id)})
 
     data = request.json or {}
     mode = (data.get("mode") or "replace").lower()
@@ -18511,27 +22996,33 @@ def aviat_queue_state():
     username = data.get("username") or "aviat-tool"
 
     if mode == "replace":
-        aviat_shared_queue.clear()
+        aviat_shared_queue[:] = [entry for entry in aviat_shared_queue if not _queue_entry_matches_tenant(entry, tenant_id)]
     if mode in ("replace", "add"):
         for radio in radios:
             ip = radio.get("ip") if isinstance(radio, dict) else str(radio)
             if not ip:
                 continue
-            updates = radio if isinstance(radio, dict) else {}
+            updates = dict(radio) if isinstance(radio, dict) else {}
             updates.setdefault("status", "pending")
             updates.setdefault("username", username)
+            updates["_tenant_id"] = tenant_id
+            updates["_tenant_slug"] = tenant_slug
             _aviat_queue_upsert(ip, updates)
     if mode == "remove":
         for radio in radios:
             ip = radio.get("ip") if isinstance(radio, dict) else str(radio)
             if ip:
-                _aviat_queue_remove(ip)
+                aviat_shared_queue[:] = [
+                    entry for entry in aviat_shared_queue
+                    if not (entry.get("ip") == ip and _queue_entry_matches_tenant(entry, tenant_id))
+                ]
 
     _aviat_save_shared_queue()
-    return jsonify({"radios": aviat_shared_queue})
+    return jsonify({"radios": _queue_payload(aviat_shared_queue, tenant_id=tenant_id)})
 
 
 @app.route('/api/aviat/check-status', methods=['POST'])
+@require_auth
 def aviat_check_status():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -18597,6 +23088,7 @@ def aviat_check_status():
 
 
 @app.route('/api/aviat/precheck/recheck', methods=['POST'])
+@require_auth
 def aviat_recheck_precheck():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -18656,6 +23148,7 @@ def aviat_recheck_precheck():
 
 
 @app.route('/api/aviat/fix-stp', methods=['POST'])
+@require_auth
 def aviat_fix_stp():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -18688,12 +23181,19 @@ def aviat_fix_stp():
 
 
 @app.route('/api/aviat/abort/<task_id>', methods=['POST'])
+@require_auth
 def aviat_abort_task(task_id):
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
-    if task_id not in aviat_tasks:
+    task = aviat_tasks.get(task_id) or _background_task_load('aviat', task_id)
+    if not task:
         return jsonify({'error': 'Task not found'}), 404
-    aviat_tasks[task_id]['abort'] = True
+    if not _background_task_access_allowed(task):
+        return jsonify({'error': 'Task not found'}), 404
+    _background_task_signal_abort('aviat', task_id)
+    if task_id in aviat_tasks:
+        aviat_tasks[task_id]['abort'] = True
+        _background_task_persist('aviat', task_id, aviat_tasks.get(task_id))
     return jsonify({'status': 'aborting'})
 
 
@@ -18701,8 +23201,39 @@ def aviat_abort_task(task_id):
 def aviat_stream_logs(task_id):
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
+    _, error_response = _authenticate_request_context()
+    if error_response:
+        return error_response
     if task_id not in aviat_log_queues:
-        return jsonify({'error': 'Task not found'}), 404
+        task = _background_task_load('aviat', task_id)
+        _, log_path, _ = _background_task_paths('aviat', task_id)
+        if not task:
+            return jsonify({'error': 'Task not found'}), 404
+        if not _background_task_access_allowed(task):
+            return jsonify({'error': 'Task not found'}), 404
+        if not log_path.exists():
+            return Response(
+                'data: {"type":"done"}\n\n',
+                mimetype='text/event-stream',
+                headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+            )
+
+        def generate_from_disk():
+            try:
+                with log_path.open('r', encoding='utf-8') as handle:
+                    for line in handle:
+                        line = line.strip()
+                        if line:
+                            yield f'data: {line}\n\n'
+            except Exception:
+                pass
+            yield 'data: {"type":"done"}\n\n'
+
+        return Response(
+            generate_from_disk(),
+            mimetype='text/event-stream',
+            headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+        )
 
     def generate():
         q = aviat_log_queues[task_id]
@@ -18727,12 +23258,22 @@ def aviat_stream_logs(task_id):
 def aviat_stream_global():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
+    _, error_response = _authenticate_request_context()
+    if error_response:
+        return error_response
     q = queue.Queue()
     aviat_global_log_queues.add(q)
 
     def generate():
-        # Send backlog first
-        for entry in aviat_global_log_history[-200:]:
+        # Send persisted backlog first so cross-worker/restart visibility still works.
+        persisted = _background_task_recent_logs('aviat', limit=200)
+        backlog = persisted or list(aviat_global_log_history)[-200:]
+        for entry in backlog:
+            backlog_task_id = entry.get('task_id')
+            if backlog_task_id:
+                task = aviat_tasks.get(backlog_task_id) or _background_task_load('aviat', backlog_task_id)
+                if task and not _background_task_access_allowed(task):
+                    continue
             yield f"data: {json.dumps(entry)}\n\n"
         while True:
             try:
@@ -18756,12 +23297,39 @@ def aviat_stream_global():
 
 
 @app.route('/api/aviat/status/<task_id>')
+@require_auth
 def aviat_get_status(task_id):
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
-    if task_id not in aviat_tasks:
+    task = aviat_tasks.get(task_id) or _background_task_load('aviat', task_id)
+    if not task:
         return jsonify({'error': 'Task not found'}), 404
-    return jsonify(aviat_tasks[task_id])
+    if not _background_task_access_allowed(task):
+        return jsonify({'error': 'Task not found'}), 404
+    return jsonify(_background_task_status_payload(task))
+
+
+def _aviat_firmware_dir():
+    """Path where Aviat .swpack files live inside the container (/opt/firmware/aviat)."""
+    import pathlib as _pl
+    return _pl.Path(os.getenv('FIRMWARE_PATH', '/opt/firmware')) / 'aviat'
+
+
+@app.route('/api/aviat/firmware/<filename>')
+def aviat_serve_firmware(filename):
+    """Serve an Aviat firmware .swpack file for direct radio download (no auth — device pulls directly).
+
+    Radios fetch the firmware URI as a plain HTTP GET; they cannot send auth headers.
+    The file is read-only from the container's /opt/firmware/aviat/ volume mount.
+    """
+    import pathlib as _pl
+    fw_dir = _aviat_firmware_dir()
+    safe_name = _pl.Path(filename).name  # strip any directory traversal
+    file_path = fw_dir / safe_name
+    if not file_path.exists() or not file_path.is_file():
+        return jsonify({'error': 'Firmware file not found'}), 404
+    return send_file(str(file_path), as_attachment=True, download_name=safe_name,
+                     mimetype='application/octet-stream')
 
 
 # ========================================
@@ -18826,7 +23394,8 @@ def _cambium_broadcast_log(message, level="info", task_id=None, ip=None):
         "ip": ip,
     }
     cambium_global_log_history.append(entry)
-    del cambium_global_log_history[:-CAMBIUM_GLOBAL_LOG_LIMIT]
+    if task_id:
+        _background_task_append_log('cambium', task_id, entry)
     for q in list(cambium_global_log_queues):
         try:
             q.put(entry)
@@ -18876,26 +23445,66 @@ def _log_cambium_activity(result):
                 pass
 
 
-def _cambium_update_queue_from_result(result, username=None):
+def _log_wave_fw_activity(result, username=None, tenant_id=None):
+    """Log a Wave FW upgrade result to the shared activity database."""
+    conn = None
+    try:
+        if not isinstance(result, dict) or result.get('status') not in ('success', 'failed'):
+            return
+        init_activity_db()
+        secure_dir = 'secure_data'
+        db_path = os.path.join(secure_dir, 'activity_log.db')
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        ts_unix = get_unix_timestamp()
+        ts_iso = get_utc_timestamp()
+        uname = _short_username(username or 'wave-fw-tool')
+        c.execute('''INSERT INTO activities
+                     (tenant_id, username, activity_type, device, site_name, routeros_version, success, timestamp, timestamp_unix)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                  (
+                      tenant_id,
+                      uname,
+                      'wave-fw-upgrade',
+                      'Wave Radio',
+                      result.get('ip') or 'Unknown',
+                      result.get('active_bank') or '',
+                      1 if result.get('status') == 'success' else 0,
+                      ts_iso,
+                      ts_unix,
+                  ))
+        conn.commit()
+    except Exception as e:
+        safe_print(f"[WAVE-FW] Failed to log activity: {e}")
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _cambium_update_queue_from_result(result, username=None, tenant_id=None, tenant_slug=None):
     if not isinstance(result, dict):
         return
     status = result.get("status") or ("success" if result.get("success") else "error")
-    _cambium_queue_upsert(
-        result.get("ip"),
-        {
-            "status": status,
-            "firmwareStatus": status,
-            "deviceType": result.get("device_type"),
-            "targetVersion": result.get("target_version"),
-            "firmwareVersion": result.get("firmware_version_after") or result.get("firmware_version_before"),
-            "selectedImage": result.get("selected_image"),
-            "lastError": result.get("error"),
-            "backupStatus": result.get("backup_status"),
-            "verifyStatus": result.get("verify_status"),
-            "backupPath": result.get("backup_path"),
-            "username": result.get("username") or username or "cambium-tool",
-        },
-    )
+    update = {
+        "status": status,
+        "firmwareStatus": status,
+        "deviceType": result.get("device_type"),
+        "targetVersion": result.get("target_version"),
+        "firmwareVersion": result.get("firmware_version_after") or result.get("firmware_version_before"),
+        "selectedImage": result.get("selected_image"),
+        "lastError": result.get("error"),
+        "backupStatus": result.get("backup_status"),
+        "verifyStatus": result.get("verify_status"),
+        "backupPath": result.get("backup_path"),
+        "username": result.get("username") or username or "cambium-tool",
+    }
+    if tenant_id is not None:
+        update["_tenant_id"] = tenant_id
+        update["_tenant_slug"] = tenant_slug or ""
+    _cambium_queue_upsert(result.get("ip"), update)
 
 
 def _cambium_expand_tasks(task_values):
@@ -19126,17 +23735,40 @@ def _cambium_run_single(radio, username, should_abort=None):
 
 
 def _cambium_background_task(task_id, radios, username):
+    _purge_stale_tasks(cambium_tasks, cambium_log_queues)
+    try:
+        _cambium_background_task_inner(task_id, radios, username)
+    except Exception as _exc:
+        try:
+            cambium_tasks[task_id]['status'] = 'failed'
+            cambium_tasks[task_id]['completed_at'] = get_utc_timestamp()
+            cambium_tasks[task_id].setdefault('results', [])
+            _background_task_persist('cambium', task_id, cambium_tasks.get(task_id))
+            _cambium_broadcast_log(f"[task:{task_id}] Unhandled crash: {_exc}", "error", task_id=task_id)
+        except Exception:
+            pass
+        if task_id in cambium_log_queues:
+            try:
+                cambium_log_queues[task_id].put(None)
+            except Exception:
+                pass
+
+
+def _cambium_background_task_inner(task_id, radios, username):
     results = []
     cambium_tasks[task_id]["status"] = "running"
+    _background_task_persist('cambium', task_id, cambium_tasks.get(task_id))
+    _task_tenant_id = cambium_tasks[task_id].get('_tenant_id')
+    _task_tenant_slug = cambium_tasks[task_id].get('_tenant_slug', '')
     def should_abort():
-        return cambium_tasks.get(task_id, {}).get("abort") is True
+        return cambium_tasks.get(task_id, {}).get("abort") is True or _background_task_has_abort('cambium', task_id)
     max_workers = max(1, min(CAMBIUM_MAX_WORKERS, len(radios)))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(_cambium_run_single, radio, username, should_abort): radio for radio in radios}
         for future in as_completed(futures):
             result = future.result()
             results.append(result)
-            _cambium_update_queue_from_result(result, username=username)
+            _cambium_update_queue_from_result(result, username=username, tenant_id=_task_tenant_id, tenant_slug=_task_tenant_slug)
             _log_cambium_activity(result)
             if result.get("success"):
                 _cambium_broadcast_log(
@@ -19164,6 +23796,7 @@ def _cambium_background_task(task_id, radios, username):
     cambium_tasks[task_id]["status"] = "aborted" if should_abort() else "completed"
     cambium_tasks[task_id]["results"] = results
     cambium_tasks[task_id]["completed_at"] = get_utc_timestamp()
+    _background_task_persist('cambium', task_id, cambium_tasks.get(task_id))
     if task_id in cambium_log_queues:
         cambium_log_queues[task_id].put(None)
 
@@ -19200,9 +23833,13 @@ def cambium_catalog():
 
 
 @app.route('/api/cambium/device-info', methods=['POST'])
+@require_auth
 def cambium_device_info():
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
+    _ctx = _get_request_tenant_context()
+    _dev_tenant_id = _ctx['tenant'].get('id') if _ctx.get('tenant') else None
+    _dev_tenant_slug = _ctx['tenant'].get('slug', '') if _ctx.get('tenant') else ''
     data = request.get_json(force=True) or {}
     ip = str(data.get("ip") or data.get("ip_address") or "").strip()
     device_type = data.get("device_type")
@@ -19218,6 +23855,8 @@ def cambium_device_info():
             "deviceType": info["device_type"],
             "firmwareVersion": info["firmware_version"],
             "lastError": info["error"],
+            "_tenant_id": _dev_tenant_id,
+            "_tenant_slug": _dev_tenant_slug,
         })
         _cambium_save_shared_queue()
         return jsonify({"success": True, **info})
@@ -19260,11 +23899,15 @@ def cambium_check_status():
 
 
 @app.route('/api/cambium/queue', methods=['GET', 'POST'])
+@require_auth
 def cambium_queue_state():
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
+    tenant_ctx = _get_request_tenant_context()
+    tenant_id = tenant_ctx['tenant'].get('id') if tenant_ctx.get('tenant') else None
+    tenant_slug = tenant_ctx['tenant'].get('slug', '') if tenant_ctx.get('tenant') else ''
     if request.method == 'GET':
-        return jsonify({"radios": cambium_shared_queue})
+        return jsonify({"radios": _queue_payload(cambium_shared_queue, tenant_id=tenant_id)})
 
     data = request.get_json(force=True) or {}
     mode = str(data.get("mode") or "replace").strip().lower()
@@ -19277,7 +23920,7 @@ def cambium_queue_state():
     radios = _cambium_expand_radios(data)
 
     if mode == "replace":
-        cambium_shared_queue.clear()
+        cambium_shared_queue[:] = [entry for entry in cambium_shared_queue if not _queue_entry_matches_tenant(entry, tenant_id)]
         for radio in radios:
             canonical = cambium_resolve_device_type(radio.get("device_type"))
             _cambium_queue_upsert(radio["ip"], {
@@ -19286,6 +23929,8 @@ def cambium_queue_state():
                 "deviceType": canonical,
                 "targetVersion": radio.get("update_version"),
                 "username": actor_username,
+                "_tenant_id": tenant_id,
+                "_tenant_slug": tenant_slug,
             })
     elif mode == "add":
         for radio in radios:
@@ -19296,21 +23941,32 @@ def cambium_queue_state():
                 "deviceType": canonical,
                 "targetVersion": radio.get("update_version"),
                 "username": actor_username,
+                "_tenant_id": tenant_id,
+                "_tenant_slug": tenant_slug,
             })
     elif mode == "remove":
         for radio in radios:
-            _cambium_queue_remove(radio["ip"])
+            cambium_shared_queue[:] = [
+                entry for entry in cambium_shared_queue
+                if not (entry.get("ip") == radio["ip"] and _queue_entry_matches_tenant(entry, tenant_id))
+            ]
     else:
         return jsonify({'error': f'Unsupported mode: {mode}'}), 400
 
     _cambium_save_shared_queue()
-    return jsonify({"radios": cambium_shared_queue})
+    return jsonify({"radios": _queue_payload(cambium_shared_queue, tenant_id=tenant_id)})
 
 
 @app.route('/api/cambium/run', methods=['POST'])
+@require_auth
 def cambium_run_tasks():
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
+    _require_feature('cambium')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
     data = request.get_json(force=True) or {}
     radios = _cambium_expand_radios(data)
     actor_username = (
@@ -19319,6 +23975,8 @@ def cambium_run_tasks():
         or data.get("submitted_by")
         or "cambium-tool"
     )
+    _cambium_tenant_id = _tenant_ctx['tenant'].get('id') if _tenant_ctx.get('tenant') else None
+    _cambium_tenant_slug = _tenant_ctx['tenant'].get('slug', '') if _tenant_ctx.get('tenant') else ''
     if not radios:
         return jsonify({'error': 'No radios provided'}), 400
 
@@ -19346,6 +24004,8 @@ def cambium_run_tasks():
             "deviceType": canonical,
             "targetVersion": radio.get("update_version"),
             "username": actor_username,
+            "_tenant_id": _cambium_tenant_id,
+            "_tenant_slug": _cambium_tenant_slug,
         })
     _cambium_save_shared_queue()
 
@@ -19359,7 +24019,10 @@ def cambium_run_tasks():
         "tasks": _cambium_expand_tasks(data.get("tasks")),
         "started_at": get_utc_timestamp(),
         "results": [],
+        "_tenant_id": _cambium_tenant_id,
+        "_tenant_slug": _cambium_tenant_slug,
     }
+    _background_task_persist('cambium', task_id, cambium_tasks.get(task_id))
     cambium_log_queues[task_id] = queue.Queue()
     threading.Thread(
         target=_cambium_background_task,
@@ -19373,8 +24036,40 @@ def cambium_run_tasks():
 def cambium_stream_logs(task_id):
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
+    _, error_response = _authenticate_request_context()
+    if error_response:
+        return error_response
     if task_id not in cambium_log_queues:
-        return jsonify({'error': 'Task not found'}), 404
+        task = _background_task_load('cambium', task_id)
+        _, log_path, _ = _background_task_paths('cambium', task_id)
+        if not task:
+            return jsonify({'error': 'Task not found'}), 404
+        if not _background_task_access_allowed(task):
+            return jsonify({'error': 'Task not found'}), 404
+        if not log_path.exists():
+            return Response(
+                'data: {"type":"done"}\n\n',
+                mimetype='text/event-stream',
+                headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+            )
+
+        @stream_with_context
+        def generate_from_disk():
+            try:
+                with log_path.open('r', encoding='utf-8') as handle:
+                    for line in handle:
+                        line = line.strip()
+                        if line:
+                            yield f'data: {line}\n\n'
+            except Exception:
+                pass
+            yield 'data: {"type":"done"}\n\n'
+
+        return Response(
+            generate_from_disk(),
+            mimetype='text/event-stream',
+            headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+        )
 
     @stream_with_context
     def generate():
@@ -19395,12 +24090,22 @@ def cambium_stream_logs(task_id):
 def cambium_stream_global():
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
+    _, error_response = _authenticate_request_context()
+    if error_response:
+        return error_response
     q = queue.Queue()
     cambium_global_log_queues.add(q)
 
     @stream_with_context
     def generate():
-        for entry in cambium_global_log_history[-200:]:
+        persisted = _background_task_recent_logs('cambium', limit=200)
+        backlog = persisted or list(cambium_global_log_history)[-200:]
+        for entry in backlog:
+            backlog_task_id = entry.get('task_id')
+            if backlog_task_id:
+                task = cambium_tasks.get(backlog_task_id) or _background_task_load('cambium', backlog_task_id)
+                if task and not _background_task_access_allowed(task):
+                    continue
             yield f"data: {json.dumps(entry)}\n\n"
         try:
             while True:
@@ -19422,22 +24127,33 @@ def cambium_stream_global():
 
 
 @app.route('/api/cambium/status/<task_id>')
+@require_auth
 def cambium_get_status(task_id):
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
-    if task_id not in cambium_tasks:
+    task = cambium_tasks.get(task_id) or _background_task_load('cambium', task_id)
+    if not task:
         return jsonify({'error': 'Task not found'}), 404
-    return jsonify(cambium_tasks[task_id])
+    if not _background_task_access_allowed(task):
+        return jsonify({'error': 'Task not found'}), 404
+    return jsonify(_background_task_status_payload(task))
 
 
 @app.route('/api/cambium/abort/<task_id>', methods=['POST'])
+@require_auth
 def cambium_abort_task(task_id):
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
-    if task_id not in cambium_tasks:
+    task = cambium_tasks.get(task_id) or _background_task_load('cambium', task_id)
+    if not task:
         return jsonify({'error': 'Task not found'}), 404
-    cambium_tasks[task_id]['abort'] = True
-    cambium_tasks[task_id]['status'] = 'aborting'
+    if not _background_task_access_allowed(task):
+        return jsonify({'error': 'Task not found'}), 404
+    _background_task_signal_abort('cambium', task_id)
+    if task_id in cambium_tasks:
+        cambium_tasks[task_id]['abort'] = True
+        cambium_tasks[task_id]['status'] = 'aborting'
+        _background_task_persist('cambium', task_id, cambium_tasks.get(task_id))
     return jsonify({'status': 'aborting'})
 
 
@@ -19471,6 +24187,1111 @@ def cambium_download_backup():
         target = matches[0]
 
     return send_file(str(target), as_attachment=True, download_name=target.name, mimetype='application/json')
+
+
+# ── Wave Firmware Updater helpers ─────────────────────────────────────────────
+
+def _wave_fw_scrub(msg):
+    """Redact WAVE_AP_PASS and WAVE_SM_PASS values from msg before logging."""
+    ap_pass = os.getenv('WAVE_AP_PASS', '')
+    sm_pass = os.getenv('WAVE_SM_PASS', '')
+    if ap_pass:
+        msg = msg.replace(ap_pass, '***')
+    if sm_pass and sm_pass != ap_pass:
+        msg = msg.replace(sm_pass, '***')
+    return msg
+
+
+def _wave_fw_broadcast_log(message, level='info', task_id=None):
+    """Put a log entry onto the per-task queue and persist it to disk for cross-worker reads."""
+    entry = {
+        'message': message,
+        'level': level,
+        'task_id': task_id,
+        'timestamp': datetime.utcnow().isoformat() + 'Z',
+    }
+    if task_id and task_id in wave_fw_log_queues:
+        try:
+            wave_fw_log_queues[task_id].put(entry)
+        except Exception:
+            pass
+    # Always persist to disk so other workers can serve the log stream
+    if task_id:
+        try:
+            log_path = _wave_fw_task_store_dir() / f'{task_id}.log.jsonl'
+            with open(log_path, 'a') as _lf:
+                _lf.write(json.dumps(entry) + '\n')
+        except Exception:
+            pass
+
+
+def _wave_fw_uisp_discover(uisp_url, username, password, timeout=30, retries=3, target_version=None):
+    """Query UISP and return all Wave devices with firmware information.
+
+    Retries UISP login and device query with exponential backoff (matching reference script).
+    Each device dict includes 'already_current': True when UISP reports the device is already
+    at target_version — the UI can surface these so the operator knows to deselect them.
+    """
+    import urllib3 as _urllib3
+    _urllib3.disable_warnings(_urllib3.exceptions.InsecureRequestWarning)
+    retries = max(1, int(retries))
+    sess = requests.Session()
+    token = None
+
+    # ── Login with retry/backoff ──────────────────────────────────────────────
+    last_login_exc = None
+    for attempt in range(1, retries + 1):
+        try:
+            login_resp = sess.post(
+                f'{uisp_url}/nms/api/v2.1/user/login',
+                json={'username': username, 'password': password},
+                verify=False,
+                timeout=(10, timeout),
+            )
+            if login_resp.status_code == 200:
+                token = login_resp.headers.get('x-auth-token')
+                if not token:
+                    try:
+                        token = login_resp.json().get('token')
+                    except Exception:
+                        pass
+                if token:
+                    break
+                raise RuntimeError('UISP login succeeded but no x-auth-token in response')
+            raise RuntimeError(f'UISP login HTTP {login_resp.status_code}')
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            last_login_exc = exc
+            if attempt < retries:
+                time.sleep(min(2 ** attempt, 8))
+    if not token:
+        raise RuntimeError(
+            f'UISP login failed after {retries} attempt(s): {last_login_exc}')
+
+    auth_headers = {'x-auth-token': token}
+
+    # ── Devices query with retry/backoff ──────────────────────────────────────
+    all_devices = None
+    last_dev_exc = None
+    for attempt in range(1, retries + 1):
+        try:
+            devices_resp = sess.get(
+                f'{uisp_url}/nms/api/v2.1/devices',
+                headers=auth_headers,
+                verify=False,
+                timeout=(10, timeout),
+            )
+            if not devices_resp.ok:
+                raise RuntimeError(f'UISP devices query HTTP {devices_resp.status_code}')
+            payload = devices_resp.json()
+            if isinstance(payload, list):
+                all_devices = payload
+            elif isinstance(payload, dict):
+                all_devices = payload.get('items') or payload.get('data') or []
+            else:
+                all_devices = []
+            break
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            last_dev_exc = exc
+            if attempt < retries:
+                time.sleep(min(2 ** attempt, 8))
+    if all_devices is None:
+        raise RuntimeError(
+            f'UISP device query failed after {retries} attempt(s): {last_dev_exc}')
+
+    # ── Filter and classify Wave devices ─────────────────────────────────────
+    norm_target = _wave_fw_normalize_version(target_version) if target_version else None
+    wave_devices = []
+    for dev in all_devices:
+        ident = dev.get('identification') or {}
+        overview = dev.get('overview') or {}
+        model = (ident.get('model') or dev.get('model') or dev.get('productModel') or '')
+        name = (ident.get('name') or dev.get('displayName') or dev.get('name') or '')
+        # Only include devices with 'wave' in model or name
+        if 'wave' not in model.lower() and 'wave' not in name.lower():
+            continue
+        # Collect role from multiple UISP field paths (reference checks all of these)
+        role = (ident.get('role') or dev.get('role') or overview.get('role') or
+                dev.get('deviceRole') or '')
+        # Firmware version from multiple field paths
+        fw_raw = (
+            ident.get('firmwareVersion')
+            or overview.get('firmwareVersion')
+            or dev.get('firmwareVersion')
+            or ''
+        )
+        fw_version = _wave_fw_normalize_version(fw_raw) if fw_raw else ''
+        # Strip CIDR notation from IP if present
+        ip_addr = (dev.get('ipAddress') or ident.get('ip') or dev.get('ip') or dev.get('address') or '')
+        if ip_addr and '/' in ip_addr:
+            ip_addr = ip_addr.split('/')[0]
+        # Parent AP reference — used for auto-discovery of associated stations
+        ap_dev = (overview.get('apDevice') or dev.get('apDevice') or
+                  ident.get('apDevice') or {})
+        ap_device_id = ap_dev.get('id') or ap_dev.get('apId') or '' if isinstance(ap_dev, dict) else ''
+        wave_devices.append({
+            'id': ident.get('id') or dev.get('id') or '',
+            'name': name,
+            'ip': ip_addr,
+            'model': model,
+            'firmwareVersion': fw_version,
+            'role': role,
+            'ap_device_id': ap_device_id,  # empty string for APs; filled for stations
+            # Surface to UI so operator can see which are already done
+            'already_current': bool(norm_target and fw_version and fw_version == norm_target),
+        })
+    return wave_devices
+
+
+def _wave_fw_login_device(ip, ap_pass, sm_pass, timeout=30, role='unknown'):
+    """Try credential pairs against the Wave HTTPS API.
+    Returns (session, headers, working_password).
+
+    Credential order follows the device role: APs try ap_pass first; Stations try sm_pass first.
+    Only operator-supplied passwords are used — no hardcoded ubnt/ubnt fallback."""
+    import urllib3 as _urllib3
+    _urllib3.disable_warnings(_urllib3.exceptions.InsecureRequestWarning)
+    import re as _re
+    _role = _re.sub(r'[^a-z]', '', (role or '').lower())
+    if 'station' in _role:
+        ordered_pws = [sm_pass, ap_pass]
+    else:
+        ordered_pws = [ap_pass, sm_pass]  # APs and unknowns: ap_pass first
+    seen = set()
+    credential_pairs = []
+    for pw in ordered_pws:
+        if pw and ('admin', pw) not in seen:
+            credential_pairs.append(('admin', pw))
+            seen.add(('admin', pw))
+    last_exc = None
+    for user, pw in credential_pairs:
+        try:
+            sess = requests.Session()
+            resp = sess.post(
+                f'https://{ip}/api/v1.0/user/login',
+                json={'username': user, 'password': pw},
+                verify=False,
+                timeout=10,
+            )
+            if resp.ok:
+                token = resp.headers.get('x-auth-token') or resp.json().get('token') or ''
+                headers = {'x-auth-token': token} if token else {}
+                return sess, headers, pw  # Return the password that worked
+        except Exception as exc:
+            last_exc = exc
+    raise RuntimeError(f'All credential pairs failed for {ip}: {last_exc}')
+
+
+def _wave_fw_enable_ssh(session, ip, headers, timeout=60):
+    """Enable SSH on the Wave device without touching any other service settings.
+
+    Protocol: GET /services (full body) → mutate only sshServer block → PUT full body back
+    via /tools/compose with rollback.onError=True. This is the only safe way to enable SSH —
+    a partial PUT body would reset all other services to defaults.
+    """
+    import urllib3 as _urllib3
+    _urllib3.disable_warnings(_urllib3.exceptions.InsecureRequestWarning)
+    # 1. Read the full current services config
+    svc_resp = session.get(
+        f'https://{ip}/api/v1.0/services',
+        headers=headers,
+        verify=False,
+        timeout=15,
+    )
+    svc_resp.raise_for_status()
+    services = svc_resp.json()
+    # 2. Mutate only the SSH block — all other keys pass through unchanged
+    ssh_block = services.setdefault('sshServer', {})
+    ssh_block['enabled'] = True
+    ssh_block['passwordAuthentication'] = True
+    ssh_block['sshPort'] = 22
+    compose_payload = {
+        'requests': [{'body': services, 'method': 'PUT', 'route': '/services'}],
+        'rollback': {'onError': True, 'onUnreachable': {}},
+    }
+    # 3. PUT the full services object back; check the response
+    compose_resp = session.post(
+        f'https://{ip}/api/v1.0/tools/compose',
+        json=compose_payload,
+        headers=headers,
+        verify=False,
+        timeout=timeout,
+    )
+    if not compose_resp.ok:
+        raise RuntimeError(
+            f'SSH enable compose failed for {ip}: HTTP {compose_resp.status_code}'
+        )
+
+
+_WAVE_BANK_CHECK_SCRIPT = r"""
+MOUNTPOINT=/tmp/__partition
+FLAVOR=$(cat /usr/lib/flavor)
+boot_part=$(fw_printenv boot_part 2>/dev/null | cut -d= -f2)
+if [ "$FLAVOR" = GMC ]; then
+    [ "$boot_part" = 0 ] && PART_DEV=/dev/mmcblk0p2 || PART_DEV=/dev/mmcblk0p1
+    mkdir -p $MOUNTPOINT
+    mount -o ro $PART_DEV $MOUNTPOINT 2>/dev/null || { echo ACTIVE=$(cat /usr/lib/version); echo BACKUP=; exit 0; }
+    echo ACTIVE=$(cat /usr/lib/version)
+    echo BACKUP=$(cat $MOUNTPOINT/usr/lib/version 2>/dev/null)
+    umount $MOUNTPOINT
+    rm -rf $MOUNTPOINT
+    exit 0
+fi
+MTD0=$(grep '"system0"' /proc/mtd | sed 's/mtd\([0-9]\+\):.*/\1/')
+MTD1=$(grep '"system1"' /proc/mtd | sed 's/mtd\([0-9]\+\):.*/\1/')
+echo ACTIVE=$(cat /usr/lib/version)
+INACTIVE_MTD=$([ "$boot_part" = 1 ] && echo $MTD0 || echo $MTD1)
+UBI_DEV=$(ubinfo -a -m $INACTIVE_MTD 2>/dev/null | awk -F: '/ubi[0-9]+/{sub("ubi","",$1);print $1}')
+did_attach=0
+if [ -z "$UBI_DEV" ]; then
+    UBI_DEV=$(ubiattach /dev/ubi_ctrl -m $INACTIVE_MTD 2>/dev/null | awk '/UBI device number/ {print $4}' | tr -d ,)
+    [ -z "$UBI_DEV" ] && echo BACKUP= && exit 0
+    did_attach=1
+fi
+UBI_PATH=/dev/ubi${UBI_DEV}_1
+mkdir -p $MOUNTPOINT
+mount -t ubifs -o ro $UBI_PATH $MOUNTPOINT 2>/dev/null || { echo BACKUP=; [ "$did_attach" = 1 ] && ubidetach /dev/ubi_ctrl -d $UBI_DEV 2>/dev/null; exit 0; }
+echo BACKUP=$(cat $MOUNTPOINT/lib/version 2>/dev/null)
+umount $MOUNTPOINT
+[ "$did_attach" = 1 ] && ubidetach /dev/ubi_ctrl -d $UBI_DEV 2>/dev/null
+rm -rf $MOUNTPOINT
+"""
+
+
+def _wave_fw_check_banks_ssh(ip, username, password, timeout=60, deadline_ts=None):
+    """SSH into the Wave device and run the bank-check script. Returns (active, backup) strings.
+
+    Retries the SSH connect for up to 60 seconds (or until deadline) to handle the brief delay
+    after SSH is enabled via the services API. Normalizes version strings so '4.1.0.1234'
+    compares equal to '4.1.0'."""
+    import paramiko as _paramiko, re as _re
+    connect_deadline = time.time() + 60.0
+    if deadline_ts is not None:
+        connect_deadline = min(connect_deadline, deadline_ts)
+    last_exc = None
+    client = None
+    while time.time() < connect_deadline:
+        client = _paramiko.SSHClient()
+        client.set_missing_host_key_policy(_paramiko.AutoAddPolicy())
+        _connect_timeout = max(3.0, min(15.0, connect_deadline - time.time()))
+        try:
+            client.connect(
+                ip,
+                username=username,
+                password=password,
+                timeout=_connect_timeout,
+                banner_timeout=_connect_timeout,
+                auth_timeout=_connect_timeout,
+                look_for_keys=False,
+                allow_agent=False,
+            )
+            if client.get_transport() and client.get_transport().is_active():
+                break
+        except Exception as exc:
+            last_exc = exc
+            try:
+                client.close()
+            except Exception:
+                pass
+            client = None
+            time.sleep(2)
+    if client is None or not (client.get_transport() and client.get_transport().is_active()):
+        raise RuntimeError(f'SSH connect to {ip} failed: {last_exc}')
+    try:
+        stdin, stdout, stderr = client.exec_command('sh -s', timeout=timeout)
+        stdin.write(_WAVE_BANK_CHECK_SCRIPT)
+        stdin.channel.shutdown_write()
+        output = stdout.read().decode('utf-8', errors='replace')
+        err_output = stderr.read().decode('utf-8', errors='replace')
+    finally:
+        client.close()
+    # Parse and normalize version strings (strips leading v, build suffixes, etc.)
+    active_m = _re.search(r'ACTIVE=([^\s]+)', output)
+    backup_m = _re.search(r'BACKUP=([^\s]+)', output)
+    active = _wave_fw_normalize_version(active_m.group(1)) if active_m else ''
+    backup = _wave_fw_normalize_version(backup_m.group(1)) if backup_m else ''
+    # Surface SSH-side errors rather than silently returning empty banks
+    if not active and err_output.strip():
+        raise RuntimeError(f'SSH bank check script error on {ip}: {err_output.strip()[:200]}')
+    return active, backup
+
+
+class _WaveFwDeadlineExceeded(Exception):
+    """Raised inside _wave_fw_upgrade_single when the maintenance window expires mid-upgrade."""
+
+
+def _wave_fw_upgrade_single(device, file_path, target_version, log_cb, should_abort, firmware_dir=None,
+                            min_current_firmware=None, deadline_ts=None):
+    """Upgrade a single Wave device to target_version.
+
+    Runs up to WAVE_FW_MAX_PASSES (default 4) upload→reboot passes until both firmware banks
+    match target_version.  Typically 2 passes are required: pass 1 loads the inactive bank and
+    reboots into it; pass 2 loads the now-inactive bank (old version) so both banks match.
+
+    IMPORTANT — SSH re-enable after reboot:
+    Wave devices reset SSH to disabled on every reboot.  After each reboot we re-login via HTTPS
+    and re-enable SSH using the same safe GET→mutate-only-sshServer→PUT-full-body pattern as the
+    initial enable.  Sending a partial body to /services would reset all other services to
+    defaults; we never do that.
+    """
+    import pathlib as _pl, socket as _socket
+    ip = device['ip']
+    name = device.get('name', ip)
+    device_role = device.get('role', 'unknown')
+    ap_pass = os.getenv('WAVE_AP_PASS', '')
+    sm_pass = os.getenv('WAVE_SM_PASS', ap_pass)
+    max_passes = int(os.getenv('WAVE_FW_MAX_PASSES', '4'))
+    # Normalize target_version once so SSH output (which is also normalized) compares cleanly
+    target_version = _wave_fw_normalize_version(target_version)
+
+    def _now():
+        return datetime.utcnow().isoformat() + 'Z'
+
+    def _early(status, error=''):
+        now = _now()
+        return {'ip': ip, 'name': name, 'status': status, 'error': error,
+                'active_bank': '', 'backup_bank': '', 'started_at': now, 'completed_at': now}
+
+    # Maintenance window deadline — device hasn't started yet, skip cleanly
+    if deadline_ts is not None and time.time() >= deadline_ts:
+        return _early('skipped', 'Maintenance window deadline exceeded')
+
+    # Resolve firmware file (uploaded or server-side auto-select)
+    model_name = device.get('model', '')
+    if file_path is None:
+        fdir = _pl.Path(firmware_dir) if firmware_dir else _wave_fw_server_firmware_dir()
+        file_path = _wave_fw_select_firmware(model_name, fdir)
+        if file_path is None:
+            return _early('failed', 'No firmware file found on server for this model')
+    selected_family = _wave_fw_model_family(model_name)
+    selected_family_label = _wave_fw_family_label(selected_family)
+
+    started_at = _now()
+
+    def result(status, error='', active='', backup=''):
+        return {'ip': ip, 'name': name, 'status': status, 'error': _wave_fw_scrub(error),
+                'active_bank': active, 'backup_bank': backup,
+                'started_at': started_at, 'completed_at': _now()}
+
+    def deadline_timeout(default_secs):
+        """Clamp a timeout so we don't exceed the maintenance window (10s buffer)."""
+        if deadline_ts is None:
+            return default_secs
+        remaining = deadline_ts - time.time() - 10.0
+        return max(5.0, min(float(default_secs), remaining))
+
+    def check_deadline(ctx=''):
+        if deadline_ts is not None and time.time() >= deadline_ts:
+            raise _WaveFwDeadlineExceeded(
+                f'Maintenance window deadline exceeded{(" " + ctx) if ctx else ""}')
+
+    # ssh_pass tracks the credential that worked for SSH.  Starts as the HTTP-login password;
+    # updated if the alternative succeeds in a subsequent bank check.
+    ssh_pass = [ap_pass]  # list so closure can rebind
+
+    def enable_ssh_and_check_banks(label=''):
+        """Enable SSH (safe full-body PUT) then check both firmware banks via SSH.
+        Called before the first pass and after every reboot."""
+        tag = f' ({label})' if label else ''
+        log_cb(f'[{name}] Enabling SSH{tag}...')
+        _wave_fw_enable_ssh(session[0], ip, headers[0])
+        log_cb(f'[{name}] Checking firmware banks{tag}...')
+        alt_pass = sm_pass if ssh_pass[0] == ap_pass else ap_pass
+        for pw in (ssh_pass[0], alt_pass):
+            if not pw:
+                continue
+            try:
+                _a, _b = _wave_fw_check_banks_ssh(ip, 'admin', pw, deadline_ts=deadline_ts)
+                ssh_pass[0] = pw  # Remember which SSH password worked
+                return _a, _b
+            except Exception:
+                pass
+        raise RuntimeError(f'SSH bank check failed for {ip} — no credential worked')
+
+    # session and headers are stored in lists so the closure can see reassignments
+    session = [None]
+    headers = [{}]
+
+    try:
+        if should_abort():
+            return result('aborted')
+
+        log_cb(f'[{name}] Model "{model_name or "unknown"}" mapped to {selected_family_label} -> {file_path.name}')
+
+        # ── Initial login ────────────────────────────────────────────────────
+        log_cb(f'[{name}] Logging in...')
+        _s, _h, _pw = _wave_fw_login_device(ip, ap_pass, sm_pass, role=device_role)
+        session[0], headers[0], ssh_pass[0] = _s, _h, _pw
+
+        if should_abort():
+            return result('aborted')
+
+        # ── Enable SSH + initial bank check ──────────────────────────────────
+        active, backup = enable_ssh_and_check_banks()
+        log_cb(f'[{name}] Banks: active={active or "?"} backup={backup or "?"}')
+
+        # ── Min firmware gate ─────────────────────────────────────────────────
+        if min_current_firmware and _wave_fw_version_below(active, min_current_firmware):
+            log_cb(f'[{name}] Active "{active or "unknown"}" is below minimum '
+                   f'{min_current_firmware} — skipping.', 'warning')
+            return result('skipped',
+                          error=f'Active fw {active or "unknown"} < required min {min_current_firmware}',
+                          active=active, backup=backup)
+
+        # ── Already at target on both banks? ──────────────────────────────────
+        if active == target_version and backup == target_version:
+            log_cb(f'[{name}] Both banks already at {target_version} — skipping.')
+            return result('skipped', active=active, backup=backup)
+
+        # ── Multi-pass upgrade loop ───────────────────────────────────────────
+        # Wave dual-bank scheme: pass 1 writes the inactive bank and reboots into it;
+        # pass 2 writes the remaining old bank, making both match target.
+        # Optimisation: if the backup bank already carries target_version we skip the
+        # upload and go straight to reboot — the bank-swap alone is sufficient.
+        pass_num = 0
+        while pass_num < max_passes:
+            if should_abort():
+                return result('aborted', active=active, backup=backup)
+            check_deadline('before starting pass')
+
+            if active == target_version and backup == target_version:
+                break  # Both banks match — done
+
+            log_cb(f'[{name}] Pass {pass_num + 1}/{max_passes}: uploading {file_path.name}...')
+            # Retry upload once on 401/403 (re-login and re-try, matching reference behavior)
+            _up_last_status = None
+            up_resp = None  # ensure always bound even if loop body raises before assignment
+            for _up_attempt in range(2):
+                if _up_attempt > 0:
+                    try:
+                        _s2, _h2, _ = _wave_fw_login_device(ip, ap_pass, sm_pass, role=device_role)
+                        session[0], headers[0] = _s2, _h2
+                    except Exception:
+                        pass
+                try:
+                    with open(file_path, 'rb') as fh:
+                        up_resp = session[0].post(
+                            f'https://{ip}/api/v1.0/system/upgrade/direct',
+                            headers=headers[0],
+                            files={'file': (file_path.name, fh, 'application/octet-stream')},
+                            verify=False,
+                            timeout=int(deadline_timeout(180)),
+                        )
+                except (OSError, IOError) as _fio_exc:
+                    return result('failed',
+                                  error=f'Pass {pass_num + 1}: firmware file unreadable: {_fio_exc}',
+                                  active=active, backup=backup)
+                _up_last_status = up_resp.status_code
+                if up_resp.status_code not in (401, 403):
+                    break
+            if up_resp is None or not up_resp.ok:
+                return result('failed',
+                              error=f'Pass {pass_num + 1} upload: HTTP {_up_last_status}',
+                              active=active, backup=backup)
+
+            # Poll upgrade status.  Only 'in_progress' continues the loop; any other status
+            # (including 'uploading' which indicates the stream is still incoming) exits and is
+            # then validated — we expect 'finished'.
+            log_cb(f'[{name}] Pass {pass_num + 1}: polling upgrade status...')
+            _poll_status = ''
+            _poll_pct_seen = set()
+            for _ in range(int(deadline_timeout(int(os.getenv('WAVE_FW_UPGRADE_TIMEOUT', '180'))) / 2)):
+                if should_abort():
+                    return result('aborted', active=active, backup=backup)
+                check_deadline('during upgrade poll')
+                time.sleep(2)
+                try:
+                    poll = session[0].get(f'https://{ip}/api/v1.0/system/upgrade',
+                                          headers=headers[0], verify=False, timeout=15)
+                    if poll.ok:
+                        poll_data = poll.json()
+                        pct = poll_data.get('progressPercent')
+                        if pct is not None and pct not in _poll_pct_seen:
+                            _poll_pct_seen.add(pct)
+                            log_cb(f'[{name}] Pass {pass_num + 1} progress: {pct}%')
+                        _poll_status = poll_data.get('status', '')
+                        if _poll_status != 'in_progress':
+                            break  # Any non-in_progress status ends the loop
+                except Exception:
+                    pass
+            if _poll_status != 'finished':
+                return result('failed',
+                              error=f'Pass {pass_num + 1} upgrade did not finish (status: {_poll_status or "unknown"})',
+                              active=active, backup=backup)
+
+            log_cb(f'[{name}] Pass {pass_num + 1}: rebooting...')
+            try:
+                session[0].post(f'https://{ip}/api/v1.0/system/reboot', headers=headers[0],
+                                data={'timeout': 0}, verify=False, timeout=20)
+            except Exception:
+                pass  # Expected — connection drops when device reboots
+
+            # Two-phase reboot wait (matches reference):
+            # Phase 1: wait for port 443 to go DOWN (up to 90s) — confirms reboot started
+            # Phase 2: wait for port 443 to come back UP (up to full reboot_timeout)
+            reboot_secs = int(deadline_timeout(int(os.getenv('WAVE_FW_REBOOT_TIMEOUT', '300'))))
+            log_cb(f'[{name}] Pass {pass_num + 1}: waiting for device to go offline...')
+            time.sleep(5)  # Brief initial delay before polling (device needs a moment to shut down)
+            phase1_until = time.time() + min(90, reboot_secs)
+            went_down = False
+            while time.time() < phase1_until:
+                if should_abort():
+                    return result('aborted', active=active, backup=backup)
+                try:
+                    with _socket.create_connection((ip, 443), timeout=3):
+                        pass  # Still up
+                except OSError:
+                    went_down = True
+                    break
+                time.sleep(2)
+            if went_down:
+                log_cb(f'[{name}] Pass {pass_num + 1}: device went offline, waiting for it to return...')
+            else:
+                log_cb(f'[{name}] Pass {pass_num + 1}: device did not visibly go offline — '
+                       f'may have rebooted quickly; waiting for login anyway.', 'warning')
+            phase2_until = time.time() + reboot_secs
+            came_back = False
+            while time.time() < phase2_until:
+                if should_abort():
+                    return result('aborted', active=active, backup=backup)
+                try:
+                    with _socket.create_connection((ip, 443), timeout=3):
+                        came_back = True
+                        break
+                except OSError:
+                    pass
+                time.sleep(2)
+            if not came_back:
+                return result('failed',
+                              error=f'Pass {pass_num + 1}: HTTPS did not return after {reboot_secs}s',
+                              active=active, backup=backup)
+
+            # Re-login and re-enable SSH.  Wave disables SSH on every reboot; must re-enable
+            # before we can run the bank-check script again.
+            log_cb(f'[{name}] Pass {pass_num + 1}: re-logging in after reboot...')
+            try:
+                _s2, _h2, _ = _wave_fw_login_device(ip, ap_pass, sm_pass, role=device_role)
+                session[0], headers[0] = _s2, _h2
+            except Exception as re_exc:
+                return result('failed',
+                              error=f'Pass {pass_num + 1} re-login failed: {re_exc}',
+                              active=active, backup=backup)
+
+            active, backup = enable_ssh_and_check_banks(f'pass {pass_num + 1} post-reboot')
+            log_cb(f'[{name}] Pass {pass_num + 1} banks: active={active or "?"} backup={backup or "?"}')
+            pass_num += 1
+
+        # ── Final verdict ─────────────────────────────────────────────────────
+        if active == target_version and backup == target_version:
+            return result('success', active=active, backup=backup)
+        return result('failed',
+                      error=(f'After {pass_num} pass(es): '
+                             f'active={active or "?"} backup={backup or "?"} — '
+                             f'target={target_version}'),
+                      active=active, backup=backup)
+
+    except _WaveFwDeadlineExceeded as exc:
+        return result('skipped', error=str(exc))
+    except Exception as exc:
+        return result('failed', error=str(exc))
+
+
+def _wave_fw_background_task_inner(task_id, file_path, devices, target_version, firmware_dir=None,
+                                   min_current_firmware=None, deadline_ts=None, role_scope='both',
+                                   uisp_creds=None):
+    _purge_stale_tasks(wave_fw_tasks, wave_fw_log_queues)
+    if task_id in wave_fw_tasks:
+        wave_fw_tasks[task_id]['status'] = 'running'
+    _wave_fw_persist_task(task_id)
+
+    def log_cb(msg, level='info'):
+        _wave_fw_broadcast_log(msg, level, task_id=task_id)
+
+    def should_abort():
+        # Check both in-memory flag (same worker) and disk signal (cross-worker)
+        return wave_fw_tasks.get(task_id, {}).get('abort', False) or _wave_fw_check_abort_signal(task_id)
+
+    # Filter by role scope before launching upgrade threads
+    if role_scope != 'both' and role_scope != 'all':
+        role_filtered = []
+        skipped_by_role = []
+        for d in devices:
+            dev_role = _wave_fw_classify_role(d)
+            if role_scope == 'ap' and dev_role != 'ap':
+                skipped_by_role.append(d)
+            elif role_scope == 'station' and dev_role != 'station':
+                skipped_by_role.append(d)
+            elif role_scope == 'backhaul' and dev_role != 'backhaul':
+                skipped_by_role.append(d)
+            else:
+                role_filtered.append(d)
+        if skipped_by_role:
+            log_cb(f'Role filter ({role_scope}): skipping {len(skipped_by_role)} device(s) with non-matching role', 'info')
+        devices = role_filtered
+
+    if deadline_ts is not None:
+        import datetime as _dt
+        deadline_str = _dt.datetime.utcfromtimestamp(deadline_ts).strftime('%H:%M:%S UTC')
+        log_cb(f'Maintenance window deadline: {deadline_str} — devices not started by then will be skipped', 'info')
+
+    if min_current_firmware:
+        log_cb(f'Minimum firmware gate: {min_current_firmware} — devices below this version will be skipped', 'info')
+
+    def _run_batch(batch, label=None):
+        """Run a batch of devices in parallel and collect results."""
+        if not batch:
+            return
+        if label:
+            log_cb(label, 'info')
+        workers = max(1, min(WAVE_FW_MAX_WORKERS, len(batch)))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(
+                    _wave_fw_upgrade_single, device, file_path, target_version,
+                    log_cb, should_abort, firmware_dir, min_current_firmware, deadline_ts
+                ): device
+                for device in batch
+            }
+            for future in as_completed(futures):
+                res = future.result()
+                _task = wave_fw_tasks.get(task_id)
+                if _task is not None:
+                    _task['results'].append(res)
+                level = 'success' if res.get('status') == 'success' else (
+                    'warning' if res.get('status') in ('skipped', 'aborted') else 'error'
+                )
+                log_cb(f"[{res.get('name', res.get('ip'))}] {res.get('status')}: {res.get('error') or 'OK'}", level)
+                # Push structured result onto SSE queue so the frontend badge updates immediately
+                _result_event = {'result': res, 'timestamp': datetime.utcnow().isoformat() + 'Z'}
+                try:
+                    wave_fw_log_queues[task_id].put(_result_event)
+                except Exception:
+                    pass
+                try:
+                    _log_path = _wave_fw_task_store_dir() / f'{task_id}.log.jsonl'
+                    with open(_log_path, 'a') as _lf:
+                        _lf.write(json.dumps(_result_event) + '\n')
+                except Exception:
+                    pass
+                # Log to activity DB so dashboard firmware upgrade counter includes Wave FW
+                _task_meta = wave_fw_tasks.get(task_id, {})
+                _log_wave_fw_activity(
+                    res,
+                    username=_task_meta.get('requested_by'),
+                    tenant_id=_task_meta.get('_tenant_id'),
+                )
+
+    if role_scope == 'both':
+        # Safety ordering: upgrade stations (SMs) first so they're on the new firmware
+        # before the AP reboots.  If the AP were upgraded first, a firmware-version gap
+        # could prevent stations from re-associating until they're also upgraded.
+        stations = [d for d in devices if _wave_fw_classify_role(d) == 'station']
+        aps = [d for d in devices if _wave_fw_classify_role(d) == 'ap']
+        backhauls = [d for d in devices if _wave_fw_classify_role(d) == 'backhaul']
+        others = [d for d in devices if _wave_fw_classify_role(d) == 'unknown']
+
+        if backhauls:
+            log_cb(f'APs & Stations mode: ignoring {len(backhauls)} selected backhaul device(s)', 'info')
+
+        if stations and aps:
+            _run_batch(stations, f'Phase 1/2: upgrading {len(stations)} station(s) first...')
+            if not should_abort():
+                _run_batch(aps + others, f'Phase 2/2: upgrading {len(aps + others)} AP device(s)...')
+        else:
+            _run_batch([d for d in devices if _wave_fw_classify_role(d) != 'backhaul'])
+    elif role_scope == 'all':
+        stations = [d for d in devices if _wave_fw_classify_role(d) == 'station']
+        non_stations = [d for d in devices if _wave_fw_classify_role(d) != 'station']
+        if stations:
+            _run_batch(stations, f'Phase 1/2: upgrading {len(stations)} station(s) first...')
+            if not should_abort():
+                _run_batch(non_stations, f'Phase 2/2: upgrading {len(non_stations)} AP/backhaul device(s)...')
+        else:
+            _run_batch(devices)
+    else:
+        _run_batch(devices)
+
+    wave_fw_tasks[task_id]['status'] = 'aborted' if should_abort() else 'completed'
+    wave_fw_tasks[task_id]['completed_at'] = datetime.utcnow().isoformat() + 'Z'
+    _wave_fw_persist_task(task_id)
+    if task_id in wave_fw_log_queues:
+        wave_fw_log_queues[task_id].put(None)
+
+
+def _wave_fw_background_task(task_id, file_path, devices, target_version, firmware_dir=None,
+                             min_current_firmware=None, deadline_ts=None, role_scope='both',
+                             uisp_creds=None):
+    try:
+        _wave_fw_background_task_inner(task_id, file_path, devices, target_version,
+                                       firmware_dir=firmware_dir, min_current_firmware=min_current_firmware,
+                                       deadline_ts=deadline_ts, role_scope=role_scope,
+                                       uisp_creds=uisp_creds)
+    except Exception as _exc:
+        try:
+            wave_fw_tasks[task_id]['status'] = 'failed'
+            wave_fw_tasks[task_id]['completed_at'] = datetime.utcnow().isoformat() + 'Z'
+            _wave_fw_persist_task(task_id)
+            _wave_fw_broadcast_log(f'[task:{task_id}] Unhandled crash: {_wave_fw_scrub(str(_exc))}', 'error', task_id=task_id)
+        except Exception:
+            pass
+        if task_id in wave_fw_log_queues:
+            try:
+                wave_fw_log_queues[task_id].put(None)
+            except Exception:
+                pass
+
+
+# ── Wave Firmware Updater Routes ──────────────────────────────────────────────
+
+@app.route('/api/wave-fw/upload', methods=['POST'])
+@require_auth
+def wave_fw_upload():
+    """Upload a .bin firmware file. Returns file_id for use in /api/wave-fw/upgrade."""
+    if 'firmware' not in request.files:
+        return jsonify({'success': False, 'error': 'No firmware file in request (field name: firmware)'}), 400
+    f = request.files['firmware']
+    if not f.filename or not f.filename.lower().endswith('.bin'):
+        return jsonify({'success': False, 'error': 'Only .bin firmware files are accepted'}), 400
+
+    # Temporarily raise MAX_CONTENT_LENGTH for large firmware files (typically 80-120 MB)
+    prev_limit = app.config.get('MAX_CONTENT_LENGTH')
+    app.config['MAX_CONTENT_LENGTH'] = int(os.getenv('WAVE_FW_MAX_UPLOAD_MB', '200')) * 1024 * 1024
+    try:
+        from werkzeug.utils import secure_filename
+        safe_name = secure_filename(f.filename)
+        file_id = str(uuid.uuid4())
+        dest_dir = _wave_fw_upload_dir() / file_id
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = dest_dir / safe_name
+        f.save(str(dest_path))
+        size = dest_path.stat().st_size
+        return jsonify({'success': True, 'file_id': file_id, 'filename': safe_name, 'size': size})
+    except Exception as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 500
+    finally:
+        app.config['MAX_CONTENT_LENGTH'] = prev_limit
+
+
+@app.route('/api/wave-fw/discover', methods=['POST'])
+@require_auth
+def wave_fw_discover():
+    """Query UISP and return all Wave devices with firmware info. No device changes."""
+    if not HAS_WAVE_FW:
+        return jsonify({'success': False, 'error': 'Wave FW updater not configured. Set WAVE_AP_PASS in .env.'}), 503
+    data = request.json or {}
+    uisp_url = data.get('uisp_url') or os.getenv('UISP_API_URL', '')
+    username = data.get('username') or os.getenv('UISP_USERNAME', '')
+    password = data.get('password') or os.getenv('UISP_PASSWORD', '')
+    if not uisp_url or not username or not password:
+        return jsonify({'success': False, 'error': 'UISP credentials required (uisp_url, username, password or env vars)'}), 400
+    try:
+        devices = _wave_fw_uisp_discover(uisp_url, username, password)
+        return jsonify({'success': True, 'devices': devices, 'count': len(devices)})
+    except Exception as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 502
+
+
+@app.route('/api/wave-fw/upgrade', methods=['POST'])
+@require_auth
+def wave_fw_upgrade_start():
+    """Start a background firmware upgrade job for the given device list."""
+    if not HAS_WAVE_FW:
+        return jsonify({'success': False, 'error': 'Wave FW updater not configured. Set WAVE_AP_PASS in .env.'}), 503
+    import re as _re
+    data = request.json or {}
+    file_id = data.get('file_id', '').strip()
+    device_ids = data.get('device_ids') or []
+    target_version = data.get('target_version', '').strip()
+    use_server_firmware = data.get('use_server_firmware', False)
+    min_current_firmware = data.get('min_current_firmware', '').strip()
+    role_scope = data.get('role_scope', 'both')
+    if role_scope not in ('both', 'ap', 'station', 'backhaul', 'all'):
+        role_scope = 'both'
+    deadline_minutes = int(data.get('deadline_minutes') or 0)
+    deadline_ts = (time.time() + deadline_minutes * 60) if deadline_minutes > 0 else None
+
+    if not device_ids:
+        return jsonify({'success': False, 'error': 'device_ids must be a non-empty list'}), 400
+
+    file_path = None
+    firmware_dir = None
+
+    if file_id:
+        # Caller uploaded a specific file — use it for all devices
+        upload_base = _wave_fw_upload_dir()
+        file_dir = upload_base / file_id
+        if not file_dir.exists():
+            return jsonify({'success': False, 'error': f'file_id not found: {file_id}'}), 404
+        bin_files = list(file_dir.glob('*.bin'))
+        if not bin_files:
+            return jsonify({'success': False, 'error': 'No .bin file found for this file_id'}), 404
+        file_path = bin_files[0]
+        if not target_version:
+            m = _re.search(r'v?(\d+\.\d+\.\d+)', file_path.name)
+            target_version = m.group(1) if m else ''
+    else:
+        # No uploaded file — use server-side firmware with per-device auto-selection
+        firmware_dir = _wave_fw_server_firmware_dir()
+        if not firmware_dir.exists() or not list(firmware_dir.glob('*.bin')):
+            return jsonify({'success': False, 'error': 'No server firmware found. Upload a .bin file or place firmware in /opt/firmware/wave/.'}), 400
+        if not target_version:
+            # Derive from first .bin file in the server dir
+            sample = sorted(firmware_dir.glob('*.bin'))[0]
+            m = _re.search(r'v?(\d+\.\d+\.\d+)', sample.name)
+            target_version = m.group(1) if m else '3.4.0'
+
+    if not target_version:
+        return jsonify({'success': False, 'error': 'Cannot determine target_version. Pass it explicitly.'}), 400
+
+    # Build device list from UISP discovery data passed in request, or use minimal dicts
+    devices = data.get('devices') or [{'id': d, 'ip': d, 'name': d, 'model': ''} for d in device_ids]
+
+    task_id = str(uuid.uuid4())
+    user_info = getattr(request, 'current_user', {})
+    wave_fw_tasks[task_id] = {
+        'status': 'queued',
+        'abort': False,
+        'created_at': datetime.utcnow().isoformat() + 'Z',
+        'completed_at': None,
+        'file_id': file_id or 'server',
+        'filename': file_path.name if file_path else 'auto',
+        'target_version': target_version,
+        'device_count': len(devices),
+        'results': [],
+        'role_scope': role_scope,
+        'min_current_firmware': min_current_firmware or None,
+        'deadline_ts': deadline_ts,
+        '_tenant_id': user_info.get('tenant_id') or user_info.get('tenantId'),
+        '_tenant_slug': '',
+        'requested_by': data.get('requested_by') or user_info.get('email') or 'wave-fw-tool',
+    }
+    wave_fw_log_queues[task_id] = queue.Queue()
+
+    _wave_fw_persist_task(task_id)  # write to disk so other workers can find it
+
+    t = threading.Thread(
+        target=_wave_fw_background_task,
+        args=(task_id, file_path, devices, target_version),
+        kwargs={
+            'firmware_dir': str(firmware_dir) if firmware_dir else None,
+            'min_current_firmware': min_current_firmware or None,
+            'deadline_ts': deadline_ts,
+            'role_scope': role_scope,
+        },
+        daemon=True,
+    )
+    t.start()
+    return jsonify({'success': True, 'task_id': task_id})
+
+
+@app.route('/api/wave-fw/firmware-list', methods=['GET'])
+@require_auth
+def wave_fw_firmware_list():
+    """List Wave firmware .bin files available on the server (/opt/firmware/wave/)."""
+    import re as _re
+    firmware_dir = _wave_fw_server_firmware_dir()
+    files = []
+    if firmware_dir.exists():
+        all_bins = sorted(firmware_dir.glob('*.bin'))
+        is_universal = len(all_bins) == 1
+        nano_kws = ('wavenanolrpico', 'nanolrpico', 'wavenano', 'wavelr', 'wavelongrange', 'wavepico', 'nano', 'lr', 'pico')
+        for f in all_bins:
+            m = _re.search(r'v?(\d+\.\d+\.\d+)', f.name)
+            version = m.group(1) if m else ''
+            if is_universal:
+                family = 'universal'
+                family_label = 'Universal — all Wave devices (AP, Micro, PRO, Nano, LR, Pico)'
+            else:
+                family = 'nano' if any(k in _wave_fw_normalize_model(f.name) for k in nano_kws) else 'ap'
+                family_label = 'Wave Nano / LR / Pico' if family == 'nano' else 'Wave AP / AP Micro / PRO'
+            files.append({
+                'name': f.name,
+                'size': f.stat().st_size,
+                'version': version,
+                'family': family,
+                'family_label': family_label,
+            })
+    return jsonify({'success': True, 'firmware': files, 'firmware_dir': str(firmware_dir)})
+
+
+@app.route('/api/wave-fw/tasks', methods=['GET'])
+@require_auth
+def wave_fw_list_tasks():
+    """List recent Wave FW upgrade tasks (summary only, no full results array)."""
+    if not HAS_WAVE_FW:
+        return jsonify({'success': False, 'error': 'Wave FW updater not configured.'}), 503
+    user_info = getattr(request, 'current_user', {}) or {}
+    tenant_id = user_info.get('tenant_id') or user_info.get('tenantId')
+    merged = {}
+    for tid, t in wave_fw_tasks.items():
+        if _background_task_matches_tenant(t, tenant_id):
+            merged[tid] = dict(t)
+    for task in _background_task_list('wave_fw', limit=200):
+        tid = task.get('task_id')
+        if tid and tid not in merged and _background_task_matches_tenant(task, tenant_id):
+            merged[tid] = task
+
+    tasks = []
+    for tid, t in merged.items():
+        tasks.append({
+            'task_id': tid,
+            'status': t.get('status'),
+            'created_at': t.get('created_at'),
+            'completed_at': t.get('completed_at'),
+            'file_id': t.get('file_id'),
+            'filename': t.get('filename'),
+            'target_version': t.get('target_version'),
+            'device_count': t.get('device_count', 0),
+            'succeeded': sum(1 for r in t.get('results', []) if r.get('status') == 'success'),
+            'failed': sum(1 for r in t.get('results', []) if r.get('status') == 'failed'),
+            'skipped': sum(1 for r in t.get('results', []) if r.get('status') in ('skipped', 'aborted')),
+        })
+    tasks.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+    return jsonify({'success': True, 'tasks': tasks[:50]})
+
+
+@app.route('/api/wave-fw/status/<task_id>', methods=['GET'])
+@require_auth
+def wave_fw_task_status(task_id):
+    """Full task status including per-device results."""
+    if not HAS_WAVE_FW:
+        return jsonify({'success': False, 'error': 'Wave FW updater not configured.'}), 503
+    task = wave_fw_tasks.get(task_id)
+    if task is None:
+        task = _wave_fw_load_task_from_disk(task_id)
+        if task is None:
+            return jsonify({'success': False, 'error': 'Task not found'}), 404
+    if not _background_task_access_allowed(task):
+        return jsonify({'success': False, 'error': 'Task not found'}), 404
+    t = dict(task)
+    t.pop('abort', None)  # Don't expose internal flag
+    t.pop('_tenant_id', None)
+    t.pop('_tenant_slug', None)
+    return jsonify({'success': True, 'task': t})
+
+
+@app.route('/api/wave-fw/stream/<task_id>')
+def wave_fw_stream_logs(task_id):
+    """SSE real-time log stream for a Wave FW upgrade task."""
+    _, error_response = _authenticate_request_context()
+    if error_response:
+        return error_response
+
+    task = wave_fw_tasks.get(task_id) or _wave_fw_load_task_from_disk(task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    if not _background_task_access_allowed(task):
+        return jsonify({'error': 'Task not found'}), 404
+
+    if task_id not in wave_fw_log_queues:
+        log_path = _wave_fw_task_store_dir() / f'{task_id}.log.jsonl'
+
+        @stream_with_context
+        def generate_from_disk():
+            """Tail the on-disk log file in real-time while the task is running.
+
+            This handles the case where the SSE request lands on a different gunicorn
+            worker than the one running the background task.  We poll the file every
+            250 ms and emit any new lines, stopping once the task reaches a terminal
+            state and all lines have been flushed.
+            """
+            import time as _time
+            pos = 0
+            # Wait up to 5 s for the log file to appear (task may not have written yet)
+            for _ in range(20):
+                if log_path.exists():
+                    break
+                yield ': keep-alive\n\n'
+                _time.sleep(0.25)
+            else:
+                yield 'data: {"type":"done"}\n\n'
+                return
+
+            terminal = {'completed', 'failed', 'aborted', 'error'}
+            _stream_deadline = _time.time() + 14400  # 4-hour hard cap — prevents infinite hang
+            while _time.time() < _stream_deadline:
+                try:
+                    with open(log_path) as _lf:
+                        _lf.seek(pos)
+                        for line in _lf:
+                            line = line.strip()
+                            if line:
+                                yield f'data: {line}\n\n'
+                        pos = _lf.tell()
+                except Exception:
+                    pass
+                # Check if task reached a terminal state in the persisted task store
+                disk_task = _wave_fw_load_task_from_disk(task_id)
+                status = (disk_task or {}).get('status', '')
+                if status in terminal:
+                    # Drain any remaining lines written after we last read
+                    try:
+                        with open(log_path) as _lf:
+                            _lf.seek(pos)
+                            for line in _lf:
+                                line = line.strip()
+                                if line:
+                                    yield f'data: {line}\n\n'
+                    except Exception:
+                        pass
+                    break
+                yield ': keep-alive\n\n'
+                _time.sleep(0.25)
+
+            yield 'data: {"type":"done"}\n\n'
+
+        return Response(
+            generate_from_disk(),
+            mimetype='text/event-stream',
+            headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+        )
+
+    q = wave_fw_log_queues[task_id]
+
+    @stream_with_context
+    def generate():
+        while True:
+            try:
+                data = q.get(timeout=15)
+                if data is None:
+                    yield 'data: {"type":"done"}\n\n'
+                    break
+                yield f'data: {json.dumps(data)}\n\n'
+            except queue.Empty:
+                yield ': keep-alive\n\n'
+
+    return Response(
+        generate(),
+        mimetype='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+    )
+
+
+@app.route('/api/wave-fw/abort/<task_id>', methods=['POST'])
+@require_auth
+def wave_fw_abort(task_id):
+    """Cooperatively abort an in-progress Wave FW upgrade task."""
+    if not HAS_WAVE_FW:
+        return jsonify({'success': False, 'error': 'Wave FW updater not configured.'}), 503
+    task = wave_fw_tasks.get(task_id) or _wave_fw_load_task_from_disk(task_id)
+    if not task:
+        return jsonify({'success': False, 'error': 'Task not found'}), 404
+    if not _background_task_access_allowed(task):
+        return jsonify({'success': False, 'error': 'Task not found'}), 404
+    _wave_fw_signal_abort(task_id)  # write signal file for cross-worker abort
+    if task_id in wave_fw_tasks:
+        wave_fw_tasks[task_id]['abort'] = True
+        wave_fw_tasks[task_id]['status'] = 'aborting'
+        _wave_fw_persist_task(task_id)
+    else:
+        # Task is in another worker — signal via file only
+        disk_task = _wave_fw_load_task_from_disk(task_id)
+        if not disk_task:
+            return jsonify({'success': False, 'error': 'Task not found'}), 404
+    return jsonify({'success': True, 'status': 'aborting'})
 
 
 FTTH_FIBER_DEVICE_PROFILES = {
@@ -19614,6 +25435,7 @@ def _build_ftth_fiber_customer_base_config(data: dict):
 
 
 @app.route('/api/generate-ftth-fiber-customer', methods=['POST'])
+@require_auth
 def generate_ftth_fiber_customer():
     data = request.get_json(silent=True) or {}
     apply_compliance_flag = bool(data.get('apply_compliance', True))
@@ -20184,6 +26006,7 @@ def _build_switch_profile_config(data: dict):
 
 
 @app.route('/api/generate-mt-switch-config', methods=['POST'])
+@require_auth
 def generate_mt_switch_config():
     data = request.get_json(silent=True) or {}
     try:
@@ -20379,6 +26202,7 @@ def _build_ftth_1036_config(data: dict):
 
 
 @app.route('/api/generate-ftth-fiber-site', methods=['POST'])
+@require_auth
 def generate_ftth_fiber_site():
     data = request.get_json(silent=True) or {}
     try:
@@ -20501,6 +26325,7 @@ def _build_isd_fiber_config(data: dict, backhauls):
 
 
 @app.route('/api/generate-ftth-isd-fiber', methods=['POST'])
+@require_auth
 def generate_ftth_isd_fiber():
     data = request.get_json(silent=True) or {}
     try:
@@ -20531,6 +26356,7 @@ def generate_ftth_isd_fiber():
 
 
 @app.route('/api/ftth-home/mf2-package', methods=['POST'])
+@require_auth
 def generate_ftth_home_mf2_package():
     """Generate MF2 ZIP with updated gateway and primary IP in 2-ihub-startup 831.xml."""
     data = request.get_json() or {}
@@ -20647,9 +26473,15 @@ def _sanitize_bng2_transport_output(config_text: str) -> str:
 
 
 @app.route('/api/mt/<config_type>/config', methods=['POST'])
+@require_auth
 def mt_generate_config(config_type):
     if not HAS_MT_CONFIG_GEN:
         return jsonify({'error': f'MikroTik config generator unavailable: {MT_CONFIG_GEN_ERROR}'}), 503
+    _require_feature('mikrotik')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
 
     base_path = _mt_base_config_path()
     if not base_path:
@@ -20678,6 +26510,7 @@ def mt_generate_config(config_type):
 
 
 @app.route('/api/mt/<config_type>/portmap', methods=['POST'])
+@require_auth
 def mt_generate_portmap(config_type):
     if not HAS_MT_CONFIG_GEN:
         return jsonify({'error': f'MikroTik config generator unavailable: {MT_CONFIG_GEN_ERROR}'}), 503
@@ -20762,10 +26595,10 @@ def _send_ui_file(filename: str, mimetype: str = 'text/html'):
 @app.route('/')
 @app.route('/app')
 @app.route('/app/')
-@app.route('/NOC-configMaker.html')
+@app.route('/nexus.html')
 def serve_app_html():
     """Serve the main SPA HTML (and support /app so nginx doesn't need a separate static root)."""
-    return _send_ui_file('NOC-configMaker.html')
+    return _send_ui_file('nexus.html')
 
 
 @app.route('/login')
@@ -20792,7 +26625,7 @@ def serve_ui_catchall(path: str):
     # Serve known HTML pages directly.
     if path.endswith('.html'):
         name = Path(path).name
-        if name in {'NOC-configMaker.html', 'login.html', 'change-password.html'}:
+        if name in {'nexus.html', 'login.html', 'change-password.html'}:
             return _send_ui_file(name)
     # Everything else falls back to the SPA HTML so deep links work.
     return serve_app_html()
@@ -20803,6 +26636,7 @@ def serve_ui_catchall(path: str):
 # ========================================
 
 @app.route('/api/bulk-ssh-fetch', methods=['POST'])
+@require_auth
 def bulk_ssh_fetch():
     """
     Bulk SSH fetch: connect to multiple MikroTik devices concurrently and
@@ -20929,6 +26763,7 @@ def bulk_ssh_fetch():
 
 
 @app.route('/api/bulk-generate', methods=['POST'])
+@require_auth
 def bulk_generate():
     """
     Bulk config generation for multiple sites.
@@ -20937,6 +26772,11 @@ def bulk_generate():
         sites       – list of site config objects (required)
         config_type – "tower" | "non-mpls" | "mpls" | "bng2" (required)
     """
+    _require_feature('bulk_ops')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
     data = request.get_json(force=True) or {}
     sites = data.get('sites', [])
     config_type = data.get('config_type', 'non-mpls')
@@ -21053,6 +26893,7 @@ def bulk_generate():
 
 
 @app.route('/api/bulk-migration-analyze', methods=['POST'])
+@require_auth
 def bulk_migration_analyze():
     """
     Bulk migration analysis: SSH-fetch configs from multiple devices,
@@ -21269,6 +27110,7 @@ def bulk_migration_analyze():
 
 
 @app.route('/api/bulk-compliance-scan', methods=['POST'])
+@require_auth
 def bulk_compliance_scan():
     """
     Bulk compliance scanner: validate multiple configs against RFC-09-10-25.
@@ -21321,8 +27163,15 @@ def bulk_compliance_scan():
                     client.connect(hostname=host_ip, port=port,
                                    username=SSH_USERNAME, password=SSH_PASSWORD,
                                    timeout=10, banner_timeout=10, auth_timeout=10)
-                    stdin, stdout, stderr = client.exec_command('export', timeout=30)
-                    output = stdout.read().decode('utf-8', errors='replace')
+                    output = ""
+                    for export_cmd, export_timeout in (("export compact", 70), ("export", 35)):
+                        try:
+                            stdin, stdout, stderr = client.exec_command(export_cmd, timeout=export_timeout)
+                            output = stdout.read().decode('utf-8', errors='replace')
+                            if output and output.strip():
+                                break
+                        except Exception:
+                            output = ""
                     if output and output.strip():
                         return {'name': host_ip, 'config_text': normalize_line_breaks(output), 'port': port}
                 except paramiko.AuthenticationException:
@@ -21438,53 +27287,94 @@ def bulk_compliance_scan():
         m_ver = re.search(r'(?m)^\s*#.*RouterOS\s+(\S+)', config_text)
         if m_ver: version = m_ver.group(1).strip()
 
-        # Run detailed checks
+        # Prefer dynamic compliance evaluation against the live compliance script.
         checks = []
         hard_passed = 0
         soft_passed = 0
+        hard_total = total_hard
+        soft_total = total_soft
+        score = 0
+        compliant = False
+        missing_items = []
+        warnings = []
+        compliance_source = "fallback"
+        fixed_config_candidate = ""
 
-        for chk in COMPLIANCE_CHECKS:
-            passed = bool(re.search(chk['pattern'], config_lower if chk['id'] not in ('sys_snmp',) else config_text))
-            if passed: hard_passed += 1
-            checks.append({
-                'id': chk['id'], 'category': chk['category'], 'label': chk['label'],
-                'severity': 'hard', 'passed': passed
-            })
+        dynamic_eval = None
+        try:
+            loopback_ip = _extract_loopback_ip_cidr(config_text, default="10.0.0.1/32")
+            _lip = loopback_ip.split("/")[0]
 
-        for chk in SOFT_CHECKS:
-            passed = bool(re.search(chk['pattern'], config_lower if chk['id'] not in ('radius_primary','radius_secondary') else config_text))
-            if passed: soft_passed += 1
-            checks.append({
-                'id': chk['id'], 'category': chk['category'], 'label': chk['label'],
-                'severity': 'soft', 'passed': passed
-            })
+            compliance_blocks, compliance_source = _get_dynamic_compliance_blocks(loopback_ip, return_source=True)
+            raw_text = _get_raw_gitlab_compliance_text(_lip)
+            parse_text = raw_text or "\n".join(v for v in (compliance_blocks or {}).values() if v)
+            managed_sections, managed_lists = _extract_compliance_managed_sections(parse_text) if parse_text else (set(), set())
+            managed_sections = (managed_sections or set()) | _COMPLIANCE_ALWAYS_STRIP_SECTIONS
 
-        # Score: hard checks = 80% weight, soft checks = 20% weight
-        hard_pct = (hard_passed / total_hard * 100) if total_hard else 100
-        soft_pct = (soft_passed / total_soft * 100) if total_soft else 100
-        score = round(hard_pct * 0.8 + soft_pct * 0.2)
+            fixed_config_candidate = inject_compliance_blocks(
+                config_text,
+                compliance_blocks,
+                loopback_ip=_lip,
+                raw_text_override=raw_text,
+                force_refresh=True,
+            )
+            dynamic_eval = _evaluate_dynamic_compliance_scan(
+                config_text=config_text,
+                fixed_config=fixed_config_candidate,
+                managed_sections=managed_sections,
+                managed_lists=managed_lists,
+            )
+        except Exception as _dyn_exc:
+            print(f"[COMPLIANCE-SCAN] Dynamic evaluation failed for {name}: {_dyn_exc}")
+            dynamic_eval = None
+
+        if dynamic_eval and dynamic_eval.get("hard_total", 0) > 0:
+            checks = dynamic_eval.get("checks", [])
+            hard_passed = int(dynamic_eval.get("hard_passed", 0))
+            hard_total = int(dynamic_eval.get("hard_total", 0))
+            soft_passed = int(dynamic_eval.get("soft_passed", 0))
+            soft_total = int(dynamic_eval.get("soft_total", 0))
+            score = int(dynamic_eval.get("score", 0))
+            compliant = bool(dynamic_eval.get("compliant", False))
+            missing_items = list(dynamic_eval.get("missing_items", []) or [])
+            warnings = list(dynamic_eval.get("warnings", []) or [])
+        else:
+            # Fallback: legacy static checks
+            for chk in COMPLIANCE_CHECKS:
+                passed = bool(re.search(chk['pattern'], config_lower if chk['id'] not in ('sys_snmp',) else config_text))
+                if passed:
+                    hard_passed += 1
+                checks.append({
+                    'id': chk['id'], 'category': chk['category'], 'label': chk['label'],
+                    'severity': 'hard', 'passed': passed
+                })
+
+            for chk in SOFT_CHECKS:
+                passed = bool(re.search(chk['pattern'], config_lower if chk['id'] not in ('radius_primary','radius_secondary') else config_text))
+                if passed:
+                    soft_passed += 1
+                checks.append({
+                    'id': chk['id'], 'category': chk['category'], 'label': chk['label'],
+                    'severity': 'soft', 'passed': passed
+                })
+
+            hard_pct = (hard_passed / hard_total * 100) if hard_total else 100
+            soft_pct = (soft_passed / soft_total * 100) if soft_total else 100
+            score = round(hard_pct * 0.8 + soft_pct * 0.2)
+            compliant = (hard_passed == hard_total)
+            try:
+                official = validate_compliance(config_text)
+                failed_check_labels = set(c['label'] for c in checks if not c['passed'])
+                missing_items = [m for m in official.get('missing_items', []) if any(fl.lower() in m.lower() for fl in failed_check_labels)] if failed_check_labels else []
+                if not missing_items and not compliant:
+                    missing_items = [c['label'] for c in checks if not c['passed'] and c['severity'] == 'hard']
+                warnings = official.get('warnings', [])
+            except Exception:
+                missing_items = [c['label'] for c in checks if not c['passed'] and c['severity'] == 'hard']
+                warnings = [c['label'] for c in checks if not c['passed'] and c['severity'] == 'soft']
 
         grade = 'A' if score >= 90 else 'B' if score >= 75 else 'C' if score >= 60 else 'D' if score >= 40 else 'F'
         grade_counts[grade] += 1
-
-        # Derive compliant from the regex-based score (accurate against SSH export output)
-        # validate_compliance() uses substring matching that fails on export's extra properties
-        # like address="" in /ip service lines, so we only use it for informational missing_items
-        compliant = (hard_passed == total_hard)  # All 22 hard checks must pass
-
-        # Run validate_compliance() for informational missing_items list (NOT for compliant decision)
-        try:
-            official = validate_compliance(config_text)
-            # Merge: only keep missing_items that also failed in our regex checks
-            failed_check_labels = set(c['label'] for c in checks if not c['passed'])
-            missing_items = [m for m in official.get('missing_items', []) if any(fl.lower() in m.lower() for fl in failed_check_labels)] if failed_check_labels else []
-            # Build missing_items from failed regex checks if validate gave us nothing useful
-            if not missing_items and not compliant:
-                missing_items = [c['label'] for c in checks if not c['passed'] and c['severity'] == 'hard']
-            warnings = official.get('warnings', [])
-        except Exception:
-            missing_items = [c['label'] for c in checks if not c['passed'] and c['severity'] == 'hard']
-            warnings = [c['label'] for c in checks if not c['passed'] and c['severity'] == 'soft']
 
         result = {
             'name': name,
@@ -21495,38 +27385,48 @@ def bulk_compliance_scan():
             'compliant': compliant,
             'score': score,
             'grade': grade,
-            'total_checks': total_all,
+            'total_checks': hard_total + soft_total,
             'hard_passed': hard_passed,
-            'hard_total': total_hard,
+            'hard_total': hard_total,
             'soft_passed': soft_passed,
-            'soft_total': total_soft,
+            'soft_total': soft_total,
             'checks': checks,
             'missing_items': missing_items,
             'warnings': warnings,
-            'config_lines': len(config_text.splitlines())
+            'config_lines': len(config_text.splitlines()),
+            'compliance_source': compliance_source,
         }
 
         # Apply fix if requested and device has failed hard checks
         if apply_fix and not compliant:
             try:
-                loopback_ip = ''
-                lm = re.search(r'/ip address\s+add address=([0-9.]+/[0-9]+)\s+interface=loop0', config_text, re.IGNORECASE)
-                if lm: loopback_ip = lm.group(1)
-                if not loopback_ip: loopback_ip = '10.0.0.1/32'
+                loopback_ip = _extract_loopback_ip_cidr(config_text, default='10.0.0.1/32')
                 _lip = loopback_ip.split('/')[0]
-                compliance_blocks = _get_dynamic_compliance_blocks(loopback_ip)
-                fixed_config = inject_compliance_blocks(config_text, compliance_blocks, loopback_ip=_lip)
-                # Re-score with the same regex checks (not validate_compliance)
-                fixed_lower = fixed_config.lower()
-                fixed_hard = sum(1 for chk in COMPLIANCE_CHECKS if re.search(chk['pattern'], fixed_lower if chk['id'] not in ('sys_snmp',) else fixed_config))
-                fixed_soft = sum(1 for chk in SOFT_CHECKS if re.search(chk['pattern'], fixed_lower if chk['id'] not in ('radius_primary','radius_secondary') else fixed_config))
-                fixed_hard_pct = (fixed_hard / total_hard * 100) if total_hard else 100
-                fixed_soft_pct = (fixed_soft / total_soft * 100) if total_soft else 100
-                fixed_score = round(fixed_hard_pct * 0.8 + fixed_soft_pct * 0.2)
+                compliance_blocks, fix_source = _get_dynamic_compliance_blocks(loopback_ip, return_source=True)
+                raw_text = _get_raw_gitlab_compliance_text(_lip)
+                fixed_config = fixed_config_candidate or inject_compliance_blocks(
+                    config_text,
+                    compliance_blocks,
+                    loopback_ip=_lip,
+                    raw_text_override=raw_text,
+                    force_refresh=True,
+                )
+
+                parse_text = raw_text or "\n".join(v for v in (compliance_blocks or {}).values() if v)
+                managed_sections, managed_lists = _extract_compliance_managed_sections(parse_text) if parse_text else (set(), set())
+                managed_sections = (managed_sections or set()) | _COMPLIANCE_ALWAYS_STRIP_SECTIONS
+                fixed_eval = _evaluate_dynamic_compliance_scan(
+                    config_text=fixed_config,
+                    fixed_config=fixed_config,
+                    managed_sections=managed_sections,
+                    managed_lists=managed_lists,
+                )
+
                 result['fixed_config'] = fixed_config
-                result['fixed_compliant'] = (fixed_hard == total_hard)
-                result['fixed_score'] = fixed_score
-                result['fixed_missing'] = [chk['label'] for chk in COMPLIANCE_CHECKS if not re.search(chk['pattern'], fixed_lower if chk['id'] not in ('sys_snmp',) else fixed_config)]
+                result['fixed_compliant'] = bool(fixed_eval.get('compliant', True))
+                result['fixed_score'] = int(fixed_eval.get('score', 100))
+                result['fixed_missing'] = list(fixed_eval.get('missing_items', []) or [])
+                result['fixed_compliance_source'] = fix_source
             except Exception as e:
                 result['fix_error'] = str(e)
 
@@ -21552,6 +27452,7 @@ def bulk_compliance_scan():
 
 
 @app.route('/api/bulk-migration-execute', methods=['POST'])
+@require_auth
 def bulk_migration_execute():
     """
     Execute migration transformation on previously-analyzed device configs.
@@ -21568,6 +27469,11 @@ def bulk_migration_execute():
             host                 – IP address (for labeling)
             current_model        – source model string
     """
+    _require_feature('bulk_ops')
+    _tenant_ctx = _get_request_tenant_context()
+    _tenant_id = _tenant_ctx['tenant'].get('id')
+    _check_quota(_tenant_id, 'configs_generated')
+    _increment_usage(_tenant_id, 'configs_generated')
     data = request.get_json(force=True) or {}
     devices = data.get('devices', [])
     if not devices or not isinstance(devices, list):
@@ -21636,7 +27542,7 @@ def bulk_migration_execute():
             # Step 5: Add migration header
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
             header = f"# === MIGRATION CONFIG ===\n"
-            header += f"# Generated by NOC-ConfigMaker Bulk Migration\n"
+            header += f"# Generated by NEXUS Bulk Migration\n"
             header += f"# Source: {current_model} → Target: {target_model}\n"
             if needs_ver:
                 header += f"# Version: v6 → v7 syntax conversion applied\n"
@@ -21677,6 +27583,7 @@ def bulk_migration_execute():
 
 # ─── SSH Push Config to Live MikroTik Devices ────────────────────────
 @app.route('/api/ssh-push-config', methods=['POST'])
+@require_auth
 def ssh_push_config():
     """
     Push .rsc config text to MikroTik devices via SFTP upload + /import.
@@ -21939,9 +27846,596 @@ def ssh_push_config():
     })
 
 
+# ============================================================
+# PHASE 1B — PER-TENANT API KEYS
+# ============================================================
+
+def _resolve_api_key_tenant(user_info, conn):
+    """Resolve tenant_id for API key operations.
+
+    JWTs only carry user_id + email, so tenant_id may be absent.  Fall back to
+    the user's default (or first active) tenant membership from the DB.
+    Returns (tenant_id, is_platform_admin).
+    """
+    tenant_id = user_info.get('tenant_id') or user_info.get('tenantId')
+    is_platform_admin = _platform_role_for_email(user_info.get('email', '')) == 'platform_admin'
+    if tenant_id:
+        return int(tenant_id), is_platform_admin
+    user_id = user_info.get('id') or user_info.get('user_id')
+    if not user_id:
+        return None, is_platform_admin
+    c = conn.cursor()
+    c.execute(
+        '''SELECT tenant_id FROM user_tenant_memberships
+           WHERE user_id = ? AND status = 'active'
+           ORDER BY is_default DESC LIMIT 1''',
+        (user_id,),
+    )
+    row = c.fetchone()
+    return (row['tenant_id'] if row else None), is_platform_admin
+
+
+@app.route('/api/api-keys', methods=['POST'])
+@require_auth
+def create_api_key():
+    """Create a new API key for the current tenant. Returns full key once."""
+    user_info = getattr(request, 'current_user', {})
+    tenant_role = user_info.get('tenant_role', '')
+
+    import hashlib as _hashlib
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+
+    tenant_id, is_platform_admin = _resolve_api_key_tenant(user_info, conn)
+
+    if tenant_role not in ('tenant_admin', 'platform_admin', 'platform_support') and not is_platform_admin:
+        conn.close()
+        return jsonify({'error': 'tenant_admin or higher required'}), 403
+    if not tenant_id:
+        conn.close()
+        return jsonify({'error': 'Could not determine tenant. Please re-login.'}), 400
+
+    data = request.json or {}
+    name = data.get('name', '').strip()
+    if not name:
+        conn.close()
+        return jsonify({'error': 'name is required'}), 400
+    raw_scopes = data.get('scopes', ['read', 'write'])
+    allowed_scopes = {'read', 'write'}
+    scopes = [s for s in raw_scopes if s in allowed_scopes] or ['read', 'write']
+    expires_days = data.get('expires_days')
+
+    c = conn.cursor()
+    c.execute('SELECT slug FROM tenants WHERE id = ?', (tenant_id,))
+    t = c.fetchone()
+    slug = (t['slug'] if t else 'default').replace('-', '')[:12]
+    raw_key = f"nck_{slug}_{secrets.token_urlsafe(24)}"
+    key_hash = _hashlib.sha256(raw_key.encode()).hexdigest()
+    key_prefix = raw_key[:12]
+
+    expires_at = None
+    if expires_days:
+        expires_at = (datetime.utcnow() + timedelta(days=int(expires_days))).isoformat()
+
+    user_id = user_info.get('id') or user_info.get('user_id')
+    c.execute('''
+        INSERT INTO api_keys (tenant_id, created_by_user_id, name, key_hash, key_prefix, scopes, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (tenant_id, user_id, name, key_hash, key_prefix, json.dumps(scopes), expires_at))
+    key_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'key': raw_key, 'id': key_id, 'prefix': key_prefix, 'name': name, 'scopes': scopes})
+
+
+@app.route('/api/api-keys', methods=['GET'])
+@require_auth
+def list_api_keys():
+    """List API keys for current tenant (prefix + metadata only, never full key)."""
+    user_info = getattr(request, 'current_user', {})
+    tenant_role = user_info.get('tenant_role', '')
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    tenant_id, is_platform_admin = _resolve_api_key_tenant(user_info, conn)
+    if tenant_role not in ('tenant_admin', 'platform_admin') and not is_platform_admin:
+        conn.close()
+        return jsonify({'error': 'tenant_admin or higher required'}), 403
+    if not tenant_id:
+        conn.close()
+        return jsonify({'success': True, 'api_keys': []})
+    c = conn.cursor()
+    c.execute('''SELECT id, name, key_prefix, scopes, last_used_at, expires_at, created_at, is_active
+                 FROM api_keys WHERE tenant_id = ? ORDER BY created_at DESC''', (tenant_id,))
+    keys = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return jsonify({'success': True, 'api_keys': keys})
+
+
+@app.route('/api/api-keys/<int:key_id>', methods=['DELETE'])
+@require_auth
+def revoke_api_key(key_id):
+    """Revoke an API key (sets is_active=0)."""
+    user_info = getattr(request, 'current_user', {})
+    tenant_role = user_info.get('tenant_role', '')
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    tenant_id, is_platform_admin = _resolve_api_key_tenant(user_info, conn)
+    if tenant_role not in ('tenant_admin', 'platform_admin') and not is_platform_admin:
+        conn.close()
+        return jsonify({'error': 'tenant_admin or higher required'}), 403
+    conn.execute('UPDATE api_keys SET is_active = 0 WHERE id = ? AND tenant_id = ?', (key_id, tenant_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+
+# ============================================================
+# PHASE 1C — USAGE QUOTA ADMIN ENDPOINT
+# ============================================================
+
+@app.route('/api/admin/tenants/<int:tenant_id>/quotas', methods=['GET', 'PUT'])
+@require_auth
+def manage_tenant_quotas(tenant_id):
+    """Get or set quota limits for a tenant. Platform admin only."""
+    if _platform_role_for_email((getattr(request, 'current_user', {}) or {}).get('email', '')) != 'platform_admin':
+        return jsonify({'error': 'Platform admin required'}), 403
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    if request.method == 'GET':
+        c = conn.cursor()
+        c.execute('SELECT * FROM tenant_quotas WHERE tenant_id = ?', (tenant_id,))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return jsonify({'success': True, 'quotas': dict(row)})
+        return jsonify({'success': True, 'quotas': {'tenant_id': tenant_id, 'max_users': 10, 'max_configs_per_day': 100, 'max_api_calls_per_day': 1000}})
+    data = request.json or {}
+    conn.execute('''
+        INSERT INTO tenant_quotas (tenant_id, max_users, max_configs_per_day, max_api_calls_per_day)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(tenant_id) DO UPDATE SET
+            max_users = excluded.max_users,
+            max_configs_per_day = excluded.max_configs_per_day,
+            max_api_calls_per_day = excluded.max_api_calls_per_day,
+            updated_at = CURRENT_TIMESTAMP
+    ''', (tenant_id, data.get('max_users', 10), data.get('max_configs_per_day', 100), data.get('max_api_calls_per_day', 1000)))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+
+# ============================================================
+# PHASE 2A — SELF-SERVICE TENANT REGISTRATION
+# ============================================================
+
+@app.route('/api/register', methods=['POST'])
+def register_organization():
+    """Self-service tenant registration. No auth required."""
+    try:
+        data = request.json or {}
+        org_name = data.get('org_name', '').strip()
+        slug = data.get('slug', '').strip().lower().replace(' ', '-')
+        admin_email = data.get('admin_email', '').strip().lower()
+        admin_password = data.get('admin_password', '')
+        domain = data.get('domain', '').strip().lower()
+
+        if not all([org_name, slug, admin_email, admin_password]):
+            return jsonify({'error': 'org_name, slug, admin_email, and admin_password are required'}), 400
+        if len(admin_password) < 8:
+            return jsonify({'error': 'Password must be at least 8 characters'}), 400
+        if not re.match(r'^[a-z0-9][a-z0-9\-]{1,29}$', slug):
+            return jsonify({'error': 'Slug must be 2-30 lowercase letters, numbers, or hyphens'}), 400
+
+        import hashlib as _hashlib
+        db = init_users_db()
+        conn = sqlite3.connect(str(db))
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        c.execute('SELECT id FROM tenants WHERE slug = ?', (slug,))
+        if c.fetchone():
+            conn.close()
+            return jsonify({'error': 'Organization slug already taken'}), 409
+
+        c.execute('SELECT id FROM users WHERE email = ?', (admin_email,))
+        if c.fetchone():
+            conn.close()
+            return jsonify({'error': 'An account with this email already exists'}), 409
+
+        verification_token = secrets.token_urlsafe(32)
+
+        c.execute('''
+            INSERT INTO tenants (slug, name, status, auth_mode, allowed_email_domains, created_at)
+            VALUES (?, ?, 'pending_verification', 'password', ?, CURRENT_TIMESTAMP)
+        ''', (slug, org_name, json.dumps([domain] if domain else [])))
+        tenant_id = c.lastrowid
+
+        c.execute('INSERT OR IGNORE INTO tenant_settings (tenant_id) VALUES (?)', (tenant_id,))
+
+        pw_hash = _hashlib.sha256(admin_password.encode()).hexdigest()
+        c.execute('''
+            INSERT INTO users (email, password_hash, display_name, home_tenant_id, platform_role, is_active, email_verification_token)
+            VALUES (?, ?, ?, ?, 'user', 1, ?)
+        ''', (admin_email, pw_hash, org_name + ' Admin', tenant_id, verification_token))
+        user_id = c.lastrowid
+
+        c.execute('''
+            INSERT INTO user_tenant_memberships (user_id, tenant_id, role, status, is_default)
+            VALUES (?, ?, 'tenant_admin', 'active', 1)
+        ''', (user_id, tenant_id))
+
+        conn.commit()
+        conn.close()
+
+        base_url = os.environ.get('APP_BASE_URL', 'http://localhost:5000')
+        verify_url = f"{base_url}/api/verify-email?token={verification_token}"
+        send_email(
+            admin_email,
+            f"Verify your NEXUS account — {org_name}",
+            _email_template(
+                f"Welcome to NEXUS, {org_name}!",
+                f"<p>Your organization account has been created. Please verify your email address to activate your account.</p>",
+                verify_url, "Verify Email Address"
+            )
+        )
+
+        safe_print(f"[REGISTER] New tenant registered: {slug} ({org_name}) by {admin_email}")
+        return jsonify({'success': True, 'message': 'Account created. Check your email to verify your account.', 'tenant_id': tenant_id})
+    except Exception as e:
+        safe_print(f"[REGISTER ERROR] {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/verify-email', methods=['GET'])
+def verify_email():
+    """Verify email address via token from registration email."""
+    token = request.args.get('token', '').strip()
+    if not token:
+        return jsonify({'error': 'Token required'}), 400
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT id, home_tenant_id FROM users WHERE email_verification_token = ?', (token,))
+    user = c.fetchone()
+    if not user:
+        conn.close()
+        return jsonify({'error': 'Invalid or expired verification token'}), 400
+    c.execute("UPDATE users SET email_verified_at = CURRENT_TIMESTAMP, email_verification_token = NULL WHERE id = ?", (user['id'],))
+    c.execute("UPDATE tenants SET status = 'active' WHERE id = ? AND status = 'pending_verification'", (user['home_tenant_id'],))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'Email verified successfully. You can now log in.'})
+
+
+# ============================================================
+# PHASE 2C — USER EMAIL INVITES
+# ============================================================
+
+@app.route('/api/admin/invite', methods=['POST'])
+@require_auth
+def send_invite():
+    """Send an email invite to join a tenant. tenant_admin or platform_admin."""
+    user_info = getattr(request, 'current_user', {})
+    tenant_ctx = _get_request_tenant_context()
+    tenant = tenant_ctx['tenant']
+    tenant_id = tenant.get('id')
+    if not _can_access_admin_panel():
+        return jsonify({'error': 'Admin access required'}), 403
+
+    data = request.json or {}
+    invite_email = data.get('email', '').strip().lower()
+    role = data.get('role', 'tenant_engineer')
+    if role not in ('tenant_engineer', 'tenant_admin', 'tenant_viewer'):
+        return jsonify({'error': 'Invalid role'}), 400
+    if not invite_email:
+        return jsonify({'error': 'email is required'}), 400
+
+    token = secrets.token_urlsafe(32)
+    expires_at = (datetime.utcnow() + timedelta(days=7)).isoformat()
+    invited_by = user_info.get('user_id') or user_info.get('id')
+
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+
+    c.execute('''SELECT utw.id FROM user_tenant_memberships utw
+                 JOIN users u ON u.id = utw.user_id
+                 WHERE u.email = ? AND utw.tenant_id = ? AND utw.status = 'active' ''', (invite_email, tenant_id))
+    if c.fetchone():
+        conn.close()
+        return jsonify({'error': 'User is already a member of this tenant'}), 409
+
+    c.execute('''INSERT INTO invitations (tenant_id, invited_by_user_id, email, role, token, expires_at)
+                 VALUES (?, ?, ?, ?, ?, ?)
+                 ON CONFLICT DO NOTHING''', (tenant_id, invited_by, invite_email, role, token, expires_at))
+    conn.commit()
+    conn.close()
+
+    base_url = os.environ.get('APP_BASE_URL', 'http://localhost:5000')
+    accept_url = f"{base_url}/#invite?token={token}"
+    inviter_name = user_info.get('email', 'Your administrator')
+    send_email(
+        invite_email,
+        f"You're invited to join {tenant['name']} on NEXUS",
+        _email_template(
+            f"You've been invited to {tenant['name']}",
+            f"<p>{inviter_name} has invited you to join <strong>{tenant['name']}</strong> on NEXUS as a <strong>{role.replace('_', ' ').title()}</strong>.</p><p>This invitation expires in 7 days.</p>",
+            accept_url, "Accept Invitation"
+        )
+    )
+    return jsonify({'success': True, 'message': f'Invitation sent to {invite_email}'})
+
+
+@app.route('/api/invite/accept', methods=['GET', 'POST'])
+def accept_invite():
+    """GET: validate token and return invite metadata. POST: complete signup."""
+    token = request.args.get('token') or (request.json or {}).get('token', '')
+    if not token:
+        return jsonify({'error': 'Token required'}), 400
+
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('''SELECT inv.*, t.name as tenant_name, t.slug as tenant_slug
+                 FROM invitations inv JOIN tenants t ON t.id = inv.tenant_id
+                 WHERE inv.token = ?''', (token,))
+    inv = c.fetchone()
+
+    if not inv:
+        conn.close()
+        return jsonify({'error': 'Invalid invitation token'}), 400
+    if inv['status'] != 'pending':
+        conn.close()
+        return jsonify({'error': 'Invitation already used or expired'}), 400
+    if datetime.utcnow().isoformat() > inv['expires_at']:
+        conn.close()
+        return jsonify({'error': 'Invitation has expired'}), 400
+
+    if request.method == 'GET':
+        conn.close()
+        return jsonify({'success': True, 'invite': {
+            'email': inv['email'], 'role': inv['role'],
+            'tenant_name': inv['tenant_name'], 'tenant_slug': inv['tenant_slug'],
+            'expires_at': inv['expires_at']
+        }})
+
+    data = request.json or {}
+    password = data.get('password', '')
+    display_name = data.get('display_name', '').strip()
+    if len(password) < 8:
+        conn.close()
+        return jsonify({'error': 'Password must be at least 8 characters'}), 400
+
+    import hashlib as _hashlib
+    pw_hash = _hashlib.sha256(password.encode()).hexdigest()
+    email = inv['email']
+    tenant_id = inv['tenant_id']
+
+    c.execute('SELECT id FROM users WHERE email = ?', (email,))
+    existing = c.fetchone()
+    if existing:
+        user_id = existing['id']
+    else:
+        c.execute('''INSERT INTO users (email, password_hash, display_name, home_tenant_id, platform_role, is_active, email_verified_at)
+                     VALUES (?, ?, ?, ?, 'user', 1, CURRENT_TIMESTAMP)''',
+                  (email, pw_hash, display_name or email.split('@')[0], tenant_id))
+        user_id = c.lastrowid
+
+    c.execute('''INSERT OR REPLACE INTO user_tenant_memberships (user_id, tenant_id, role, status, is_default)
+                 VALUES (?, ?, ?, 'active', 1)''', (user_id, tenant_id, inv['role']))
+    c.execute("UPDATE invitations SET status = 'accepted' WHERE token = ?", (token,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'Account activated. You can now log in.'})
+
+
+# ============================================================
+# PHASE 2D — DOMAIN VERIFICATION
+# ============================================================
+
+@app.route('/api/admin/tenant-domains', methods=['GET', 'POST'])
+@require_auth
+def manage_tenant_domains():
+    """List or add domain for verification. Platform admin only."""
+    if _platform_role_for_email((getattr(request, 'current_user', {}) or {}).get('email', '')) != 'platform_admin':
+        return jsonify({'error': 'Platform admin required'}), 403
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    if request.method == 'GET':
+        tenant_id = request.args.get('tenant_id')
+        c = conn.cursor()
+        q = 'SELECT * FROM tenant_domains'
+        params = []
+        if tenant_id:
+            q += ' WHERE tenant_id = ?'
+            params = [tenant_id]
+        c.execute(q, params)
+        rows = [dict(r) for r in c.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'domains': rows})
+
+    data = request.json or {}
+    domain = data.get('domain', '').strip().lower().lstrip('www.').lstrip('.')
+    tenant_id = data.get('tenant_id')
+    if not domain or not tenant_id:
+        conn.close()
+        return jsonify({'error': 'domain and tenant_id required'}), 400
+    token = secrets.token_hex(16)
+    try:
+        conn.execute('INSERT INTO tenant_domains (tenant_id, domain, verification_token) VALUES (?, ?, ?)',
+                     (tenant_id, domain, token))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({'error': 'Domain already registered'}), 409
+    conn.close()
+    return jsonify({'success': True, 'domain': domain, 'verification_token': token,
+                    'dns_instructions': f'Add a TXT record: _nexus.{domain} -> nexus-verify={token}'})
+
+
+@app.route('/api/admin/tenant-domains/<int:domain_id>/verify', methods=['GET'])
+@require_auth
+def verify_tenant_domain(domain_id):
+    """Check DNS TXT record for domain verification via DNS-over-HTTPS."""
+    if _platform_role_for_email((getattr(request, 'current_user', {}) or {}).get('email', '')) != 'platform_admin':
+        return jsonify({'error': 'Platform admin required'}), 403
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT * FROM tenant_domains WHERE id = ?', (domain_id,))
+    domain_row = c.fetchone()
+    if not domain_row:
+        conn.close()
+        return jsonify({'error': 'Domain not found'}), 404
+
+    domain = domain_row['domain']
+    expected_token = f"noc-verify={domain_row['verification_token']}"
+    lookup_name = f"_nexus.{domain}"
+
+    verified = False
+    try:
+        r = requests.get(
+            'https://cloudflare-dns.com/dns-query',
+            params={'name': lookup_name, 'type': 'TXT'},
+            headers={'Accept': 'application/dns-json'},
+            timeout=10
+        )
+        if r.ok:
+            for ans in r.json().get('Answer', []):
+                val = ans.get('data', '').strip('"')
+                if val == expected_token:
+                    verified = True
+                    break
+    except Exception as e:
+        safe_print(f"[DNS VERIFY] Failed for {domain}: {e}")
+
+    if verified:
+        conn.execute('UPDATE tenant_domains SET verified_at = CURRENT_TIMESTAMP WHERE id = ?', (domain_id,))
+        c.execute('SELECT tenant_id FROM tenant_domains WHERE id = ?', (domain_id,))
+        tid = c.fetchone()['tenant_id']
+        c.execute('SELECT allowed_email_domains FROM tenants WHERE id = ?', (tid,))
+        t = c.fetchone()
+        existing = json.loads(t['allowed_email_domains'] or '[]') if t else []
+        if domain not in existing:
+            existing.append(domain)
+            conn.execute('UPDATE tenants SET allowed_email_domains = ? WHERE id = ?', (json.dumps(existing), tid))
+        conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'verified': verified,
+                    'message': 'Domain verified and added to allowed domains.' if verified else f'TXT record not found. Expected: {expected_token} at {lookup_name}'})
+
+
+# ============================================================
+# PHASE 3A — PER-TENANT FEATURE FLAGS (Admin Endpoints)
+# ============================================================
+
+@app.route('/api/admin/tenants/<int:tenant_id>/features', methods=['GET', 'PUT'])
+@require_auth
+def manage_tenant_features(tenant_id):
+    """Get or set feature flags for a tenant. Platform admin only."""
+    if _platform_role_for_email((getattr(request, 'current_user', {}) or {}).get('email', '')) != 'platform_admin':
+        return jsonify({'error': 'Platform admin required'}), 403
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    if request.method == 'GET':
+        c = conn.cursor()
+        c.execute('SELECT features FROM tenant_features WHERE tenant_id = ?', (tenant_id,))
+        row = c.fetchone()
+        conn.close()
+        features = {**_DEFAULT_FEATURES, **json.loads(row['features'] if row else '{}')}
+        return jsonify({'success': True, 'features': features})
+    data = request.json or {}
+    features = {**_DEFAULT_FEATURES, **{k: bool(v) for k, v in data.items() if k in _DEFAULT_FEATURES}}
+    conn.execute('''INSERT INTO tenant_features (tenant_id, features) VALUES (?, ?)
+                    ON CONFLICT(tenant_id) DO UPDATE SET features = excluded.features, updated_at = CURRENT_TIMESTAMP''',
+                 (tenant_id, json.dumps(features)))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'features': features})
+
+
+# ============================================================
+# PHASE 3B — TENANT BRANDING
+# ============================================================
+
+@app.route('/api/tenant/branding', methods=['GET'])
+def get_tenant_branding():
+    """Public endpoint — returns branding for a tenant by slug or host header."""
+    slug = request.args.get('slug', '').strip()
+    host = request.headers.get('Host', '').split(':')[0]
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    if slug:
+        c.execute('SELECT slug, name, company_name, logo_url, primary_color, favicon_url FROM tenants WHERE slug = ? AND status = ?', (slug, 'active'))
+    else:
+        c.execute('SELECT slug, name, company_name, logo_url, primary_color, favicon_url FROM tenants WHERE custom_domain = ? AND status = ?', (host, 'active'))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'success': True, 'branding': {'primary_color': '#2563eb'}})
+    return jsonify({'success': True, 'branding': dict(row)})
+
+
+@app.route('/api/admin/tenants/<int:tenant_id>/branding', methods=['PUT'])
+@require_auth
+def update_tenant_branding(tenant_id):
+    """Update branding for a tenant. Platform admin only."""
+    if _platform_role_for_email((getattr(request, 'current_user', {}) or {}).get('email', '')) != 'platform_admin':
+        return jsonify({'error': 'Platform admin required'}), 403
+    data = request.json or {}
+    allowed = ('logo_url', 'primary_color', 'company_name', 'custom_domain', 'favicon_url')
+    updates = {k: v for k, v in data.items() if k in allowed}
+    if not updates:
+        return jsonify({'error': 'No valid fields provided'}), 400
+    sets = ', '.join(f'{k} = ?' for k in updates)
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.execute(f'UPDATE tenants SET {sets} WHERE id = ?', (*updates.values(), tenant_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+
+# ============================================================
+# QUOTA USAGE — Current tenant
+# ============================================================
+
+@app.route('/api/tenant/usage', methods=['GET'])
+@require_auth
+def get_tenant_usage():
+    """Return today's usage vs quotas for the current tenant."""
+    user_info = getattr(request, 'current_user', {})
+    tenant_id = user_info.get('tenant_id') or user_info.get('tenantId')
+    if not tenant_id:
+        tenant_ctx = _get_request_tenant_context()
+        tenant_id = tenant_ctx['tenant'].get('id')
+    usage = _get_today_usage(tenant_id) if tenant_id else {'configs_generated': 0, 'api_calls': 0}
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT * FROM tenant_quotas WHERE tenant_id = ?', (tenant_id,))
+    quota_row = c.fetchone()
+    conn.close()
+    quotas = dict(quota_row) if quota_row else {'max_users': None, 'max_configs_per_day': None, 'max_api_calls_per_day': None}
+    return jsonify({'success': True, 'usage': usage, 'quotas': quotas})
+
+
 if __name__ == '__main__':
     print("\n" + "=" * 50)
-    print("NOC Config Maker - AI Backend Server")
+    print("NEXUS - AI Configuration Engine")
     print("=" * 50)
     print(f"AI Provider: {AI_PROVIDER.upper()}")
 

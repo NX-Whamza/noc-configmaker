@@ -4,11 +4,11 @@
 Run a separate UAT/dev stack on the same VM as production for safe testing and demos.
 
 ## Target URLs
-- Prod: `https://noc-configmaker.nxlink.com`
-- UAT/Dev (proposed): `https://noc-configmaker-dev.nxlink.com`
+- Prod: `https://nexus.nxlink.com`
+- UAT/Dev (proposed): `https://nexus-dev.nxlink.com`
 
 ## Prerequisites
-- DNS A record for `noc-configmaker-dev.nxlink.com` -> VM public IP.
+- DNS A record for `nexus-dev.nxlink.com` -> VM public IP.
 - TLS cert available for dev hostname.
 - Access to VM shell with Docker + Docker Compose.
 
@@ -19,8 +19,8 @@ Run a separate UAT/dev stack on the same VM as production for safe testing and d
 - Route by hostname in Nginx.
 
 ## Recommended VM Layout
-- Prod compose project: `noc-configmaker`
-- Dev compose project: `noc-configmaker-dev`
+- Prod compose project: `nexus`
+- Dev compose project: `nexus-dev`
 - Dev backend port example: `8001`
 - Dev frontend port example: `8081` (if needed internally)
 
@@ -36,18 +36,29 @@ Do not store secrets in git.
 ## Step 2: Bring Up Dev Stack
 Example command:
 ```powershell
-docker compose --env-file .env.dev -p noc-configmaker-dev up -d --build
+docker compose --env-file .env.dev -p nexus-dev up -d --build
 ```
+
+If you are validating Warehouse SM provisioning to factory-default radios (`192.168.0.x`), start dev with the provisioning LAN overlay:
+```powershell
+docker compose --env-file .env.dev -p nexus-dev -f docker-compose.yml -f docker-compose.provisioning-lan.yml up -d --build
+```
+
+Set these in `.env.dev` first:
+- `PROVISIONING_LAN_PARENT` (host NIC connected to provisioning switch)
+- `PROVISIONING_LAN_SUBNET` (typically `192.168.0.0/24`)
+- `PROVISIONING_LAN_BACKEND_IP` (typically `192.168.0.254`)
+- `WAREHOUSE_SM_SWITCH_INTERFACE` (typically `eth1`)
 
 ## Step 3: Add Nginx Host Routing
 Add a server block for the dev hostname and proxy to dev frontend/backend container ports.
 
 Example mapping:
-- `noc-configmaker.nxlink.com` -> existing prod upstream
-- `noc-configmaker-dev.nxlink.com` -> dev upstream
+- `nexus.nxlink.com` -> existing prod upstream
+- `nexus-dev.nxlink.com` -> dev upstream
 
 ## Step 4: Enable TLS
-- Issue/attach cert for `noc-configmaker-dev.nxlink.com`.
+- Issue/attach cert for `nexus-dev.nxlink.com`.
 - Reload Nginx.
 
 ## Step 5: Verify
@@ -69,7 +80,7 @@ Example mapping:
 ## Rollback
 - If dev has issues:
 ```powershell
-docker compose --env-file .env.dev -p noc-configmaker-dev down
+docker compose --env-file .env.dev -p nexus-dev down
 ```
 - Revert Nginx dev block if required.
 

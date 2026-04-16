@@ -1,4 +1,4 @@
-# NOC Config Maker - Environment Template
+# NEXUS - Environment Template
 # Copy this file to `.env` (optional) or set these as system environment variables.
 # SMTP/email is no longer used; feedback is stored in the local database and managed via the Admin panel.
 
@@ -6,6 +6,12 @@
 ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 # JWT_SECRET=your-secret-here
 # DEFAULT_PASSWORD=CHANGE_ME
+# AUTH_EXPOSE_RESET_TOKEN=false
+# PASSWORD_HASH_ITERATIONS=310000
+# SSO_STATE_MAX_AGE_SECONDS=600
+# CORS allow-list (comma-separated). Avoid '*' when credentials are enabled.
+# NOC_CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+# NOC_CORS_ALLOW_CREDENTIALS=true
 
 # AI Provider (optional — OpenAI-compatible endpoint for AI features)
 # OPENAI_API_KEY=your-key-here
@@ -25,7 +31,7 @@ AZURE_CLIENT_SECRET=PASTE_YOUR_CLIENT_SECRET_HERE
 # NEXTLINK_SNMP_CONTACT=netops@team.nxlink.com
 
 # RADIUS defaults (optional; used by /api/infrastructure to autofill the UI)
-# NEXTLINK_RADIUS_SECRET=Nl22021234
+# NEXTLINK_RADIUS_SECRET=CHANGE_ME
 # NEXTLINK_RADIUS_DHCP_SERVERS=142.147.112.17,142.147.112.18
 # NEXTLINK_RADIUS_LOGIN_SERVERS=142.147.112.17,142.147.112.18
 
@@ -43,6 +49,14 @@ AZURE_CLIENT_SECRET=PASTE_YOUR_CLIENT_SECRET_HERE
 # NEXTLINK_SSH_USERNAME=
 # NEXTLINK_SSH_PASSWORD=CHANGE_ME
 
+# Warehouse SM factory-default access (Linux Docker engine + macvlan override)
+# Use with: docker compose -f docker-compose.yml -f docker-compose.provisioning-lan.yml up -d --build
+# PROVISIONING_LAN_PARENT=eth0
+# PROVISIONING_LAN_SUBNET=192.168.0.0/24
+# PROVISIONING_LAN_BACKEND_IP=192.168.0.254
+# WAREHOUSE_SM_SWITCH_INTERFACE=eth1
+# WAREHOUSE_SM_AUTO_DEFAULT_ACCESS=true
+
 # Field Config Studio / IDO device login defaults (optional)
 # For most Cambium/Tachyon/backhaul tools username is fixed to admin in upstream modules.
 # Set these so Running Config / Standard Config actions can authenticate correctly.
@@ -53,6 +67,10 @@ AZURE_CLIENT_SECRET=PASTE_YOUR_CLIENT_SECRET_HERE
 # RPC_STANDARD_PW=CHANGE_ME
 # CNMATRIX_STANDARD_PW=CHANGE_ME
 # WAVE_AP_PASS=CHANGE_ME
+# WAVE_SM_PASS=CHANGE_ME
+# WAVE_FW_MAX_WORKERS=3
+# WAVE_FW_REBOOT_TIMEOUT=300
+# WAVE_FW_MAX_UPLOAD_MB=200
 
 # Netlaunch-compatible MikroTik config templates
 # Must include Router/Tower and Router/BNG2 folders.
@@ -132,7 +150,7 @@ AZURE_CLIENT_SECRET=PASTE_YOUR_CLIENT_SECRET_HERE
 # WEEKLY_SUMMARY_TIMEZONE=America/Chicago
 # WEEKLY_SUMMARY_DAYS=7
 # WEEKLY_SUMMARY_TOP_N=5
-# WEEKLY_SUMMARY_TITLE=NOC Config Maker Weekly Summary
+# WEEKLY_SUMMARY_TITLE=NEXUS Weekly Summary
 # WEEKLY_SUMMARY_THEME_COLOR=0078D7
 # WEEKLY_SUMMARY_FOOTER=If there are any issues, gaps, or feedback on the tool, please let me know so we can tighten it up.
 
