@@ -644,6 +644,9 @@
         setWorkspaceMode('empty');
     }
 
-    // Expose init function for lazy initialization
-    window.initUnimusBackupConfigs = init;
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
 })();

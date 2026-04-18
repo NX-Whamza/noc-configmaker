@@ -36574,20 +36574,6 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
             };
             window.showDeviceFirmwareUpdaterSubTab.__lazyInitWrapped = true;
         }
-
-        // Lazy initialization wrapper for Unimus backup configs.
-        // loadSummary() is deferred until the user first visits the tab.
-        var _origNav = window.navigateToTab;
-        if (_origNav && !_origNav.__unimusInitWrapped) {
-            window.navigateToTab = async function(tabId) {
-                var result = await _origNav(tabId);
-                if (tabId === 'unimus-backup-configs' && typeof window.initUnimusBackupConfigs === 'function') {
-                    window.initUnimusBackupConfigs();
-                }
-                return result;
-            };
-            window.navigateToTab.__unimusInitWrapped = true;
-        }
     }());
     </script>
 
