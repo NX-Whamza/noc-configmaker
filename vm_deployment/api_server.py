@@ -17820,6 +17820,7 @@ _API_REGISTRY = [
     {"method": "POST",  "path": "/api/admin/tenants",                          "category": "Admin Management", "summary": "Create a new tenant (platform_admin only)",       "auth": True, "payload": {"slug": "str", "name": "str", "auth_mode": "str"}},
     {"method": "PATCH", "path": "/api/admin/tenants/<int:tenant_id>/status",   "category": "Admin Management", "summary": "Update tenant status (platform_admin only)",      "auth": True, "payload": {"status": "str"}},
     {"method": "GET",   "path": "/api/admin/users",                            "category": "Admin Management", "summary": "List users with memberships (platform_admin only)","auth": True},
+    {"method": "PATCH", "path": "/api/admin/users/<int:user_id>/platform-role", "category": "Admin Management", "summary": "Update user platform role (platform_admin only)",   "auth": True, "payload": {"platform_role": "str"}},
     {"method": "PATCH", "path": "/api/admin/users/<int:user_id>/membership",   "category": "Admin Management", "summary": "Upsert user membership (platform_admin only)",    "auth": True, "payload": {"tenant_id": "int", "role": "str", "status": "str"}},
     {"method": "GET",  "path": "/api/tenant-settings",        "category": "Tenant Settings", "summary": "Get settings for active tenant",           "auth": True},
     {"method": "PUT",  "path": "/api/tenant-settings",        "category": "Tenant Settings", "summary": "Update settings for active tenant (admin)", "auth": True},
@@ -18820,7 +18821,7 @@ def admin_list_users():
         for user_row in c.fetchall():
             user = dict(user_row)
             c.execute('''
-                SELECT m.role, m.status, m.is_default, t.slug, t.name
+                SELECT m.tenant_id, m.role, m.status, m.is_default, t.slug, t.name
                 FROM user_tenant_memberships AS m
                 JOIN tenants AS t ON t.id = m.tenant_id
                 WHERE m.user_id = ?
@@ -18832,6 +18833,58 @@ def admin_list_users():
         return jsonify({'success': True, 'users': users})
     except Exception as e:
         print(f"[ADMIN] List users failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:user_id>/platform-role', methods=['PATCH'])
+@require_auth
+def admin_update_user_platform_role(user_id):
+    """Update a user's platform role. Requires platform_admin."""
+    try:
+        if not _can_manage_platform():
+            return jsonify({'error': 'Platform admin access required'}), 403
+        data = request.get_json(silent=True) or {}
+        platform_role = (data.get('platform_role') or '').strip()
+        valid_platform_roles = {'user', 'platform_support', 'platform_admin'}
+        if platform_role not in valid_platform_roles:
+            return jsonify({'error': f"platform_role must be one of: {', '.join(sorted(valid_platform_roles))}"}), 400
+
+        init_users_db()
+        secure_dir = 'secure_data'
+        db_path = os.path.join(secure_dir, 'users.db')
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        c.execute('SELECT id, email, platform_role, is_platform_admin, is_active FROM users WHERE id = ?', (user_id,))
+        target_user = c.fetchone()
+        if not target_user:
+            conn.close()
+            return jsonify({'error': 'User not found'}), 404
+
+        current_role = target_user['platform_role'] or ('platform_admin' if target_user['is_platform_admin'] else 'user')
+        if current_role == 'platform_admin' and platform_role != 'platform_admin':
+            c.execute('SELECT COUNT(1) AS cnt FROM users WHERE (platform_role = ? OR is_platform_admin = 1) AND is_active = 1',
+                      ('platform_admin',))
+            admin_count_row = c.fetchone()
+            admin_count = int(admin_count_row['cnt']) if admin_count_row else 0
+            if admin_count <= 1:
+                conn.close()
+                return jsonify({'error': 'Cannot remove the last active platform admin'}), 400
+
+        is_platform_admin = 1 if platform_role == 'platform_admin' else 0
+        c.execute(
+            'UPDATE users SET platform_role = ?, is_platform_admin = ? WHERE id = ?',
+            (platform_role, is_platform_admin, user_id)
+        )
+        conn.commit()
+        c.execute('SELECT id, email, platform_role, is_platform_admin, is_active FROM users WHERE id = ?', (user_id,))
+        updated_user = dict(c.fetchone())
+        conn.close()
+        _write_audit_log('membership_change', detail={'platform_role': platform_role}, target_user_id=user_id)
+        return jsonify({'success': True, 'user': updated_user})
+    except Exception as e:
+        print(f"[ADMIN] Update platform role failed: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -19424,7 +19477,7 @@ def _seed_default_tenant_settings(conn, tenant_id):
         ntp_primary TEXT DEFAULT 'pool.ntp.org',
         ntp_secondary TEXT DEFAULT 'time.cloudflare.com',
         snmp_community TEXT DEFAULT 'public',
-        snmp_contact TEXT DEFAULT 'netops@team.nxlink.com',
+        snmp_contact TEXT DEFAULT 'noc@example.com',
         snmp_location_prefix TEXT DEFAULT '',
         radius_primary TEXT DEFAULT '',
         radius_secondary TEXT DEFAULT '',
@@ -19461,6 +19514,19 @@ def _seed_default_tenant_settings(conn, tenant_id):
     c.execute('PRAGMA table_info(tenant_settings)')
     existing_cols = {r[1] for r in c.fetchall()}
     for col, typedef in _b10_new_cols.items():
+        if col not in existing_cols:
+            c.execute(f'ALTER TABLE tenant_settings ADD COLUMN {col} {typedef}')
+
+    # Batch 11: tenant branding columns
+    _b11_new_cols = {
+        'brand_name': 'TEXT DEFAULT ""',
+        'logo_url': 'TEXT DEFAULT ""',
+        'primary_color': 'TEXT DEFAULT ""',
+        'favicon_url': 'TEXT DEFAULT ""',
+    }
+    c.execute('PRAGMA table_info(tenant_settings)')
+    existing_cols = {r[1] for r in c.fetchall()}
+    for col, typedef in _b11_new_cols.items():
         if col not in existing_cols:
             c.execute(f'ALTER TABLE tenant_settings ADD COLUMN {col} {typedef}')
 
@@ -28328,24 +28394,71 @@ def get_tenant_branding():
     return jsonify({'success': True, 'branding': dict(row)})
 
 
-@app.route('/api/admin/tenants/<int:tenant_id>/branding', methods=['PUT'])
+@app.route('/api/admin/tenants/<int:tenant_id>/branding', methods=['GET', 'PUT'])
 @require_auth
 def update_tenant_branding(tenant_id):
-    """Update branding for a tenant. Platform admin only."""
+    """Get or update branding for a tenant. Platform admin only."""
     if _platform_role_for_email((getattr(request, 'current_user', {}) or {}).get('email', '')) != 'platform_admin':
         return jsonify({'error': 'Platform admin required'}), 403
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    if request.method == 'GET':
+        c = conn.cursor()
+        c.execute('SELECT company_name, logo_url, primary_color, favicon_url, custom_domain FROM tenants WHERE id = ?', (tenant_id,))
+        row = c.fetchone()
+        conn.close()
+        return jsonify({'success': True, 'branding': dict(row) if row else {}})
     data = request.json or {}
     allowed = ('logo_url', 'primary_color', 'company_name', 'custom_domain', 'favicon_url')
     updates = {k: v for k, v in data.items() if k in allowed}
     if not updates:
+        conn.close()
         return jsonify({'error': 'No valid fields provided'}), 400
     sets = ', '.join(f'{k} = ?' for k in updates)
-    db = init_users_db()
-    conn = sqlite3.connect(str(db))
     conn.execute(f'UPDATE tenants SET {sets} WHERE id = ?', (*updates.values(), tenant_id))
     conn.commit()
     conn.close()
     return jsonify({'success': True})
+
+
+@app.route('/api/admin/tenants/<int:tenant_id>/logo', methods=['POST'])
+@require_auth
+def upload_tenant_logo(tenant_id):
+    """Upload a logo image for a tenant. Saves to secure_data/logos/, served via /api/logos/."""
+    if _platform_role_for_email((getattr(request, 'current_user', {}) or {}).get('email', '')) != 'platform_admin':
+        return jsonify({'error': 'Platform admin required'}), 403
+    f = request.files.get('logo')
+    if not f or not f.filename:
+        return jsonify({'error': 'No file provided'}), 400
+    ext = os.path.splitext(f.filename)[1].lower()
+    allowed_exts = {'.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico'}
+    if ext not in allowed_exts:
+        return jsonify({'error': f'Unsupported file type: {ext}'}), 400
+    logos_dir = os.path.join('secure_data', 'logos')
+    os.makedirs(logos_dir, exist_ok=True)
+    filename = f'tenant_{tenant_id}_logo{ext}'
+    save_path = os.path.join(logos_dir, filename)
+    f.save(save_path)
+    url = f'/api/logos/{filename}'
+    # Also update the tenant's logo_url in the DB
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.execute('UPDATE tenants SET logo_url = ? WHERE id = ?', (url, tenant_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'url': url})
+
+
+@app.route('/api/logos/<path:filename>', methods=['GET'])
+def serve_tenant_logo(filename):
+    """Serve uploaded tenant logos (no auth required — logos are semi-public branding assets)."""
+    logos_dir = os.path.abspath(os.path.join('secure_data', 'logos'))
+    # Prevent path traversal
+    target = os.path.abspath(os.path.join(logos_dir, filename))
+    if not target.startswith(logos_dir + os.sep) and target != logos_dir:
+        return jsonify({'error': 'Not found'}), 404
+    return send_from_directory(logos_dir, filename)
 
 
 # ============================================================
