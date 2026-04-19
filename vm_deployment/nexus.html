@@ -4453,6 +4453,76 @@
             .bulk-manual-row { min-width: 580px; }
         }
 
+        /* ══ COMPREHENSIVE GAP FIXES — all remaining tabs / panes ══════════
+           Covers patterns the earlier rules missed:
+             • Mixed-ratio grids (1fr 2fr, 3fr 1fr, etc.)
+             • Explicit 3/4-col without repeat()
+             • FTTH 9-col uplink rows → horizontal scroll
+             • Config-diff & compliance flex items with min-width
+             • Buttons with min-width on phones
+        ══════════════════════════════════════════════════════════════════ */
+
+        /* ── Mixed-ratio and multi-col grids not caught by earlier rules ── */
+        @media (max-width: 768px) {
+            /* 1fr 2fr / 1fr 3fr / etc. — starts-with check misses these */
+            .content-pane [style*="grid-template-columns: 1fr 2fr"],
+            .content-pane [style*="grid-template-columns:1fr 2fr"],
+            .content-pane [style*="grid-template-columns: 1fr 3fr"],
+            .content-pane [style*="grid-template-columns:1fr 3fr"],
+            .content-pane [style*="grid-template-columns: 3fr 1fr"],
+            .content-pane [style*="grid-template-columns:3fr 1fr"],
+            .content-pane [style*="grid-template-columns: 2fr 3fr"],
+            .content-pane [style*="grid-template-columns:2fr 3fr"],
+            /* Explicit space-separated 3 / 4 col without repeat() */
+            .content-pane [style*="grid-template-columns: 1fr 1fr 1fr"],
+            .content-pane [style*="grid-template-columns:1fr 1fr 1fr"],
+            .content-pane [style*="grid-template-columns: 1fr 1fr 1fr 1fr"],
+            .content-pane [style*="grid-template-columns:1fr 1fr 1fr 1fr"] {
+                grid-template-columns: 1fr !important;
+            }
+
+            /* Config-diff pane: flex items with hard min-width shrink to 0 */
+            #config-diff-pane [style*="min-width:"],
+            #config-diff-pane [style*="min-width: "],
+            #compliance-scanner-pane [style*="flex:"][style*="min-width"],
+            #compliance-scanner-pane [style*="flex: "][style*="min-width"] {
+                min-width: 0 !important;
+                flex-basis: auto !important;
+            }
+
+            /* Nokia / any pane: select/input with fixed pixel widths → fluid */
+            .content-pane select[style*="min-width:"],
+            .content-pane input[style*="min-width:"] {
+                min-width: 0 !important;
+                width: 100% !important;
+                box-sizing: border-box !important;
+            }
+        }
+
+        /* ── FTTH uplink rows (9-col grid): horizontal scroll on mobile ── */
+        @media (max-width: 768px) {
+            .ftth-uplink-row {
+                overflow-x: auto !important;
+                -webkit-overflow-scrolling: touch;
+            }
+            .ftth-uplink-row > [style*="grid-template-columns"] {
+                min-width: 700px;
+            }
+        }
+
+        /* ── Buttons with inline min-width: let them shrink on phones ──── */
+        @media (max-width: 480px) {
+            .content-pane button[style*="min-width:"],
+            .content-pane button[style*="min-width: "] {
+                min-width: 0 !important;
+                width: 100% !important;
+                box-sizing: border-box !important;
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+                display: block !important;
+            }
+        }
+
     </style>
 </head>
 
