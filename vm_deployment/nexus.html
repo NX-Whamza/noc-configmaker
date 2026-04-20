@@ -4287,15 +4287,20 @@
         /* ── Tower: mode selector & upgrade method — stack at tablet width ── */
         @media (max-width: 768px) {
             /* "New Device" / "Upgrade Existing" radio buttons → full-width column */
-            #towerModeSelectorSection > div:first-child {
+            .mode-selector-row {
+                display: flex !important;
                 flex-direction: column !important;
                 gap: 10px !important;
+                width: 100% !important;
+                box-sizing: border-box !important;
             }
-            #towerModeSelectorSection > div:first-child > label {
+            .mode-selector-row > label {
+                display: flex !important;
                 flex: none !important;
                 width: 100% !important;
-                /* border-box so padding doesn't add to width and cause overflow */
                 box-sizing: border-box !important;
+                min-width: 0 !important;
+                padding: 12px 16px !important;
             }
             /* "Select Method" (SSH / File Upload) radio options → stack */
             #upgradeMode [style*="display: flex; gap: 20px"],
@@ -4348,31 +4353,53 @@
 
         /* ── Feature Flags modal: mobile scroll + grid collapse ─────────── */
         @media (max-width: 768px) {
-            /* Backdrop: anchor to top so tall content scrolls down, not off-screen */
-            #featureFlagsModal.show {
-                align-items: flex-start !important;
-                padding: 16px 0 !important;
-                overflow-y: auto !important;
-            }
-            /* Modal card: full width, allow scrolling, remove clip + height cap */
+            /* Modal card: fixed height cap with internal scroll (traditional pattern) */
             .feature-flags-modal {
                 width: 96% !important;
-                max-height: none !important;       /* remove 90vh cap from .modal-content */
-                overflow: visible !important;      /* remove overflow:hidden that clips body */
+                max-width: 96% !important;
+                max-height: 88vh !important;
+                overflow: hidden !important;       /* card clips; body scrolls inside */
+                display: flex !important;
+                flex-direction: column !important;
             }
-            /* Inner sections: tighter horizontal padding */
-            .feature-flags-head,
-            .feature-flags-body,
-            .feature-flags-foot { padding-left: 14px !important; padding-right: 14px !important; }
+            /* Header: lock flex row so × never wraps to its own line */
+            .feature-flags-head {
+                padding: 14px !important;
+                flex-shrink: 0 !important;
+            }
+            .feature-flags-head > div {
+                display: flex !important;
+                flex-wrap: nowrap !important;
+                justify-content: space-between !important;
+                align-items: flex-start !important;
+                gap: 8px !important;
+                width: 100% !important;
+                box-sizing: border-box !important;
+            }
+            .feature-flags-head > div > div:first-child {
+                flex: 1 1 auto !important;
+                min-width: 0 !important;
+            }
+            .feature-flags-head .modal-close {
+                flex-shrink: 0 !important;
+            }
+            /* Body: take remaining height and scroll */
+            .feature-flags-body {
+                flex: 1 1 auto !important;
+                padding: 14px !important;
+                max-height: none !important;
+                overflow-y: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+            }
             /* Collapse 2-col item grid to single column */
             .ff-grid { grid-template-columns: 1fr !important; }
-            /* Body: remove height cap so modal backdrop handles scroll */
-            .feature-flags-body {
-                max-height: none !important;
-                overflow-y: visible !important;
+            /* Footer: stack buttons, shrink to fit */
+            .feature-flags-foot {
+                flex-shrink: 0 !important;
+                padding: 12px 14px !important;
+                flex-direction: column !important;
+                gap: 8px !important;
             }
-            /* Footer buttons: stack vertically, full width */
-            .feature-flags-foot { flex-direction: column !important; gap: 8px !important; }
             .ff-btn { width: 100% !important; box-sizing: border-box !important; }
         }
 
@@ -5652,7 +5679,7 @@
                     <!-- Mode Selection -->
                     <div id="towerModeSelectorSection" class="section"
                         style="background: var(--container-bg); border-left: 4px solid var(--button-bg); padding: 20px;">
-                        <div style="display: flex; gap: 15px; margin-bottom: 15px;">
+                        <div class="mode-selector-row" style="display: flex; gap: 15px; margin-bottom: 15px;">
                             <label
                                 style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 12px 20px; background: var(--input-bg); border: 2px solid var(--button-bg); border-radius: 6px; flex: 1; color: var(--text-color);">
                                 <input type="radio" name="configMode" value="new" checked onchange="switchMode('new')">
