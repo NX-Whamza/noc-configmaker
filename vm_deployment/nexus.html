@@ -4348,21 +4348,32 @@
 
         /* ── Feature Flags modal: mobile scroll + grid collapse ─────────── */
         @media (max-width: 768px) {
-            /* Feature-flags modal only: start from top so tall content doesn't clip above viewport.
-               Other shorter modals (password change, settings, feedback) keep their centered alignment. */
-            #featureFlagsModal.show { align-items: flex-start !important; padding: 16px 0 !important; overflow-y: auto !important; }
-            /* Feature-flags modal: full-width, tighter padding */
-            .feature-flags-modal { width: 96% !important; }
+            /* Backdrop: anchor to top so tall content scrolls down, not off-screen */
+            #featureFlagsModal.show {
+                align-items: flex-start !important;
+                padding: 16px 0 !important;
+                overflow-y: auto !important;
+            }
+            /* Modal card: full width, allow scrolling, remove clip + height cap */
+            .feature-flags-modal {
+                width: 96% !important;
+                max-height: none !important;       /* remove 90vh cap from .modal-content */
+                overflow: visible !important;      /* remove overflow:hidden that clips body */
+            }
+            /* Inner sections: tighter horizontal padding */
             .feature-flags-head,
             .feature-flags-body,
             .feature-flags-foot { padding-left: 14px !important; padding-right: 14px !important; }
             /* Collapse 2-col item grid to single column */
             .ff-grid { grid-template-columns: 1fr !important; }
-            /* Body: remove max-height so the outer modal scroll handles it */
-            .feature-flags-body { max-height: none !important; }
-            /* Footer buttons: full-width stack */
+            /* Body: remove height cap so modal backdrop handles scroll */
+            .feature-flags-body {
+                max-height: none !important;
+                overflow-y: visible !important;
+            }
+            /* Footer buttons: stack vertically, full width */
             .feature-flags-foot { flex-direction: column !important; gap: 8px !important; }
-            .ff-btn { width: 100% !important; box-sizing: border-box; }
+            .ff-btn { width: 100% !important; box-sizing: border-box !important; }
         }
 
         /* ── Admin panel: fixed-width inputs → fluid on mobile ──────────── */
