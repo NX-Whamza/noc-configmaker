@@ -29050,16 +29050,16 @@ Ready for translation!`);
                 push('');
 
                 section('Policy Configuration');
-                push('/configure policy-options begin');
-                ldpDenyPrefixes.forEach((prefix) => push(`/configure policy-options prefix-list "LDP-DENY-PL" prefix ${prefix} exact`));
-                push('/configure policy-options prefix-list "LDP-ALLOW-PL" prefix 10.0.0.0/8 prefix-length-range 32-32');
-                push('/configure policy-options policy-statement "LDP-FILTER-PS" entry 10 from prefix-list "LDP-DENY-PL"');
-                push('/configure policy-options policy-statement "LDP-FILTER-PS" entry 10 action drop');
-                push('/configure policy-options policy-statement "LDP-FILTER-PS" entry 20 from prefix-list "LDP-ALLOW-PL"');
-                push('/configure policy-options policy-statement "LDP-FILTER-PS" entry 20 action accept');
-                push('/configure policy-options policy-statement "LDP-FILTER-PS" entry 30 description "drop-rest"');
-                push('/configure policy-options policy-statement "LDP-FILTER-PS" entry 30 action drop');
-                push('/configure policy-options commit');
+                push('/configure router policy-options begin');
+                ldpDenyPrefixes.forEach((prefix) => push(`/configure router policy-options prefix-list "LDP-DENY-PL" prefix ${prefix} exact`));
+                push('/configure router policy-options prefix-list "LDP-ALLOW-PL" prefix 10.0.0.0/8 prefix-length-range 32-32');
+                push('/configure router policy-options policy-statement "LDP-FILTER-PS" entry 10 from prefix-list "LDP-DENY-PL"');
+                push('/configure router policy-options policy-statement "LDP-FILTER-PS" entry 10 action drop');
+                push('/configure router policy-options policy-statement "LDP-FILTER-PS" entry 20 from prefix-list "LDP-ALLOW-PL"');
+                push('/configure router policy-options policy-statement "LDP-FILTER-PS" entry 20 action accept');
+                push('/configure router policy-options policy-statement "LDP-FILTER-PS" entry 30 description "drop-rest"');
+                push('/configure router policy-options policy-statement "LDP-FILTER-PS" entry 30 action drop');
+                push('/configure router policy-options commit');
                 push('');
 
                 section('Service Configuration');
@@ -29548,12 +29548,11 @@ Ready for translation!`);
                 L.push('logout');
                 L.push('');
                 L.push('');
-                L.push('# BOF');
-                L.push('/bof primary-config cf3:/startup-config');
+                L.push('# BOF settings');
+                L.push('/bof no auto-boot');
                 L.push('/bof save');
-                L.push('/admin save');
-                L.push('');
                 L.push('exit all');
+                L.push('');
                 L.push('configure');
 
                 // ---- SYSTEM ----
