@@ -557,8 +557,9 @@ try:
         resolve_device_type as cambium_resolve_device_type,
     )
     HAS_CAMBIUM = True
-except Exception:
+except Exception as _cambium_import_err:
     HAS_CAMBIUM = False
+    print(f"[WARN] Cambium backend unavailable — catalog will be empty: {_cambium_import_err}", flush=True)
 
 # Safe print function for PyInstaller compatibility (defined early for use throughout)
 def safe_print(*args, **kwargs):
