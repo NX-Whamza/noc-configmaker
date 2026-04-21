@@ -90,3 +90,4 @@ api_keys.txt
 nexus-backups/
 weekly_summary.log
 cambium_shared_queue.json
+tests_artifacts/

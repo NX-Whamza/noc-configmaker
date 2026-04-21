@@ -999,6 +999,59 @@
         addLog('Cambium firmware updater ready.', 'info');
     }
 
+    function loadCambiumBackupBrowser(ipOverride) {
+        var ip = ipOverride || document.getElementById('cambiumBackupBrowserIp').value.trim();
+        if (!ip) { alert('Enter a device IP first.'); return; }
+        document.getElementById('cambiumBackupBrowserIp').value = ip;
+        var el = document.getElementById('cambiumBackupBrowserResult');
+        el.innerHTML = '<em>Loading backups for ' + ip + '…</em>';
+        var authHeaders = (typeof getAuthHeaders === 'function') ? getAuthHeaders() : {};
+        fetch(getCambiumApiBase() + '/backups-unified?ip=' + encodeURIComponent(ip), {
+            headers: authHeaders
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) { renderCambiumBackupBrowser(ip, data.backups || []); })
+        .catch(function(e) {
+            document.getElementById('cambiumBackupBrowserResult').innerHTML =
+                '<span style="color:red;">Error loading backups: ' + e.message + '</span>';
+        });
+    }
+
+    function renderCambiumBackupBrowser(ip, records) {
+        var el = document.getElementById('cambiumBackupBrowserResult');
+        if (!records.length) {
+            el.innerHTML = '<em>No backups found for ' + ip + '.</em>';
+            return;
+        }
+        var rows = records.map(function(b) {
+            var badge = b.source === 'unimus'
+                ? '<span style="background:#2563eb;color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;margin-right:6px;">Unimus</span>'
+                : '<span style="background:#475569;color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;margin-right:6px;">Local</span>';
+            var ts = b.timestamp
+                ? (typeof b.timestamp === 'number'
+                    ? new Date(b.timestamp).toLocaleString()
+                    : String(b.timestamp))
+                : '—';
+            var size = b.size_bytes ? (Math.round(b.size_bytes / 1024) + ' KB') : '—';
+            var dlUrl = b.source === 'unimus'
+                ? '/api/unimus-backup-configs/host-backup?address=' + encodeURIComponent(ip)
+                  + '&backup_id=' + encodeURIComponent(b.id) + '&download=1'
+                : '/api/cambium/backup?path=' + encodeURIComponent(b.path);
+            return '<tr><td>' + badge + '</td><td style="padding:4px 8px;">' + ts
+                + '</td><td style="padding:4px 8px;">' + size
+                + '</td><td style="padding:4px 8px;"><a href="' + dlUrl
+                + '" target="_blank" class="aviat-btn aviat-btn-sm">Download</a></td></tr>';
+        }).join('');
+        el.innerHTML = '<table style="width:100%;border-collapse:collapse;">'
+            + '<thead><tr>'
+            + '<th style="text-align:left;padding:4px 8px;">Source</th>'
+            + '<th style="text-align:left;padding:4px 8px;">Timestamp</th>'
+            + '<th style="text-align:left;padding:4px 8px;">Size</th>'
+            + '<th style="text-align:left;padding:4px 8px;">Action</th>'
+            + '</tr></thead><tbody>' + rows + '</tbody></table>';
+    }
+
     window.getCambiumApiBase = getCambiumApiBase;
     window.initCambiumUpdater = initCambiumUpdater;
+    window.loadCambiumBackupBrowser = loadCambiumBackupBrowser;
 })();

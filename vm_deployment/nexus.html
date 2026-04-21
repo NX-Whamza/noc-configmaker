@@ -9751,6 +9751,21 @@
                         <div class="aviat-log-entry"><span class="aviat-log-time">[--:--:--]</span> Ready. Add Cambium radio IPs to begin.</div>
                     </div>
                 </div>
+
+                <!-- Cambium Backup Browser -->
+                <div class="aviat-card" id="cambium-backup-browser-card" style="margin-top:16px;">
+                  <div class="aviat-card-header">
+                    <span class="aviat-card-title">Backup Browser</span>
+                  </div>
+                  <div class="aviat-card-body">
+                    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
+                      <input type="text" id="cambiumBackupBrowserIp" class="aviat-input"
+                             placeholder="Device IP (e.g. 10.0.0.1)" style="flex:1;max-width:220px;" />
+                      <button class="aviat-btn aviat-btn-primary" onclick="loadCambiumBackupBrowser()">Load Backups</button>
+                    </div>
+                    <div id="cambiumBackupBrowserResult"></div>
+                  </div>
+                </div>
             </div>
         </div>
     </div>

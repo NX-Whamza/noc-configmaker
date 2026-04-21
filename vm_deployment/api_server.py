@@ -16965,25 +16965,6 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
     L.append('    router management')
     L.append('    exit')
     L.append('')
-    if preserve_ips:
-        L.append('# CLASSIC CLI INTERFACE STANZAS')
-        L.append(f'/configure router interface "system" address {loopback}')
-        L.append('/configure router interface "system" no shutdown')
-        seen_cli_ports = set()
-        for ri in router_ifaces:
-            if not ri.get('port') or ri['port'] == 'A/1':
-                continue
-            ri_key = ri['port']
-            if ri_key in seen_cli_ports:
-                continue
-            seen_cli_ports.add(ri_key)
-            L.append(f'/configure router interface "{ri["name"]}" address {ri["address"]}')
-            for sec_addr in ri.get('secondary_addresses', []):
-                L.append(f'/configure router interface "{ri["name"]}" secondary {sec_addr}')
-            L.append(f'/configure router interface "{ri["name"]}" port {ri["port"]}')
-            L.append(f'/configure router interface "{ri["name"]}" no shutdown')
-        L.append('')
-
     # ── ROUTER BASE ──
     echo('"Router (Network Side) Configuration"')
     L.append('    router Base')
@@ -23312,6 +23293,33 @@ def _cambium_check_single(ip, device_type, password=None, run_tests=True):
     }
 
 
+def _cambium_trigger_unimus_backup(ip, log_cb):
+    """Try Unimus backup first; return True on success, False to trigger local fallback."""
+    try:
+        from unimus_backup_configs import (
+            _unimus_runtime, _list_devices_by_addresses,
+            _trigger_device_backup, _poll_backup_completion,
+        )
+        cfg = _unimus_runtime()
+        if not cfg.get("configured"):
+            return False
+        matches = _list_devices_by_addresses([ip], cfg)
+        if not matches:
+            log_cb(f"[{ip}] Unimus backup: device not found in Unimus — falling back to local backup", "warning", ip=ip)
+            return False
+        device_id = matches[0].get("id")
+        result = _trigger_device_backup(device_id, cfg)
+        if not result or result.get("accepted", 0) < 1:
+            log_cb(f"[{ip}] Unimus backup not accepted (refused/undiscovered) — falling back to local backup", "warning", ip=ip)
+            return False
+        _poll_backup_completion(device_id, cfg)
+        log_cb(f"[{ip}] Backup triggered in Unimus — timeline updated", "info", ip=ip)
+        return True
+    except Exception as exc:
+        log_cb(f"[{ip}] Unimus backup error ({exc}) — falling back to local backup", "warning", ip=ip)
+        return False
+
+
 def _cambium_write_backup(ip, running_config):
     backup_dir = Path(__file__).resolve().parent / "secure_data" / "cambium_backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -23381,9 +23389,13 @@ def _cambium_run_single(radio, username, should_abort=None):
             running_config = (before_info or {}).get("running_config")
             if not running_config:
                 raise RuntimeError("Backup failed: running config was not returned by the device")
-            backup_path = _cambium_write_backup(ip, running_config)
+            unimus_ok = _cambium_trigger_unimus_backup(ip, _cambium_broadcast_log)
+            if not unimus_ok:
+                backup_path = _cambium_write_backup(ip, running_config)
+                _cambium_broadcast_log(f"[{ip}] Backup saved to {backup_path}", "info", ip=ip)
+            else:
+                backup_path = "unimus"
             backup_status = "success"
-            log_cb(f"[{ip}] Backup saved to {backup_path}")
         else:
             backup_status = "pending"
 
@@ -23928,6 +23940,75 @@ def cambium_download_backup():
         target = matches[0]
 
     return send_file(str(target), as_attachment=True, download_name=target.name, mimetype='application/json')
+
+
+@app.route("/api/cambium/backups", methods=["GET"])
+@require_auth
+def cambium_list_backups():
+    ip = request.args.get("ip", "").strip()
+    if not ip:
+        return jsonify({"success": False, "error": "ip required"}), 400
+    backup_dir = Path(__file__).resolve().parent / "secure_data" / "cambium_backups"
+    prefix = ip.replace(".", "_") + "_"
+    records = []
+    if backup_dir.exists():
+        for f in sorted(backup_dir.glob(f"{prefix}*.json"), reverse=True):
+            records.append({
+                "filename": f.name,
+                "path": str(f),
+                "timestamp": f.stem.replace(prefix, ""),
+                "size_bytes": f.stat().st_size,
+                "source": "local",
+            })
+    return jsonify({"success": True, "backups": records})
+
+
+@app.route("/api/cambium/backups-unified", methods=["GET"])
+@require_auth
+def cambium_list_backups_unified():
+    ip = request.args.get("ip", "").strip()
+    if not ip:
+        return jsonify({"success": False, "error": "ip required"}), 400
+
+    records = []
+
+    # Try Unimus first
+    try:
+        from unimus_backup_configs import (
+            _unimus_runtime, _list_devices_by_addresses, _list_device_backups,
+        )
+        cfg = _unimus_runtime()
+        if cfg.get("configured"):
+            matches = _list_devices_by_addresses([ip], cfg)
+            if matches:
+                device_id = matches[0].get("id")
+                backups = _list_device_backups(device_id, config=cfg)
+                for b in (backups or []):
+                    records.append({
+                        "id": b.get("id"),
+                        "device_id": device_id,
+                        "timestamp": b.get("time"),
+                        "size_bytes": b.get("sizeBytes"),
+                        "type": b.get("type"),
+                        "source": "unimus",
+                    })
+    except Exception:
+        pass
+
+    # Always append local
+    backup_dir = Path(__file__).resolve().parent / "secure_data" / "cambium_backups"
+    prefix = ip.replace(".", "_") + "_"
+    if backup_dir.exists():
+        for f in sorted(backup_dir.glob(f"{prefix}*.json"), reverse=True):
+            records.append({
+                "filename": f.name,
+                "path": str(f),
+                "timestamp": f.stem.replace(prefix, ""),
+                "size_bytes": f.stat().st_size,
+                "source": "local",
+            })
+
+    return jsonify({"success": True, "ip": ip, "backups": records})
 
 
 # ── Wave Firmware Updater helpers ─────────────────────────────────────────────
