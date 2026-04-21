@@ -466,11 +466,15 @@
             if (!response.ok) throw new Error(data.error || `Catalog fetch failed (${response.status})`);
             cambiumState.catalog = normalizeCatalog(data);
             renderCatalog();
-            if (!options.quiet) addLog(`Loaded Cambium catalog (${cambiumState.catalog.length} entries)`, 'info');
+            if (cambiumState.catalog.length === 0) {
+                addLog('Cambium catalog loaded but no firmware images found. Verify firmware files are present on the server under base_configs/Cambium/.', 'warning');
+            } else if (!options.quiet) {
+                addLog(`Loaded Cambium catalog (${cambiumState.catalog.length} entries)`, 'info');
+            }
         } catch (err) {
             cambiumState.catalog = [];
             renderCatalog();
-            if (!options.quiet) addLog(`Catalog load failed: ${err.message}`, 'warning');
+            addLog(`Catalog load failed: ${err.message}`, 'warning');
         }
     }
 
@@ -985,14 +989,13 @@
         clearPersistedRadios();
         syncEndpointHint();
         renderProviders();
-        renderCatalog();
         updateUI();
         setRunState(false);
         bindControls();
         startGlobalStream();
         await loadQueueState({ quiet: true });
         await loadProviders({ quiet: true });
-        await loadCatalog({ quiet: true });
+        await loadCatalog();
         addLog('Cambium firmware updater ready.', 'info');
     }
 
