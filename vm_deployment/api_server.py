@@ -23610,6 +23610,7 @@ def _cambium_trigger_unimus_backup(ip, log_cb):
         from unimus_backup_configs import (
             _unimus_runtime, _list_devices_by_addresses,
             _trigger_device_backup, _poll_backup_completion,
+            _list_device_backups, _latest_backup_signature, _get_device,
         )
         cfg = _unimus_runtime()
         if not cfg.get("configured"):
@@ -23619,11 +23620,16 @@ def _cambium_trigger_unimus_backup(ip, log_cb):
             log_cb(f"[{ip}] Unimus backup: device not found in Unimus — falling back to local backup", "warning", ip=ip)
             return False
         device_id = matches[0].get("id")
+        # Capture state before triggering so the poller can detect change
+        device = _get_device(device_id, cfg)
+        before_status = str(device.get("lastJobStatus") or "").strip()
+        before_backups = _list_device_backups(device_id, size=10, config=cfg)
+        before_signature = _latest_backup_signature(before_backups)
         result = _trigger_device_backup(device_id, cfg)
         if not result or result.get("accepted", 0) < 1:
             log_cb(f"[{ip}] Unimus backup not accepted (refused/undiscovered) — falling back to local backup", "warning", ip=ip)
             return False
-        _poll_backup_completion(device_id, cfg)
+        _poll_backup_completion(device_id, before_status, before_signature, before_backups, cfg, ip)
         log_cb(f"[{ip}] Backup triggered in Unimus — timeline updated", "info", ip=ip)
         return True
     except Exception as exc:
