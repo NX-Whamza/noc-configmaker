@@ -12,6 +12,7 @@ repo_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repo_root))
 
 os.environ.setdefault("AI_PROVIDER", "none")
+os.environ.setdefault("DEFAULT_PASSWORD", "TestOnlyNocPass123!")
 
 import api_server  # noqa: E402
 

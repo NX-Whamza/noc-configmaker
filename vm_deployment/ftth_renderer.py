@@ -9,8 +9,17 @@ try:
     from engineering_compliance import load_compliance_text
 except ImportError:
     from vm_deployment.engineering_compliance import load_compliance_text
+try:
+    from tenant_defaults import load_infrastructure_defaults, load_tenant_defaults
+except ImportError:
+    from vm_deployment.tenant_defaults import load_infrastructure_defaults, load_tenant_defaults
 
 TEMPLATE_PATH = Path(__file__).parent / "ftth_template.rsc"
+_LEGACY_SECRET_REPLACEMENTS = {
+    # Redact legacy static credential from historical template snapshots.
+    "Mt55054321": "CHANGE_ME_STRONG_PASSWORD",
+    "Nl22021234": "CHANGE_ME_RADIUS_SECRET",
+}
 
 # ---------------------------------------------------------------------------
 # GitLab dynamic compliance loader (optional — falls back gracefully)
@@ -121,6 +130,13 @@ def _append_ftth_speed_parts(parts: list[str], speed: str | None, auto_neg: bool
         return
     parts.append("auto-negotiation=no")
     parts.append(f"speed={speed_value}")
+
+
+def _sanitize_legacy_embedded_secrets(text: str) -> str:
+    sanitized = text
+    for legacy, replacement in _LEGACY_SECRET_REPLACEMENTS.items():
+        sanitized = sanitized.replace(legacy, replacement)
+    return sanitized
 # All keys use {{UPPER_SNAKE_CASE}} — no regex metacharacters.
 _FTTH_TEMPLATE_RE = re.compile("|".join(re.escape(k) for k in _FTTH_TEMPLATE_KEYS))
 
@@ -220,6 +236,12 @@ MPLS_ACCEPT_FILTERS = [
     "add accept=yes disabled=no prefix=10.248.208.0/22",
     "add accept=no disabled=no prefix=0.0.0.0/0",
 ]
+
+
+def _ftth_tenant_defaults() -> tuple[dict, dict]:
+    tenant_defaults = load_tenant_defaults(include_sensitive=False)
+    infrastructure_defaults = load_infrastructure_defaults()
+    return tenant_defaults, infrastructure_defaults
 
 # ---------------------------------------------------------------------------
 # FTTH Compliance Integration — GitLab single source of truth
@@ -1121,17 +1143,36 @@ def render_ftth_config(data: dict) -> str:
                 f"interfaces=bridge3000 networks={olt2_net.network_address}/{olt2_net.prefixlen} priority=1"
             )
 
-    bgp_as = str(data.get('asn') or os.getenv('NEXTLINK_BGP_ASN', '26077')).strip() or '26077'
+    tenant_defaults, infrastructure_defaults = _ftth_tenant_defaults()
+    tenant_peers = tenant_defaults.get("routing", {}).get("route_reflector_peers", [])
+    peer_1_default = tenant_peers[0] if len(tenant_peers) > 0 and isinstance(tenant_peers[0], dict) else {}
+    peer_2_default = tenant_peers[1] if len(tenant_peers) > 1 and isinstance(tenant_peers[1], dict) else {}
+    bng_peers = tenant_defaults.get("routing", {}).get("bng_peers", {})
+    bng_peer_values = [str(value).strip() for value in bng_peers.values() if str(value).strip()]
+
+    bgp_as = str(
+        data.get('asn')
+        or tenant_defaults.get("routing", {}).get("asn")
+        or os.getenv('NEXTLINK_BGP_ASN', '26077')
+    ).strip() or '26077'
     bgp_md5_key = str(data.get('bgp_md5_key') or os.getenv('NEXTLINK_BGP_MD5_KEY', 'm8M5JwvdYM')).strip()
-    peer_1_name = str(data.get('peer_1_name') or os.getenv('NEXTLINK_BGP_PEER1_NAME', 'CR7')).strip() or 'CR7'
-    peer_2_name = str(data.get('peer_2_name') or os.getenv('NEXTLINK_BGP_PEER2_NAME', 'CR8')).strip() or 'CR8'
+    peer_1_name = str(
+        data.get('peer_1_name')
+        or peer_1_default.get("name")
+        or os.getenv('NEXTLINK_BGP_PEER1_NAME', 'CR7')
+    ).strip() or 'CR7'
+    peer_2_name = str(
+        data.get('peer_2_name')
+        or peer_2_default.get("name")
+        or os.getenv('NEXTLINK_BGP_PEER2_NAME', 'CR8')
+    ).strip() or 'CR8'
     peer_1_address = _normalize_bgp_peer_address(
         data.get('peer_1_address'),
-        os.getenv('NEXTLINK_BGP_PEER1_ADDRESS', '10.2.0.107/32'),
+        peer_1_default.get("remote") or peer_1_default.get("ip") or os.getenv('NEXTLINK_BGP_PEER1_ADDRESS', '10.2.0.107/32'),
     )
     peer_2_address = _normalize_bgp_peer_address(
         data.get('peer_2_address'),
-        os.getenv('NEXTLINK_BGP_PEER2_ADDRESS', '10.2.0.108/32'),
+        peer_2_default.get("remote") or peer_2_default.get("ip") or os.getenv('NEXTLINK_BGP_PEER2_ADDRESS', '10.2.0.108/32'),
     )
 
     if routeros_version == '7.20.2':
@@ -1165,8 +1206,17 @@ def render_ftth_config(data: dict) -> str:
         ])
 
     user_passwords = _ftth_user_passwords()
-    bng_1_ip = str(data.get('bng_1_ip') or os.getenv('NEXTLINK_BNG1_IP', '10.249.0.200')).strip()
-    bng_2_ip = str(data.get('bng_2_ip') or os.getenv('NEXTLINK_BNG2_IP', '10.249.0.201')).strip()
+    bng_1_ip = str(
+        data.get('bng_1_ip')
+        or tenant_defaults.get("routing", {}).get("default_bng_peer")
+        or (bng_peer_values[0] if len(bng_peer_values) > 0 else "")
+        or os.getenv('NEXTLINK_BNG1_IP', '10.249.0.200')
+    ).strip()
+    bng_2_ip = str(
+        data.get('bng_2_ip')
+        or (bng_peer_values[1] if len(bng_peer_values) > 1 else "")
+        or os.getenv('NEXTLINK_BNG2_IP', '10.249.0.201')
+    ).strip()
     vpls_l2mtu = str(data.get('vpls_l2_mtu') or os.getenv('NEXTLINK_VPLS_L2_MTU', '1580')).strip()
     bridge_lines = _render_bridge_lines(is_outstate=is_outstate)
     vpls_lines = _render_outstate_vpls_lines(
@@ -1229,7 +1279,11 @@ def render_ftth_config(data: dict) -> str:
         "{{OLT1_NAME}}": _fmt_comment(olt_name),
         "{{ROUTER_IDENTITY}}": router_identity,
         "{{LOCATION}}": location,
-        "{{SNMP_CONTACT}}": os.getenv('NEXTLINK_SNMP_CONTACT', 'noc@team.nxlink.com'),
+        "{{SNMP_CONTACT}}": (
+            str(data.get('snmp_contact') or "")
+            or str(infrastructure_defaults.get("snmp", {}).get("contact") or "")
+            or os.getenv('NEXTLINK_SNMP_CONTACT', 'noc@team.nxlink.com')
+        ),
         "{{GENERATED_AT}}": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "{{BGP_INSTANCE_BLOCK}}": bgp_instance_block,
         "{{BGP_TEMPLATE_LINE}}": bgp_template_line,
@@ -1266,6 +1320,7 @@ def render_ftth_config(data: dict) -> str:
 
     template = _strip_ftth_headers(template)
     template = _normalize_ftth_output(template)
+    template = _sanitize_legacy_embedded_secrets(template)
 
     if is_outstate:
         template = _enforce_outstate_ospf_area(template, ospf_area_name, ospf_area_id)

@@ -76,7 +76,9 @@
       "Bash(echo \"EXIT: $?\")",
       "Bash(where python3.13)",
       "Read(//c/Python313/**)",
-      "Bash(python3.13 -m pytest tests/ --ignore=tests/test_task_state_persistence.py -q --tb=short)"
+      "Bash(python3.13 -m pytest tests/ --ignore=tests/test_task_state_persistence.py -q --tb=short)",
+      "Bash(git fetch *)",
+      "Bash(git merge *)"
     ]
   }
 }

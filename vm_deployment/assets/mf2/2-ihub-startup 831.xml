@@ -124,7 +124,7 @@
               <local-user>
                 <user xmlns:ns1="urn:ietf:params:xml:ns:netconf:base:1.0" ns1:operation="merge">
                   <user-name>admin</user-name>
-                  <password>PONl22021234!</password>
+                  <password>CHANGE_ME_ADMIN_PASSWORD</password>
                 </user>
               </local-user>
             </user-params>

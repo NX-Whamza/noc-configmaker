@@ -46,7 +46,7 @@ import json
 import socket
 import requests
 import zipfile
-from urllib.parse import urljoin, urlencode, quote_plus
+from urllib.parse import urljoin, urlencode, quote_plus, urlparse
 from datetime import datetime, timedelta, timezone
 import time
 try:
@@ -55,6 +55,7 @@ except ImportError:
     ZoneInfo = None
 import sqlite3
 import hashlib
+import hmac
 import secrets
 from functools import wraps
 import threading
@@ -4654,9 +4655,78 @@ def ensure_chat_db():
             print(f"[CHAT] Error initializing database: {e}")
             _chat_db_initialized = True  # Mark as attempted to prevent loops
 
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = (os.getenv(name) or "").strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "y", "on"}
+
+
+def _env_int(name: str, default: int, minimum: Optional[int] = None) -> int:
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        value = default
+    else:
+        try:
+            value = int(raw)
+        except ValueError:
+            value = default
+    if minimum is not None:
+        value = max(value, minimum)
+    return value
+
+
+def _parse_cors_policy():
+    raw = (os.getenv("NOC_CORS_ORIGINS") or "").strip()
+    if raw:
+        origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+    else:
+        # Restrict cross-origin by default to local development origins.
+        origins = [
+            "http://localhost",
+            "http://127.0.0.1",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "null",
+        ]
+
+    deduped = []
+    for origin in origins:
+        if origin not in deduped:
+            deduped.append(origin)
+
+    allow_credentials = _env_flag("NOC_CORS_ALLOW_CREDENTIALS", True)
+    if "*" in deduped and allow_credentials:
+        # Browsers reject wildcard + credentials and this is an unsafe configuration.
+        allow_credentials = False
+        print("[SECURITY] Disabled credentialed CORS because NOC_CORS_ORIGINS includes '*'.")
+
+    return deduped, allow_credentials
+
+
+_CORS_ORIGINS, _CORS_ALLOW_CREDENTIALS = _parse_cors_policy()
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
-CORS(app)  # Enable CORS for local HTML file access
+CORS(
+    app,
+    origins=_CORS_ORIGINS,
+    supports_credentials=_CORS_ALLOW_CREDENTIALS,
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-API-Key",
+        "X-Key-Id",
+        "X-Timestamp",
+        "X-Nonce",
+        "X-Signature",
+        "Idempotency-Key",
+    ],
+)
 
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -4814,7 +4884,15 @@ def log_request(response):
     # Only log legitimate requests (optional - can be removed for cleaner logs)
     # if response.status_code < 400:
     #     app.logger.info(f'{client_ip} - {request.method} {request.path} - {response.status_code}')
-    
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    response.headers.setdefault('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+
+    forwarded_proto = (request.headers.get('X-Forwarded-Proto') or '').lower()
+    if request.is_secure or forwarded_proto == 'https':
+        response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+
     return response
 
 # Hot-reload endpoint (now that app exists)
@@ -17723,6 +17801,7 @@ _API_REGISTRY = [
     {"method": "POST",  "path": "/api/admin/tenants",                          "category": "Admin Management", "summary": "Create a new tenant (platform_admin only)",       "auth": True, "payload": {"slug": "str", "name": "str", "auth_mode": "str"}},
     {"method": "PATCH", "path": "/api/admin/tenants/<int:tenant_id>/status",   "category": "Admin Management", "summary": "Update tenant status (platform_admin only)",      "auth": True, "payload": {"status": "str"}},
     {"method": "GET",   "path": "/api/admin/users",                            "category": "Admin Management", "summary": "List users with memberships (platform_admin only)","auth": True},
+    {"method": "PATCH", "path": "/api/admin/users/<int:user_id>/platform-role", "category": "Admin Management", "summary": "Update user platform role (platform_admin only)",   "auth": True, "payload": {"platform_role": "str"}},
     {"method": "PATCH", "path": "/api/admin/users/<int:user_id>/membership",   "category": "Admin Management", "summary": "Upsert user membership (platform_admin only)",    "auth": True, "payload": {"tenant_id": "int", "role": "str", "status": "str"}},
     {"method": "GET",  "path": "/api/tenant-settings",        "category": "Tenant Settings", "summary": "Get settings for active tenant",           "auth": True},
     {"method": "PUT",  "path": "/api/tenant-settings",        "category": "Tenant Settings", "summary": "Update settings for active tenant (admin)", "auth": True},
@@ -18415,7 +18494,12 @@ def admin_reset_user_password():
         c.execute('SELECT id FROM users WHERE email = ?', (email,))
         user = c.fetchone()
 
-        effective_password = new_password or DEFAULT_PASSWORD
+        if new_password:
+            effective_password = new_password
+            expose_temp_password = False
+        else:
+            effective_password = DEFAULT_PASSWORD or secrets.token_urlsafe(18)
+            expose_temp_password = True
         new_password_hash = hash_password(effective_password)
 
         if not user:
@@ -18432,7 +18516,7 @@ def admin_reset_user_password():
             return jsonify({
                 'success': True,
                 'message': 'User created and password set',
-                'temporaryPassword': effective_password if not new_password else None,
+                'temporaryPassword': effective_password if expose_temp_password else None,
                 'requirePasswordChange': require_change
             })
 
@@ -18452,7 +18536,7 @@ def admin_reset_user_password():
         return jsonify({
             'success': True,
             'message': 'Password reset successfully',
-            'temporaryPassword': effective_password if not new_password else None,
+            'temporaryPassword': effective_password if expose_temp_password else None,
             'requirePasswordChange': require_change
         })
 
@@ -18718,7 +18802,7 @@ def admin_list_users():
         for user_row in c.fetchall():
             user = dict(user_row)
             c.execute('''
-                SELECT m.role, m.status, m.is_default, t.slug, t.name
+                SELECT m.tenant_id, m.role, m.status, m.is_default, t.slug, t.name
                 FROM user_tenant_memberships AS m
                 JOIN tenants AS t ON t.id = m.tenant_id
                 WHERE m.user_id = ?
@@ -18730,6 +18814,58 @@ def admin_list_users():
         return jsonify({'success': True, 'users': users})
     except Exception as e:
         print(f"[ADMIN] List users failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:user_id>/platform-role', methods=['PATCH'])
+@require_auth
+def admin_update_user_platform_role(user_id):
+    """Update a user's platform role. Requires platform_admin."""
+    try:
+        if not _can_manage_platform():
+            return jsonify({'error': 'Platform admin access required'}), 403
+        data = request.get_json(silent=True) or {}
+        platform_role = (data.get('platform_role') or '').strip()
+        valid_platform_roles = {'user', 'platform_support', 'platform_admin'}
+        if platform_role not in valid_platform_roles:
+            return jsonify({'error': f"platform_role must be one of: {', '.join(sorted(valid_platform_roles))}"}), 400
+
+        init_users_db()
+        secure_dir = 'secure_data'
+        db_path = os.path.join(secure_dir, 'users.db')
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        c.execute('SELECT id, email, platform_role, is_platform_admin, is_active FROM users WHERE id = ?', (user_id,))
+        target_user = c.fetchone()
+        if not target_user:
+            conn.close()
+            return jsonify({'error': 'User not found'}), 404
+
+        current_role = target_user['platform_role'] or ('platform_admin' if target_user['is_platform_admin'] else 'user')
+        if current_role == 'platform_admin' and platform_role != 'platform_admin':
+            c.execute('SELECT COUNT(1) AS cnt FROM users WHERE (platform_role = ? OR is_platform_admin = 1) AND is_active = 1',
+                      ('platform_admin',))
+            admin_count_row = c.fetchone()
+            admin_count = int(admin_count_row['cnt']) if admin_count_row else 0
+            if admin_count <= 1:
+                conn.close()
+                return jsonify({'error': 'Cannot remove the last active platform admin'}), 400
+
+        is_platform_admin = 1 if platform_role == 'platform_admin' else 0
+        c.execute(
+            'UPDATE users SET platform_role = ?, is_platform_admin = ? WHERE id = ?',
+            (platform_role, is_platform_admin, user_id)
+        )
+        conn.commit()
+        c.execute('SELECT id, email, platform_role, is_platform_admin, is_active FROM users WHERE id = ?', (user_id,))
+        updated_user = dict(c.fetchone())
+        conn.close()
+        _write_audit_log('membership_change', detail={'platform_role': platform_role}, target_user_id=user_id)
+        return jsonify({'success': True, 'user': updated_user})
+    except Exception as e:
+        print(f"[ADMIN] Update platform role failed: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -18829,7 +18965,13 @@ def update_tenant_settings():
             'compliance_dns_primary', 'compliance_dns_secondary',
             'compliance_ntp', 'compliance_syslog', 'compliance_snmp_community',
             'compliance_radius_primary', 'compliance_radius_secondary',
+            # Branding fields
+            'brand_name', 'logo_url', 'primary_color', 'favicon_url',
         }
+        for url_field in ('logo_url', 'favicon_url'):
+            val = data.get(url_field, '')
+            if val and urlparse(val).scheme not in {'http', 'https', ''}:
+                return jsonify({'success': False, 'error': 'Invalid URL scheme for logo_url or favicon_url'}), 400
         updates = {k: v for k, v in data.items() if k in allowed_fields}
         if not updates:
             return jsonify({'error': 'No valid fields provided'}), 400
@@ -18844,6 +18986,23 @@ def update_tenant_settings():
         params = list(updates.values()) + [tenant_id]
         conn.execute(f'UPDATE tenant_settings SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ?', params)
         conn.commit()
+        try:
+            branding_col_map = {
+                'brand_name': 'company_name',
+                'logo_url': 'logo_url',
+                'primary_color': 'primary_color',
+                'favicon_url': 'favicon_url',
+            }
+            branding_updates = {branding_col_map[k]: v for k, v in updates.items() if k in branding_col_map}
+            if branding_updates:
+                set_clause_t = ', '.join(f'{col} = ?' for col in branding_updates)
+                conn.execute(
+                    f'UPDATE tenants SET {set_clause_t} WHERE id = ?',
+                    list(branding_updates.values()) + [tenant_id]
+                )
+                conn.commit()
+        except Exception as e:
+            app.logger.error('[BRANDING SYNC] Failed to mirror branding to tenants table: %s', e)
         settings = _get_tenant_settings_row(conn, tenant_id)
         conn.close()
         return jsonify({'success': True, 'settings': settings})
@@ -18888,7 +19047,13 @@ def admin_update_tenant_settings(tenant_id):
             'compliance_dns_primary', 'compliance_dns_secondary',
             'compliance_ntp', 'compliance_syslog', 'compliance_snmp_community',
             'compliance_radius_primary', 'compliance_radius_secondary',
+            # Branding fields
+            'brand_name', 'logo_url', 'primary_color', 'favicon_url',
         }
+        for url_field in ('logo_url', 'favicon_url'):
+            val = data.get(url_field, '')
+            if val and urlparse(val).scheme not in {'http', 'https', ''}:
+                return jsonify({'success': False, 'error': 'Invalid URL scheme for logo_url or favicon_url'}), 400
         updates = {k: v for k, v in data.items() if k in allowed_fields}
         if not updates:
             return jsonify({'error': 'No valid fields provided'}), 400
@@ -18903,6 +19068,23 @@ def admin_update_tenant_settings(tenant_id):
         params = list(updates.values()) + [tenant_id]
         conn.execute(f'UPDATE tenant_settings SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ?', params)
         conn.commit()
+        try:
+            branding_col_map = {
+                'brand_name': 'company_name',
+                'logo_url': 'logo_url',
+                'primary_color': 'primary_color',
+                'favicon_url': 'favicon_url',
+            }
+            branding_updates = {branding_col_map[k]: v for k, v in updates.items() if k in branding_col_map}
+            if branding_updates:
+                set_clause_t = ', '.join(f'{col} = ?' for col in branding_updates)
+                conn.execute(
+                    f'UPDATE tenants SET {set_clause_t} WHERE id = ?',
+                    list(branding_updates.values()) + [tenant_id]
+                )
+                conn.commit()
+        except Exception as e:
+            app.logger.error('[BRANDING SYNC] Failed to mirror branding to tenants table: %s', e)
         settings = _get_tenant_settings_row(conn, tenant_id)
         conn.close()
         return jsonify({'success': True, 'settings': settings})
@@ -19222,10 +19404,13 @@ def toolbox_inventory():
 
 # JWT Secret Key (in production, use environment variable)
 JWT_SECRET = os.getenv('JWT_SECRET', secrets.token_urlsafe(32))
-DEFAULT_PASSWORD = os.getenv('DEFAULT_PASSWORD')
+DEFAULT_PASSWORD = (os.getenv('DEFAULT_PASSWORD') or '').strip()
+AUTH_EXPOSE_RESET_TOKEN = _env_flag('AUTH_EXPOSE_RESET_TOKEN', False)
+SSO_STATE_MAX_AGE_SECONDS = _env_int('SSO_STATE_MAX_AGE_SECONDS', 600, minimum=60)
+PASSWORD_HASH_ITERATIONS = _env_int('PASSWORD_HASH_ITERATIONS', 310000, minimum=100000)
+
 if not DEFAULT_PASSWORD:
-    safe_print('[CRITICAL] DEFAULT_PASSWORD env var is not set. New user provisioning will fail until it is set.')
-    DEFAULT_PASSWORD = 'NOCConfig2025!'  # legacy fallback only - set DEFAULT_PASSWORD env var in production
+    print("[SECURITY] DEFAULT_PASSWORD is not set; implicit new-user bootstrap login is disabled.")
 
 # Azure AD Configuration (for Microsoft SSO)
 AZURE_CLIENT_ID = os.getenv('AZURE_CLIENT_ID', '0563f465-0f3b-466b-a193-90c9e6dd79d6')
@@ -19319,7 +19504,7 @@ def _seed_default_tenant_settings(conn, tenant_id):
         ntp_primary TEXT DEFAULT 'pool.ntp.org',
         ntp_secondary TEXT DEFAULT 'time.cloudflare.com',
         snmp_community TEXT DEFAULT 'public',
-        snmp_contact TEXT DEFAULT 'netops@team.nxlink.com',
+        snmp_contact TEXT DEFAULT 'noc@example.com',
         snmp_location_prefix TEXT DEFAULT '',
         radius_primary TEXT DEFAULT '',
         radius_secondary TEXT DEFAULT '',
@@ -19356,6 +19541,19 @@ def _seed_default_tenant_settings(conn, tenant_id):
     c.execute('PRAGMA table_info(tenant_settings)')
     existing_cols = {r[1] for r in c.fetchall()}
     for col, typedef in _b10_new_cols.items():
+        if col not in existing_cols:
+            c.execute(f'ALTER TABLE tenant_settings ADD COLUMN {col} {typedef}')
+
+    # Batch 11: tenant branding columns
+    _b11_new_cols = {
+        'brand_name': 'TEXT DEFAULT ""',
+        'logo_url': 'TEXT DEFAULT ""',
+        'primary_color': 'TEXT DEFAULT ""',
+        'favicon_url': 'TEXT DEFAULT ""',
+    }
+    c.execute('PRAGMA table_info(tenant_settings)')
+    existing_cols = {r[1] for r in c.fetchall()}
+    for col, typedef in _b11_new_cols.items():
         if col not in existing_cols:
             c.execute(f'ALTER TABLE tenant_settings ADD COLUMN {col} {typedef}')
 
@@ -19763,19 +19961,71 @@ def init_users_db():
     print(f"[AUTH] Users database initialized at {db_path}")
     return db_path
 
+def _pbkdf2_sha256(password: str, salt_hex: str, iterations: int) -> str:
+    salt = bytes.fromhex(salt_hex)
+    digest = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, iterations)
+    return digest.hex()
+
+
+def _hash_reset_token(token: str) -> str:
+    return hashlib.sha256(token.encode('utf-8')).hexdigest()
+
+
 def hash_password(password):
-    """Hash password using SHA-256 with salt"""
+    """Hash password using PBKDF2-HMAC-SHA256."""
     salt = secrets.token_hex(16)
-    password_hash = hashlib.sha256((password + salt).encode()).hexdigest()
-    return f"{salt}:{password_hash}"
+    password_hash = _pbkdf2_sha256(password, salt, PASSWORD_HASH_ITERATIONS)
+    return f"pbkdf2_sha256${PASSWORD_HASH_ITERATIONS}${salt}${password_hash}"
 
 def verify_password(password, password_hash):
-    """Verify password against hash"""
+    """Verify password against modern and legacy hashes."""
     try:
-        salt, stored_hash = password_hash.split(':')
-        computed_hash = hashlib.sha256((password + salt).encode()).hexdigest()
-        return computed_hash == stored_hash
+        if not password_hash:
+            return False
+
+        # Current format: pbkdf2_sha256$<iterations>$<salt_hex>$<digest_hex>
+        if str(password_hash).startswith('pbkdf2_sha256$'):
+            _, iterations_raw, salt_hex, stored_hash = str(password_hash).split('$', 3)
+            iterations = int(iterations_raw)
+            computed_hash = _pbkdf2_sha256(password, salt_hex, iterations)
+            return hmac.compare_digest(computed_hash, stored_hash)
+
+        # Legacy format compatibility: <salt_hex>:<sha256_hex>
+        if ':' in str(password_hash):
+            salt, stored_hash = str(password_hash).split(':', 1)
+            computed_hash = hashlib.sha256((password + salt).encode()).hexdigest()
+            return hmac.compare_digest(computed_hash, stored_hash)
+
+        return False
     except:
+        return False
+
+
+def _issue_sso_state_token() -> str:
+    nonce = secrets.token_urlsafe(24)
+    issued_at = int(time.time())
+    payload = f"{nonce}.{issued_at}"
+    signature = hmac.new(JWT_SECRET.encode('utf-8'), payload.encode('utf-8'), hashlib.sha256).hexdigest()
+    return f"{payload}.{signature}"
+
+
+def _verify_sso_state_token(state_token: str) -> bool:
+    try:
+        nonce, issued_at_raw, signature = str(state_token or '').split('.', 2)
+        if not nonce or not issued_at_raw or not signature:
+            return False
+        payload = f"{nonce}.{issued_at_raw}"
+        expected = hmac.new(JWT_SECRET.encode('utf-8'), payload.encode('utf-8'), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, signature):
+            return False
+        issued_at = int(issued_at_raw)
+        now_ts = int(time.time())
+        if now_ts - issued_at > SSO_STATE_MAX_AGE_SECONDS:
+            return False
+        if issued_at > now_ts + 60:
+            return False
+        return True
+    except Exception:
         return False
 
 def generate_token(user_id, email):
@@ -20247,14 +20497,41 @@ def _can_reset_passwords():
 def _can_manage_platform():
     return bool(_get_request_access_context()['permissions'].get('platformAdmin'))
 
+
+_AUTH_RATE_LIMIT_LOCK = threading.Lock()
+_AUTH_RATE_LIMIT: dict[str, list[float]] = {}
+
+
+def _rate_limit_allow(bucket: str, limit: int, window_seconds: int) -> bool:
+    now = time.time()
+    cutoff = now - max(window_seconds, 1)
+    with _AUTH_RATE_LIMIT_LOCK:
+        hits = [ts for ts in _AUTH_RATE_LIMIT.get(bucket, []) if ts >= cutoff]
+        if len(hits) >= max(limit, 1):
+            _AUTH_RATE_LIMIT[bucket] = hits
+            return False
+        hits.append(now)
+        _AUTH_RATE_LIMIT[bucket] = hits
+        return True
+
+
+def _rate_limit_reset(bucket: str) -> None:
+    with _AUTH_RATE_LIMIT_LOCK:
+        _AUTH_RATE_LIMIT.pop(bucket, None)
+
 @app.route('/api/auth/login', methods=['POST'])
 @limiter.limit("10 per minute", exempt_when=lambda: bool(os.environ.get('PYTEST_CURRENT_TEST')) or app.config.get('TESTING', False))
 def auth_login():
     """Email/password login endpoint"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         email = data.get('email', '').strip().lower()
         password = data.get('password', '')
+
+        client_ip = str(request.headers.get('X-Forwarded-For') or request.remote_addr or 'unknown').split(',')[0].strip()
+        login_bucket = f"auth_login:{client_ip}:{email}"
+        if not _rate_limit_allow(login_bucket, limit=12, window_seconds=300):
+            return jsonify({'success': False, 'error': 'Too many login attempts. Please wait a few minutes.'}), 429
         
         if not email or not password:
             return jsonify({'success': False, 'error': 'Email and password required'}), 400
@@ -20277,6 +20554,12 @@ def auth_login():
         user = c.fetchone()
         
         if not user:
+            if not DEFAULT_PASSWORD:
+                conn.close()
+                return jsonify({
+                    'success': False,
+                    'error': 'Account not provisioned. Contact an admin to set your password.'
+                }), 401
             # Create new user with default password
             password_hash = hash_password(DEFAULT_PASSWORD)
             c.execute('''INSERT INTO users (email, password_hash, display_name, first_login)
@@ -20300,6 +20583,7 @@ def auth_login():
             conn.commit()
             conn.close()
             _write_audit_log('login', detail={'method': 'password'}, target_email=email)
+            _rate_limit_reset(login_bucket)
             return jsonify({
                 'success': True,
                 'token': token,
@@ -20312,6 +20596,9 @@ def auth_login():
                 'requiresPasswordChange': True
             })
         else:
+            if int(user['is_active'] or 0) != 1:
+                conn.close()
+                return jsonify({'success': False, 'error': 'Account is disabled'}), 403
             # Existing user - verify password
             if not verify_password(password, user['password_hash']):
                 conn.close()
@@ -20329,6 +20616,7 @@ def auth_login():
             token = generate_token(user['id'], email)
             conn.close()
             _write_audit_log('login', detail={'method': 'password'}, target_email=email)
+            _rate_limit_reset(login_bucket)
             return jsonify({
                 'success': True,
                 'token': token,
@@ -20366,7 +20654,7 @@ def auth_microsoft():
             'redirect_uri': redirect_uri,
             'response_mode': 'query',
             'scope': 'openid email profile User.Read',
-            'state': secrets.token_urlsafe(32)
+            'state': _issue_sso_state_token()
         }
         auth_url_full = f"{auth_base}?{urlencode(params)}"
 
@@ -20397,6 +20685,10 @@ def auth_callback():
     code = request.args.get('code')
     if not code:
         return _sso_redirect_with_error("No authorization code received from Microsoft.")
+
+    state_token = (request.args.get('state') or '').strip()
+    if not _verify_sso_state_token(state_token):
+        return _sso_redirect_with_error("Invalid or expired SSO state. Please try logging in again.")
 
     # ── exchange auth code for tokens ──────────────────────────────
     redirect_uri = f"{request.host_url}auth/callback"
@@ -20619,11 +20911,16 @@ def change_password():
 def forgot_password():
     """Request password reset (sends reset link - placeholder)"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         email = data.get('email', '').strip().lower()
         
         if not email:
             return jsonify({'success': False, 'error': 'Email required'}), 400
+
+        client_ip = str(request.headers.get('X-Forwarded-For') or request.remote_addr or 'unknown').split(',')[0].strip()
+        forgot_bucket = f"auth_forgot:{client_ip}:{email}"
+        if not _rate_limit_allow(forgot_bucket, limit=6, window_seconds=900):
+            return jsonify({'success': False, 'error': 'Too many reset attempts. Please try again later.'}), 429
 
         if not validate_email_domain(email):
             return jsonify({'success': False, 'error': 'Invalid email domain'}), 403
@@ -20642,21 +20939,24 @@ def forgot_password():
         if user:
             reset_token = secrets.token_urlsafe(32)
             expires_at = int(time.time()) + (60 * 60)  # 1 hour
+            token_hash = _hash_reset_token(reset_token)
             c.execute('''UPDATE users
                          SET reset_token = ?, reset_token_expires = ?
                          WHERE id = ?''',
-                      (reset_token, expires_at, user['id']))
+                      (token_hash, expires_at, user['id']))
             conn.commit()
 
         conn.close()
 
         # In production, send password reset email.
         # For now, return token when available so UI can redirect to reset.
-        return jsonify({
+        response_payload = {
             'success': True,
             'message': 'If an account exists with this email, a password reset link has been sent.',
-            'resetToken': reset_token
-        })
+        }
+        if AUTH_EXPOSE_RESET_TOKEN and reset_token:
+            response_payload['resetToken'] = reset_token
+        return jsonify(response_payload)
             
     except Exception as e:
         print(f"[AUTH ERROR] Forgot password failed: {e}")
@@ -20666,10 +20966,15 @@ def forgot_password():
 def reset_password():
     """Reset password using a reset token (no current password required)."""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         email = data.get('email', '').strip().lower()
         reset_token = data.get('resetToken', '').strip()
         new_password = data.get('newPassword', '')
+
+        client_ip = str(request.headers.get('X-Forwarded-For') or request.remote_addr or 'unknown').split(',')[0].strip()
+        reset_bucket = f"auth_reset:{client_ip}:{email}"
+        if not _rate_limit_allow(reset_bucket, limit=12, window_seconds=900):
+            return jsonify({'success': False, 'error': 'Too many reset attempts. Please try again later.'}), 429
 
         if not email or not reset_token or not new_password:
             return jsonify({'success': False, 'error': 'Email, reset token, and new password are required'}), 400
@@ -20694,7 +20999,13 @@ def reset_password():
             return jsonify({'success': False, 'error': 'Invalid reset token'}), 400
 
         expires_at = user['reset_token_expires'] or 0
-        if user['reset_token'] != reset_token or int(time.time()) > int(expires_at):
+        stored_token = str(user['reset_token'] or '')
+        token_hash = _hash_reset_token(reset_token)
+        is_valid_token = (
+            hmac.compare_digest(stored_token, token_hash)
+            or hmac.compare_digest(stored_token, reset_token)  # Backward compatibility for legacy plaintext tokens
+        )
+        if (not is_valid_token) or int(time.time()) > int(expires_at):
             conn.close()
             return jsonify({'success': False, 'error': 'Invalid or expired reset token'}), 400
 
@@ -20709,6 +21020,7 @@ def reset_password():
                  (new_password_hash, user['id']))
         conn.commit()
         conn.close()
+        _rate_limit_reset(reset_bucket)
 
         return jsonify({'success': True, 'message': 'Password reset successfully'})
 
@@ -20733,7 +21045,7 @@ def verify_auth():
         bootstrap = _load_session_bootstrap_for_user(user_info['user_id'])
         if not bootstrap:
             return jsonify({'success': False, 'authenticated': False}), 404
-        
+
         return jsonify({
             'success': True,
             'authenticated': True,
@@ -28209,24 +28521,71 @@ def get_tenant_branding():
     return jsonify({'success': True, 'branding': dict(row)})
 
 
-@app.route('/api/admin/tenants/<int:tenant_id>/branding', methods=['PUT'])
+@app.route('/api/admin/tenants/<int:tenant_id>/branding', methods=['GET', 'PUT'])
 @require_auth
 def update_tenant_branding(tenant_id):
-    """Update branding for a tenant. Platform admin only."""
+    """Get or update branding for a tenant. Platform admin only."""
     if _platform_role_for_email((getattr(request, 'current_user', {}) or {}).get('email', '')) != 'platform_admin':
         return jsonify({'error': 'Platform admin required'}), 403
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    if request.method == 'GET':
+        c = conn.cursor()
+        c.execute('SELECT company_name, logo_url, primary_color, favicon_url, custom_domain FROM tenants WHERE id = ?', (tenant_id,))
+        row = c.fetchone()
+        conn.close()
+        return jsonify({'success': True, 'branding': dict(row) if row else {}})
     data = request.json or {}
     allowed = ('logo_url', 'primary_color', 'company_name', 'custom_domain', 'favicon_url')
     updates = {k: v for k, v in data.items() if k in allowed}
     if not updates:
+        conn.close()
         return jsonify({'error': 'No valid fields provided'}), 400
     sets = ', '.join(f'{k} = ?' for k in updates)
-    db = init_users_db()
-    conn = sqlite3.connect(str(db))
     conn.execute(f'UPDATE tenants SET {sets} WHERE id = ?', (*updates.values(), tenant_id))
     conn.commit()
     conn.close()
     return jsonify({'success': True})
+
+
+@app.route('/api/admin/tenants/<int:tenant_id>/logo', methods=['POST'])
+@require_auth
+def upload_tenant_logo(tenant_id):
+    """Upload a logo image for a tenant. Saves to secure_data/logos/, served via /api/logos/."""
+    if _platform_role_for_email((getattr(request, 'current_user', {}) or {}).get('email', '')) != 'platform_admin':
+        return jsonify({'error': 'Platform admin required'}), 403
+    f = request.files.get('logo')
+    if not f or not f.filename:
+        return jsonify({'error': 'No file provided'}), 400
+    ext = os.path.splitext(f.filename)[1].lower()
+    allowed_exts = {'.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico'}
+    if ext not in allowed_exts:
+        return jsonify({'error': f'Unsupported file type: {ext}'}), 400
+    logos_dir = os.path.join('secure_data', 'logos')
+    os.makedirs(logos_dir, exist_ok=True)
+    filename = f'tenant_{tenant_id}_logo{ext}'
+    save_path = os.path.join(logos_dir, filename)
+    f.save(save_path)
+    url = f'/api/logos/{filename}'
+    # Also update the tenant's logo_url in the DB
+    db = init_users_db()
+    conn = sqlite3.connect(str(db))
+    conn.execute('UPDATE tenants SET logo_url = ? WHERE id = ?', (url, tenant_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'url': url})
+
+
+@app.route('/api/logos/<path:filename>', methods=['GET'])
+def serve_tenant_logo(filename):
+    """Serve uploaded tenant logos (no auth required — logos are semi-public branding assets)."""
+    logos_dir = os.path.abspath(os.path.join('secure_data', 'logos'))
+    # Prevent path traversal
+    target = os.path.abspath(os.path.join(logos_dir, filename))
+    if not target.startswith(logos_dir + os.sep) and target != logos_dir:
+        return jsonify({'error': 'Not found'}), 404
+    return send_from_directory(logos_dir, filename)
 
 
 # ============================================================

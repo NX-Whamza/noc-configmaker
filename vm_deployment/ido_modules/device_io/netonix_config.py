@@ -19,8 +19,11 @@ import logging
 DEBUG = True
 
 DEFAULT_USERNAME = "admin"
-DEFAULT_PASSWORD = "admin"
-#DEFAULT_PASSWORD = os.getenv("SWT_STANDARD_PW")
+DEFAULT_PASSWORD = (
+    os.getenv("SWT_STANDARD_PW")
+    or os.getenv("NEXTLINK_SSH_PASSWORD")
+    or ""
+).strip()
 
 TIMEOUT = 10
 
@@ -77,6 +80,10 @@ class NetonixConfig:
             # self.gateway = params.get("gateway")
             self.username = params.get("username", DEFAULT_USERNAME)
             self.password = params.get("password", DEFAULT_PASSWORD)
+            if not str(self.password or "").strip():
+                raise ValueError(
+                    "Missing switch password. Provide params['password'] or set SWT_STANDARD_PW/NEXTLINK_SSH_PASSWORD."
+                )
             self.ap_count = params.get("ap_count", "6")
             self.latitude = params.get("latitude", "0")
             self.longitude = params.get("longitude", "0")

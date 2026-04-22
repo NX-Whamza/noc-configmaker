@@ -214,6 +214,7 @@ def test_ftth_forced_speed_keeps_auto_negotiation_no_with_speed():
 def test_ftth_bgp_connections_use_dynamic_peer_inputs_and_loopback_router_id():
     payload = _ui_payload("instate")
     payload["loopback_ip"] = "10.26.1.108/32"
+    payload["asn"] = "26077"
     payload["peer_1_name"] = "CR7"
     payload["peer_1_address"] = "10.2.0.107/32"
     payload["peer_2_name"] = "CR8"
@@ -228,3 +229,30 @@ def test_ftth_bgp_connections_use_dynamic_peer_inputs_and_loopback_router_id():
     assert "set default as=26077 disabled=no output.network=bgp-networks router-id=10.26.1.108" in config
     assert "add as=26077 cisco-vpls-nlri-len-fmt=auto-bits connect=yes disabled=no listen=yes local.address=10.26.1.108 .role=ibgp multihop=yes name=CR7 output.network=bgp-networks remote.address=10.2.0.107/32 .as=26077 .port=179 router-id=10.26.1.108 routing-table=main" in config
     assert "add as=26077 cisco-vpls-nlri-len-fmt=auto-bits connect=yes disabled=no listen=yes local.address=10.26.1.108 .role=ibgp multihop=yes name=CR8 output.network=bgp-networks remote.address=10.2.0.108/32 .as=26077 .port=179 router-id=10.26.1.108 routing-table=main" in config
+
+
+def test_ftth_bng_prefers_tenant_defaults_when_payload_values_are_omitted(monkeypatch):
+    monkeypatch.setenv("NEXUS_DEFAULT_ASN", "64512")
+    monkeypatch.setenv(
+        "NEXUS_ROUTE_REFLECTOR_PEERS_JSON",
+        '[{"name":"RR-PRIMARY","remote":"10.10.10.10/32"},{"name":"RR-SECONDARY","remote":"10.10.10.11/32"}]',
+    )
+    monkeypatch.setenv("NEXUS_BNG_PEERS_JSON", '{"TX":"10.20.30.40","NE":"10.20.30.41"}')
+    monkeypatch.setenv("NEXUS_SNMP_CONTACT", "noc@acme.example")
+
+    payload = _ui_payload("instate")
+    payload["loopback_ip"] = "10.26.1.108/32"
+
+    response = client.post("/api/generate-ftth-bng", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data.get("success") is True
+    config = data.get("config", "")
+
+    assert "set default as=64512 disabled=no output.network=bgp-networks router-id=10.26.1.108" in config
+    assert "name=RR-PRIMARY" in config
+    assert "remote.address=10.10.10.10/32" in config
+    assert "name=RR-SECONDARY" in config
+    assert "remote.address=10.10.10.11/32" in config
+    assert "name=vpls1000-bng1" not in config
+    assert "noc@acme.example" in config

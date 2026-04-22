@@ -6,6 +6,12 @@
 ADMIN_EMAILS=netops@team.nxlink.com,whamza@team.nxlink.com
 # JWT_SECRET=your-secret-here
 # DEFAULT_PASSWORD=CHANGE_ME
+# AUTH_EXPOSE_RESET_TOKEN=false
+# PASSWORD_HASH_ITERATIONS=310000
+# SSO_STATE_MAX_AGE_SECONDS=600
+# CORS allow-list (comma-separated). Avoid '*' when credentials are enabled.
+# NOC_CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+# NOC_CORS_ALLOW_CREDENTIALS=true
 
 # AI Provider (optional — OpenAI-compatible endpoint for AI features)
 # OPENAI_API_KEY=your-key-here
@@ -25,7 +31,7 @@ AZURE_CLIENT_SECRET=PASTE_YOUR_CLIENT_SECRET_HERE
 # NEXTLINK_SNMP_CONTACT=netops@team.nxlink.com
 
 # RADIUS defaults (optional; used by /api/infrastructure to autofill the UI)
-# NEXTLINK_RADIUS_SECRET=Nl22021234
+# NEXTLINK_RADIUS_SECRET=CHANGE_ME
 # NEXTLINK_RADIUS_DHCP_SERVERS=142.147.112.17,142.147.112.18
 # NEXTLINK_RADIUS_LOGIN_SERVERS=142.147.112.17,142.147.112.18
 

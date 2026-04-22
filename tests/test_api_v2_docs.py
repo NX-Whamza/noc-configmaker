@@ -48,6 +48,8 @@ def test_docs_openapi_contains_nexus_contract_endpoints_only():
     assert "/api/v2/nexus/workflows" in paths
     assert "/api/v2/nexus/catalog/actions" in paths
     assert "/api/v2/nexus/tenant/defaults" in paths
+    assert "/api/v2/nexus/app-config" in paths
+    assert "/api/v2/nexus/infrastructure" in paths
     assert "/api/v2/nexus/jobs" in paths
     assert "/api/v2/nexus/jobs/{job_id}" in paths
     assert "/api/v2/nexus/jobs/{job_id}/events" in paths
@@ -101,3 +103,12 @@ def test_docs_openapi_is_nexus_first():
     assert "/api/v2/nexus/*" in schema["info"]["description"]
     assert "Compatibility aliases remain mounted for legacy clients" in schema["info"]["description"]
     assert all(path.startswith("/api/v2/nexus/") for path in schema["paths"])
+
+
+def test_markdown_api_doc_is_nexus_first():
+    text = API_V2_MD.read_text(encoding="utf-8")
+    assert "Primary published API: `https://noc-configmaker.nxlink.com/api/v2/nexus/*`" in text
+    assert "Compatibility aliases: `https://noc-configmaker.nxlink.com/api/v2/omni/*`" in text
+    assert "## Published NEXUS Endpoint List" in text
+    assert "GET /api/v2/nexus/health" in text
+    assert "POST /api/v2/nexus/jobs" in text

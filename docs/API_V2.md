@@ -1,15 +1,16 @@
-# NEXUS API v2
+# NOC ConfigMaker API v2
 
-This is the production contract for OMNI and other API clients.
+This is the production contract for NEXUS and other API clients.
 Everything below uses exact request/response JSON shapes with no abbreviated payloads.
 Public examples should be read as tenant-neutral contract examples, not Nextlink-only operational defaults.
 
 ## Base URL
 
-- API: `https://nexus.nxlink.com/api/v2`
-- OMNI aliases: `https://nexus.nxlink.com/api/v2/omni/*`
-- Interactive Swagger: `https://nexus.nxlink.com/docs`
-- UI: `https://nexus.nxlink.com/l`
+- API root: `https://noc-configmaker.nxlink.com/api/v2`
+- Primary published API: `https://noc-configmaker.nxlink.com/api/v2/nexus/*`
+- Compatibility aliases: `https://noc-configmaker.nxlink.com/api/v2/omni/*`
+- Interactive Swagger: `https://noc-configmaker.nxlink.com/docs`
+- UI: `https://noc-configmaker.nxlink.com/l`
 
 ## Authentication
 
@@ -20,7 +21,7 @@ Accepted headers:
 - `X-API-Key: <OMNI_API_KEY>`
 - `Authorization: Bearer <OMNI_API_KEY>`
 
-Recommended OMNI profile:
+Recommended client profile:
 
 - `NOC_API_V2_REQUIRE_SIGNATURE=false`
 - `NOC_API_V2_REQUIRE_IDEMPOTENCY=true`
@@ -28,21 +29,21 @@ Recommended OMNI profile:
 
 Example key config:
 
-- `NOC_API_KEYS_JSON={"omni-prod-key":["admin"],"omni-read-key":["health.read","actions.read","job.read"]}`
+- `NOC_API_KEYS_JSON={"nexus-prod-key":["admin"],"nexus-read-key":["health.read","actions.read","job.read"]}`
 
 ## Common Headers
 
 Read requests (`GET`):
 
 ```http
-X-API-Key: omni-prod-key
+X-API-Key: nexus-prod-key
 Content-Type: application/json
 ```
 
 Mutating requests (`POST`, `PUT`, `PATCH`):
 
 ```http
-X-API-Key: omni-prod-key
+X-API-Key: nexus-prod-key
 Content-Type: application/json
 Idempotency-Key: 1dbff6c0-4676-4c48-85f1-49b40d09c89a
 ```
@@ -80,20 +81,30 @@ Idempotency-Key: 1dbff6c0-4676-4c48-85f1-49b40d09c89a
 - `422`: validation failure (for example missing `action`)
 - `503`: API key config not set on server
 
-## Full OMNI Endpoint List
+## Published NEXUS Endpoint List
 
-- `GET /api/v2/omni/health`
-- `GET /api/v2/omni/whoami`
-- `GET /api/v2/omni/actions`
-- `GET /api/v2/omni/bootstrap`
-- `GET /api/v2/omni/workflows`
-- `POST /api/v2/omni/jobs`
-- `GET /api/v2/omni/jobs`
-- `GET /api/v2/omni/jobs/{job_id}`
-- `GET /api/v2/omni/jobs/{job_id}/events`
-- `POST /api/v2/omni/jobs/{job_id}/cancel`
-- `PUT /api/v2/omni/jobs/{job_id}/cancel`
-- `PATCH /api/v2/omni/jobs/{job_id}`
+- `GET /api/v2/nexus/health`
+- `GET /api/v2/nexus/whoami`
+- `GET /api/v2/nexus/actions`
+- `GET /api/v2/nexus/bootstrap`
+- `GET /api/v2/nexus/workflows`
+- `GET /api/v2/nexus/catalog/actions`
+- `GET /api/v2/nexus/tenant/defaults`
+- `GET /api/v2/nexus/app-config`
+- `GET /api/v2/nexus/infrastructure`
+- `POST /api/v2/nexus/jobs`
+- `GET /api/v2/nexus/jobs`
+- `GET /api/v2/nexus/jobs/{job_id}`
+- `GET /api/v2/nexus/jobs/{job_id}/events`
+- `POST /api/v2/nexus/jobs/{job_id}/cancel`
+- `PUT /api/v2/nexus/jobs/{job_id}/cancel`
+- `PATCH /api/v2/nexus/jobs/{job_id}`
+
+## Compatibility Aliases
+
+- OMNI compatibility aliases remain mounted at `/api/v2/omni/*`.
+- Swagger and the filtered OpenAPI document at `/docs` intentionally publish only the NEXUS paths.
+- Existing OMNI clients may keep using `/api/v2/omni/*`, but new integrations should target `/api/v2/nexus/*`.
 
 ## Contract Direction
 
@@ -106,7 +117,7 @@ Idempotency-Key: 1dbff6c0-4676-4c48-85f1-49b40d09c89a
 
 ### Request
 
-`GET https://nexus.nxlink.com/api/v2/omni/health`
+`GET https://noc-configmaker.nxlink.com/api/v2/nexus/health`
 
 ### Response `200`
 
@@ -135,7 +146,7 @@ Idempotency-Key: 1dbff6c0-4676-4c48-85f1-49b40d09c89a
 
 ### Request
 
-`GET https://nexus.nxlink.com/api/v2/omni/whoami`
+`GET https://noc-configmaker.nxlink.com/api/v2/nexus/whoami`
 
 ### Response `200`
 
@@ -145,7 +156,7 @@ Idempotency-Key: 1dbff6c0-4676-4c48-85f1-49b40d09c89a
   "status": "ok",
   "message": "",
   "data": {
-    "api_key": "omni-prod-key",
+    "api_key": "nexus-prod-key",
     "scopes": [
       "admin"
     ]
@@ -159,7 +170,7 @@ Idempotency-Key: 1dbff6c0-4676-4c48-85f1-49b40d09c89a
 
 ### Request
 
-`GET https://nexus.nxlink.com/api/v2/omni/actions`
+`GET https://noc-configmaker.nxlink.com/api/v2/nexus/actions`
 
 ### Response `200`
 
@@ -270,7 +281,7 @@ Idempotency-Key: 1dbff6c0-4676-4c48-85f1-49b40d09c89a
 
 ### Request
 
-`GET https://nexus.nxlink.com/api/v2/omni/bootstrap`
+`GET https://noc-configmaker.nxlink.com/api/v2/nexus/bootstrap`
 
 ### Response `200`
 
@@ -278,11 +289,11 @@ Idempotency-Key: 1dbff6c0-4676-4c48-85f1-49b40d09c89a
 {
   "request_id": "f913489f-97c8-4d5e-9ec7-4c6f5a4f1de5",
   "status": "ok",
-  "message": "OMNI bootstrap contract",
+  "message": "NEXUS bootstrap contract",
   "data": {
     "api_version": "v2",
     "service": "nexus",
-    "base_url_hint": "/api/v2",
+    "base_url_hint": "/api/v2/nexus",
     "methods_supported": [
       "GET",
       "POST",
@@ -290,19 +301,24 @@ Idempotency-Key: 1dbff6c0-4676-4c48-85f1-49b40d09c89a
       "PATCH"
     ],
     "resources": {
-      "health": {"method": "GET", "path": "/api/v2/health"},
-      "identity": {"method": "GET", "path": "/api/v2/whoami"},
-      "actions": {"method": "GET", "path": "/api/v2/actions"},
-      "job_submit": {"method": "POST", "path": "/api/v2/jobs"},
-      "job_list": {"method": "GET", "path": "/api/v2/jobs"},
-      "job_get": {"method": "GET", "path": "/api/v2/jobs/{job_id}"},
-      "job_events": {"method": "GET", "path": "/api/v2/jobs/{job_id}/events"},
-      "job_cancel_patch": {"method": "PATCH", "path": "/api/v2/jobs/{job_id}"},
-      "job_cancel_put": {"method": "PUT", "path": "/api/v2/jobs/{job_id}/cancel"}
+      "health": {"method": "GET", "path": "/api/v2/nexus/health"},
+      "identity": {"method": "GET", "path": "/api/v2/nexus/whoami"},
+      "actions": {"method": "GET", "path": "/api/v2/nexus/actions"},
+      "catalog_actions": {"method": "GET", "path": "/api/v2/nexus/catalog/actions"},
+      "workflows": {"method": "GET", "path": "/api/v2/nexus/workflows"},
+      "tenant_defaults": {"method": "GET", "path": "/api/v2/nexus/tenant/defaults"},
+      "app_config": {"method": "GET", "path": "/api/v2/nexus/app-config"},
+      "infrastructure": {"method": "GET", "path": "/api/v2/nexus/infrastructure"},
+      "job_submit": {"method": "POST", "path": "/api/v2/nexus/jobs"},
+      "job_list": {"method": "GET", "path": "/api/v2/nexus/jobs"},
+      "job_get": {"method": "GET", "path": "/api/v2/nexus/jobs/{job_id}"},
+      "job_events": {"method": "GET", "path": "/api/v2/nexus/jobs/{job_id}/events"},
+      "job_cancel_patch": {"method": "PATCH", "path": "/api/v2/nexus/jobs/{job_id}"},
+      "job_cancel_put": {"method": "PUT", "path": "/api/v2/nexus/jobs/{job_id}/cancel"}
     },
     "notes": {
       "read_method": "READ maps to GET in HTTP semantics",
-      "auth": "X-API-Key",
+      "auth": "Use X-API-Key or Authorization: Bearer <key>",
       "idempotency": "Mutating endpoints require Idempotency-Key"
     }
   },
@@ -315,7 +331,7 @@ Idempotency-Key: 1dbff6c0-4676-4c48-85f1-49b40d09c89a
 
 ### Request
 
-`GET https://nexus.nxlink.com/api/v2/omni/workflows`
+`GET https://noc-configmaker.nxlink.com/api/v2/nexus/workflows`
 
 ### Response `200`
 
@@ -323,7 +339,7 @@ Idempotency-Key: 1dbff6c0-4676-4c48-85f1-49b40d09c89a
 {
   "request_id": "86d57fe9-a32e-44a3-bf33-eae2e8ff0f26",
   "status": "ok",
-  "message": "OMNI workflow/action mappings",
+  "message": "NEXUS workflow/action mappings",
   "data": {
     "workflows": {
       "dashboard": {
@@ -417,7 +433,7 @@ Idempotency-Key: 1dbff6c0-4676-4c48-85f1-49b40d09c89a
 
 ### Request
 
-`POST https://nexus.nxlink.com/api/v2/omni/jobs`
+`POST https://noc-configmaker.nxlink.com/api/v2/nexus/jobs`
 
 Request body:
 
@@ -484,7 +500,7 @@ Missing action:
 
 ### Request
 
-`GET https://nexus.nxlink.com/api/v2/omni/jobs?limit=100`
+`GET https://noc-configmaker.nxlink.com/api/v2/nexus/jobs?limit=100`
 
 ### Response `200`
 
@@ -499,7 +515,7 @@ Missing action:
         "job_id": "089d0977-cec4-4cd8-9961-5c2dc9bbb34f",
         "request_id": "9fcb9791-198c-43e3-8e5a-5f6aa7f15a03",
         "action": "health.get",
-        "submitted_by": "omni-prod-key",
+        "submitted_by": "nexus-prod-key",
         "status": "success",
         "created_at": "2026-02-18T16:27:12.114000Z",
         "started_at": "2026-02-18T16:27:12.140000Z",
@@ -528,7 +544,7 @@ Missing action:
 
 ### Request
 
-`GET https://nexus.nxlink.com/api/v2/omni/jobs/089d0977-cec4-4cd8-9961-5c2dc9bbb34f`
+`GET https://noc-configmaker.nxlink.com/api/v2/nexus/jobs/089d0977-cec4-4cd8-9961-5c2dc9bbb34f`
 
 ### Response `200`
 
@@ -541,7 +557,7 @@ Missing action:
     "job_id": "089d0977-cec4-4cd8-9961-5c2dc9bbb34f",
     "request_id": "9fcb9791-198c-43e3-8e5a-5f6aa7f15a03",
     "action": "ftth.generate_bng",
-    "submitted_by": "omni-prod-key",
+    "submitted_by": "nexus-prod-key",
     "status": "running",
     "created_at": "2026-02-18T16:27:12.114000Z",
     "started_at": "2026-02-18T16:27:12.140000Z",
@@ -574,7 +590,7 @@ Not found:
 
 ### Request
 
-`GET https://nexus.nxlink.com/api/v2/omni/jobs/089d0977-cec4-4cd8-9961-5c2dc9bbb34f/events`
+`GET https://noc-configmaker.nxlink.com/api/v2/nexus/jobs/089d0977-cec4-4cd8-9961-5c2dc9bbb34f/events`
 
 ### Response `200`
 
@@ -610,7 +626,7 @@ All cancel variants perform the same operation.
 
 ### POST cancel
 
-`POST https://nexus.nxlink.com/api/v2/omni/jobs/089d0977-cec4-4cd8-9961-5c2dc9bbb34f/cancel`
+`POST https://noc-configmaker.nxlink.com/api/v2/nexus/jobs/089d0977-cec4-4cd8-9961-5c2dc9bbb34f/cancel`
 
 Body:
 
@@ -620,7 +636,7 @@ Body:
 
 ### PUT cancel
 
-`PUT https://nexus.nxlink.com/api/v2/omni/jobs/089d0977-cec4-4cd8-9961-5c2dc9bbb34f/cancel`
+`PUT https://noc-configmaker.nxlink.com/api/v2/nexus/jobs/089d0977-cec4-4cd8-9961-5c2dc9bbb34f/cancel`
 
 Body:
 
@@ -630,7 +646,7 @@ Body:
 
 ### PATCH cancel
 
-`PATCH https://nexus.nxlink.com/api/v2/omni/jobs/089d0977-cec4-4cd8-9961-5c2dc9bbb34f`
+`PATCH https://noc-configmaker.nxlink.com/api/v2/nexus/jobs/089d0977-cec4-4cd8-9961-5c2dc9bbb34f`
 
 Body:
 
@@ -763,21 +779,21 @@ Server key config missing:
 }
 ```
 
-## OMNI Quick Sequence
+## NEXUS Quick Sequence
 
-1. `GET /api/v2/omni/health`
-2. `GET /api/v2/omni/whoami`
-3. `GET /api/v2/omni/actions`
-4. `POST /api/v2/omni/jobs`
-5. Poll `GET /api/v2/omni/jobs/{job_id}`
-6. Poll `GET /api/v2/omni/jobs/{job_id}/events`
+1. `GET /api/v2/nexus/health`
+2. `GET /api/v2/nexus/whoami`
+3. `GET /api/v2/nexus/actions`
+4. `POST /api/v2/nexus/jobs`
+5. Poll `GET /api/v2/nexus/jobs/{job_id}`
+6. Poll `GET /api/v2/nexus/jobs/{job_id}/events`
 7. Optional cancel with one cancel endpoint
 
 ---
 
 ## Action Payload Reference
 
-Every action below is called via `POST /api/v2/omni/jobs` with:
+Every action below is called via `POST /api/v2/nexus/jobs` with:
 
 ```json
 {
@@ -1089,6 +1105,6 @@ Re-run prechecks on devices.
 
 ## Runtime API Docs
 
-- Swagger UI: `https://nexus.nxlink.com/docs`
+- Swagger UI: `https://noc-configmaker.nxlink.com/docs`
 - The published integration surface is the interactive Swagger at `/docs`.
 - OMNI consumers should treat `/docs` as the primary contract reference for request/response JSON shapes.

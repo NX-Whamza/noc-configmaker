@@ -330,11 +330,11 @@ COMPLIANCE_DHCP_OPTIONS = """
 def get_compliance_radius(loopback_ip):
     """Generate compliance RADIUS configuration with dynamic source IP
     
-    Uses the engineering default RADIUS secret unless NEXTLINK_RADIUS_SECRET overrides it.
+    Uses NEXTLINK_RADIUS_SECRET from environment. Falls back to a placeholder token.
     """
     import os
     
-    radius_secret = os.getenv('NEXTLINK_RADIUS_SECRET', 'Nl22021234').strip() or 'Nl22021234'
+    radius_secret = (os.getenv('NEXTLINK_RADIUS_SECRET') or '').strip() or 'CHANGE_ME_RADIUS_SECRET'
     
     loop_ip_clean = loopback_ip.split('/')[0] if '/' in loopback_ip else loopback_ip
     return f"""

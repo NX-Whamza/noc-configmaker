@@ -290,8 +290,8 @@ add disabled=no lsr-id={{ROUTER_ID}} transport-addresses={{ROUTER_ID}}
 {{UPLINK_LDP_LINES}}
 
 /radius
-add address=142.147.112.2 secret=Nl22021234 service=dhcp src-address={{ROUTER_ID}} timeout=5s
-add address=142.147.112.18 secret=Nl22021234 service=dhcp src-address={{ROUTER_ID}} timeout=5s
+add address=142.147.112.2 secret=CHANGE_ME_RADIUS_SECRET service=dhcp src-address={{ROUTER_ID}} timeout=5s
+add address=142.147.112.18 secret=CHANGE_ME_RADIUS_SECRET service=dhcp src-address={{ROUTER_ID}} timeout=5s
 
 /routing bgp connection
 {{BGP_CONNECTION_LINES}}
