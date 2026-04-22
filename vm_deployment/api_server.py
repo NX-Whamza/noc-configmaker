@@ -24293,6 +24293,7 @@ def cambium_list_backups_unified():
     try:
         from unimus_backup_configs import (
             _unimus_runtime, _list_devices_by_addresses, _list_device_backups,
+            _format_epoch_millis,
         )
         cfg = _unimus_runtime()
         if cfg.get("configured"):
@@ -24304,7 +24305,8 @@ def cambium_list_backups_unified():
                     records.append({
                         "id": b.get("id"),
                         "device_id": device_id,
-                        "timestamp": b.get("time"),
+                        "timestamp": b.get("validSince"),
+                        "timestamp_iso": _format_epoch_millis(b.get("validSince")),
                         "size_bytes": b.get("sizeBytes"),
                         "type": b.get("type"),
                         "source": "unimus",

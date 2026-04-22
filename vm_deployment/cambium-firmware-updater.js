@@ -1027,11 +1027,11 @@
             var badge = b.source === 'unimus'
                 ? '<span style="background:#2563eb;color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;margin-right:6px;">Unimus</span>'
                 : '<span style="background:#475569;color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;margin-right:6px;">Local</span>';
-            var ts = b.timestamp
+            var ts = b.timestamp_iso || (b.timestamp
                 ? (typeof b.timestamp === 'number'
                     ? new Date(b.timestamp).toLocaleString()
                     : String(b.timestamp))
-                : '—';
+                : '—');
             var size = b.size_bytes ? (Math.round(b.size_bytes / 1024) + ' KB') : '—';
             var dlUrl = b.source === 'unimus'
                 ? '/api/unimus-backup-configs/host-backup?address=' + encodeURIComponent(ip)
