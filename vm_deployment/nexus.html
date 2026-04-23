@@ -9909,8 +9909,8 @@
                     <h2>Add Radios</h2>
                     <textarea id="ipInput" placeholder="Enter IP addresses (comma or newline separated)&#10;e.g., 10.249.66.202"></textarea>
                     <div style="display: flex; gap: 10px; margin-top: 10px;">
-                        <button id="aviatAddBtn" class="aviat-btn">Add</button>
-                        <button id="aviatReplaceBtn" class="aviat-btn secondary">Replace</button>
+                        <button id="aviatAddBtn" type="button" class="aviat-btn" onclick="if (window.aviatAddRadios) window.aviatAddRadios();">Add</button>
+                        <button id="aviatReplaceBtn" type="button" class="aviat-btn secondary" onclick="if (window.aviatReplaceRadios) window.aviatReplaceRadios();">Replace</button>
                     </div>
 
                     <div id="statsBar" class="aviat-stat-row" style="margin-top: 14px; display: none;">
@@ -34316,6 +34316,7 @@ Ready for translation!`);
                 aviatMutateQueue('add', radios, `Added ${newIPs.length} radio(s) to queue`).catch(() => {});
                 input.value = '';
             }
+            window.aviatAddRadios = aviatAddRadios;
 
             function aviatReplaceRadios() {
                 const input = document.getElementById('ipInput');
@@ -34340,6 +34341,7 @@ Ready for translation!`);
                 aviatMutateQueue('replace', radios, `Replaced queue with ${newIPs.length} radio(s)`).catch(() => {});
                 input.value = '';
             }
+            window.aviatReplaceRadios = aviatReplaceRadios;
 
             function aviatRemoveRadio(ip) {
                 aviatMutateQueue('remove', [{ ip }], null).catch(() => {});
