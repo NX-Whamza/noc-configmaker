@@ -25686,7 +25686,49 @@ def _parse_backhaul_rows(backhauls, router_type: str):
     return parsed
 
 
-def _render_backhaul_sections(backhauls):
+def _build_backhaul_port_map_lines(backhaul, local_label: str = 'LOCAL'):
+    subnet = backhaul['subnet']
+    remote_label = str(backhaul.get('name', '')).strip() or 'REMOTE'
+    local_is_gateway = bool(backhaul.get('master'))
+    local_port = str(backhaul.get('interface', '')).strip() or 'unknown'
+    gateway_ip = _ip_at_offset(subnet, 1) if subnet.num_addresses >= 3 else ''
+    radio_hosts = []
+    far_end_port_ip = ''
+    if subnet.prefixlen <= 29 and subnet.num_addresses >= 8:
+        radio_hosts = [_ip_at_offset(subnet, 2), _ip_at_offset(subnet, 3)]
+        far_end_port_ip = _ip_at_offset(subnet, 4)
+    else:
+        hosts = [str(host) for host in subnet.hosts()]
+        far_end_port_ip = hosts[-1] if len(hosts) >= 2 else ''
+    gateway_label = local_label if local_is_gateway else remote_label
+    far_end_label = remote_label if local_is_gateway else local_label
+    local_port_ip = gateway_ip if local_is_gateway else far_end_port_ip
+    local_role = 'Gateway side' if local_is_gateway else 'Far-end side'
+
+    lines = [
+        f'- {local_port} : {remote_label}',
+        f'  Local Role: {local_role}',
+        f'  Subnet: {subnet.with_prefixlen}',
+        f'  Network: {subnet.network_address}',
+    ]
+    if gateway_ip:
+        lines.append(f'  Gateway ({gateway_label}): {gateway_ip}')
+    for idx, radio_ip in enumerate(radio_hosts):
+        if idx == 0:
+            label = 'BH Radio A'
+        elif idx == 1:
+            label = 'BH Radio B'
+        else:
+            label = f'BH Device {idx + 1}'
+        lines.append(f'  {label}: {radio_ip}')
+    if far_end_port_ip and far_end_port_ip != gateway_ip:
+        lines.append(f'  Far-End Port ({far_end_label}): {far_end_port_ip}')
+    if local_port_ip:
+        lines.append(f'  Local Port IP ({local_port}): {local_port_ip}')
+    return lines
+
+
+def _render_backhaul_sections(backhauls, local_label: str = 'LOCAL'):
     config_lines = []
     portmap_lines = [
         '===================================================================',
@@ -25709,19 +25751,8 @@ def _render_backhaul_sections(backhauls):
             '',
         ])
 
-        masterbh_int = _ip_at_offset(backhaul['subnet'], 1)
-        masterbh = _ip_at_offset(backhaul['subnet'], 2)
-        slavebh = _ip_at_offset(backhaul['subnet'], 3)
-        slavebh_int = _ip_at_offset(backhaul['subnet'], 4)
-        towername = backhaul['name'] if not backhaul['master'] else 'LOCAL'
-        bhname = 'LOCAL' if not backhaul['master'] else backhaul['name']
-        portmap_lines.extend([
-            f'{towername}.{backhaul["interface"]}: {masterbh_int}/{backhaul["subnet"].prefixlen}',
-            f'{bhname}-{towername}: {masterbh}/{backhaul["subnet"].prefixlen}',
-            f'{towername}-{bhname}: {slavebh}/{backhaul["subnet"].prefixlen}',
-            f'{bhname}.{backhaul["interface"]}: {slavebh_int}/{backhaul["subnet"].prefixlen}',
-            '',
-        ])
+        portmap_lines.extend(_build_backhaul_port_map_lines(backhaul, local_label=local_label))
+        portmap_lines.append('')
     return '\n'.join(config_lines).strip() + ('\n' if config_lines else ''), '\n'.join(portmap_lines).strip() + '\n'
 
 
@@ -26195,7 +26226,7 @@ def _build_ftth_1072_config(data: dict, backhauls):
         'loopback_ip': str(loopback),
     })
 
-    backhaul_section, port_map = _render_backhaul_sections(backhauls)
+    backhaul_section, port_map = _render_backhaul_sections(backhauls, local_label=tower_name)
     lines = [
         f'# 1072 FIBER SITE CONFIG - {tower_name}',
         '/system identity',
@@ -26401,7 +26432,7 @@ def _build_isd_fiber_config(data: dict, backhauls):
     })
 
     family = _router_port_family(router_type)
-    backhaul_section, port_map = _render_backhaul_sections(backhauls)
+    backhaul_section, port_map = _render_backhaul_sections(backhauls, local_label=tower_name)
     lines = [
         f'# ISD FIBER CONFIG - {tower_name}',
         '/system identity',
