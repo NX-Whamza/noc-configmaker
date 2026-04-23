@@ -291,6 +291,23 @@ def test_aviat_run_blocks_missing_local_firmware_file(monkeypatch):
     assert "Firmware target file not found" in (body.get("error") or "")
 
 
+def test_aviat_global_stream_works_with_request_context(monkeypatch):
+    api_server = _load_api_server()
+    monkeypatch.setattr(api_server, "HAS_AVIAT", True)
+    monkeypatch.setattr(api_server, "verify_token", lambda token: {"user_id": "user-a", "email": "a@example.com", "tenant_id": "tenant-a", "tenantId": "tenant-a"} if token == "test-token" else None)
+    monkeypatch.setattr(
+        api_server,
+        "_background_task_recent_logs",
+        lambda *args, **kwargs: [{"message": "hello", "level": "info", "task_id": None}],
+    )
+
+    client = api_server.app.test_client()
+    resp = client.get("/api/aviat/stream/global?token=test-token", buffered=False)
+    assert resp.status_code == 200
+    first_chunk = next(resp.response).decode("utf-8")
+    assert "hello" in first_chunk
+
+
 def test_cambium_status_and_stream_enforce_tenant_access(monkeypatch):
     api_server = _load_api_server()
     task_root = Path(__file__).resolve().parents[1] / "tests_artifacts" / "task_store_cambium_auth"
