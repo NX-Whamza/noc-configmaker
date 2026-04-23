@@ -222,6 +222,75 @@ def test_aviat_queue_is_tenant_scoped(monkeypatch):
     assert [radio["ip"] for radio in radios_b] == ["10.0.0.2"]
 
 
+def test_admin_online_users_tolerates_stale_session_entries(monkeypatch):
+    api_server = _load_api_server()
+    monkeypatch.setattr(api_server, "verify_token", lambda token: {"user_id": "admin-1", "email": "whamza@team.nxlink.com"} if token == "admin-token" else None)
+    monkeypatch.setattr(
+        api_server,
+        "_get_request_access_context",
+        lambda: {
+            "user": {"email": "whamza@team.nxlink.com"},
+            "tenant": {"id": None, "slug": "nextlink"},
+            "effectiveRoles": ["platform_admin"],
+            "permissions": {"adminPanel": True},
+            "memberships": [],
+        },
+    )
+    api_server._active_sessions.clear()
+    api_server._active_sessions["stale-user"] = {
+        "email": "stale@example.com",
+        "display_name": "stale",
+        # Intentionally omit last_seen to simulate legacy/stale worker state.
+    }
+
+    client = api_server.app.test_client()
+    resp = client.get("/api/admin/online-users", headers={"Authorization": "Bearer admin-token"})
+    assert resp.status_code == 200
+    body = resp.get_json() or {}
+    assert all(user.get("email") != "stale@example.com" for user in body.get("online", []))
+
+
+def test_aviat_run_blocks_missing_local_firmware_file(monkeypatch):
+    api_server = _load_api_server()
+    monkeypatch.setattr(api_server, "HAS_AVIAT", True)
+    monkeypatch.setattr(api_server, "_require_feature", lambda *args, **kwargs: None)
+    monkeypatch.setattr(api_server, "_check_quota", lambda *args, **kwargs: None)
+    monkeypatch.setattr(api_server, "_increment_usage", lambda *args, **kwargs: None)
+    monkeypatch.setattr(api_server, "verify_token", lambda token: {"user_id": "user-a", "email": "a@example.com", "tenant_id": "tenant-a", "tenantId": "tenant-a"} if token == "test-token" else None)
+    monkeypatch.setattr(
+        api_server,
+        "_get_request_tenant_context",
+        lambda: {
+            "user": None,
+            "tenant": {"id": "tenant-a", "slug": "slug-tenant-a"},
+        },
+    )
+    monkeypatch.setattr(
+        api_server,
+        "_aviat_firmware_preflight",
+        lambda maintenance_params=None: {
+            "ok": False,
+            "target": "final",
+            "filename": "wtm4100-6.2.4.12.59373.swpack",
+            "error": "Firmware target file not found for final",
+        },
+    )
+
+    client = api_server.app.test_client()
+    resp = client.post(
+        "/api/aviat/run",
+        json={
+            "ips": ["10.0.0.5"],
+            "tasks": ["firmware"],
+            "maintenance_params": {"firmware_target": "final"},
+        },
+        headers={"Authorization": "Bearer test-token"},
+    )
+    assert resp.status_code == 503
+    body = resp.get_json() or {}
+    assert "Firmware target file not found" in (body.get("error") or "")
+
+
 def test_cambium_status_and_stream_enforce_tenant_access(monkeypatch):
     api_server = _load_api_server()
     task_root = Path(__file__).resolve().parents[1] / "tests_artifacts" / "task_store_cambium_auth"
