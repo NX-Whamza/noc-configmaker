@@ -23277,6 +23277,7 @@ def aviat_stream_logs(task_id):
             headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
         )
 
+    @stream_with_context
     def generate():
         q = aviat_log_queues[task_id]
         while True:
@@ -23306,6 +23307,7 @@ def aviat_stream_global():
     q = queue.Queue()
     aviat_global_log_queues.add(q)
 
+    @stream_with_context
     def generate():
         # Send persisted backlog first so cross-worker/restart visibility still works.
         persisted = _background_task_recent_logs('aviat', limit=200)
