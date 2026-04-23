@@ -5,7 +5,16 @@ Switchless: {{ is_switchless }}
 
 Backhauls:
 {% for bh in backhauls -%}
-- {{ bh.port }} : {{ bh.bhname }} ({{ bh.bhip }}/{{ bh.bhip_sub }})
+- {{ bh.port }} : {{ bh.bhname }}
+  Local Role: {{ bh.local_role }}
+  Subnet: {{ bh.subnet_cidr }}
+  Network: {{ bh.network_ip }}
+  Gateway ({{ bh.gateway_label }}): {{ bh.gateway_ip_explicit }}
+{% for radio in bh.radio_lines %}
+  {{ radio.label }}: {{ radio.ip }}
+{% endfor %}
+  Far-End Port ({{ bh.far_end_label }}): {{ bh.far_end_port_ip }}
+  Local Port IP ({{ bh.port }}): {{ bh.local_port_ip }}
 {% endfor %}
 
 Access ranges:
