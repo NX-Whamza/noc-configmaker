@@ -11837,15 +11837,24 @@ def validate_translation(source, translated, compliance_replaced_ips=None):
         # /system script  — embedded scripts contain many irrelevant IPs
         # /mpls ldp       — LDP accept/advertise filter prefixes are routing policy, not interface IPs
         # /radius         — RADIUS server addresses are compliance-managed and replaced
+        # /ip dns         — DNS servers are always overwritten by compliance (142.147.112.3/.19)
+        #                   Use word-boundary matching so /ip dns-static is NOT skipped
         # /system ntp     — NTP servers are always replaced by compliance hostname (ntp-pool.nxlink.com)
         # /system logging — syslog remote targets are compliance-managed
-        _skip_section_prefixes = ('/system script', '/mpls ldp', '/radius ', '/system ntp', '/system logging')
+        _skip_section_prefixes = ('/system script', '/mpls ldp', '/radius', '/ip dns', '/system ntp', '/system logging')
         lines = text.splitlines()
         out = []
         in_skip = False
         for l in lines:
             stripped_l = l.lstrip()
-            if any(stripped_l.startswith(p) for p in _skip_section_prefixes):
+            # Word-boundary match: section header is exactly the prefix, or prefix followed by space/tab.
+            # This prevents '/ip dns' from matching '/ip dns-static'.
+            def _matches_skip(s):
+                for p in _skip_section_prefixes:
+                    if s == p or s.startswith(p + ' ') or s.startswith(p + '\t'):
+                        return True
+                return False
+            if _matches_skip(stripped_l):
                 in_skip = True
                 continue
             if in_skip and stripped_l.startswith('/') and not stripped_l.startswith('//'):
