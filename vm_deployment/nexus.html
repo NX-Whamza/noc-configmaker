@@ -25194,7 +25194,9 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             }
 
             let warningsHtml = '';
-            const visibleWarnings = warnings.filter(w => !w.startsWith('Policy overflow:') && !w.startsWith('Policy exception:'));
+            const visibleWarnings = warnings
+                .filter(w => !w.startsWith('Policy overflow:') && !w.startsWith('Policy exception:') && !w.includes('role unknown'))
+                .map(w => w.replace('No target slot available for role backhaul', 'Some backhaul ports could not be placed on the target device — see unmapped rows below'));
             if (visibleWarnings.length) {
                 warningsHtml = `<div style="margin-top:12px;padding:8px 12px;background:#fff3cd;border-left:4px solid #ff9800;border-radius:4px">
                     <strong style="color:#e65100">Warnings</strong>
@@ -25204,15 +25206,17 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
 
             let portTableHtml = '';
             if (portAnalysis.length) {
+                const unmappedPorts = portAnalysis.filter(r => !r.target_port);
+                let unmappedBanner = '';
+                if (unmappedPorts.length) {
+                    const portList = unmappedPorts.map(r => escapeHtml(r.source_port || '?')).join(', ');
+                    unmappedBanner = `<div style="margin-top:8px;padding:8px 12px;background:#fde8e8;border-left:4px solid #e74c3c;border-radius:4px">
+                        <strong style="color:#c0392b">⚠ Action Required — ${unmappedPorts.length} port${unmappedPorts.length > 1 ? 's' : ''} not remapped: ${portList}</strong>
+                        <div style="margin-top:4px;font-size:11px;color:#7f0000">These source ports do not have a matching slot on the target device. The generated config still uses these original interface names in <code>/ip address</code>, <code>/interface vlan</code>, and routing sections. You must manually reassign them to valid target ports before deploying — the device will reject those sections as-is.</div>
+                    </div>`;
+                }
                 portTableHtml = `<div style="margin-top:12px"><strong style="color:var(--accent-color)">Port Role Analysis</strong>
-                    <div style="font-size:12px;color:var(--text-color-secondary);margin:4px 0 6px">
-                        Management: ${escapeHtml((policySummary.management_port || 'ether1'))} |
-                        Switch: ${escapeHtml((policySummary.switch_ports || []).join(', ') || 'n/a')} |
-                        Reserved: ${escapeHtml((policySummary.reserved_ports || []).join(', ') || 'n/a')} |
-                        Backhaul: ${escapeHtml((policySummary.backhaul_ports || []).join(', ') || 'n/a')} |
-                        Radio: ${escapeHtml((policySummary.radio_ports || []).join(', ') || 'n/a')} |
-                        QSFP Allowed: ${policySummary.allow_qsfp_ports ? 'Yes' : 'No'}
-                    </div>
+                    <div style="font-size:11px;color:var(--text-color-secondary);margin:3px 0 6px;font-style:italic">Ports identified by role are mapped to matching target slots. Ports with no identified role are auto-assigned to remaining available slots.</div>
                     <table style="width:100%;border-collapse:collapse;font-size:12px">
                         <thead><tr>
                             <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border-color)">Source</th>
@@ -25221,16 +25225,18 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                             <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border-color)">Evidence</th>
                         </tr></thead>
                         <tbody>${portAnalysis.map(row => {
+                            const isUnmapped = !row.target_port;
                             const role = row.detected_role && row.detected_role !== 'unknown' ? row.detected_role : 'no role identified';
-                            const target = row.target_port || 'needs manual review';
+                            const target = row.target_port || '⚠ unmapped';
                             const evidence = (row.role_evidence || []).join(', ') || (row.policy_slot === 'overflow/manual review' ? 'auto-assigned (best fit)' : (row.policy_slot || ''));
-                            return `<tr>
+                            const rowStyle = isUnmapped ? 'background:rgba(231,76,60,0.07)' : '';
+                            return `<tr style="${rowStyle}">
                             <td style="padding:4px 8px;font-family:'JetBrains Mono',monospace">${escapeHtml(row.source_port || '')}${row.policy_conflict ? ' <span style="color:#e74c3c;font-weight:700">!</span>' : ''}</td>
                             <td style="padding:4px 8px">${escapeHtml(role)} (${escapeHtml(row.confidence || 'low')})</td>
-                            <td style="padding:4px 8px;font-family:'JetBrains Mono',monospace">${escapeHtml(target)}</td>
+                            <td style="padding:4px 8px;font-family:'JetBrains Mono',monospace;${isUnmapped ? 'color:#e74c3c;font-weight:600' : ''}">${escapeHtml(target)}</td>
                             <td style="padding:4px 8px">${escapeHtml(evidence)}</td>
                         </tr>`;}).join('')}</tbody>
-                    </table></div>`;
+                    </table>${unmappedBanner}</div>`;
             }
 
             body.innerHTML = `
