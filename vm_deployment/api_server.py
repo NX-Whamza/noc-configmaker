@@ -11833,17 +11833,22 @@ def validate_translation(source, translated, compliance_replaced_ips=None):
         text = re.sub(r"(?m)^\s*\[[^\]]+\]\s*", "", text)
         # Drop full-line comments
         text = re.sub(r"(?m)^\s*#.*$", "", text)
-        # Remove /system script blocks (very noisy and may embed many IPs in strings)
+        # Remove sections whose IPs are policy/filter entries, not the device's own addresses.
+        # /system script  — embedded scripts contain many irrelevant IPs
+        # /mpls ldp       — LDP accept/advertise filter prefixes are routing policy, not interface IPs
+        # /radius         — RADIUS server addresses are compliance-managed and may not survive
+        _skip_section_prefixes = ('/system script', '/mpls ldp', '/radius ')
         lines = text.splitlines()
         out = []
-        in_script = False
+        in_skip = False
         for l in lines:
-            if l.startswith('/system script'):
-                in_script = True
+            stripped_l = l.lstrip()
+            if any(stripped_l.startswith(p) for p in _skip_section_prefixes):
+                in_skip = True
                 continue
-            if in_script and l.startswith('/'):
-                in_script = False
-            if in_script:
+            if in_skip and stripped_l.startswith('/') and not stripped_l.startswith('//'):
+                in_skip = False
+            if in_skip:
                 continue
             out.append(l)
         return "\n".join(out)
