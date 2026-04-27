@@ -25194,10 +25194,11 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             }
 
             let warningsHtml = '';
-            if (warnings.length) {
+            const visibleWarnings = warnings.filter(w => !w.startsWith('Policy overflow:') && !w.startsWith('Policy exception:'));
+            if (visibleWarnings.length) {
                 warningsHtml = `<div style="margin-top:12px;padding:8px 12px;background:#fff3cd;border-left:4px solid #ff9800;border-radius:4px">
                     <strong style="color:#e65100">Warnings</strong>
-                    <div style="margin-top:4px">${warnings.map(w => `<div>${escapeHtml(w)}</div>`).join('')}</div>
+                    <div style="margin-top:4px">${visibleWarnings.map(w => `<div>${escapeHtml(w)}</div>`).join('')}</div>
                 </div>`;
             }
 
@@ -25219,12 +25220,16 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                             <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border-color)">Target</th>
                             <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border-color)">Evidence</th>
                         </tr></thead>
-                        <tbody>${portAnalysis.map(row => `<tr>
+                        <tbody>${portAnalysis.map(row => {
+                            const role = row.detected_role && row.detected_role !== 'unknown' ? row.detected_role : 'no role identified';
+                            const target = row.target_port || 'needs manual review';
+                            const evidence = (row.role_evidence || []).join(', ') || (row.policy_slot === 'overflow/manual review' ? 'auto-assigned (best fit)' : (row.policy_slot || ''));
+                            return `<tr>
                             <td style="padding:4px 8px;font-family:'JetBrains Mono',monospace">${escapeHtml(row.source_port || '')}${row.policy_conflict ? ' <span style="color:#e74c3c;font-weight:700">!</span>' : ''}</td>
-                            <td style="padding:4px 8px">${escapeHtml(row.detected_role || 'unknown')} (${escapeHtml(row.confidence || 'low')})</td>
-                            <td style="padding:4px 8px;font-family:'JetBrains Mono',monospace">${escapeHtml(row.target_port || 'manual review')}</td>
-                            <td style="padding:4px 8px">${escapeHtml((row.role_evidence || []).join(', ') || row.policy_slot || '')}</td>
-                        </tr>`).join('')}</tbody>
+                            <td style="padding:4px 8px">${escapeHtml(role)} (${escapeHtml(row.confidence || 'low')})</td>
+                            <td style="padding:4px 8px;font-family:'JetBrains Mono',monospace">${escapeHtml(target)}</td>
+                            <td style="padding:4px 8px">${escapeHtml(evidence)}</td>
+                        </tr>`;}).join('')}</tbody>
                     </table></div>`;
             }
 

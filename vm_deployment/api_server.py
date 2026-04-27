@@ -11833,11 +11833,13 @@ def validate_translation(source, translated, compliance_replaced_ips=None):
         text = re.sub(r"(?m)^\s*\[[^\]]+\]\s*", "", text)
         # Drop full-line comments
         text = re.sub(r"(?m)^\s*#.*$", "", text)
-        # Remove sections whose IPs are policy/filter entries, not the device's own addresses.
+        # Remove sections whose IPs are compliance-managed, not the device's own addresses.
         # /system script  — embedded scripts contain many irrelevant IPs
         # /mpls ldp       — LDP accept/advertise filter prefixes are routing policy, not interface IPs
-        # /radius         — RADIUS server addresses are compliance-managed and may not survive
-        _skip_section_prefixes = ('/system script', '/mpls ldp', '/radius ')
+        # /radius         — RADIUS server addresses are compliance-managed and replaced
+        # /system ntp     — NTP servers are always replaced by compliance hostname (ntp-pool.nxlink.com)
+        # /system logging — syslog remote targets are compliance-managed
+        _skip_section_prefixes = ('/system script', '/mpls ldp', '/radius ', '/system ntp', '/system logging')
         lines = text.splitlines()
         out = []
         in_skip = False
@@ -11851,12 +11853,23 @@ def validate_translation(source, translated, compliance_replaced_ips=None):
             if in_skip:
                 continue
             out.append(l)
-        return "\n".join(out)
+        # Remove address-list entries for compliance-managed lists — compliance wipes and
+        # rebuilds these lists entirely, so old IPs in source are expected to be gone.
+        _compliance_managed_lists = {'SNMP', 'managerIP', 'BGP-ALLOW', 'EOIP-ALLOW', 'WALLED-GARDEN'}
+        filtered = []
+        for l in out:
+            m = re.search(r'\blist=(\S+)', l)
+            if m and m.group(1) in _compliance_managed_lists:
+                continue
+            filtered.append(l)
+        return "\n".join(filtered)
 
     def extract_ips(text: str) -> set[str]:
         text = strip_noise(text)
         # Strip inline comment="..." fields — IPs inside comments are not config data
         text = re.sub(r'\bcomment="[^"]*"', '', text)
+        # Strip dns-server= attribute values — always overwritten by compliance
+        text = re.sub(r'\bdns-server=\S+', '', text)
         ips = set(re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?\b", text))
         # Normalize /32 to bare IP and filter out obviously invalid IPs
         norm = set()
@@ -19286,6 +19299,7 @@ def migrate_config():
         migrated_config = _set_target_qsfp_state(migrated_config, target_device, allow_qsfp_ports)
         
         compliance_source = None
+        compliance_stripped = set()
         if apply_compliance:
             loopback_ip = extract_loopback_ip(migrated_config) or "10.0.0.1"
             compliance_blocks, compliance_source = _get_dynamic_compliance_blocks(loopback_ip, return_source=True)
@@ -19293,9 +19307,10 @@ def migrate_config():
                 migrated_config,
                 compliance_blocks,
                 loopback_ip=loopback_ip,
+                stripped_ips_out=compliance_stripped,
             )
 
-        validation = validate_translation(config, migrated_config)
+        validation = validate_translation(config, migrated_config, compliance_replaced_ips=compliance_stripped or None)
         target_interface_audit = audit_target_interface_consistency(migrated_config, target_device)
         if not target_interface_audit.get('valid'):
             migration_warnings.extend(target_interface_audit.get('warnings') or [])
