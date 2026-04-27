@@ -10758,6 +10758,10 @@ def gen_enterprise_non_mpls():
         public_cidr = data['public_cidr']
         bh_cidr = data['bh_cidr']
         loopback_ip = data['loopback_ip']  # /32 expected
+        try:
+            ipaddress.ip_interface(loopback_ip)
+        except ValueError:
+            return jsonify({'success': False, 'error': 'Invalid loopback_ip format'}), 400
         device_profile = get_enterprise_device_profile(device)
         uplink_if = (data.get('uplink_interface') or device_profile['uplink_interface']).strip()
         public_port = (data.get('public_port') or device_profile['public_port']).strip()
@@ -10947,9 +10951,10 @@ def gen_enterprise_non_mpls():
             dhcp_net_block += f"add address={private_base}.0/24 comment=PRIVATES dns-server={dns1},{dns2} gateway={private_base}.1\n"
         blocks.append(dhcp_net_block)
         
-        # Firewall NAT (tab-specific rules - NTP, private NAT)
+        # Firewall NAT (tab-specific rules - SMTP, NTP, private NAT)
         # NOTE: Compliance will add additional NAT rules, but these are tab-specific
         blocks.append("/ip firewall nat\n" +
+                      f"add action=src-nat chain=srcnat packet-mark=SMTP to-addresses={loopback_ip_clean}\n" +
                       f"add action=src-nat chain=srcnat packet-mark=NTP to-addresses={loopback_ip_clean}\n" +
                       f"add action=src-nat chain=srcnat src-address={private_base}.0/24 to-addresses={pub_router_ip}\n")
         
@@ -11023,6 +11028,17 @@ def gen_enterprise_non_mpls():
         
         # Normalize and deduplicate configuration before returning
         cfg = normalize_config(cfg)
+
+        # Re-append enterprise-specific srcnat rules that compliance stripping removes.
+        # The compliance script replaces /ip firewall nat entirely (dstnat redirect rules).
+        # These srcnat rules must survive that replacement.
+        if private_base:
+            cfg = cfg.rstrip() + (
+                "\n\n/ip firewall nat\n"
+                f"add action=src-nat chain=srcnat packet-mark=SMTP to-addresses={loopback_ip_clean}\n"
+                f"add action=src-nat chain=srcnat packet-mark=NTP to-addresses={loopback_ip_clean}\n"
+                f"add action=src-nat chain=srcnat src-address={private_base}.0/24 to-addresses={pub_router_ip}\n"
+            )
         
         # Apply dhcp-option-set=optset to non-10.x DHCP networks
         # Must come AFTER normalize_config (which groups sections) and AFTER
@@ -11834,6 +11850,8 @@ def validate_translation(source, translated, compliance_replaced_ips=None):
 
     def extract_ips(text: str) -> set[str]:
         text = strip_noise(text)
+        # Strip inline comment="..." fields — IPs inside comments are not config data
+        text = re.sub(r'\bcomment="[^"]*"', '', text)
         ips = set(re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?\b", text))
         # Normalize /32 to bare IP and filter out obviously invalid IPs
         norm = set()
@@ -21184,7 +21202,8 @@ def admin_online_users():
     cutoff = _time.time() - _ONLINE_TIMEOUT_SECS
     online = []
     for uid, entry in list(_active_sessions.items()):
-        if entry.get('last_seen', 0) >= cutoff:
+        last_seen = entry.get('last_seen', 0)
+        if last_seen >= cutoff:
             online.append({
                 'id': uid,
                 'email': entry.get('email', ''),
@@ -21192,7 +21211,7 @@ def admin_online_users():
                 'avatar': entry.get('avatar'),
                 'tenant_name': entry.get('tenant_name', ''),
                 'role_label': entry.get('role_label', ''),
-                'last_seen_ago': int(_time.time() - entry['last_seen']),
+                'last_seen_ago': int(max(0, _time.time() - last_seen)),
             })
 
     # Fill missing avatars from DB (handles multi-worker deployments where
@@ -22688,6 +22707,14 @@ def aviat_run_tasks():
     if not ips:
         return jsonify({'error': 'No IPs provided'}), 400
 
+    if any(task in ('firmware', 'all') for task in task_types):
+        firmware_status = _aviat_firmware_preflight(m_params)
+        if not firmware_status.get('ok'):
+            return jsonify({
+                'error': firmware_status.get('error') or 'Firmware preflight failed',
+                'firmware_status': firmware_status,
+            }), 503
+
     # Capture tenant context at request time before background thread starts
     _aviat_run_tenant_ctx = _get_request_tenant_context()
     _aviat_run_tenant_id = None
@@ -22695,6 +22722,10 @@ def aviat_run_tasks():
     if _aviat_run_tenant_ctx and _aviat_run_tenant_ctx.get('tenant') and _aviat_run_tenant_ctx['tenant'].get('id'):
         _aviat_run_tenant_id = _aviat_run_tenant_ctx['tenant']['id']
         _aviat_run_tenant_slug = _aviat_run_tenant_ctx['tenant'].get('slug', '')
+
+    already_processing = [ip for ip in ips if (_aviat_queue_find(ip) or {}).get('status') == 'processing']
+    if already_processing:
+        return jsonify({'error': f'Already processing: {", ".join(already_processing)}'}), 409
 
     for ip in ips:
         _aviat_queue_upsert(ip, {
@@ -23268,6 +23299,7 @@ def aviat_stream_logs(task_id):
             headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
         )
 
+    @stream_with_context
     def generate():
         q = aviat_log_queues[task_id]
         while True:
@@ -23297,6 +23329,7 @@ def aviat_stream_global():
     q = queue.Queue()
     aviat_global_log_queues.add(q)
 
+    @stream_with_context
     def generate():
         # Send persisted backlog first so cross-worker/restart visibility still works.
         persisted = _background_task_recent_logs('aviat', limit=200)
@@ -23346,6 +23379,83 @@ def _aviat_firmware_dir():
     """Path where Aviat .swpack files live inside the container (/opt/firmware/aviat)."""
     import pathlib as _pl
     return _pl.Path(os.getenv('FIRMWARE_PATH', '/opt/firmware')) / 'aviat'
+
+
+def _aviat_firmware_target_uri(target: str = 'final', firmware_uri: str | None = None) -> str:
+    explicit = str(firmware_uri or '').strip()
+    if explicit:
+        return explicit
+    target_name = str(target or 'final').strip().lower()
+    if target_name == 'baseline':
+        return str(getattr(AVIAT_CONFIG, 'firmware_baseline_uri', '') or '')
+    return str(getattr(AVIAT_CONFIG, 'firmware_final_uri', '') or '')
+
+
+def _aviat_firmware_target_version(target: str = 'final', firmware_uri: str | None = None) -> str:
+    explicit = str(firmware_uri or '').strip()
+    if explicit:
+        return _aviat_extract_version(explicit) or ''
+    target_name = str(target or 'final').strip().lower()
+    if target_name == 'baseline':
+        return str(getattr(AVIAT_CONFIG, 'firmware_baseline_version', '') or '')
+    return str(getattr(AVIAT_CONFIG, 'firmware_final_version', '') or '')
+
+
+def _aviat_firmware_uri_status(target: str = 'final', firmware_uri: str | None = None) -> dict:
+    resolved_uri = _aviat_firmware_target_uri(target=target, firmware_uri=firmware_uri)
+    parsed = urlparse(resolved_uri)
+    filename = Path(parsed.path).name if parsed.path else ''
+    local_api_file = parsed.path.startswith('/api/aviat/firmware/')
+    firmware_dir = _aviat_firmware_dir()
+    local_path = firmware_dir / filename if local_api_file and filename else None
+    exists = local_path.exists() if local_path else None
+    version = _aviat_firmware_target_version(target=target, firmware_uri=firmware_uri)
+
+    status = {
+        'target': str(target or 'final').strip().lower() or 'final',
+        'version': version,
+        'uri': resolved_uri,
+        'filename': filename,
+        'firmware_dir': str(firmware_dir),
+        'local_api_file': bool(local_api_file),
+        'local_path': str(local_path) if local_path else None,
+        'exists': exists,
+        'ok': True,
+        'error': None,
+    }
+    if local_api_file and (not local_path or not local_path.exists()):
+        status['ok'] = False
+        status['error'] = (
+            f'Firmware target file not found for {status["target"]}: '
+            f'{filename or "(missing filename)"} in {firmware_dir}'
+        )
+    return status
+
+
+def _aviat_firmware_preflight(maintenance_params: dict | None = None) -> dict:
+    params = maintenance_params or {}
+    return _aviat_firmware_uri_status(
+        target=params.get('firmware_target') or 'final',
+        firmware_uri=params.get('firmware_uri'),
+    )
+
+
+@app.route('/api/aviat/firmware-status', methods=['GET'])
+@require_auth
+def aviat_firmware_status():
+    if not HAS_AVIAT:
+        return jsonify({'error': 'Aviat backend not available'}), 503
+
+    target = request.args.get('target', 'final')
+    override_uri = request.args.get('uri', '').strip() or None
+    return jsonify({
+        'success': True,
+        'active': _aviat_firmware_uri_status(target=target, firmware_uri=override_uri),
+        'targets': {
+            'baseline': _aviat_firmware_uri_status(target='baseline'),
+            'final': _aviat_firmware_uri_status(target='final'),
+        },
+    })
 
 
 @app.route('/api/aviat/firmware/<filename>')
