@@ -10758,6 +10758,10 @@ def gen_enterprise_non_mpls():
         public_cidr = data['public_cidr']
         bh_cidr = data['bh_cidr']
         loopback_ip = data['loopback_ip']  # /32 expected
+        try:
+            ipaddress.ip_interface(loopback_ip)
+        except ValueError:
+            return jsonify({'success': False, 'error': 'Invalid loopback_ip format'}), 400
         device_profile = get_enterprise_device_profile(device)
         uplink_if = (data.get('uplink_interface') or device_profile['uplink_interface']).strip()
         public_port = (data.get('public_port') or device_profile['public_port']).strip()
@@ -10947,9 +10951,10 @@ def gen_enterprise_non_mpls():
             dhcp_net_block += f"add address={private_base}.0/24 comment=PRIVATES dns-server={dns1},{dns2} gateway={private_base}.1\n"
         blocks.append(dhcp_net_block)
         
-        # Firewall NAT (tab-specific rules - NTP, private NAT)
+        # Firewall NAT (tab-specific rules - SMTP, NTP, private NAT)
         # NOTE: Compliance will add additional NAT rules, but these are tab-specific
         blocks.append("/ip firewall nat\n" +
+                      f"add action=src-nat chain=srcnat packet-mark=SMTP to-addresses={loopback_ip_clean}\n" +
                       f"add action=src-nat chain=srcnat packet-mark=NTP to-addresses={loopback_ip_clean}\n" +
                       f"add action=src-nat chain=srcnat src-address={private_base}.0/24 to-addresses={pub_router_ip}\n")
         
@@ -11023,6 +11028,17 @@ def gen_enterprise_non_mpls():
         
         # Normalize and deduplicate configuration before returning
         cfg = normalize_config(cfg)
+
+        # Re-append enterprise-specific srcnat rules that compliance stripping removes.
+        # The compliance script replaces /ip firewall nat entirely (dstnat redirect rules).
+        # These srcnat rules must survive that replacement.
+        if private_base:
+            cfg = cfg.rstrip() + (
+                "\n\n/ip firewall nat\n"
+                f"add action=src-nat chain=srcnat packet-mark=SMTP to-addresses={loopback_ip_clean}\n"
+                f"add action=src-nat chain=srcnat packet-mark=NTP to-addresses={loopback_ip_clean}\n"
+                f"add action=src-nat chain=srcnat src-address={private_base}.0/24 to-addresses={pub_router_ip}\n"
+            )
         
         # Apply dhcp-option-set=optset to non-10.x DHCP networks
         # Must come AFTER normalize_config (which groups sections) and AFTER
@@ -11834,6 +11850,8 @@ def validate_translation(source, translated, compliance_replaced_ips=None):
 
     def extract_ips(text: str) -> set[str]:
         text = strip_noise(text)
+        # Strip inline comment="..." fields — IPs inside comments are not config data
+        text = re.sub(r'\bcomment="[^"]*"', '', text)
         ips = set(re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?\b", text))
         # Normalize /32 to bare IP and filter out obviously invalid IPs
         norm = set()
@@ -22704,6 +22722,10 @@ def aviat_run_tasks():
     if _aviat_run_tenant_ctx and _aviat_run_tenant_ctx.get('tenant') and _aviat_run_tenant_ctx['tenant'].get('id'):
         _aviat_run_tenant_id = _aviat_run_tenant_ctx['tenant']['id']
         _aviat_run_tenant_slug = _aviat_run_tenant_ctx['tenant'].get('slug', '')
+
+    already_processing = [ip for ip in ips if (_aviat_queue_find(ip) or {}).get('status') == 'processing']
+    if already_processing:
+        return jsonify({'error': f'Already processing: {", ".join(already_processing)}'}), 409
 
     for ip in ips:
         _aviat_queue_upsert(ip, {

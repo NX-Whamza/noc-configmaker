@@ -24940,7 +24940,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                             addProgressLog('error', `CRITICAL: ${missingIPs.length} IP addresses lost!`);
                             completeProgressTracker(false);
                             hideUpgradeProgress();
-                            throw new Error(`CRITICAL FAILURE: ${missingIPs.length} IP addresses lost in translation. AI failed to preserve network config. This is unusable.`);
+                            throw new Error(`CRITICAL FAILURE: ${missingIPs.length} IP addresses lost in translation. Network config could not be fully preserved — review missing IPs and retry.`);
                         } else if (missingIPs.length > 0) {
                             // Some missing IPs = partial success (warning)
                             updateProgressStep(` Warning: ${missingIPs.length} IPs missing - review required`);
@@ -34523,13 +34523,12 @@ Ready for translation!`);
             }
 
             window.aviatRunSingle = async function (ip) {
-                if (aviatState.isProcessing) return;
-                aviatState.isProcessing = true;
-                const runBtn = document.getElementById('runBtn');
-                if (runBtn) {
-                    runBtn.textContent = 'Processing...';
-                    runBtn.disabled = true;
-                }
+                // Per-device guard only — don't use global isProcessing so other
+                // device buttons remain clickable while this one runs.
+                const radio = aviatState.radios.find(r => r.ip === ip);
+                if (!radio) return;
+                const status = aviatNormalizeStatus(radio.status);
+                if (['processing', 'loading', 'pending_verify'].includes(status)) return;
                 await aviatSubmitRun([ip]);
             };
             window.aviatRebootRequired = async function (ip) {
