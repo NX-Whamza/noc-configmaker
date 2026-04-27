@@ -15791,6 +15791,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
 
             // Navigation helper function (GLOBAL) - Define BEFORE initializeEventHandlers
             window.navigateToTab = async function (tabId) {
+                if (typeof window.closeProgressTracker === 'function') window.closeProgressTracker();
                 let requestedSubtab = null;
                 if (tabId === 'aviat-backhaul') {
                     tabId = 'device-firmware-updater';
@@ -34741,11 +34742,20 @@ Ready for translation!`);
 
             async function aviatAbortRun() {
                 if (!aviatState.currentTaskId) return;
+                const abortBtn = document.getElementById('abortBtn');
+                if (abortBtn) {
+                    abortBtn.disabled = true;
+                    abortBtn.textContent = 'Aborting...';
+                }
                 try {
                     await aviatFetch(`/abort/${aviatState.currentTaskId}`, { method: 'POST' });
-                    aviatAddLog('Abort requested', 'warning');
+                    aviatAddLog('Abort signal sent — task will stop after current step completes', 'warning');
                 } catch (err) {
                     aviatAddLog(`Abort failed: ${err.message}`, 'error');
+                    if (abortBtn) {
+                        abortBtn.disabled = false;
+                        abortBtn.textContent = 'Abort';
+                    }
                 }
             }
 
