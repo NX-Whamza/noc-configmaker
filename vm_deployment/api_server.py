@@ -17727,6 +17727,31 @@ def compliance_status():
     return jsonify(status)
 
 
+_SITE_CACHE: list | None = None
+_SITE_CACHE_PATH = Path(__file__).resolve().parent / "site_cache.json"
+
+
+def _load_site_cache() -> list:
+    global _SITE_CACHE
+    if _SITE_CACHE is None:
+        try:
+            with open(_SITE_CACHE_PATH, encoding="utf-8") as f:
+                _SITE_CACHE = json.load(f)
+        except Exception:
+            _SITE_CACHE = []
+    return _SITE_CACHE
+
+
+@app.route('/api/sites/search', methods=['GET'])
+def search_sites():
+    q = (request.args.get('q') or '').strip().upper()
+    if len(q) < 2:
+        return jsonify({"results": []})
+    limit = min(max(1, int(request.args.get('limit', 10))), 25)
+    matches = [s for s in _load_site_cache() if q in s.get('name', '').upper()][:limit]
+    return jsonify({"results": matches})
+
+
 @app.route('/api/health', methods=['GET'])
 def health():
     """Check if API server is running and configured

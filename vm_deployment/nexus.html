@@ -639,6 +639,13 @@
         .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 20px; border: none; border-radius: var(--radius-sm); cursor: pointer; font-size: 13px; font-weight: 600; font-family: inherit; transition: all var(--transition-fast); box-shadow: var(--shadow-sm); position: relative; overflow: hidden; }
         .btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--shadow-md); }
         .btn:active:not(:disabled) { transform: translateY(0); }
+        .mt-site-suggest { position:absolute; z-index:25; top:calc(100% + 4px); left:0; right:0; display:none; max-height:280px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-sm); background:var(--card-bg); box-shadow:var(--shadow-md); }
+        .mt-site-suggest.is-open { display:block; }
+        .mt-site-suggest-item { padding:10px 14px; border-bottom:1px solid var(--border-color); cursor:pointer; }
+        .mt-site-suggest-item:last-child { border-bottom:0; }
+        .mt-site-suggest-item:hover, .mt-site-suggest-item.active { background:var(--hover-bg, rgba(255,255,255,0.06)); }
+        .mt-site-suggest-primary { color:var(--text-color); font-weight:600; font-size:13px; }
+        .mt-site-suggest-secondary { color:var(--text-muted, var(--text-color-secondary, #888)); font-size:11px; margin-top:2px; }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
         .btn-primary { background: var(--button-primary); color: #fff; }
         .btn-primary:hover:not(:disabled) { background: var(--button-hover); }
@@ -5447,9 +5454,10 @@
                         </div>
 
                         <div class="device-selection-grid">
-                            <div>
+                            <div style="position:relative">
                                 <label for="mtSiteName">Site Name</label>
-                                <input type="text" id="mtSiteName" placeholder="HALLETTSVILLE-NW-1">
+                                <input type="text" id="mtSiteName" placeholder="Search site name…" autocomplete="off" style="width:100%">
+                                <div id="mtSiteSuggest" class="mt-site-suggest"></div>
                             </div>
                             <div>
                                 <label for="mtRouterIdentity">Router Identity (Auto-generated)</label>
@@ -31555,6 +31563,90 @@ Ready for translation!`);
                 URL.revokeObjectURL(url);
             };
         });
+
+        // MikroTik site name typeahead — auto-fills lat/lon from site_cache
+        (function () {
+            var _st = null;
+            var _results = [];
+            var _idx = -1;
+
+            function _esc(s) {
+                return String(s || '').replace(/[&<>"']/g, function(c) {
+                    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+                });
+            }
+
+            function _suggest() { return document.getElementById('mtSiteSuggest'); }
+
+            function _hide() {
+                var s = _suggest(); if (s) { s.classList.remove('is-open'); s.innerHTML = ''; }
+                _results = []; _idx = -1;
+            }
+
+            function _highlight(index) {
+                _idx = index;
+                (_suggest() || {querySelector:function(){}}).parentElement;
+                var items = (_suggest() || document.createElement('div')).querySelectorAll('.mt-site-suggest-item');
+                items.forEach(function(el, i) { el.classList.toggle('active', i === index); });
+            }
+
+            function _select(item) {
+                document.getElementById('mtSiteName').value = item.name;
+                document.getElementById('mtLatitude').value = item.lat;
+                document.getElementById('mtLongitude').value = item.lon;
+                _hide();
+                document.getElementById('mtSiteName').dispatchEvent(new Event('input', {bubbles: true}));
+            }
+
+            function _render(results) {
+                var s = _suggest(); if (!s) return;
+                _results = results || [];
+                _idx = -1;
+                if (!_results.length) { _hide(); return; }
+                s.innerHTML = _results.map(function(r, i) {
+                    var meta = [r.status, r.zone].filter(Boolean).join(' · ');
+                    return '<div class="mt-site-suggest-item" data-index="' + i + '">' +
+                        '<div class="mt-site-suggest-primary">' + _esc(r.name) + '</div>' +
+                        '<div class="mt-site-suggest-secondary">' + _esc(meta) + '</div>' +
+                        '</div>';
+                }).join('');
+                s.querySelectorAll('.mt-site-suggest-item').forEach(function(el) {
+                    el.addEventListener('mousedown', function(e) {
+                        e.preventDefault();
+                        _select(_results[Number(el.getAttribute('data-index'))]);
+                    });
+                });
+                s.classList.add('is-open');
+            }
+
+            document.addEventListener('DOMContentLoaded', function() {
+                var inp = document.getElementById('mtSiteName');
+                if (!inp) return;
+
+                inp.addEventListener('input', function() {
+                    clearTimeout(_st);
+                    var q = this.value.trim();
+                    if (q.length < 2) { _hide(); return; }
+                    _st = setTimeout(function() {
+                        fetch('/api/sites/search?q=' + encodeURIComponent(q) + '&limit=10')
+                            .then(function(r) { return r.json(); })
+                            .then(function(d) { _render(d.results || []); })
+                            .catch(function() {});
+                    }, 250);
+                });
+
+                inp.addEventListener('keydown', function(e) {
+                    var items = (_suggest() || document.createElement('div')).querySelectorAll('.mt-site-suggest-item');
+                    if (!items.length) return;
+                    if (e.key === 'ArrowDown') { e.preventDefault(); _highlight(Math.min(_idx + 1, items.length - 1)); }
+                    else if (e.key === 'ArrowUp') { e.preventDefault(); _highlight(Math.max(_idx - 1, 0)); }
+                    else if (e.key === 'Enter' && _idx >= 0) { e.preventDefault(); _select(_results[_idx]); }
+                    else if (e.key === 'Escape') { _hide(); }
+                });
+
+                inp.addEventListener('blur', function() { setTimeout(_hide, 150); });
+            });
+        })();
     </script>
 
     <!-- Live Progress Tracker (MUSHU-style) -->

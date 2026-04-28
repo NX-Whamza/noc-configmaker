@@ -1,0 +1,3502 @@
+[
+  {
+    "name": "1708",
+    "lat": 32.6531,
+    "lon": -97.7947,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "23RDWT",
+    "lat": 32.8255,
+    "lon": -98.1072,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "380",
+    "lat": 33.2468,
+    "lon": -97.6698,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "917MT",
+    "lat": 32.4603,
+    "lon": -97.442,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "ABBOTTREGEN",
+    "lat": 31.8799,
+    "lon": -97.092,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "ABBOTTWT1",
+    "lat": 31.8779,
+    "lon": -97.0757,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "ABBOTTWT2",
+    "lat": 31.8848,
+    "lon": -97.0717,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "Abilene Warehouse",
+    "lat": 32.3945,
+    "lon": -99.7361,
+    "zone": "TX3 - AB",
+    "status": "Active"
+  },
+  {
+    "name": "AGNES",
+    "lat": 32.987,
+    "lon": -97.8085,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "AGNESNORTH",
+    "lat": 33.0578,
+    "lon": -97.7991,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "AIRPORTWT",
+    "lat": 32.7852,
+    "lon": -98.0558,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "ALEDOMT",
+    "lat": 32.6989,
+    "lon": -97.6037,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "ALICO",
+    "lat": 31.557,
+    "lon": -97.132,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "ALVARADOWT",
+    "lat": 32.4132,
+    "lon": -97.2252,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "ALVORD",
+    "lat": 33.3558,
+    "lon": -97.6867,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "AMERICANBANK",
+    "lat": 31.5132,
+    "lon": -97.1926,
+    "zone": "TX2 - ML",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "ANNETTA",
+    "lat": 32.6699,
+    "lon": -97.6489,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "ANNETTANORTH",
+    "lat": 32.6941,
+    "lon": -97.6747,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "AR-JCTCITY-NO-1",
+    "lat": 33.0207,
+    "lon": -92.7218,
+    "zone": "LA1 - SP",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "ARCHERCITYNORTHWTREGEN",
+    "lat": 33.597,
+    "lon": -98.6248,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "ARCHERCITYSOUTHWT",
+    "lat": 33.5905,
+    "lon": -98.6303,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "ARGYLE",
+    "lat": 33.0993,
+    "lon": -97.2141,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "ARMADILLO",
+    "lat": 32.8342,
+    "lon": -97.6587,
+    "zone": "TX1 - HO",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "AUBREYWEST",
+    "lat": 33.3161,
+    "lon": -97.009,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "AXTELL",
+    "lat": 31.6553,
+    "lon": -96.9949,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "AXTELLWT",
+    "lat": 31.6584,
+    "lon": -96.9719,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "AZLE",
+    "lat": 32.9185,
+    "lon": -97.5686,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "AZLEWEST",
+    "lat": 32.8811,
+    "lon": -97.5902,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "AZLEWEST-TEMP",
+    "lat": 32.8807,
+    "lon": -97.5919,
+    "zone": "TX1 - HO",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "BADAIDEVON",
+    "lat": 33.309,
+    "lon": -97.2762,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BAIRD",
+    "lat": 32.3964,
+    "lon": -99.418,
+    "zone": "TX3 - AB",
+    "status": "Active"
+  },
+  {
+    "name": "BANGSNORTHWEST",
+    "lat": 31.7339,
+    "lon": -99.1586,
+    "zone": "TX3 - AB",
+    "status": "Active"
+  },
+  {
+    "name": "BARRY",
+    "lat": 32.0988,
+    "lon": -96.6001,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "BAXLEY",
+    "lat": 31.4274,
+    "lon": -97.187,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "BEDDINGERDEVON",
+    "lat": 32.7997,
+    "lon": -97.7394,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BELLEPLAINSOUTH",
+    "lat": 32.2761,
+    "lon": -99.3688,
+    "zone": "TX3 - AB",
+    "status": "Active"
+  },
+  {
+    "name": "BELLEVUE",
+    "lat": 33.6244,
+    "lon": -98.0072,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BELTONLAKENORTH",
+    "lat": 31.2408,
+    "lon": -97.5494,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "BENBROOKDEVON",
+    "lat": 32.6358,
+    "lon": -97.4802,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BENBROOKLAKE",
+    "lat": 32.6268,
+    "lon": -97.508,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BENNETT",
+    "lat": 33.0047,
+    "lon": -97.4201,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BILLYBOYDDEVON",
+    "lat": 32.4396,
+    "lon": -97.2324,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "BLANKET",
+    "lat": 31.8154,
+    "lon": -98.7929,
+    "zone": "TX3 - AB",
+    "status": "Active"
+  },
+  {
+    "name": "BLANKETWEST",
+    "lat": 31.8073,
+    "lon": -98.87,
+    "zone": "TX3 - AB",
+    "status": "Active"
+  },
+  {
+    "name": "BLANTON",
+    "lat": 32.1067,
+    "lon": -97.3169,
+    "zone": "TX2 - ML",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "BLOOMINGGROVE",
+    "lat": 32.0848,
+    "lon": -96.758,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "BLUEGRASS",
+    "lat": 32.5204,
+    "lon": -97.4911,
+    "zone": "TX2 - ML",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "BLUEGRASS2",
+    "lat": 32.513,
+    "lon": -97.4859,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "BLUESKY",
+    "lat": 32.8978,
+    "lon": -97.7499,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BLUFFDALE",
+    "lat": 32.3465,
+    "lon": -98.0228,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BLUMWT",
+    "lat": 32.1368,
+    "lon": -97.3922,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "BMV0",
+    "lat": 32.7502,
+    "lon": -97.6869,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BMV18",
+    "lat": 32.7502,
+    "lon": -97.6869,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BONOMT",
+    "lat": 32.3272,
+    "lon": -97.4831,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "BOWIE",
+    "lat": 33.551,
+    "lon": -97.8312,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BOYD",
+    "lat": 33.076,
+    "lon": -97.5719,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BOYD2",
+    "lat": 33.102,
+    "lon": -97.5639,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BOYDNORTH",
+    "lat": 33.163,
+    "lon": -97.5472,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BOYDSOUTH",
+    "lat": 33.0328,
+    "lon": -97.5518,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BRECKENRIDGE",
+    "lat": 32.7551,
+    "lon": -98.8984,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BRECKENRIDGENORTHWEST",
+    "lat": 32.7911,
+    "lon": -98.974,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BRECKENRIDGEWEST",
+    "lat": 32.7448,
+    "lon": -99.022,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BRIDGEPORT",
+    "lat": 33.2302,
+    "lon": -97.7631,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BRIDGEPORTDEVON",
+    "lat": 33.2194,
+    "lon": -97.7332,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BRISTOLFARMS",
+    "lat": 32.8876,
+    "lon": -97.5176,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BROCK",
+    "lat": 32.7035,
+    "lon": -97.9878,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BROCKCENTRAL",
+    "lat": 32.6779,
+    "lon": -97.943,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BROCKHS",
+    "lat": 32.6669,
+    "lon": -97.9311,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BROCKSOUTHWEST",
+    "lat": 32.6308,
+    "lon": -97.9675,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BROCKVFD",
+    "lat": 32.6923,
+    "lon": -97.884,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BROOKESMITHEAST",
+    "lat": 31.5362,
+    "lon": -99.0909,
+    "zone": "TX3 - AB",
+    "status": "Active"
+  },
+  {
+    "name": "BROWNWOOD",
+    "lat": 31.7483,
+    "lon": -99.0042,
+    "zone": "TX3 - AB",
+    "status": "Active"
+  },
+  {
+    "name": "Brownwood Warehouse",
+    "lat": 31.7361,
+    "lon": -98.9943,
+    "zone": "TX3 - AB",
+    "status": "Active"
+  },
+  {
+    "name": "BROWNWOODEAST",
+    "lat": 31.7126,
+    "lon": -98.9311,
+    "zone": "TX3 - AB",
+    "status": "Active"
+  },
+  {
+    "name": "BROWNWOODWEST",
+    "lat": 31.669,
+    "lon": -99.0378,
+    "zone": "TX3 - AB",
+    "status": "Active"
+  },
+  {
+    "name": "BRUCEVILLEEDDY",
+    "lat": 31.3126,
+    "lon": -97.2574,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "BRUNODEVON",
+    "lat": 32.5559,
+    "lon": -97.2832,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "BUGTUSSLE",
+    "lat": 31.7572,
+    "lon": -97.1284,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "BULLOCK",
+    "lat": 32.8113,
+    "lon": -97.8376,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BURLESON",
+    "lat": 32.5167,
+    "lon": -97.3259,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "Burleson Warehouse",
+    "lat": 32.5514,
+    "lon": -97.3176,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BURLESONSOUTH",
+    "lat": 32.4808,
+    "lon": -97.2794,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "BURNETTPLAZA",
+    "lat": 32.7503,
+    "lon": -97.3348,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "BYNUMISD",
+    "lat": 31.9681,
+    "lon": -97.0007,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "CADDO",
+    "lat": 32.715,
+    "lon": -98.6433,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "CALLISBURG",
+    "lat": 33.7047,
+    "lon": -97.014,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "CANTONSW",
+    "lat": 32.4486,
+    "lon": -95.9341,
+    "zone": "TX2 - SS",
+    "status": "Active"
+  },
+  {
+    "name": "CANYONWEST",
+    "lat": 32.7055,
+    "lon": -97.9063,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "CARBON",
+    "lat": 32.2708,
+    "lon": -98.8279,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "CARBONSOUTH",
+    "lat": 32.2314,
+    "lon": -98.8312,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "CARLSCORNER",
+    "lat": 32.0941,
+    "lon": -97.0593,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "CARMICHAELBEND",
+    "lat": 32.3922,
+    "lon": -97.6654,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "CATTLEBARON",
+    "lat": 32.7836,
+    "lon": -97.5519,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "CELINA",
+    "lat": 33.3351,
+    "lon": -96.7818,
+    "zone": "TX2 - SS",
+    "status": "Active"
+  },
+  {
+    "name": "CELINAWEST",
+    "lat": 33.2895,
+    "lon": -96.8588,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "CHICO",
+    "lat": 33.2939,
+    "lon": -97.7984,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "CHILTON",
+    "lat": 31.2784,
+    "lon": -97.0694,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "CHINASPRINGNORTH",
+    "lat": 31.6859,
+    "lon": -97.3297,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "CHINASPRINGS",
+    "lat": 31.6399,
+    "lon": -97.2914,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "CISCO",
+    "lat": 32.3756,
+    "lon": -98.9733,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "CLEAVER",
+    "lat": 32.3907,
+    "lon": -97.4012,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "CLIFTON",
+    "lat": 31.7857,
+    "lon": -97.5919,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "CLIFTONDOWNTOWN",
+    "lat": 31.7903,
+    "lon": -97.5812,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "CLIFTONREGEN",
+    "lat": 31.7928,
+    "lon": -97.5864,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "CLIFTONWEST",
+    "lat": 31.7776,
+    "lon": -97.5969,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "CLIFTONWT",
+    "lat": 31.7742,
+    "lon": -97.5882,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "CLYDE",
+    "lat": 32.4127,
+    "lon": -99.4707,
+    "zone": "TX3 - AB",
+    "status": "Active"
+  },
+  {
+    "name": "CLYDEWEST",
+    "lat": 32.4169,
+    "lon": -99.5614,
+    "zone": "TX3 - AB",
+    "status": "Active"
+  },
+  {
+    "name": "CO-DENVER-DC-1",
+    "lat": 39.7459,
+    "lon": -104.996,
+    "zone": "TBD",
+    "status": "Active"
+  },
+  {
+    "name": "COMANCHECOVE1",
+    "lat": 32.4064,
+    "lon": -97.8037,
+    "zone": "TX1 - HO",
+    "status": "35"
+  },
+  {
+    "name": "COMANCHECOVE2",
+    "lat": 32.4148,
+    "lon": -97.8093,
+    "zone": "TX1 - HO",
+    "status": "35"
+  },
+  {
+    "name": "COMANCHEPEAK",
+    "lat": 32.2901,
+    "lon": -97.7989,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "Corsicana ISD",
+    "lat": 32.0843,
+    "lon": -96.4879,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "CORSICANAREGEN",
+    "lat": 32.1352,
+    "lon": -96.4683,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "CORSICANASOUTH",
+    "lat": 32.039,
+    "lon": -96.475,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "COTTONDALE",
+    "lat": 33.0735,
+    "lon": -97.7308,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "COTTONPATCH",
+    "lat": 32.7302,
+    "lon": -97.7918,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "COTTONWOODCREEKREGEN",
+    "lat": 32.8486,
+    "lon": -97.4995,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "COVINGTONWT",
+    "lat": 32.1813,
+    "lon": -97.2563,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "COWBOYCHURCH",
+    "lat": 32.4353,
+    "lon": -97.1193,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "COWBOYSLANE",
+    "lat": 32.9269,
+    "lon": -97.7515,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "CRAFTON",
+    "lat": 33.369,
+    "lon": -97.9058,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "CRANFILLSGAP",
+    "lat": 31.7726,
+    "lon": -97.8315,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "CRAWFORD",
+    "lat": 31.5492,
+    "lon": -97.3972,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "CRAWFORDWEST",
+    "lat": 31.5238,
+    "lon": -97.5564,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "CRESSONNORTH",
+    "lat": 32.5512,
+    "lon": -97.6611,
+    "zone": "TX1 - HO",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "CRESSONSOUTH",
+    "lat": 32.4793,
+    "lon": -97.6224,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "CRESSONWEST",
+    "lat": 32.5426,
+    "lon": -97.7191,
+    "zone": "TX1 - HO",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "CROSSPLAINSNORTH",
+    "lat": 32.1413,
+    "lon": -99.1624,
+    "zone": "TX3 - AB",
+    "status": "Active"
+  },
+  {
+    "name": "CSE",
+    "lat": 31.6927,
+    "lon": -97.3876,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "CURRIE",
+    "lat": 31.8567,
+    "lon": -96.4807,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "DAWSON",
+    "lat": 31.9081,
+    "lon": -96.7317,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "DECATUR",
+    "lat": 33.2353,
+    "lon": -97.599,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "DECATUREAST",
+    "lat": 33.2458,
+    "lon": -97.4254,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "DECATURNE",
+    "lat": 33.2944,
+    "lon": -97.4806,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "DECATURNORTH",
+    "lat": 33.3094,
+    "lon": -97.5768,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "DECATURREGEN",
+    "lat": 33.267,
+    "lon": -97.6181,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "DECATURSC",
+    "lat": 33.1892,
+    "lon": -97.5421,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "DECATURSOUTHK2",
+    "lat": 33.1532,
+    "lon": -97.6363,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "DECORDOVA",
+    "lat": 32.4285,
+    "lon": -97.71,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "DEERVALLEY",
+    "lat": 32.8722,
+    "lon": -97.6647,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "DEISON",
+    "lat": 32.7582,
+    "lon": -97.7978,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "DELEON",
+    "lat": 32.123,
+    "lon": -98.5281,
+    "zone": "TX1 - HO",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "DEMOCRAT",
+    "lat": 31.7163,
+    "lon": -98.6972,
+    "zone": "TX3 - AB",
+    "status": "Active"
+  },
+  {
+    "name": "DENNIS2",
+    "lat": 32.589,
+    "lon": -97.9393,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "DENNISMT",
+    "lat": 32.5911,
+    "lon": -97.9366,
+    "zone": "TX1 - HO",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "DENTONNORTHSOLAR",
+    "lat": 33.279,
+    "lon": -97.1271,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "DUBLIN  ATC ** (INACTIVE)",
+    "lat": 32.0924,
+    "lon": -98.3704,
+    "zone": "TX1 - HO",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "Dublin Public Library",
+    "lat": 32.086,
+    "lon": -98.3437,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "DUBLINEAST",
+    "lat": 32.0613,
+    "lon": -98.3106,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "DUBLINNORTH",
+    "lat": 32.1573,
+    "lon": -98.3643,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "DUBLINSOUTH",
+    "lat": 32.0192,
+    "lon": -98.3561,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "DUBLINWEST",
+    "lat": 32.0619,
+    "lon": -98.456,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "DUBLINWT",
+    "lat": 32.0918,
+    "lon": -98.3479,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "EASTGATE",
+    "lat": 32.4755,
+    "lon": -96.9528,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "EASTGRANBURY",
+    "lat": 32.48,
+    "lon": -97.6926,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "Eastland Warehouse",
+    "lat": 32.4126,
+    "lon": -98.7684,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "EASTLANDREGEN",
+    "lat": 32.3924,
+    "lon": -98.8245,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "EASTMAYPEARL",
+    "lat": 32.3567,
+    "lon": -96.9503,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "EASTWAX",
+    "lat": 32.379,
+    "lon": -96.7616,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "EDDY",
+    "lat": 31.2889,
+    "lon": -97.3059,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "EDGEWOODNORTH",
+    "lat": 32.7494,
+    "lon": -95.8941,
+    "zone": "TX2 - SS",
+    "status": "Active"
+  },
+  {
+    "name": "ELKINSDEVON",
+    "lat": 32.9526,
+    "lon": -97.4599,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "ELMMOTTNORTH",
+    "lat": 31.6941,
+    "lon": -97.1077,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "ELMMOTTWT",
+    "lat": 31.6626,
+    "lon": -97.1045,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "EMORYSOUTHWEST",
+    "lat": 32.8498,
+    "lon": -95.819,
+    "zone": "TX2 - SS",
+    "status": "Active"
+  },
+  {
+    "name": "ENNIS",
+    "lat": 32.3119,
+    "lon": -96.6181,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "ENNISEASTREGEN",
+    "lat": 32.3843,
+    "lon": -96.5163,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "ENNISNORTH",
+    "lat": 32.3886,
+    "lon": -96.6014,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "ERA",
+    "lat": 33.5004,
+    "lon": -97.3025,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "EXTREME",
+    "lat": 32.8088,
+    "lon": -98.1032,
+    "zone": "TX1 - HO",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FAIRVIEW",
+    "lat": 32.7738,
+    "lon": -98.1249,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "FERRIS DOWNTOWN",
+    "lat": 32.5326,
+    "lon": -96.666,
+    "zone": "TX2 - ML",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FERRISEAST",
+    "lat": 32.526,
+    "lon": -96.6314,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "FLX-KS-BAILEYVILLE-SE-SR",
+    "lat": 39.8057,
+    "lon": -96.1449,
+    "zone": "KS1 - SA",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-KS-BENEDICT-NW-1",
+    "lat": 39.9145,
+    "lon": -96.1135,
+    "zone": "KS1 - SA",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-KS-BERN-SO-SR",
+    "lat": 39.9211,
+    "lon": -95.9582,
+    "zone": "KS1 - SA",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-KS-BLUERAPIDS-NE-SR",
+    "lat": 39.774,
+    "lon": -96.6176,
+    "zone": "KS1 - SA",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-KS-BREMAN-EA-SR",
+    "lat": 39.8738,
+    "lon": -96.7927,
+    "zone": "KS1 - SA",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-KS-COTTAGEHILL-EA-SR",
+    "lat": 39.5813,
+    "lon": -96.6884,
+    "zone": "KS1 - SA",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-KS-FRANKFORT-SO-SR",
+    "lat": 39.6935,
+    "lon": -96.4165,
+    "zone": "KS1 - SA",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-KS-FRANKFORT-SW-SR",
+    "lat": 39.6411,
+    "lon": -96.4786,
+    "zone": "KS1 - SA",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-KS-FRANKFORT-WE-SR",
+    "lat": 39.6828,
+    "lon": -96.5085,
+    "zone": "KS1 - SA",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-KS-HANOVER-WE-SR",
+    "lat": 39.8908,
+    "lon": -96.9706,
+    "zone": "KS1 - SA",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-KS-NEMAHAWT-CN-SR",
+    "lat": 39.8439,
+    "lon": -95.9023,
+    "zone": "KS1 - SA",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-KS-STBENEDICT-NO-SR",
+    "lat": 39.9146,
+    "lon": -96.1046,
+    "zone": "KS1 - SA",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-NE-BROKENBOW-EA-SR",
+    "lat": 41.3934,
+    "lon": -99.5625,
+    "zone": "NE1 - NP",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-NE-CLATONIA-CN-SR",
+    "lat": 40.4672,
+    "lon": -96.856,
+    "zone": "NE1 - LI",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-NE-DUBOIS-NE-SR",
+    "lat": 40.0469,
+    "lon": -95.9548,
+    "zone": "NE1 - LI",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-NE-HOLDREDGE-NE-SR",
+    "lat": 40.5139,
+    "lon": -99.3225,
+    "zone": "NE1 - HA",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-NE-HOLDREDGE-NO-SR",
+    "lat": 40.5919,
+    "lon": -99.3811,
+    "zone": "NE1 - HA",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-NE-HOLDREGE-NO-SR",
+    "lat": 40.5842,
+    "lon": -99.398,
+    "zone": "NE1 - HA",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-NE-LOUPCITY-SO-SR",
+    "lat": 41.2071,
+    "lon": -98.9773,
+    "zone": "NE1 - HA",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-NE-LOUPCITY-WE-SR",
+    "lat": 41.2801,
+    "lon": -99.0232,
+    "zone": "NE1 - HA",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-NE-WEISSERT-WE-SR",
+    "lat": 41.4714,
+    "lon": -99.5095,
+    "zone": "NE1 - NP",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FLX-NE-WESTMARK-NW-SR",
+    "lat": 40.6415,
+    "lon": -99.5606,
+    "zone": "NE1 - HA",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "FORRESTON",
+    "lat": 32.258,
+    "lon": -96.8681,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "FORTGATES",
+    "lat": 31.4013,
+    "lon": -97.7064,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "FROST",
+    "lat": 32.0799,
+    "lon": -96.8174,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "FRUITVALE",
+    "lat": 32.6906,
+    "lon": -95.8045,
+    "zone": "TX2 - SS",
+    "status": "Active"
+  },
+  {
+    "name": "GAGE",
+    "lat": 33.1141,
+    "lon": -97.765,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GAINESVILLE",
+    "lat": 33.6306,
+    "lon": -97.084,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "Gainesville-Sanger Warehouse",
+    "lat": 32.0092,
+    "lon": -97.0974,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GAINESVILLENORTH",
+    "lat": 33.7365,
+    "lon": -97.0678,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GARNERNORTH",
+    "lat": 32.9244,
+    "lon": -97.981,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GARNERWT",
+    "lat": 32.8099,
+    "lon": -97.985,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GATESVILLE",
+    "lat": 31.4476,
+    "lon": -97.7031,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GATESVILLEWEST",
+    "lat": 31.4166,
+    "lon": -97.8738,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GATESVILLEWT1",
+    "lat": 31.4362,
+    "lon": -97.7796,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GATESVILLEWT2",
+    "lat": 31.4333,
+    "lon": -97.7325,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GATESVILLEWT3",
+    "lat": 31.4351,
+    "lon": -97.7103,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GATESVILLEWT4",
+    "lat": 31.4905,
+    "lon": -97.7081,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GENTRY",
+    "lat": 33.0904,
+    "lon": -97.6974,
+    "zone": "TX1 - HO",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "GHOLSON",
+    "lat": 31.7252,
+    "lon": -97.2196,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GHOLSONWT",
+    "lat": 31.74,
+    "lon": -97.254,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GILBERT",
+    "lat": 32.3425,
+    "lon": -97.7499,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GLENROSE",
+    "lat": 32.2527,
+    "lon": -97.6894,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GLENROSESG",
+    "lat": 32.149,
+    "lon": -97.7432,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GLENROSESSS",
+    "lat": 32.1928,
+    "lon": -97.7364,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GLENROSESW",
+    "lat": 32.1513,
+    "lon": -97.7928,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GLENROSEWT1",
+    "lat": 32.2393,
+    "lon": -97.766,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GLENROSEWT2",
+    "lat": 32.2628,
+    "lon": -97.7534,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GLENROSEWT3",
+    "lat": 32.2279,
+    "lon": -97.7471,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GODLEY",
+    "lat": 32.4512,
+    "lon": -97.5262,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GODLEYNORTH",
+    "lat": 32.5011,
+    "lon": -97.5288,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GOLINDA",
+    "lat": 31.3744,
+    "lon": -97.0741,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GORDON",
+    "lat": 32.5429,
+    "lon": -98.3721,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GORMAN",
+    "lat": 32.2118,
+    "lon": -98.6627,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GORMANNORTHWEST",
+    "lat": 32.2343,
+    "lon": -98.745,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GOSHEN",
+    "lat": 32.9712,
+    "lon": -97.7665,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GOSHENSOUTH",
+    "lat": 32.948,
+    "lon": -97.7403,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GRAFORDWT",
+    "lat": 32.9355,
+    "lon": -98.2481,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GRAHAMEAST",
+    "lat": 33.1192,
+    "lon": -98.5599,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GRAHAMNORTH",
+    "lat": 33.1874,
+    "lon": -98.5697,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GRAHAMSOUTHEAST",
+    "lat": 33.0465,
+    "lon": -98.5277,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GRAHAMWEST",
+    "lat": 33.1005,
+    "lon": -98.6461,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GRANBURY",
+    "lat": 32.4501,
+    "lon": -97.7358,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GRANBURYWEST",
+    "lat": 32.4312,
+    "lon": -97.863,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GRANDVIEW",
+    "lat": 32.3339,
+    "lon": -97.2073,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GRANDVIEWBANK",
+    "lat": 32.2707,
+    "lon": -97.1804,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GRANDVIEWISD",
+    "lat": 32.2595,
+    "lon": -97.1751,
+    "zone": "TX2 - ML",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "GRANDVIEWWT",
+    "lat": 32.2726,
+    "lon": -97.1899,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GRAPECREEK",
+    "lat": 31.5665,
+    "lon": -100.563,
+    "zone": "TX3 - SA",
+    "status": "Active"
+  },
+  {
+    "name": "GREENWOOD",
+    "lat": 33.3818,
+    "lon": -97.4862,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GROESBECKWEST",
+    "lat": 31.5215,
+    "lon": -96.641,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "GUNRANGE",
+    "lat": 32.694,
+    "lon": -97.5057,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "GUNTER",
+    "lat": 33.4443,
+    "lon": -96.7535,
+    "zone": "TX2 - SS",
+    "status": "Active"
+  },
+  {
+    "name": "HALLSBURG",
+    "lat": 31.5184,
+    "lon": -96.961,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "HARMONY",
+    "lat": 32.6885,
+    "lon": -97.8114,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "HARRISCREEK",
+    "lat": 31.4545,
+    "lon": -97.3632,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "HASLET",
+    "lat": 32.9791,
+    "lon": -97.4106,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "HASLETSOUTH",
+    "lat": 32.959,
+    "lon": -97.4014,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "HASLETWEST",
+    "lat": 32.9434,
+    "lon": -97.4584,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "HAYNES",
+    "lat": 32.9632,
+    "lon": -97.5228,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "HERITAGE",
+    "lat": 33.1911,
+    "lon": -97.4495,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "HESSDEVON",
+    "lat": 32.3626,
+    "lon": -97.2211,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "HICKEY",
+    "lat": 32.5402,
+    "lon": -97.7598,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "HICOWT",
+    "lat": 31.9838,
+    "lon": -98.0215,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "HIGHLAND",
+    "lat": 32.9276,
+    "lon": -97.6503,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "HILCOPOLE1",
+    "lat": 31.9024,
+    "lon": -97.3296,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "HILCOPOLE2",
+    "lat": 31.9701,
+    "lon": -97.372,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "HILCOPOLE3",
+    "lat": 32.0124,
+    "lon": -97.3633,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "HILCOPOLE4",
+    "lat": 32.0108,
+    "lon": -97.3814,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "HILCOPOLE5",
+    "lat": 31.9545,
+    "lon": -97.3836,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "HILLSBORO",
+    "lat": 32.0202,
+    "lon": -97.1382,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "HILLSBOROSHERIFF",
+    "lat": 32.0216,
+    "lon": -97.0576,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "HILLTOP",
+    "lat": 32.9738,
+    "lon": -97.5432,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "HIRAM",
+    "lat": 32.6395,
+    "lon": -96.105,
+    "zone": "TX2 - SS",
+    "status": "Active"
+  },
+  {
+    "name": "HOFIBER.TX",
+    "lat": 32.7511,
+    "lon": -97.6858,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "HOGHILL",
+    "lat": 32.77,
+    "lon": -98.0892,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "HOHQ",
+    "lat": 32.7511,
+    "lon": -97.6858,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "Holy Family Catholic Schools",
+    "lat": 42.5183,
+    "lon": -90.7077,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "HORSEMANSRANCH",
+    "lat": 32.432,
+    "lon": -98.1522,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "HUBBARD",
+    "lat": 31.8444,
+    "lon": -96.8054,
+    "zone": "TX2 - ML",
+    "status": "Active"
+  },
+  {
+    "name": "Hudson Oaks Warehouse",
+    "lat": 32.7509,
+    "lon": -97.686,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "HUDSONOAKSSOUTH",
+    "lat": 32.7353,
+    "lon": -97.6717,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "HWY377",
+    "lat": 32.5936,
+    "lon": -97.5768,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "HWY51REGEN",
+    "lat": 32.8267,
+    "lon": -97.7683,
+    "zone": "TX1 - HO",
+    "status": "Active"
+  },
+  {
+    "name": "IA-ACKLEY-CN-1",
+    "lat": 42.5536,
+    "lon": -93.0597,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-ADAIR-WE-1",
+    "lat": 41.4908,
+    "lon": -94.6853,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-ADEL-SW-1",
+    "lat": 41.5871,
+    "lon": -94.0723,
+    "zone": "IA1 - AL",
+    "status": "Pending Cabinet"
+  },
+  {
+    "name": "IA-AINSWORTH-EA-1",
+    "lat": 41.2753,
+    "lon": -91.4999,
+    "zone": "IA1 - BT",
+    "status": "Active"
+  },
+  {
+    "name": "IA-AINSWORTH-SO-1",
+    "lat": 41.266,
+    "lon": -91.5549,
+    "zone": "IA1 - BT",
+    "status": "Active"
+  },
+  {
+    "name": "IA-AKRON-CN-1",
+    "lat": 42.8276,
+    "lon": -96.5619,
+    "zone": "IA1 - SC",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-AKRON-SE-1",
+    "lat": 42.7587,
+    "lon": -96.458,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-ALBERTCITY-CN-1",
+    "lat": 42.7853,
+    "lon": -94.9424,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-ALBIA-NO-1",
+    "lat": 41.0481,
+    "lon": -92.8199,
+    "zone": "IA1 - AL",
+    "status": "Pending Cabinet"
+  },
+  {
+    "name": "IA-ALBIA-NW-1",
+    "lat": 41.0655,
+    "lon": -92.8465,
+    "zone": "IA1 - AL",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-ALBION-SW-SR",
+    "lat": 42.0945,
+    "lon": -93.0385,
+    "zone": "IA1 - AL",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-ALDEN-CN-1",
+    "lat": 42.5045,
+    "lon": -93.3753,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-ALEXANDER-WE-1",
+    "lat": 42.8041,
+    "lon": -93.4954,
+    "zone": "IA1 - CF",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-ALGONA-EA-1",
+    "lat": 43.0679,
+    "lon": -94.2023,
+    "zone": "IA1 - CF",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-ALGONA-WE-1",
+    "lat": 43.0868,
+    "lon": -94.2374,
+    "zone": "IA1 - CF",
+    "status": "Pending Deployment"
+  },
+  {
+    "name": "IA-ALTAVI-CN-1",
+    "lat": 43.1971,
+    "lon": -92.4149,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-AMBER-SE-1",
+    "lat": 42.12,
+    "lon": -91.1713,
+    "zone": "IA1 - BT",
+    "status": "Pending Deployment"
+  },
+  {
+    "name": "IA-AMES-NE-1",
+    "lat": 42.0851,
+    "lon": -93.5651,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-AMES-NE-2",
+    "lat": 42.1363,
+    "lon": -93.5516,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-AMES-SO-1-SR",
+    "lat": 41.9837,
+    "lon": -93.5551,
+    "zone": "IA1 - AL",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-AMES-WE-1",
+    "lat": 42.0074,
+    "lon": -93.7092,
+    "zone": "IA1 - AL",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-ANAMOSA-NE-1",
+    "lat": 42.1309,
+    "lon": -91.2644,
+    "zone": "IA1 - BT",
+    "status": "Active"
+  },
+  {
+    "name": "IA-ANAMOSA-SO-1",
+    "lat": 42.0674,
+    "lon": -91.2882,
+    "zone": "IA1 - BT",
+    "status": "Active"
+  },
+  {
+    "name": "IA-ANDERSON-NW-1",
+    "lat": 40.8114,
+    "lon": -95.6577,
+    "zone": "IA1 - SC",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-ANDOVE-CN-1",
+    "lat": 41.9761,
+    "lon": -90.2533,
+    "zone": "IA1 - BT",
+    "status": "Active"
+  },
+  {
+    "name": "IA-ANDREW-SO-1",
+    "lat": 42.1133,
+    "lon": -90.6002,
+    "zone": "IA1 - BT",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-ANKENY-EA-SR",
+    "lat": 41.7325,
+    "lon": -93.5509,
+    "zone": "IA1 - AL",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-ANTHON-CN-1",
+    "lat": 42.3872,
+    "lon": -95.8694,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-ANTHON-EA-1",
+    "lat": 42.3903,
+    "lon": -95.8468,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-ANTHON-NW-1",
+    "lat": 42.4323,
+    "lon": -95.9405,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-ANTHON-SO-1",
+    "lat": 42.3702,
+    "lon": -95.8838,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-ANTHON-SO-2",
+    "lat": 42.346,
+    "lon": -95.8551,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-ANTHON-SO-4",
+    "lat": 42.3448,
+    "lon": -95.8551,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-ANTHON-WE-1",
+    "lat": 42.3861,
+    "lon": -95.9114,
+    "zone": "IA1 - SC",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-AREDALE-NW-1",
+    "lat": 42.8619,
+    "lon": -93.0951,
+    "zone": "IA1 - CF",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-ARGYLE-SE-1",
+    "lat": 40.5259,
+    "lon": -91.5535,
+    "zone": "IA1 - BT",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-ARISPE-SE-1",
+    "lat": 40.9332,
+    "lon": -94.1546,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-ARISPE-WE-1",
+    "lat": 40.9513,
+    "lon": -94.2812,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-ARLINGTON-SW-1",
+    "lat": 42.7388,
+    "lon": -91.6861,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-ARMSTRONG-WE-1",
+    "lat": 43.3937,
+    "lon": -94.5207,
+    "zone": "IA1 - SC",
+    "status": "Pending Cabinet"
+  },
+  {
+    "name": "IA-ASHGROVE-NW-1",
+    "lat": 40.8833,
+    "lon": -92.6337,
+    "zone": "IA1 - AL",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-ASHGROVE-NW-2-SR",
+    "lat": 40.8714,
+    "lon": -92.5771,
+    "zone": "IA1 - AL",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-ASHTON-WE-1",
+    "lat": 43.3614,
+    "lon": -95.8055,
+    "zone": "IA1 - SC",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-ASPINWALL-NE-SR",
+    "lat": 41.9376,
+    "lon": -95.1425,
+    "zone": "IA1 - CR",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-ATLANTIC-SO-1",
+    "lat": 41.375,
+    "lon": -95.0137,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-AUDUBON-EA-1",
+    "lat": 41.71,
+    "lon": -94.8015,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-AUDUBON-NO-1",
+    "lat": 41.8161,
+    "lon": -94.9384,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-AUSTIN-CN-1",
+    "lat": 42.5851,
+    "lon": -92.9582,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-AVOCA-CN-1",
+    "lat": 41.5032,
+    "lon": -95.3348,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-AVOCA-SO-1",
+    "lat": 41.447,
+    "lon": -95.3242,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-AVOCA-SW-1",
+    "lat": 41.4483,
+    "lon": -95.4006,
+    "zone": "IA1 - SC",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-AVON-CN-1",
+    "lat": 41.525,
+    "lon": -93.5056,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-AYRSHIRE-CN-1",
+    "lat": 43.04,
+    "lon": -94.8313,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-AYRSHIRE-SE-1",
+    "lat": 42.589,
+    "lon": -94.9548,
+    "zone": "IA1 - SC",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-BADGER-WE-1",
+    "lat": 42.6057,
+    "lon": -94.2339,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BANKSTON-SE-1",
+    "lat": 42.5013,
+    "lon": -90.9494,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BARNUM-CN-1",
+    "lat": 42.5109,
+    "lon": -94.3857,
+    "zone": "IA1 - AL",
+    "status": "Pending Cabinet"
+  },
+  {
+    "name": "IA-BATTLECREEK-NW-1",
+    "lat": 42.3419,
+    "lon": -95.6575,
+    "zone": "IA1 - SC",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-BATTLECREK-CN-1",
+    "lat": 42.3152,
+    "lon": -95.5977,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BATTLECREK-CN-2",
+    "lat": 42.3216,
+    "lon": -95.6031,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BATTLECREK-SE-1",
+    "lat": 42.2842,
+    "lon": -95.5501,
+    "zone": "IA1 - SC",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-BATTLECREK-SO-1",
+    "lat": 42.2554,
+    "lon": -95.6333,
+    "zone": "IA1 - SC",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-BATTLECREK-SO-2",
+    "lat": 42.2547,
+    "lon": -95.619,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BAYARD-NO-1",
+    "lat": 41.8995,
+    "lon": -94.5533,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BEAVER-NE-1",
+    "lat": 42.0548,
+    "lon": -94.0878,
+    "zone": "IA1 - AL",
+    "status": "Future Lease"
+  },
+  {
+    "name": "IA-BEDFORD-EA-1",
+    "lat": 40.6894,
+    "lon": -94.5676,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BEDFORD-NE-1",
+    "lat": 40.7405,
+    "lon": -94.7003,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BEDFORD-NO-1",
+    "lat": 40.6826,
+    "lon": -94.724,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BEDFORD-SO-1",
+    "lat": 40.6053,
+    "lon": -94.7176,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BEDFORD-SW-1",
+    "lat": 40.5992,
+    "lon": -94.8299,
+    "zone": "IA1 - CR",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-BELEPLAINE-NO-1",
+    "lat": 41.9103,
+    "lon": -92.2694,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BELLEVUE-CN-1",
+    "lat": 42.264,
+    "lon": -90.4312,
+    "zone": "IA1 - BT",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-BELLEVUE-NW-1",
+    "lat": 42.2803,
+    "lon": -90.4908,
+    "zone": "IA1 - BT",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-BELMOND-SO-1",
+    "lat": 42.7897,
+    "lon": -93.5919,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BELMOND-SW-1",
+    "lat": 42.7974,
+    "lon": -93.6909,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BELMOND-WE-1",
+    "lat": 42.8626,
+    "lon": -93.6401,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BENNETT-CN-1",
+    "lat": 41.7374,
+    "lon": -90.9743,
+    "zone": "IA1 - BT",
+    "status": "Pending Cabinet"
+  },
+  {
+    "name": "IA-BETTEN-CN-1",
+    "lat": 41.5482,
+    "lon": -90.4974,
+    "zone": "IA1 - BT",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-BIGELOW-SE-1",
+    "lat": 43.4895,
+    "lon": -95.6154,
+    "zone": "IA1 - SC",
+    "status": "Pending Cabinet"
+  },
+  {
+    "name": "IA-BLAIRSBURG-SW-1",
+    "lat": 42.4496,
+    "lon": -93.678,
+    "zone": "IA1 - AL",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-BLAKESBURG-NO-1",
+    "lat": 41.0096,
+    "lon": -92.6435,
+    "zone": "IA1 - AL",
+    "status": "Pending Deployment"
+  },
+  {
+    "name": "IA-BLENCOE-CN-1",
+    "lat": 41.9296,
+    "lon": -96.0826,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BLESSING-NE-1",
+    "lat": 42.324,
+    "lon": -92.3873,
+    "zone": "IA1 - CF",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-BODE-CN-1",
+    "lat": 42.8695,
+    "lon": -94.287,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BONDURANT-EA-1",
+    "lat": 41.7036,
+    "lon": -93.4168,
+    "zone": "IA1 - AL",
+    "status": "35"
+  },
+  {
+    "name": "IA-BOONE-WE-1",
+    "lat": 42.0661,
+    "lon": -93.9389,
+    "zone": "IA1 - AL",
+    "status": "Future Lease"
+  },
+  {
+    "name": "IA-BOONEVILLE-CN-1",
+    "lat": 41.5238,
+    "lon": -93.8835,
+    "zone": "IA1 - AL",
+    "status": "Pending Deployment"
+  },
+  {
+    "name": "IA-BOTNA-SE-1",
+    "lat": 41.85,
+    "lon": -95.1144,
+    "zone": "IA1 - CR",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-BRADDYVILLE-EA-1",
+    "lat": 40.5886,
+    "lon": -94.924,
+    "zone": "IA1 - CR",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-BRADFORD-SR-1",
+    "lat": 42.6002,
+    "lon": -93.2417,
+    "zone": "IA1 - CF",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-BRADGATE-NO-1",
+    "lat": 42.8219,
+    "lon": -94.4172,
+    "zone": "IA1 - CF",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-BRANDON-EA-1",
+    "lat": 42.3095,
+    "lon": -91.973,
+    "zone": "IA1 - CF",
+    "status": "Pending Power"
+  },
+  {
+    "name": "IA-BREMER-EA-1",
+    "lat": 42.7724,
+    "lon": -92.3767,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BRIDGEWATER-SE-1",
+    "lat": 41.1988,
+    "lon": -94.5867,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BRIDGEWATER-SW-1",
+    "lat": 41.23,
+    "lon": -94.6881,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BRIGHTON-NO-1",
+    "lat": 41.1864,
+    "lon": -91.8295,
+    "zone": "IA1 - BT",
+    "status": "Future Lease"
+  },
+  {
+    "name": "IA-BRITT-CN-1",
+    "lat": 43.0998,
+    "lon": -93.8034,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BRITT-NE-1",
+    "lat": 43.126,
+    "lon": -93.7162,
+    "zone": "IA1 - CF",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-BRITT-SE-1",
+    "lat": 43.0206,
+    "lon": -93.7754,
+    "zone": "IA1 - CF",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-BROOKLYN-SO-1",
+    "lat": 41.7096,
+    "lon": -92.454,
+    "zone": "IA1 - AL",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-BROOKS-SR",
+    "lat": 40.9352,
+    "lon": -94.8032,
+    "zone": "IA1 - CR",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-BRUNSVILLE-CN-1",
+    "lat": 42.8095,
+    "lon": -96.2714,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BRYANTSBURG-SE-SR",
+    "lat": 42.5505,
+    "lon": -91.856,
+    "zone": "IA1 - CF",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-BRYANTSBURG-SW-SR",
+    "lat": 42.5678,
+    "lon": -91.9781,
+    "zone": "IA1 - CF",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-BUCKCREEK-SO-1",
+    "lat": 42.7158,
+    "lon": -92.1419,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BUCKEYE-SO-1",
+    "lat": 42.3891,
+    "lon": -93.4057,
+    "zone": "IA1 - CF",
+    "status": "Pending Power"
+  },
+  {
+    "name": "IA-BURLINGTON-SW-1",
+    "lat": 40.7439,
+    "lon": -91.1881,
+    "zone": "IA1 - BT",
+    "status": "Contract Signed"
+  },
+  {
+    "name": "IA-BURROAK-SO-1",
+    "lat": 43.4205,
+    "lon": -91.8547,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-BUSSEY-NO-1",
+    "lat": 41.2186,
+    "lon": -92.8816,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CALIFORNIAJUCTION-SO-1",
+    "lat": 41.5581,
+    "lon": -95.9969,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CALIFORNIAJUNCTION-SO-2",
+    "lat": 41.5582,
+    "lon": -95.9973,
+    "zone": "IA1 - CR",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-CALMAR-CN-1",
+    "lat": 43.181,
+    "lon": -91.858,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CAMBRIDGE-NE-1",
+    "lat": 41.9127,
+    "lon": -93.5072,
+    "zone": "IA1 - AL",
+    "status": "Pending Cabinet"
+  },
+  {
+    "name": "IA-CANTON-NW-1",
+    "lat": 42.1734,
+    "lon": -90.9135,
+    "zone": "IA1 - BT",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-CANTRIL-WE-1",
+    "lat": 40.652,
+    "lon": -92.1106,
+    "zone": "IA1 - MC",
+    "status": "Future Lease"
+  },
+  {
+    "name": "IA-CARBON-CN-SR",
+    "lat": 41.0497,
+    "lon": -94.8233,
+    "zone": "IA1 - CR",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-CARL-SO-SR",
+    "lat": 41.0805,
+    "lon": -94.6613,
+    "zone": "IA1 - CR",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-CARL-WE-SR",
+    "lat": 41.112,
+    "lon": -94.7296,
+    "zone": "IA1 - CR",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-CARNES-NO-1",
+    "lat": 42.9384,
+    "lon": -96.0574,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CARPENTER-SO-1",
+    "lat": 43.3716,
+    "lon": -93.0065,
+    "zone": "IA1 - CF",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-CARROLL-NW-1",
+    "lat": 42.0964,
+    "lon": -94.8972,
+    "zone": "IA1 - AL",
+    "status": "Pending Deployment"
+  },
+  {
+    "name": "IA-CARSON-CN-1",
+    "lat": 41.2365,
+    "lon": -95.4119,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CARSON-NW-1",
+    "lat": 41.2728,
+    "lon": -95.5083,
+    "zone": "IA1 - SC",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-CARSON-R1",
+    "lat": 41.2103,
+    "lon": -95.3759,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CARSON-R4",
+    "lat": 41.2035,
+    "lon": -95.5004,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CARSON-SE-1",
+    "lat": 41.214,
+    "lon": -95.5178,
+    "zone": "IA1 - SC",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-CASEY-SO-1",
+    "lat": 41.4384,
+    "lon": -94.4893,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CASTANA-SE-1",
+    "lat": 42.0373,
+    "lon": -95.8847,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CEDARFALLS-CN-1",
+    "lat": 42.5207,
+    "lon": -92.4435,
+    "zone": "IA1 - CF",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-CEDARFALLS-CN-2",
+    "lat": 42.5136,
+    "lon": -92.4734,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CEDARFALLS-EA-1",
+    "lat": 42.4838,
+    "lon": -92.5143,
+    "zone": "IA1 - CF",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-CEDARRAPIDS-WE-1",
+    "lat": 41.9776,
+    "lon": -91.7972,
+    "zone": "IA1 - AL",
+    "status": "Future Lease"
+  },
+  {
+    "name": "IA-CEDEARBLUFF-NW-1-SR",
+    "lat": 41.8,
+    "lon": -91.3409,
+    "zone": "IA1 - BT",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-CENTRALCITY-NO-1",
+    "lat": 42.2233,
+    "lon": -91.531,
+    "zone": "IA1 - CF",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-CENTRALCITY-NW-1",
+    "lat": 42.2971,
+    "lon": -91.4246,
+    "zone": "IA1 - CF",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-CHAPIN-NO-1",
+    "lat": 42.8642,
+    "lon": -93.2292,
+    "zone": "IA1 - CF",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-CHARITON-EA-1-SR",
+    "lat": 40.9984,
+    "lon": -93.2219,
+    "zone": "IA1 - AL",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-CHARITON-SO-1",
+    "lat": 40.9303,
+    "lon": -93.3108,
+    "zone": "IA1 - AL",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-CHARLESCITY-SW-1",
+    "lat": 43.0517,
+    "lon": -92.6971,
+    "zone": "IA1 - CF",
+    "status": "Future Lease"
+  },
+  {
+    "name": "IA-CHARLOTTE-EA-1",
+    "lat": 41.9602,
+    "lon": -90.4185,
+    "zone": "IA1 - BT",
+    "status": "Future Lease"
+  },
+  {
+    "name": "IA-CHARLOTTE-SE-1",
+    "lat": 41.9344,
+    "lon": -90.4431,
+    "zone": "IA1 - BT",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-CHARLOTTE-SW-1",
+    "lat": 41.9183,
+    "lon": -90.4891,
+    "zone": "IA1 - BT",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-CHARTEROAK-NE-1",
+    "lat": 42.0797,
+    "lon": -95.5739,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CHELSEA-SW-1",
+    "lat": 41.8883,
+    "lon": -92.414,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CHEROKEE-SO-1",
+    "lat": 42.649,
+    "lon": -95.5399,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CHEROKEE-WE-1",
+    "lat": 42.7573,
+    "lon": -95.6238,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CHOAKDCTY-CN-1",
+    "lat": 41.9935,
+    "lon": -95.5736,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CLARE-CN-1",
+    "lat": 42.5896,
+    "lon": -94.3465,
+    "zone": "IA1 - AL",
+    "status": "Pending Cabinet"
+  },
+  {
+    "name": "IA-CLARINDA-EA-1",
+    "lat": 40.7489,
+    "lon": -95.0036,
+    "zone": "IA1 - CR",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-CLARINDA-EA-2",
+    "lat": 40.7461,
+    "lon": -94.9916,
+    "zone": "IA1 - AL",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-CLARINDA-EA-SR",
+    "lat": 40.7729,
+    "lon": -94.9719,
+    "zone": "IA1 - CR",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-CLARION-CN-1",
+    "lat": 42.7365,
+    "lon": -93.7356,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CLARION-SE-1",
+    "lat": 42.7165,
+    "lon": -93.7223,
+    "zone": "IA1 - CF",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-CLEARFIELD-EA-1",
+    "lat": 40.8117,
+    "lon": -94.4529,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CLEARFIELD-WE-1",
+    "lat": 40.8017,
+    "lon": -94.5492,
+    "zone": "IA1 - CR",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-CLEARLAKE-CN-1",
+    "lat": 43.1406,
+    "lon": -93.4212,
+    "zone": "IA1 - CF",
+    "status": "Pending Deployment"
+  },
+  {
+    "name": "IA-CLEARLAKE-SO-1",
+    "lat": 43.0373,
+    "lon": -93.3463,
+    "zone": "IA1 - CF",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-CLERMONT-WE-1",
+    "lat": 42.9936,
+    "lon": -91.6768,
+    "zone": "IA1 - CF",
+    "status": "Pending Cabinet"
+  },
+  {
+    "name": "IA-CLEVES-CN-1",
+    "lat": 42.4721,
+    "lon": -93.0447,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CLIMBHILL-WE-1",
+    "lat": 42.357,
+    "lon": -96.1342,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CLINTON-CN-1",
+    "lat": 41.8474,
+    "lon": -90.2303,
+    "zone": "IA1 - BT",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CLINTON-NO-1",
+    "lat": 41.9384,
+    "lon": -90.2529,
+    "zone": "IA1 - BT",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CLINTON-WE-1",
+    "lat": 41.8773,
+    "lon": -90.2994,
+    "zone": "IA1 - BT",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CLUTIER-SW-1",
+    "lat": 42.0651,
+    "lon": -92.505,
+    "zone": "IA1 - CF",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-CLYDE-WE-1",
+    "lat": 41.8364,
+    "lon": -93.2842,
+    "zone": "IA1 - AL",
+    "status": "35"
+  },
+  {
+    "name": "IA-COGGON-SE-SR",
+    "lat": 42.2514,
+    "lon": -91.5002,
+    "zone": "IA1 - CF",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-COIN-NO-1",
+    "lat": 40.7127,
+    "lon": -95.2458,
+    "zone": "IA1 - CR",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-COLESBURG-SE-1",
+    "lat": 42.6181,
+    "lon": -91.1587,
+    "zone": "IA1 - CF",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-COLESBURG-SW-1",
+    "lat": 42.6242,
+    "lon": -91.2379,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-COLFAX-NW-1",
+    "lat": 41.6881,
+    "lon": -93.2561,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-COLUMBIA-NE-1",
+    "lat": 41.1977,
+    "lon": -93.1236,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-COLUMBIA-NO-1",
+    "lat": 41.1143,
+    "lon": -93.142,
+    "zone": "IA1 - AL",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-COLUMBIA-NO-2",
+    "lat": 41.2055,
+    "lon": -93.1522,
+    "zone": "IA1 - AL",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-COLUMBUSJCT-NE-1",
+    "lat": 41.3065,
+    "lon": -91.3307,
+    "zone": "IA1 - BT",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-COLUMBUSJCT-NW-1",
+    "lat": 41.3369,
+    "lon": -91.4552,
+    "zone": "IA1 - BT",
+    "status": "Active"
+  },
+  {
+    "name": "IA-COLUMBUSJCT-SE-1",
+    "lat": 41.2129,
+    "lon": -91.3033,
+    "zone": "IA1 - BT",
+    "status": "Active"
+  },
+  {
+    "name": "IA-COLUMBUSJCT-SO-1",
+    "lat": 41.2067,
+    "lon": -91.4092,
+    "zone": "IA1 - BT",
+    "status": "Active"
+  },
+  {
+    "name": "IA-COLUMBUSJCT-WE-1",
+    "lat": 41.276,
+    "lon": -91.3914,
+    "zone": "IA1 - BT",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CONRAD-SW-1",
+    "lat": 42.1862,
+    "lon": -92.9054,
+    "zone": "IA1 - AL",
+    "status": "Contract Signed"
+  },
+  {
+    "name": "IA-CONRAD-SW-2",
+    "lat": 42.1858,
+    "lon": -92.9045,
+    "zone": "IA1 - AL",
+    "status": "Pending Cabinet"
+  },
+  {
+    "name": "IA-CONROY-CN-1",
+    "lat": 41.7303,
+    "lon": -91.9976,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-COONRAPIDS-CN-1",
+    "lat": 41.8715,
+    "lon": -94.6853,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-COONRAPIDS-SE-1",
+    "lat": 41.8469,
+    "lon": -94.6538,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-COONRAPIDS-SW-1",
+    "lat": 41.8367,
+    "lon": -94.7824,
+    "zone": "IA1 - CR",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-COOPER-CN-1",
+    "lat": 41.8958,
+    "lon": -94.3689,
+    "zone": "IA1 - AL",
+    "status": "Pending Cabinet"
+  },
+  {
+    "name": "IA-CORNING-NE-1",
+    "lat": 41.1216,
+    "lon": -94.6826,
+    "zone": "IA1 - AL",
+    "status": "Pending Deployment"
+  },
+  {
+    "name": "IA-CORNING-SE-SR",
+    "lat": 40.9337,
+    "lon": -94.7199,
+    "zone": "IA1 - CR",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-CORNING-SO-1",
+    "lat": 40.9767,
+    "lon": -94.7322,
+    "zone": "IA1 - AL",
+    "status": "Pending Power"
+  },
+  {
+    "name": "IA-CORNING-SW-1",
+    "lat": 40.9649,
+    "lon": -94.8047,
+    "zone": "IA1 - CR",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-CORRECTION-CN-1",
+    "lat": 42.4765,
+    "lon": -95.7876,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CORWITH-CN-1",
+    "lat": 42.9909,
+    "lon": -93.9574,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-COTTONVILLE-EA-1",
+    "lat": 42.2533,
+    "lon": -90.5554,
+    "zone": "IA1 - BT",
+    "status": "Pending Deployment"
+  },
+  {
+    "name": "IA-COUNCILBLUF-CN-1",
+    "lat": 41.2887,
+    "lon": -95.8256,
+    "zone": "IA1 - CR",
+    "status": "Future Lease"
+  },
+  {
+    "name": "IA-COUNCILBLUFF-R1",
+    "lat": 41.1797,
+    "lon": -95.7778,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-COUNCILBLUFF-R2",
+    "lat": 41.1749,
+    "lon": -95.6974,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-COUNCILBLUFF-R4",
+    "lat": 41.2688,
+    "lon": -95.7354,
+    "zone": "IA1 - CR",
+    "status": "Active"
+  },
+  {
+    "name": "IA-COUNCILBLUFFS-CN-1",
+    "lat": 41.1714,
+    "lon": -95.8283,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-COUNCILBLUFFS-EA-SR",
+    "lat": 41.2185,
+    "lon": -95.727,
+    "zone": "IA1 - CR",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-COUNCILBLUFFS-R3",
+    "lat": 41.2393,
+    "lon": -95.691,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-COUNCILBLUFFS-R4",
+    "lat": 41.1919,
+    "lon": -95.6882,
+    "zone": "IA1 - CR",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-COUNCILBLUFFS-SO-1",
+    "lat": 41.1595,
+    "lon": -95.8291,
+    "zone": "IA1 - SC",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-CRAWFORD-NE-1",
+    "lat": 41.2289,
+    "lon": -91.4807,
+    "zone": "IA1 - BT",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CRAWFORD-SO-1",
+    "lat": 41.2064,
+    "lon": -91.5383,
+    "zone": "IA1 - BT",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CRESCENT-NE-SR",
+    "lat": 41.3753,
+    "lon": -95.8361,
+    "zone": "IA1 - CR",
+    "status": "Lease Pending"
+  },
+  {
+    "name": "IA-CRESCO-SO-1",
+    "lat": 43.3422,
+    "lon": -92.1195,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CRESTON-CN-1",
+    "lat": 41.0559,
+    "lon": -94.3675,
+    "zone": "IA1 - AL",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CUMMING-SO-1",
+    "lat": 41.4362,
+    "lon": -93.7777,
+    "zone": "IA1 - AL",
+    "status": "Pending Cabinet"
+  },
+  {
+    "name": "IA-CUSHING-CN-1",
+    "lat": 42.4673,
+    "lon": -95.6756,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CUSHING-CN-2",
+    "lat": 42.467,
+    "lon": -95.6793,
+    "zone": "IA1 - SC",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-CUSHING-SO-1",
+    "lat": 42.44,
+    "lon": -95.6545,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-CYLINDER-EA-1",
+    "lat": 43.0856,
+    "lon": -94.5369,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-DALLASCENTER-CN-1",
+    "lat": 41.6831,
+    "lon": -93.9588,
+    "zone": "IA1 - AL",
+    "status": "Pending Deployment"
+  },
+  {
+    "name": "IA-DANBURY-NO-1",
+    "lat": 42.3505,
+    "lon": -95.7478,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-DANBURY-NW-1",
+    "lat": 42.2989,
+    "lon": -95.7688,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-DANBURY-WE-1",
+    "lat": 42.2254,
+    "lon": -95.6196,
+    "zone": "IA1 - SC",
+    "status": "Active"
+  },
+  {
+    "name": "IA-DAVENP-CN-1",
+    "lat": 41.5612,
+    "lon": -90.5715,
+    "zone": "IA1 - BT",
+    "status": "Decommissioned"
+  },
+  {
+    "name": "IA-DECORAH-CN-1",
+    "lat": 43.2948,
+    "lon": -91.7979,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-DECORAH-EA-1",
+    "lat": 43.3083,
+    "lon": -91.6403,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-DECORAH-NO-1",
+    "lat": 43.3807,
+    "lon": -91.7534,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-DECORAH-SE-1",
+    "lat": 43.2337,
+    "lon": -91.6843,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-DECORAH-WE-1",
+    "lat": 43.2875,
+    "lon": -91.8845,
+    "zone": "IA1 - CF",
+    "status": "Active"
+  },
+  {
+    "name": "IA-DEDHAM-NE-SR",
+    "lat": 41.9252,
+    "lon": -94.8024,
+    "zone": "IA1 - CR",
+    "status": "Lease Pending"
+  }
+]
