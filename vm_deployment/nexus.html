@@ -8631,8 +8631,11 @@
                                 <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">System Information</h2>
                                 <div class="form-group">
                                     <label for="nokia7250_siteSuffix">Site Name</label>
-                                    <input type="text" id="nokia7250_siteSuffix" placeholder="TX-DRIPPINGSPRINGS-CN-1" oninput="syncNokia7250SystemName(true)"
-                                        style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
+                                    <div style="position:relative">
+                                        <input type="text" id="nokia7250_siteSuffix" placeholder="Search site name…" oninput="syncNokia7250SystemName(true)" autocomplete="off"
+                                            style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
+                                        <div id="nokia7250SiteSuggest" class="mt-site-suggest"></div>
+                                    </div>
                                     <div style="margin-top: 4px; font-size: 11px; color: var(--text-color-secondary);">Typing the short site name auto-fills the full Nokia system name as <code>RTR-NK7250-AR1.&lt;SITE-NAME&gt;</code>.</div>
                                 </div>
                                 <div class="form-group">
@@ -31564,88 +31567,94 @@ Ready for translation!`);
             };
         });
 
-        // MikroTik site name typeahead — auto-fills lat/lon from site_cache
+        // Site name typeahead — auto-fills lat/lon — used on MikroTik and Nokia tabs
         (function () {
-            var _st = null;
-            var _results = [];
-            var _idx = -1;
-
             function _esc(s) {
                 return String(s || '').replace(/[&<>"']/g, function(c) {
                     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
                 });
             }
 
-            function _suggest() { return document.getElementById('mtSiteSuggest'); }
+            function makeSiteTypeahead(cfg) {
+                // cfg: { inputId, suggestId, latId, lonId }
+                var _st = null, _results = [], _idx = -1, _selecting = false;
 
-            function _hide() {
-                var s = _suggest(); if (s) { s.classList.remove('is-open'); s.innerHTML = ''; }
-                _results = []; _idx = -1;
-            }
+                function _suggest() { return document.getElementById(cfg.suggestId); }
 
-            function _highlight(index) {
-                _idx = index;
-                (_suggest() || {querySelector:function(){}}).parentElement;
-                var items = (_suggest() || document.createElement('div')).querySelectorAll('.mt-site-suggest-item');
-                items.forEach(function(el, i) { el.classList.toggle('active', i === index); });
-            }
+                function _hide() {
+                    var s = _suggest(); if (s) { s.classList.remove('is-open'); s.innerHTML = ''; }
+                    _results = []; _idx = -1;
+                }
 
-            function _select(item) {
-                document.getElementById('mtSiteName').value = item.name;
-                document.getElementById('mtLatitude').value = item.lat;
-                document.getElementById('mtLongitude').value = item.lon;
-                _hide();
-                document.getElementById('mtSiteName').dispatchEvent(new Event('input', {bubbles: true}));
-            }
-
-            function _render(results) {
-                var s = _suggest(); if (!s) return;
-                _results = results || [];
-                _idx = -1;
-                if (!_results.length) { _hide(); return; }
-                s.innerHTML = _results.map(function(r, i) {
-                    var meta = [r.status, r.zone].filter(Boolean).join(' · ');
-                    return '<div class="mt-site-suggest-item" data-index="' + i + '">' +
-                        '<div class="mt-site-suggest-primary">' + _esc(r.name) + '</div>' +
-                        '<div class="mt-site-suggest-secondary">' + _esc(meta) + '</div>' +
-                        '</div>';
-                }).join('');
-                s.querySelectorAll('.mt-site-suggest-item').forEach(function(el) {
-                    el.addEventListener('mousedown', function(e) {
-                        e.preventDefault();
-                        _select(_results[Number(el.getAttribute('data-index'))]);
-                    });
-                });
-                s.classList.add('is-open');
-            }
-
-            document.addEventListener('DOMContentLoaded', function() {
-                var inp = document.getElementById('mtSiteName');
-                if (!inp) return;
-
-                inp.addEventListener('input', function() {
-                    clearTimeout(_st);
-                    var q = this.value.trim();
-                    if (q.length < 2) { _hide(); return; }
-                    _st = setTimeout(function() {
-                        fetch('/api/sites/search?q=' + encodeURIComponent(q) + '&limit=10')
-                            .then(function(r) { return r.json(); })
-                            .then(function(d) { _render(d.results || []); })
-                            .catch(function() {});
-                    }, 250);
-                });
-
-                inp.addEventListener('keydown', function(e) {
+                function _highlight(index) {
+                    _idx = index;
                     var items = (_suggest() || document.createElement('div')).querySelectorAll('.mt-site-suggest-item');
-                    if (!items.length) return;
-                    if (e.key === 'ArrowDown') { e.preventDefault(); _highlight(Math.min(_idx + 1, items.length - 1)); }
-                    else if (e.key === 'ArrowUp') { e.preventDefault(); _highlight(Math.max(_idx - 1, 0)); }
-                    else if (e.key === 'Enter' && _idx >= 0) { e.preventDefault(); _select(_results[_idx]); }
-                    else if (e.key === 'Escape') { _hide(); }
-                });
+                    items.forEach(function(el, i) { el.classList.toggle('active', i === index); });
+                }
 
-                inp.addEventListener('blur', function() { setTimeout(_hide, 150); });
-            });
+                function _select(item) {
+                    _selecting = true;
+                    document.getElementById(cfg.inputId).value = item.name;
+                    document.getElementById(cfg.latId).value = item.lat;
+                    document.getElementById(cfg.lonId).value = item.lon;
+                    _hide();
+                    _selecting = false;
+                }
+
+                function _render(results) {
+                    var s = _suggest(); if (!s) return;
+                    _results = results || []; _idx = -1;
+                    if (!_results.length) { _hide(); return; }
+                    s.innerHTML = _results.map(function(r, i) {
+                        var meta = [r.status, r.zone].filter(Boolean).join(' · ');
+                        return '<div class="mt-site-suggest-item" data-index="' + i + '">' +
+                            '<div class="mt-site-suggest-primary">' + _esc(r.name) + '</div>' +
+                            '<div class="mt-site-suggest-secondary">' + _esc(meta) + '</div>' +
+                            '</div>';
+                    }).join('');
+                    s.querySelectorAll('.mt-site-suggest-item').forEach(function(el) {
+                        el.addEventListener('mousedown', function(e) {
+                            e.preventDefault();
+                            _select(_results[Number(el.getAttribute('data-index'))]);
+                        });
+                    });
+                    s.classList.add('is-open');
+                }
+
+                document.addEventListener('DOMContentLoaded', function() {
+                    var inp = document.getElementById(cfg.inputId);
+                    if (!inp) return;
+
+                    inp.addEventListener('input', function() {
+                        if (_selecting) return;
+                        clearTimeout(_st);
+                        var q = this.value.trim();
+                        if (q.length < 2) { _hide(); return; }
+                        _st = setTimeout(function() {
+                            fetch('/api/sites/search?q=' + encodeURIComponent(q) + '&limit=10')
+                                .then(function(r) { return r.json(); })
+                                .then(function(d) { _render(d.results || []); })
+                                .catch(function() {});
+                        }, 250);
+                    });
+
+                    inp.addEventListener('keydown', function(e) {
+                        var items = (_suggest() || document.createElement('div')).querySelectorAll('.mt-site-suggest-item');
+                        if (!items.length) return;
+                        if (e.key === 'ArrowDown') { e.preventDefault(); _highlight(Math.min(_idx + 1, items.length - 1)); }
+                        else if (e.key === 'ArrowUp') { e.preventDefault(); _highlight(Math.max(_idx - 1, 0)); }
+                        else if (e.key === 'Enter' && _idx >= 0) { e.preventDefault(); _select(_results[_idx]); }
+                        else if (e.key === 'Escape') { _hide(); }
+                    });
+
+                    inp.addEventListener('blur', function() { setTimeout(_hide, 150); });
+                });
+            }
+
+            // MikroTik New Device
+            makeSiteTypeahead({ inputId:'mtSiteName', suggestId:'mtSiteSuggest', latId:'mtLatitude', lonId:'mtLongitude' });
+            // Nokia 7250
+            makeSiteTypeahead({ inputId:'nokia7250_siteSuffix', suggestId:'nokia7250SiteSuggest', latId:'nokia7250_lat', lonId:'nokia7250_lon' });
         })();
     </script>
 
