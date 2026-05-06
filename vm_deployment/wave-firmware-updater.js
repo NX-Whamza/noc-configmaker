@@ -770,6 +770,7 @@
     }
 
     async function initWaveUpdater() {
+        if (!shouldInitWaveUpdater()) return;
         if (waveState.initComplete) return;
         waveState.initComplete = true;
         updateFileBadge();
@@ -780,17 +781,33 @@
         addLog('Ubiquiti Wave firmware updater ready.', 'info');
     }
 
-    window.getWaveApiBase = getWaveApiBase;
+    function shouldInitWaveUpdater() {
+        const pane = document.getElementById('device-firmware-updater-pane');
+        if (!pane || !pane.classList.contains('active')) return false;
+        const wavePane = document.getElementById('device-firmware-wave-fw-section');
+        if (wavePane && wavePane.classList.contains('active')) return true;
+        const normalizedHash = window.location.hash.replace(/^#/, '').toLowerCase();
+        return normalizedHash === 'device-firmware-updater-wave-fw';
+    }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
-            initWaveUpdater().catch(err => {
-                console.error('[WaveFW] Failed to initialize updater', err);
-            });
-        }, { once: true });
-    } else {
+    function tryInitWaveUpdater() {
+        if (!shouldInitWaveUpdater()) return;
         initWaveUpdater().catch(err => {
             console.error('[WaveFW] Failed to initialize updater', err);
         });
     }
+
+    window.getWaveApiBase = getWaveApiBase;
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', tryInitWaveUpdater, { once: true });
+    } else {
+        tryInitWaveUpdater();
+    }
+
+    window.addEventListener('nexus:device-firmware-tab-activated', event => {
+        if (event?.detail?.tab === 'wave-fw') {
+            tryInitWaveUpdater();
+        }
+    });
 }());

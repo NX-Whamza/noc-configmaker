@@ -996,17 +996,33 @@
         addLog('Cambium firmware updater ready.', 'info');
     }
 
-    window.getCambiumApiBase = getCambiumApiBase;
+    function shouldInitCambiumUpdater() {
+        const pane = document.getElementById('device-firmware-updater-pane');
+        if (!pane || !pane.classList.contains('active')) return false;
+        const cambiumPane = document.getElementById('device-firmware-cambium-pane');
+        if (cambiumPane && cambiumPane.classList.contains('active')) return true;
+        const normalizedHash = window.location.hash.replace(/^#/, '').toLowerCase();
+        return normalizedHash === 'device-firmware-updater-cambium';
+    }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
-            initCambiumUpdater().catch(err => {
-                console.error('[Cambium] Failed to initialize updater', err);
-            });
-        }, { once: true });
-    } else {
+    function tryInitCambiumUpdater() {
+        if (!shouldInitCambiumUpdater()) return;
         initCambiumUpdater().catch(err => {
             console.error('[Cambium] Failed to initialize updater', err);
         });
     }
+
+    window.getCambiumApiBase = getCambiumApiBase;
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', tryInitCambiumUpdater, { once: true });
+    } else {
+        tryInitCambiumUpdater();
+    }
+
+    window.addEventListener('nexus:device-firmware-tab-activated', event => {
+        if (event?.detail?.tab === 'cambium') {
+            tryInitCambiumUpdater();
+        }
+    });
 })();
