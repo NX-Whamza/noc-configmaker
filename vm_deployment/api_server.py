@@ -5214,6 +5214,11 @@ if AI_PROVIDER == 'openai':
     except ImportError:
         safe_print("WARNING: OpenAI library not installed. Install with: pip install openai")
         AI_PROVIDER = 'none'
+        openai_client = None
+    except Exception as e:
+        safe_print(f"WARNING: OpenAI client init failed ({e}). AI features disabled.")
+        AI_PROVIDER = 'none'
+        openai_client = None
 else:
     safe_print(f"AI Provider: {AI_PROVIDER} (no AI features available)")
 
@@ -25505,6 +25510,8 @@ def wave_fw_stream_logs(task_id):
             """
             import time as _time
             pos = 0
+            idle_polls = 0
+            max_idle_polls = 8
             # Wait up to 5 s for the log file to appear (task may not have written yet)
             for _ in range(20):
                 if log_path.exists():
@@ -25518,12 +25525,14 @@ def wave_fw_stream_logs(task_id):
             terminal = {'completed', 'failed', 'aborted', 'error'}
             _stream_deadline = _time.time() + 14400  # 4-hour hard cap — prevents infinite hang
             while _time.time() < _stream_deadline:
+                emitted = False
                 try:
                     with open(log_path) as _lf:
                         _lf.seek(pos)
                         for line in _lf:
                             line = line.strip()
                             if line:
+                                emitted = True
                                 yield f'data: {line}\n\n'
                         pos = _lf.tell()
                 except Exception:
@@ -25543,6 +25552,12 @@ def wave_fw_stream_logs(task_id):
                     except Exception:
                         pass
                     break
+                if emitted:
+                    idle_polls = 0
+                else:
+                    idle_polls += 1
+                    if task_id not in wave_fw_log_queues and idle_polls >= max_idle_polls:
+                        break
                 yield ': keep-alive\n\n'
                 _time.sleep(0.25)
 

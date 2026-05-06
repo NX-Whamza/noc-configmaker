@@ -4,6 +4,9 @@ services:
     image: ghcr.io/nx-whamza/nexus:${NEXUS_VERSION:-latest}
     restart: unless-stopped
     command: ["bash", "scripts/start_nexus.sh"]
+    env_file:
+      - path: .env
+        required: false
     cap_add:
       - NET_ADMIN
     logging:
