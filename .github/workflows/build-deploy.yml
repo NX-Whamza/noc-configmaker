@@ -97,6 +97,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Post deploy notification
         env:
@@ -109,5 +111,5 @@ jobs:
             python3 scripts/post_teams_progress.py release-tag \
               --webhook-url "$TEAMS_DEPLOY_WEBHOOK_URL" \
               --version "$NEXUS_VERSION" \
-              --status "$DEPLOY_STATUS"
+              --status "$DEPLOY_STATUS" \n              --repo-path "$GITHUB_WORKSPACE"
           fi
