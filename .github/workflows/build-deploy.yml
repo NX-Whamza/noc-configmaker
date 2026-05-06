@@ -1,0 +1,113 @@
+name: Build & Deploy Nexus
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (e.g., v2026.05.05.1)'
+        required: false
+
+env:
+  REGISTRY: ghcr.io
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    name: Build & Push to GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version and image names
+        id: meta
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=manual-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+          echo "backend_image=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "frontend_image=${REGISTRY}/${GITHUB_REPOSITORY,,}-frontend" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.backend_image }}:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.backend_image }}:latest
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.frontend
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.frontend_image }}:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.frontend_image }}:latest
+
+  deploy:
+    name: Deploy to Production
+    needs: build-and-push
+    runs-on: [self-hosted, nexus-deploy]
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Deploy
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEXUS_APP_GIT_SHA: ${{ github.sha }}
+        run: bash /home/whamza/nexus/scripts/deploy.sh "${{ needs.build-and-push.outputs.version }}"
+
+  notify-teams:
+    name: Notify Teams
+    needs: [build-and-push, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Post deploy notification
+        env:
+          TEAMS_DEPLOY_WEBHOOK_URL: ${{ secrets.TEAMS_DEPLOY_WEBHOOK_URL }}
+          DEPLOY_STATUS: ${{ needs.deploy.result }}
+          NEXUS_VERSION: ${{ needs.build-and-push.outputs.version }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          if [ -n "$TEAMS_DEPLOY_WEBHOOK_URL" ]; then
+            python3 scripts/post_teams_progress.py release-tag \
+              --webhook-url "$TEAMS_DEPLOY_WEBHOOK_URL" \
+              --version "$NEXUS_VERSION" \
+              --status "$DEPLOY_STATUS"
+          fi

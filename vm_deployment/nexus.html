@@ -639,6 +639,13 @@
         .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 20px; border: none; border-radius: var(--radius-sm); cursor: pointer; font-size: 13px; font-weight: 600; font-family: inherit; transition: all var(--transition-fast); box-shadow: var(--shadow-sm); position: relative; overflow: hidden; }
         .btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--shadow-md); }
         .btn:active:not(:disabled) { transform: translateY(0); }
+        .mt-site-suggest { position:absolute; z-index:25; top:calc(100% + 4px); left:0; right:0; display:none; max-height:280px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-sm); background:var(--card-bg); box-shadow:var(--shadow-md); }
+        .mt-site-suggest.is-open { display:block; }
+        .mt-site-suggest-item { padding:10px 14px; border-bottom:1px solid var(--border-color); cursor:pointer; }
+        .mt-site-suggest-item:last-child { border-bottom:0; }
+        .mt-site-suggest-item:hover, .mt-site-suggest-item.active { background:var(--hover-bg, rgba(255,255,255,0.06)); }
+        .mt-site-suggest-primary { color:var(--text-color); font-weight:600; font-size:13px; }
+        .mt-site-suggest-secondary { color:var(--text-muted, var(--text-color-secondary, #888)); font-size:11px; margin-top:2px; }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
         .btn-primary { background: var(--button-primary); color: #fff; }
         .btn-primary:hover:not(:disabled) { background: var(--button-hover); }
@@ -5447,9 +5454,10 @@
                         </div>
 
                         <div class="device-selection-grid">
-                            <div>
+                            <div style="position:relative">
                                 <label for="mtSiteName">Site Name</label>
-                                <input type="text" id="mtSiteName" placeholder="HALLETTSVILLE-NW-1">
+                                <input type="text" id="mtSiteName" placeholder="Search site name…" autocomplete="off" style="width:100%">
+                                <div id="mtSiteSuggest" class="mt-site-suggest"></div>
                             </div>
                             <div>
                                 <label for="mtRouterIdentity">Router Identity (Auto-generated)</label>
@@ -8623,8 +8631,11 @@
                                 <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">System Information</h2>
                                 <div class="form-group">
                                     <label for="nokia7250_siteSuffix">Site Name</label>
-                                    <input type="text" id="nokia7250_siteSuffix" placeholder="TX-DRIPPINGSPRINGS-CN-1" oninput="syncNokia7250SystemName(true)"
-                                        style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
+                                    <div style="position:relative">
+                                        <input type="text" id="nokia7250_siteSuffix" placeholder="Search site name…" oninput="syncNokia7250SystemName(true)" autocomplete="off"
+                                            style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
+                                        <div id="nokia7250SiteSuggest" class="mt-site-suggest"></div>
+                                    </div>
                                     <div style="margin-top: 4px; font-size: 11px; color: var(--text-color-secondary);">Typing the short site name auto-fills the full Nokia system name as <code>RTR-NK7250-AR1.&lt;SITE-NAME&gt;</code>.</div>
                                 </div>
                                 <div class="form-group">
@@ -15791,6 +15802,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
 
             // Navigation helper function (GLOBAL) - Define BEFORE initializeEventHandlers
             window.navigateToTab = async function (tabId) {
+                if (typeof window.closeProgressTracker === 'function') window.closeProgressTracker();
                 let requestedSubtab = null;
                 if (tabId === 'aviat-backhaul') {
                     tabId = 'device-firmware-updater';
@@ -24940,7 +24952,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                             addProgressLog('error', `CRITICAL: ${missingIPs.length} IP addresses lost!`);
                             completeProgressTracker(false);
                             hideUpgradeProgress();
-                            throw new Error(`CRITICAL FAILURE: ${missingIPs.length} IP addresses lost in translation. AI failed to preserve network config. This is unusable.`);
+                            throw new Error(`CRITICAL FAILURE: ${missingIPs.length} IP addresses lost in translation. Network config could not be fully preserved — review missing IPs and retry.`);
                         } else if (missingIPs.length > 0) {
                             // Some missing IPs = partial success (warning)
                             updateProgressStep(` Warning: ${missingIPs.length} IPs missing - review required`);
@@ -25193,24 +25205,29 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             }
 
             let warningsHtml = '';
-            if (warnings.length) {
+            const visibleWarnings = warnings
+                .filter(w => !w.startsWith('Policy overflow:') && !w.startsWith('Policy exception:') && !w.includes('role unknown'))
+                .map(w => w.replace('No target slot available for role backhaul', 'Some backhaul ports could not be placed on the target device — see unmapped rows below'));
+            if (visibleWarnings.length) {
                 warningsHtml = `<div style="margin-top:12px;padding:8px 12px;background:#fff3cd;border-left:4px solid #ff9800;border-radius:4px">
                     <strong style="color:#e65100">Warnings</strong>
-                    <div style="margin-top:4px">${warnings.map(w => `<div>${escapeHtml(w)}</div>`).join('')}</div>
+                    <div style="margin-top:4px">${visibleWarnings.map(w => `<div>${escapeHtml(w)}</div>`).join('')}</div>
                 </div>`;
             }
 
             let portTableHtml = '';
             if (portAnalysis.length) {
+                const unmappedPorts = portAnalysis.filter(r => !r.target_port);
+                let unmappedBanner = '';
+                if (unmappedPorts.length) {
+                    const portList = unmappedPorts.map(r => escapeHtml(r.source_port || '?')).join(', ');
+                    unmappedBanner = `<div style="margin-top:8px;padding:8px 12px;background:#fde8e8;border-left:4px solid #e74c3c;border-radius:4px">
+                        <strong style="color:#c0392b">⚠ Action Required — ${unmappedPorts.length} port${unmappedPorts.length > 1 ? 's' : ''} not remapped: ${portList}</strong>
+                        <div style="margin-top:4px;font-size:11px;color:#7f0000">These source ports do not have a matching slot on the target device. The generated config still uses these original interface names in <code>/ip address</code>, <code>/interface vlan</code>, and routing sections. You must manually reassign them to valid target ports before deploying — the device will reject those sections as-is.</div>
+                    </div>`;
+                }
                 portTableHtml = `<div style="margin-top:12px"><strong style="color:var(--accent-color)">Port Role Analysis</strong>
-                    <div style="font-size:12px;color:var(--text-color-secondary);margin:4px 0 6px">
-                        Management: ${escapeHtml((policySummary.management_port || 'ether1'))} |
-                        Switch: ${escapeHtml((policySummary.switch_ports || []).join(', ') || 'n/a')} |
-                        Reserved: ${escapeHtml((policySummary.reserved_ports || []).join(', ') || 'n/a')} |
-                        Backhaul: ${escapeHtml((policySummary.backhaul_ports || []).join(', ') || 'n/a')} |
-                        Radio: ${escapeHtml((policySummary.radio_ports || []).join(', ') || 'n/a')} |
-                        QSFP Allowed: ${policySummary.allow_qsfp_ports ? 'Yes' : 'No'}
-                    </div>
+                    <div style="font-size:11px;color:var(--text-color-secondary);margin:3px 0 6px;font-style:italic">Ports identified by role are mapped to matching target slots. Ports with no identified role are auto-assigned to remaining available slots.</div>
                     <table style="width:100%;border-collapse:collapse;font-size:12px">
                         <thead><tr>
                             <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border-color)">Source</th>
@@ -25218,13 +25235,19 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                             <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border-color)">Target</th>
                             <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border-color)">Evidence</th>
                         </tr></thead>
-                        <tbody>${portAnalysis.map(row => `<tr>
+                        <tbody>${portAnalysis.map(row => {
+                            const isUnmapped = !row.target_port;
+                            const role = row.detected_role && row.detected_role !== 'unknown' ? row.detected_role : 'no role identified';
+                            const target = row.target_port || '⚠ unmapped';
+                            const evidence = (row.role_evidence || []).join(', ') || (row.policy_slot === 'overflow/manual review' ? 'auto-assigned (best fit)' : (row.policy_slot || ''));
+                            const rowStyle = isUnmapped ? 'background:rgba(231,76,60,0.07)' : '';
+                            return `<tr style="${rowStyle}">
                             <td style="padding:4px 8px;font-family:'JetBrains Mono',monospace">${escapeHtml(row.source_port || '')}${row.policy_conflict ? ' <span style="color:#e74c3c;font-weight:700">!</span>' : ''}</td>
-                            <td style="padding:4px 8px">${escapeHtml(row.detected_role || 'unknown')} (${escapeHtml(row.confidence || 'low')})</td>
-                            <td style="padding:4px 8px;font-family:'JetBrains Mono',monospace">${escapeHtml(row.target_port || 'manual review')}</td>
-                            <td style="padding:4px 8px">${escapeHtml((row.role_evidence || []).join(', ') || row.policy_slot || '')}</td>
-                        </tr>`).join('')}</tbody>
-                    </table></div>`;
+                            <td style="padding:4px 8px">${escapeHtml(role)} (${escapeHtml(row.confidence || 'low')})</td>
+                            <td style="padding:4px 8px;font-family:'JetBrains Mono',monospace;${isUnmapped ? 'color:#e74c3c;font-weight:600' : ''}">${escapeHtml(target)}</td>
+                            <td style="padding:4px 8px">${escapeHtml(evidence)}</td>
+                        </tr>`;}).join('')}</tbody>
+                    </table>${unmappedBanner}</div>`;
             }
 
             body.innerHTML = `
@@ -31543,6 +31566,96 @@ Ready for translation!`);
                 URL.revokeObjectURL(url);
             };
         });
+
+        // Site name typeahead — auto-fills lat/lon — used on MikroTik and Nokia tabs
+        (function () {
+            function _esc(s) {
+                return String(s || '').replace(/[&<>"']/g, function(c) {
+                    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+                });
+            }
+
+            function makeSiteTypeahead(cfg) {
+                // cfg: { inputId, suggestId, latId, lonId }
+                var _st = null, _results = [], _idx = -1, _selecting = false;
+
+                function _suggest() { return document.getElementById(cfg.suggestId); }
+
+                function _hide() {
+                    var s = _suggest(); if (s) { s.classList.remove('is-open'); s.innerHTML = ''; }
+                    _results = []; _idx = -1;
+                }
+
+                function _highlight(index) {
+                    _idx = index;
+                    var items = (_suggest() || document.createElement('div')).querySelectorAll('.mt-site-suggest-item');
+                    items.forEach(function(el, i) { el.classList.toggle('active', i === index); });
+                }
+
+                function _select(item) {
+                    _selecting = true;
+                    document.getElementById(cfg.inputId).value = item.name;
+                    document.getElementById(cfg.latId).value = item.lat;
+                    document.getElementById(cfg.lonId).value = item.lon;
+                    _hide();
+                    _selecting = false;
+                }
+
+                function _render(results) {
+                    var s = _suggest(); if (!s) return;
+                    _results = results || []; _idx = -1;
+                    if (!_results.length) { _hide(); return; }
+                    s.innerHTML = _results.map(function(r, i) {
+                        var meta = [r.status, r.zone].filter(Boolean).join(' · ');
+                        return '<div class="mt-site-suggest-item" data-index="' + i + '">' +
+                            '<div class="mt-site-suggest-primary">' + _esc(r.name) + '</div>' +
+                            '<div class="mt-site-suggest-secondary">' + _esc(meta) + '</div>' +
+                            '</div>';
+                    }).join('');
+                    s.querySelectorAll('.mt-site-suggest-item').forEach(function(el) {
+                        el.addEventListener('mousedown', function(e) {
+                            e.preventDefault();
+                            _select(_results[Number(el.getAttribute('data-index'))]);
+                        });
+                    });
+                    s.classList.add('is-open');
+                }
+
+                document.addEventListener('DOMContentLoaded', function() {
+                    var inp = document.getElementById(cfg.inputId);
+                    if (!inp) return;
+
+                    inp.addEventListener('input', function() {
+                        if (_selecting) return;
+                        clearTimeout(_st);
+                        var q = this.value.trim();
+                        if (q.length < 2) { _hide(); return; }
+                        _st = setTimeout(function() {
+                            fetch('/api/sites/search?q=' + encodeURIComponent(q) + '&limit=10')
+                                .then(function(r) { return r.json(); })
+                                .then(function(d) { _render(d.results || []); })
+                                .catch(function() {});
+                        }, 250);
+                    });
+
+                    inp.addEventListener('keydown', function(e) {
+                        var items = (_suggest() || document.createElement('div')).querySelectorAll('.mt-site-suggest-item');
+                        if (!items.length) return;
+                        if (e.key === 'ArrowDown') { e.preventDefault(); _highlight(Math.min(_idx + 1, items.length - 1)); }
+                        else if (e.key === 'ArrowUp') { e.preventDefault(); _highlight(Math.max(_idx - 1, 0)); }
+                        else if (e.key === 'Enter' && _idx >= 0) { e.preventDefault(); _select(_results[_idx]); }
+                        else if (e.key === 'Escape') { _hide(); }
+                    });
+
+                    inp.addEventListener('blur', function() { setTimeout(_hide, 150); });
+                });
+            }
+
+            // MikroTik New Device
+            makeSiteTypeahead({ inputId:'mtSiteName', suggestId:'mtSiteSuggest', latId:'mtLatitude', lonId:'mtLongitude' });
+            // Nokia 7250
+            makeSiteTypeahead({ inputId:'nokia7250_siteSuffix', suggestId:'nokia7250SiteSuggest', latId:'nokia7250_lat', lonId:'nokia7250_lon' });
+        })();
     </script>
 
     <!-- Live Progress Tracker (MUSHU-style) -->
@@ -34523,13 +34636,12 @@ Ready for translation!`);
             }
 
             window.aviatRunSingle = async function (ip) {
-                if (aviatState.isProcessing) return;
-                aviatState.isProcessing = true;
-                const runBtn = document.getElementById('runBtn');
-                if (runBtn) {
-                    runBtn.textContent = 'Processing...';
-                    runBtn.disabled = true;
-                }
+                // Per-device guard only — don't use global isProcessing so other
+                // device buttons remain clickable while this one runs.
+                const radio = aviatState.radios.find(r => r.ip === ip);
+                if (!radio) return;
+                const status = aviatNormalizeStatus(radio.status);
+                if (['processing', 'loading', 'pending_verify'].includes(status)) return;
                 await aviatSubmitRun([ip]);
             };
             window.aviatRebootRequired = async function (ip) {
@@ -34742,11 +34854,20 @@ Ready for translation!`);
 
             async function aviatAbortRun() {
                 if (!aviatState.currentTaskId) return;
+                const abortBtn = document.getElementById('abortBtn');
+                if (abortBtn) {
+                    abortBtn.disabled = true;
+                    abortBtn.textContent = 'Aborting...';
+                }
                 try {
                     await aviatFetch(`/abort/${aviatState.currentTaskId}`, { method: 'POST' });
-                    aviatAddLog('Abort requested', 'warning');
+                    aviatAddLog('Abort signal sent — task will stop after current step completes', 'warning');
                 } catch (err) {
                     aviatAddLog(`Abort failed: ${err.message}`, 'error');
+                    if (abortBtn) {
+                        abortBtn.disabled = false;
+                        abortBtn.textContent = 'Abort';
+                    }
                 }
             }
 

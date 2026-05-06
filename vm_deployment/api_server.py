@@ -10758,6 +10758,10 @@ def gen_enterprise_non_mpls():
         public_cidr = data['public_cidr']
         bh_cidr = data['bh_cidr']
         loopback_ip = data['loopback_ip']  # /32 expected
+        try:
+            ipaddress.ip_interface(loopback_ip)
+        except ValueError:
+            return jsonify({'success': False, 'error': 'Invalid loopback_ip format'}), 400
         device_profile = get_enterprise_device_profile(device)
         uplink_if = (data.get('uplink_interface') or device_profile['uplink_interface']).strip()
         public_port = (data.get('public_port') or device_profile['public_port']).strip()
@@ -10947,9 +10951,10 @@ def gen_enterprise_non_mpls():
             dhcp_net_block += f"add address={private_base}.0/24 comment=PRIVATES dns-server={dns1},{dns2} gateway={private_base}.1\n"
         blocks.append(dhcp_net_block)
         
-        # Firewall NAT (tab-specific rules - NTP, private NAT)
+        # Firewall NAT (tab-specific rules - SMTP, NTP, private NAT)
         # NOTE: Compliance will add additional NAT rules, but these are tab-specific
         blocks.append("/ip firewall nat\n" +
+                      f"add action=src-nat chain=srcnat packet-mark=SMTP to-addresses={loopback_ip_clean}\n" +
                       f"add action=src-nat chain=srcnat packet-mark=NTP to-addresses={loopback_ip_clean}\n" +
                       f"add action=src-nat chain=srcnat src-address={private_base}.0/24 to-addresses={pub_router_ip}\n")
         
@@ -11023,6 +11028,17 @@ def gen_enterprise_non_mpls():
         
         # Normalize and deduplicate configuration before returning
         cfg = normalize_config(cfg)
+
+        # Re-append enterprise-specific srcnat rules that compliance stripping removes.
+        # The compliance script replaces /ip firewall nat entirely (dstnat redirect rules).
+        # These srcnat rules must survive that replacement.
+        if private_base:
+            cfg = cfg.rstrip() + (
+                "\n\n/ip firewall nat\n"
+                f"add action=src-nat chain=srcnat packet-mark=SMTP to-addresses={loopback_ip_clean}\n"
+                f"add action=src-nat chain=srcnat packet-mark=NTP to-addresses={loopback_ip_clean}\n"
+                f"add action=src-nat chain=srcnat src-address={private_base}.0/24 to-addresses={pub_router_ip}\n"
+            )
         
         # Apply dhcp-option-set=optset to non-10.x DHCP networks
         # Must come AFTER normalize_config (which groups sections) and AFTER
@@ -11817,23 +11833,52 @@ def validate_translation(source, translated, compliance_replaced_ips=None):
         text = re.sub(r"(?m)^\s*\[[^\]]+\]\s*", "", text)
         # Drop full-line comments
         text = re.sub(r"(?m)^\s*#.*$", "", text)
-        # Remove /system script blocks (very noisy and may embed many IPs in strings)
+        # Remove sections whose IPs are compliance-managed, not the device's own addresses.
+        # /system script  — embedded scripts contain many irrelevant IPs
+        # /mpls ldp       — LDP accept/advertise filter prefixes are routing policy, not interface IPs
+        # /radius         — RADIUS server addresses are compliance-managed and replaced
+        # /ip dns         — DNS servers are always overwritten by compliance (142.147.112.3/.19)
+        #                   Use word-boundary matching so /ip dns-static is NOT skipped
+        # /system ntp     — NTP servers are always replaced by compliance hostname (ntp-pool.nxlink.com)
+        # /system logging — syslog remote targets are compliance-managed
+        _skip_section_prefixes = ('/system script', '/mpls ldp', '/radius', '/ip dns', '/system ntp', '/system logging')
         lines = text.splitlines()
         out = []
-        in_script = False
+        in_skip = False
         for l in lines:
-            if l.startswith('/system script'):
-                in_script = True
+            stripped_l = l.lstrip()
+            # Word-boundary match: section header is exactly the prefix, or prefix followed by space/tab.
+            # This prevents '/ip dns' from matching '/ip dns-static'.
+            def _matches_skip(s):
+                for p in _skip_section_prefixes:
+                    if s == p or s.startswith(p + ' ') or s.startswith(p + '\t'):
+                        return True
+                return False
+            if _matches_skip(stripped_l):
+                in_skip = True
                 continue
-            if in_script and l.startswith('/'):
-                in_script = False
-            if in_script:
+            if in_skip and stripped_l.startswith('/') and not stripped_l.startswith('//'):
+                in_skip = False
+            if in_skip:
                 continue
             out.append(l)
-        return "\n".join(out)
+        # Remove address-list entries for compliance-managed lists — compliance wipes and
+        # rebuilds these lists entirely, so old IPs in source are expected to be gone.
+        _compliance_managed_lists = {'SNMP', 'managerIP', 'BGP-ALLOW', 'EOIP-ALLOW', 'WALLED-GARDEN'}
+        filtered = []
+        for l in out:
+            m = re.search(r'\blist=(\S+)', l)
+            if m and m.group(1) in _compliance_managed_lists:
+                continue
+            filtered.append(l)
+        return "\n".join(filtered)
 
     def extract_ips(text: str) -> set[str]:
         text = strip_noise(text)
+        # Strip inline comment="..." fields — IPs inside comments are not config data
+        text = re.sub(r'\bcomment="[^"]*"', '', text)
+        # Strip dns-server= attribute values — always overwritten by compliance
+        text = re.sub(r'\bdns-server=\S+', '', text)
         ips = set(re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?\b", text))
         # Normalize /32 to bare IP and filter out obviously invalid IPs
         norm = set()
@@ -17682,6 +17727,31 @@ def compliance_status():
     return jsonify(status)
 
 
+_SITE_CACHE: list | None = None
+_SITE_CACHE_PATH = Path(__file__).resolve().parent / "site_cache.json"
+
+
+def _load_site_cache() -> list:
+    global _SITE_CACHE
+    if _SITE_CACHE is None:
+        try:
+            with open(_SITE_CACHE_PATH, encoding="utf-8") as f:
+                _SITE_CACHE = json.load(f)
+        except Exception:
+            _SITE_CACHE = []
+    return _SITE_CACHE
+
+
+@app.route('/api/sites/search', methods=['GET'])
+def search_sites():
+    q = (request.args.get('q') or '').strip().upper()
+    if len(q) < 2:
+        return jsonify({"results": []})
+    limit = min(max(1, int(request.args.get('limit', 10))), 25)
+    matches = [s for s in _load_site_cache() if q in s.get('name', '').upper()][:limit]
+    return jsonify({"results": matches})
+
+
 @app.route('/api/health', methods=['GET'])
 def health():
     """Check if API server is running and configured
@@ -19263,6 +19333,7 @@ def migrate_config():
         migrated_config = _set_target_qsfp_state(migrated_config, target_device, allow_qsfp_ports)
         
         compliance_source = None
+        compliance_stripped = set()
         if apply_compliance:
             loopback_ip = extract_loopback_ip(migrated_config) or "10.0.0.1"
             compliance_blocks, compliance_source = _get_dynamic_compliance_blocks(loopback_ip, return_source=True)
@@ -19270,9 +19341,10 @@ def migrate_config():
                 migrated_config,
                 compliance_blocks,
                 loopback_ip=loopback_ip,
+                stripped_ips_out=compliance_stripped,
             )
 
-        validation = validate_translation(config, migrated_config)
+        validation = validate_translation(config, migrated_config, compliance_replaced_ips=compliance_stripped or None)
         target_interface_audit = audit_target_interface_consistency(migrated_config, target_device)
         if not target_interface_audit.get('valid'):
             migration_warnings.extend(target_interface_audit.get('warnings') or [])
@@ -22704,6 +22776,10 @@ def aviat_run_tasks():
     if _aviat_run_tenant_ctx and _aviat_run_tenant_ctx.get('tenant') and _aviat_run_tenant_ctx['tenant'].get('id'):
         _aviat_run_tenant_id = _aviat_run_tenant_ctx['tenant']['id']
         _aviat_run_tenant_slug = _aviat_run_tenant_ctx['tenant'].get('slug', '')
+
+    already_processing = [ip for ip in ips if (_aviat_queue_find(ip) or {}).get('status') == 'processing']
+    if already_processing:
+        return jsonify({'error': f'Already processing: {", ".join(already_processing)}'}), 409
 
     for ip in ips:
         _aviat_queue_upsert(ip, {
