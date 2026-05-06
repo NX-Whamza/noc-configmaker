@@ -333,6 +333,29 @@ class MTBNG2Config:
             bh_net = IPNetwork(backhaul["subnet"])
             addr_offset = 1 if backhaul["master"] else bh_net.size - 4
             port_map_addr_offset = 2 if backhaul["master"] else 3
+            gateway_ip = str(bh_net.network + 1) if bh_net.size >= 3 else ""
+            if bh_net.prefixlen <= 29 and bh_net.size >= 8:
+                radio_ips = [str(bh_net.network + 2), str(bh_net.network + 3)]
+                far_end_port_ip = str(bh_net.network + 4)
+            else:
+                host_ips = [str(host) for host in bh_net.iter_hosts()]
+                radio_ips = []
+                far_end_port_ip = host_ips[-1] if len(host_ips) >= 2 else ""
+            local_is_gateway = bool(backhaul["master"])
+            local_label = self.tower_name
+            remote_label = backhaul["name"]
+            gateway_label = local_label if local_is_gateway else remote_label
+            far_end_label = remote_label if local_is_gateway else local_label
+            local_port_ip = gateway_ip if local_is_gateway else far_end_port_ip
+            radio_lines = []
+            for idx, radio_ip in enumerate(radio_ips):
+                if idx == 0:
+                    label = "BH Radio A"
+                elif idx == 1:
+                    label = "BH Radio B"
+                else:
+                    label = f"BH Device {idx + 1}"
+                radio_lines.append({"label": label, "ip": radio_ip})
 
             params["backhauls"].append({
                 "bhname": backhaul["name"],
@@ -343,6 +366,15 @@ class MTBNG2Config:
                 "bh_net": str(bh_net.network),
                 "bh_gateway": str(bh_net.network + 1),
                 "bh_netmask": bh_net.netmask,
+                "local_role": "Gateway side" if local_is_gateway else "Far-end side",
+                "subnet_cidr": str(bh_net),
+                "network_ip": str(bh_net.network),
+                "gateway_ip_explicit": gateway_ip,
+                "gateway_label": gateway_label,
+                "radio_lines": radio_lines,
+                "far_end_port_ip": far_end_port_ip,
+                "far_end_label": far_end_label,
+                "local_port_ip": local_port_ip,
             })
 
         return params

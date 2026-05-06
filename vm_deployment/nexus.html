@@ -639,6 +639,13 @@
         .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 20px; border: none; border-radius: var(--radius-sm); cursor: pointer; font-size: 13px; font-weight: 600; font-family: inherit; transition: all var(--transition-fast); box-shadow: var(--shadow-sm); position: relative; overflow: hidden; }
         .btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--shadow-md); }
         .btn:active:not(:disabled) { transform: translateY(0); }
+        .mt-site-suggest { position:absolute; z-index:25; top:calc(100% + 4px); left:0; right:0; display:none; max-height:280px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-sm); background:var(--card-bg); box-shadow:var(--shadow-md); }
+        .mt-site-suggest.is-open { display:block; }
+        .mt-site-suggest-item { padding:10px 14px; border-bottom:1px solid var(--border-color); cursor:pointer; }
+        .mt-site-suggest-item:last-child { border-bottom:0; }
+        .mt-site-suggest-item:hover, .mt-site-suggest-item.active { background:var(--hover-bg, rgba(255,255,255,0.06)); }
+        .mt-site-suggest-primary { color:var(--text-color); font-weight:600; font-size:13px; }
+        .mt-site-suggest-secondary { color:var(--text-muted, var(--text-color-secondary, #888)); font-size:11px; margin-top:2px; }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
         .btn-primary { background: var(--button-primary); color: #fff; }
         .btn-primary:hover:not(:disabled) { background: var(--button-hover); }
@@ -5447,9 +5454,10 @@
                         </div>
 
                         <div class="device-selection-grid">
-                            <div>
+                            <div style="position:relative">
                                 <label for="mtSiteName">Site Name</label>
-                                <input type="text" id="mtSiteName" placeholder="HALLETTSVILLE-NW-1">
+                                <input type="text" id="mtSiteName" placeholder="Search site name…" autocomplete="off" style="width:100%">
+                                <div id="mtSiteSuggest" class="mt-site-suggest"></div>
                             </div>
                             <div>
                                 <label for="mtRouterIdentity">Router Identity (Auto-generated)</label>
@@ -8623,8 +8631,11 @@
                                 <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">System Information</h2>
                                 <div class="form-group">
                                     <label for="nokia7250_siteSuffix">Site Name</label>
-                                    <input type="text" id="nokia7250_siteSuffix" placeholder="TX-DRIPPINGSPRINGS-CN-1" oninput="syncNokia7250SystemName(true)"
-                                        style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
+                                    <div style="position:relative">
+                                        <input type="text" id="nokia7250_siteSuffix" placeholder="Search site name…" oninput="syncNokia7250SystemName(true)" autocomplete="off"
+                                            style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
+                                        <div id="nokia7250SiteSuggest" class="mt-site-suggest"></div>
+                                    </div>
                                     <div style="margin-top: 4px; font-size: 11px; color: var(--text-color-secondary);">Typing the short site name auto-fills the full Nokia system name as <code>RTR-NK7250-AR1.&lt;SITE-NAME&gt;</code>.</div>
                                 </div>
                                 <div class="form-group">
@@ -9909,8 +9920,8 @@
                     <h2>Add Radios</h2>
                     <textarea id="ipInput" placeholder="Enter IP addresses (comma or newline separated)&#10;e.g., 10.249.66.202"></textarea>
                     <div style="display: flex; gap: 10px; margin-top: 10px;">
-                        <button id="aviatAddBtn" class="aviat-btn">Add</button>
-                        <button id="aviatReplaceBtn" class="aviat-btn secondary">Replace</button>
+                        <button id="aviatAddBtn" type="button" class="aviat-btn" onclick="if (window.aviatAddRadios) window.aviatAddRadios();">Add</button>
+                        <button id="aviatReplaceBtn" type="button" class="aviat-btn secondary" onclick="if (window.aviatReplaceRadios) window.aviatReplaceRadios();">Replace</button>
                     </div>
 
                     <div id="statsBar" class="aviat-stat-row" style="margin-top: 14px; display: none;">
@@ -10198,7 +10209,8 @@
                                 <select id="cambiumFamily">
                                     <option value="CNEP3K">ePMP 3000</option>
                                     <option value="CNEP3KL">ePMP 3000 Lite</option>
-                                    <option value="CN4600">ePMP 4600</option>
+                                    <option value="CN4600">ePMP 4600 / 4500</option>
+                                    <option value="CN4600C">ePMP 4600c / 4525</option>
                                 </select>
                             </div>
                             <div>
@@ -10258,6 +10270,21 @@
                     <div id="cambiumLogBox" class="aviat-log" style="margin-top: 10px;">
                         <div class="aviat-log-entry"><span class="aviat-log-time">[--:--:--]</span> Ready. Add Cambium radio IPs to begin.</div>
                     </div>
+                </div>
+
+                <!-- Cambium Backup Browser -->
+                <div class="aviat-card" id="cambium-backup-browser-card" style="margin-top:16px;">
+                  <div class="aviat-card-header">
+                    <span class="aviat-card-title">Backup Browser</span>
+                  </div>
+                  <div class="aviat-card-body">
+                    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
+                      <input type="text" id="cambiumBackupBrowserIp" class="aviat-input"
+                             placeholder="Device IP (e.g. 10.0.0.1)" style="flex:1;max-width:220px;" />
+                      <button class="aviat-btn aviat-btn-primary" onclick="loadCambiumBackupBrowser()">Load Backups</button>
+                    </div>
+                    <div id="cambiumBackupBrowserResult"></div>
+                  </div>
                 </div>
             </div>
         </div>
@@ -15775,6 +15802,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
 
             // Navigation helper function (GLOBAL) - Define BEFORE initializeEventHandlers
             window.navigateToTab = async function (tabId) {
+                if (typeof window.closeProgressTracker === 'function') window.closeProgressTracker();
                 let requestedSubtab = null;
                 if (tabId === 'aviat-backhaul') {
                     tabId = 'device-firmware-updater';
@@ -24924,7 +24952,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                             addProgressLog('error', `CRITICAL: ${missingIPs.length} IP addresses lost!`);
                             completeProgressTracker(false);
                             hideUpgradeProgress();
-                            throw new Error(`CRITICAL FAILURE: ${missingIPs.length} IP addresses lost in translation. AI failed to preserve network config. This is unusable.`);
+                            throw new Error(`CRITICAL FAILURE: ${missingIPs.length} IP addresses lost in translation. Network config could not be fully preserved — review missing IPs and retry.`);
                         } else if (missingIPs.length > 0) {
                             // Some missing IPs = partial success (warning)
                             updateProgressStep(` Warning: ${missingIPs.length} IPs missing - review required`);
@@ -25177,24 +25205,29 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             }
 
             let warningsHtml = '';
-            if (warnings.length) {
+            const visibleWarnings = warnings
+                .filter(w => !w.startsWith('Policy overflow:') && !w.startsWith('Policy exception:') && !w.includes('role unknown'))
+                .map(w => w.replace('No target slot available for role backhaul', 'Some backhaul ports could not be placed on the target device — see unmapped rows below'));
+            if (visibleWarnings.length) {
                 warningsHtml = `<div style="margin-top:12px;padding:8px 12px;background:#fff3cd;border-left:4px solid #ff9800;border-radius:4px">
                     <strong style="color:#e65100">Warnings</strong>
-                    <div style="margin-top:4px">${warnings.map(w => `<div>${escapeHtml(w)}</div>`).join('')}</div>
+                    <div style="margin-top:4px">${visibleWarnings.map(w => `<div>${escapeHtml(w)}</div>`).join('')}</div>
                 </div>`;
             }
 
             let portTableHtml = '';
             if (portAnalysis.length) {
+                const unmappedPorts = portAnalysis.filter(r => !r.target_port);
+                let unmappedBanner = '';
+                if (unmappedPorts.length) {
+                    const portList = unmappedPorts.map(r => escapeHtml(r.source_port || '?')).join(', ');
+                    unmappedBanner = `<div style="margin-top:8px;padding:8px 12px;background:#fde8e8;border-left:4px solid #e74c3c;border-radius:4px">
+                        <strong style="color:#c0392b">⚠ Action Required — ${unmappedPorts.length} port${unmappedPorts.length > 1 ? 's' : ''} not remapped: ${portList}</strong>
+                        <div style="margin-top:4px;font-size:11px;color:#7f0000">These source ports do not have a matching slot on the target device. The generated config still uses these original interface names in <code>/ip address</code>, <code>/interface vlan</code>, and routing sections. You must manually reassign them to valid target ports before deploying — the device will reject those sections as-is.</div>
+                    </div>`;
+                }
                 portTableHtml = `<div style="margin-top:12px"><strong style="color:var(--accent-color)">Port Role Analysis</strong>
-                    <div style="font-size:12px;color:var(--text-color-secondary);margin:4px 0 6px">
-                        Management: ${escapeHtml((policySummary.management_port || 'ether1'))} |
-                        Switch: ${escapeHtml((policySummary.switch_ports || []).join(', ') || 'n/a')} |
-                        Reserved: ${escapeHtml((policySummary.reserved_ports || []).join(', ') || 'n/a')} |
-                        Backhaul: ${escapeHtml((policySummary.backhaul_ports || []).join(', ') || 'n/a')} |
-                        Radio: ${escapeHtml((policySummary.radio_ports || []).join(', ') || 'n/a')} |
-                        QSFP Allowed: ${policySummary.allow_qsfp_ports ? 'Yes' : 'No'}
-                    </div>
+                    <div style="font-size:11px;color:var(--text-color-secondary);margin:3px 0 6px;font-style:italic">Ports identified by role are mapped to matching target slots. Ports with no identified role are auto-assigned to remaining available slots.</div>
                     <table style="width:100%;border-collapse:collapse;font-size:12px">
                         <thead><tr>
                             <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border-color)">Source</th>
@@ -25202,13 +25235,19 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                             <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border-color)">Target</th>
                             <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border-color)">Evidence</th>
                         </tr></thead>
-                        <tbody>${portAnalysis.map(row => `<tr>
+                        <tbody>${portAnalysis.map(row => {
+                            const isUnmapped = !row.target_port;
+                            const role = row.detected_role && row.detected_role !== 'unknown' ? row.detected_role : 'no role identified';
+                            const target = row.target_port || '⚠ unmapped';
+                            const evidence = (row.role_evidence || []).join(', ') || (row.policy_slot === 'overflow/manual review' ? 'auto-assigned (best fit)' : (row.policy_slot || ''));
+                            const rowStyle = isUnmapped ? 'background:rgba(231,76,60,0.07)' : '';
+                            return `<tr style="${rowStyle}">
                             <td style="padding:4px 8px;font-family:'JetBrains Mono',monospace">${escapeHtml(row.source_port || '')}${row.policy_conflict ? ' <span style="color:#e74c3c;font-weight:700">!</span>' : ''}</td>
-                            <td style="padding:4px 8px">${escapeHtml(row.detected_role || 'unknown')} (${escapeHtml(row.confidence || 'low')})</td>
-                            <td style="padding:4px 8px;font-family:'JetBrains Mono',monospace">${escapeHtml(row.target_port || 'manual review')}</td>
-                            <td style="padding:4px 8px">${escapeHtml((row.role_evidence || []).join(', ') || row.policy_slot || '')}</td>
-                        </tr>`).join('')}</tbody>
-                    </table></div>`;
+                            <td style="padding:4px 8px">${escapeHtml(role)} (${escapeHtml(row.confidence || 'low')})</td>
+                            <td style="padding:4px 8px;font-family:'JetBrains Mono',monospace;${isUnmapped ? 'color:#e74c3c;font-weight:600' : ''}">${escapeHtml(target)}</td>
+                            <td style="padding:4px 8px">${escapeHtml(evidence)}</td>
+                        </tr>`;}).join('')}</tbody>
+                    </table>${unmappedBanner}</div>`;
             }
 
             body.innerHTML = `
@@ -29933,16 +29972,16 @@ Ready for translation!`);
                 push('');
 
                 section('Policy Configuration');
-                push('/configure policy-options begin');
-                ldpDenyPrefixes.forEach((prefix) => push(`/configure policy-options prefix-list "LDP-DENY-PL" prefix ${prefix} exact`));
-                push('/configure policy-options prefix-list "LDP-ALLOW-PL" prefix 10.0.0.0/8 prefix-length-range 32-32');
-                push('/configure policy-options policy-statement "LDP-FILTER-PS" entry 10 from prefix-list "LDP-DENY-PL"');
-                push('/configure policy-options policy-statement "LDP-FILTER-PS" entry 10 action drop');
-                push('/configure policy-options policy-statement "LDP-FILTER-PS" entry 20 from prefix-list "LDP-ALLOW-PL"');
-                push('/configure policy-options policy-statement "LDP-FILTER-PS" entry 20 action accept');
-                push('/configure policy-options policy-statement "LDP-FILTER-PS" entry 30 description "drop-rest"');
-                push('/configure policy-options policy-statement "LDP-FILTER-PS" entry 30 action drop');
-                push('/configure policy-options commit');
+                push('/configure router policy-options begin');
+                ldpDenyPrefixes.forEach((prefix) => push(`/configure router policy-options prefix-list "LDP-DENY-PL" prefix ${prefix} exact`));
+                push('/configure router policy-options prefix-list "LDP-ALLOW-PL" prefix 10.0.0.0/8 prefix-length-range 32-32');
+                push('/configure router policy-options policy-statement "LDP-FILTER-PS" entry 10 from prefix-list "LDP-DENY-PL"');
+                push('/configure router policy-options policy-statement "LDP-FILTER-PS" entry 10 action drop');
+                push('/configure router policy-options policy-statement "LDP-FILTER-PS" entry 20 from prefix-list "LDP-ALLOW-PL"');
+                push('/configure router policy-options policy-statement "LDP-FILTER-PS" entry 20 action accept');
+                push('/configure router policy-options policy-statement "LDP-FILTER-PS" entry 30 description "drop-rest"');
+                push('/configure router policy-options policy-statement "LDP-FILTER-PS" entry 30 action drop');
+                push('/configure router policy-options commit');
                 push('');
 
                 section('Service Configuration');
@@ -30431,12 +30470,11 @@ Ready for translation!`);
                 L.push('logout');
                 L.push('');
                 L.push('');
-                L.push('# BOF');
-                L.push('/bof primary-config cf3:/startup-config');
+                L.push('# BOF settings');
+                L.push('/bof no auto-boot');
                 L.push('/bof save');
-                L.push('/admin save');
-                L.push('');
                 L.push('exit all');
+                L.push('');
                 L.push('configure');
 
                 // ---- SYSTEM ----
@@ -31528,6 +31566,96 @@ Ready for translation!`);
                 URL.revokeObjectURL(url);
             };
         });
+
+        // Site name typeahead — auto-fills lat/lon — used on MikroTik and Nokia tabs
+        (function () {
+            function _esc(s) {
+                return String(s || '').replace(/[&<>"']/g, function(c) {
+                    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+                });
+            }
+
+            function makeSiteTypeahead(cfg) {
+                // cfg: { inputId, suggestId, latId, lonId }
+                var _st = null, _results = [], _idx = -1, _selecting = false;
+
+                function _suggest() { return document.getElementById(cfg.suggestId); }
+
+                function _hide() {
+                    var s = _suggest(); if (s) { s.classList.remove('is-open'); s.innerHTML = ''; }
+                    _results = []; _idx = -1;
+                }
+
+                function _highlight(index) {
+                    _idx = index;
+                    var items = (_suggest() || document.createElement('div')).querySelectorAll('.mt-site-suggest-item');
+                    items.forEach(function(el, i) { el.classList.toggle('active', i === index); });
+                }
+
+                function _select(item) {
+                    _selecting = true;
+                    document.getElementById(cfg.inputId).value = item.name;
+                    document.getElementById(cfg.latId).value = item.lat;
+                    document.getElementById(cfg.lonId).value = item.lon;
+                    _hide();
+                    _selecting = false;
+                }
+
+                function _render(results) {
+                    var s = _suggest(); if (!s) return;
+                    _results = results || []; _idx = -1;
+                    if (!_results.length) { _hide(); return; }
+                    s.innerHTML = _results.map(function(r, i) {
+                        var meta = [r.status, r.zone].filter(Boolean).join(' · ');
+                        return '<div class="mt-site-suggest-item" data-index="' + i + '">' +
+                            '<div class="mt-site-suggest-primary">' + _esc(r.name) + '</div>' +
+                            '<div class="mt-site-suggest-secondary">' + _esc(meta) + '</div>' +
+                            '</div>';
+                    }).join('');
+                    s.querySelectorAll('.mt-site-suggest-item').forEach(function(el) {
+                        el.addEventListener('mousedown', function(e) {
+                            e.preventDefault();
+                            _select(_results[Number(el.getAttribute('data-index'))]);
+                        });
+                    });
+                    s.classList.add('is-open');
+                }
+
+                document.addEventListener('DOMContentLoaded', function() {
+                    var inp = document.getElementById(cfg.inputId);
+                    if (!inp) return;
+
+                    inp.addEventListener('input', function() {
+                        if (_selecting) return;
+                        clearTimeout(_st);
+                        var q = this.value.trim();
+                        if (q.length < 2) { _hide(); return; }
+                        _st = setTimeout(function() {
+                            fetch('/api/sites/search?q=' + encodeURIComponent(q) + '&limit=10')
+                                .then(function(r) { return r.json(); })
+                                .then(function(d) { _render(d.results || []); })
+                                .catch(function() {});
+                        }, 250);
+                    });
+
+                    inp.addEventListener('keydown', function(e) {
+                        var items = (_suggest() || document.createElement('div')).querySelectorAll('.mt-site-suggest-item');
+                        if (!items.length) return;
+                        if (e.key === 'ArrowDown') { e.preventDefault(); _highlight(Math.min(_idx + 1, items.length - 1)); }
+                        else if (e.key === 'ArrowUp') { e.preventDefault(); _highlight(Math.max(_idx - 1, 0)); }
+                        else if (e.key === 'Enter' && _idx >= 0) { e.preventDefault(); _select(_results[_idx]); }
+                        else if (e.key === 'Escape') { _hide(); }
+                    });
+
+                    inp.addEventListener('blur', function() { setTimeout(_hide, 150); });
+                });
+            }
+
+            // MikroTik New Device
+            makeSiteTypeahead({ inputId:'mtSiteName', suggestId:'mtSiteSuggest', latId:'mtLatitude', lonId:'mtLongitude' });
+            // Nokia 7250
+            makeSiteTypeahead({ inputId:'nokia7250_siteSuffix', suggestId:'nokia7250SiteSuggest', latId:'nokia7250_lat', lonId:'nokia7250_lon' });
+        })();
     </script>
 
     <!-- Live Progress Tracker (MUSHU-style) -->
@@ -34240,15 +34368,54 @@ Ready for translation!`);
                 return false;
             }
 
+            function aviatParseIpInput(raw) {
+                return String(raw || '')
+                    .split(/[\s,;]+/)
+                    .map(ip => ip.trim())
+                    .filter(ip => ip);
+            }
+
+            async function aviatMutateQueue(mode, radios, successMessage) {
+                try {
+                    const response = await aviatFetch('/queue', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mode, radios, username: aviatGetUsername() })
+                    });
+                    const data = await parseAviatJson(response);
+                    if (!response.ok) {
+                        throw new Error(data.error || `Queue request failed (${response.status})`);
+                    }
+                    if (!Array.isArray(data.radios)) {
+                        throw new Error(data.error || 'Queue response did not include radios');
+                    }
+                    aviatState.radios = data.radios.map(aviatNormalizeRadio);
+                    aviatUpdateUI();
+                    if (successMessage) {
+                        aviatAddLog(successMessage, 'info');
+                    }
+                    return data;
+                } catch (err) {
+                    aviatAddLog(`Queue ${mode} failed: ${err.message}`, 'error');
+                    throw err;
+                }
+            }
+
             function aviatAddRadios() {
                 const input = document.getElementById('ipInput');
                 if (!input) return;
                 const raw = input.value.trim();
-                if (!raw) return;
-                const newIPs = raw.split(/[\n,]+/)
+                if (!raw) {
+                    aviatAddLog('Enter one or more Aviat IPs first.', 'warning');
+                    return;
+                }
+                const newIPs = aviatParseIpInput(raw)
                     .map(ip => ip.trim())
                     .filter(ip => ip && !aviatState.radios.find(r => r.ip === ip));
-                if (newIPs.length === 0) return;
+                if (newIPs.length === 0) {
+                    aviatAddLog('No new Aviat IPs were found in the input.', 'warning');
+                    return;
+                }
                 const radios = newIPs.map(ip => ({
                     ip,
                     status: 'pending',
@@ -34259,24 +34426,10 @@ Ready for translation!`);
                     sopStatus: 'pending',
                     username: aviatGetUsername()
                 }));
-
-                aviatFetch('/queue', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mode: 'add', radios, username: aviatGetUsername() })
-                }).then(res => res.json())
-                  .then(data => {
-                      if (Array.isArray(data.radios)) {
-                          aviatState.radios = data.radios.map(aviatNormalizeRadio);
-                          aviatAddLog(`Added ${newIPs.length} radio(s) to queue`, 'info');
-                          aviatUpdateUI();
-                      }
-                  }).catch(err => {
-                      aviatAddLog(`Queue add failed: ${err.message}`, 'error');
-                  });
-
+                aviatMutateQueue('add', radios, `Added ${newIPs.length} radio(s) to queue`).catch(() => {});
                 input.value = '';
             }
+            window.aviatAddRadios = aviatAddRadios;
 
             function aviatReplaceRadios() {
                 const input = document.getElementById('ipInput');
@@ -34285,7 +34438,7 @@ Ready for translation!`);
                     return;
                 }
                 const raw = input.value.trim();
-                const newIPs = raw.split(/[\n,]+/)
+                const newIPs = aviatParseIpInput(raw)
                     .map(ip => ip.trim())
                     .filter(ip => ip);
                 const radios = newIPs.map(ip => ({
@@ -34298,72 +34451,38 @@ Ready for translation!`);
                     sopStatus: 'pending',
                     username: aviatGetUsername()
                 }));
-                aviatFetch('/queue', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mode: 'replace', radios, username: aviatGetUsername() })
-                }).then(res => res.json())
-                  .then(data => {
-                      if (Array.isArray(data.radios)) {
-                          aviatState.radios = data.radios.map(aviatNormalizeRadio);
-                          aviatAddLog(`Replaced queue with ${newIPs.length} radio(s)`, 'info');
-                          aviatUpdateUI();
-                      }
-                  }).catch(err => {
-                      aviatAddLog(`Queue replace failed: ${err.message}`, 'error');
-                  });
+                aviatMutateQueue('replace', radios, `Replaced queue with ${newIPs.length} radio(s)`).catch(() => {});
                 input.value = '';
             }
+            window.aviatReplaceRadios = aviatReplaceRadios;
 
             function aviatRemoveRadio(ip) {
-                aviatFetch('/queue', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mode: 'remove', radios: [{ ip }], username: aviatGetUsername() })
-                }).then(res => res.json())
-                  .then(data => {
-                      if (Array.isArray(data.radios)) {
-                          aviatState.radios = data.radios.map(aviatNormalizeRadio);
-                          aviatUpdateUI();
-                      }
-                  }).catch(err => {
-                      aviatAddLog(`Remove failed: ${err.message}`, 'error');
-                  });
+                aviatMutateQueue('remove', [{ ip }], null).catch(() => {});
             }
 
             window.aviatRemoveRadio = aviatRemoveRadio;
 
             function aviatClearAll() {
-                aviatFetch('/queue', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mode: 'replace', radios: [], username: aviatGetUsername() })
-                }).then(res => res.json())
-                  .then(data => {
-                      aviatState.radios = [];
-                      aviatUpdateUI();
-                      aviatAddLog('Cleared all radios', 'info');
-                  }).catch(err => {
-                      aviatAddLog(`Clear failed: ${err.message}`, 'error');
-                  });
+                aviatMutateQueue('replace', [], 'Cleared all radios').catch(() => {});
             }
 
             function aviatClearCompleted() {
                 const remaining = aviatState.radios.filter(r => aviatNormalizeStatus(r.status) !== 'success');
-                aviatFetch('/queue', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mode: 'replace', radios: remaining, username: aviatGetUsername() })
-                }).then(res => res.json())
-                  .then(data => {
-                      if (Array.isArray(data.radios)) {
-                          aviatState.radios = data.radios.map(aviatNormalizeRadio);
-                          aviatUpdateUI();
-                          aviatAddLog('Cleared completed radios', 'info');
-                      }
-                  }).catch(err => {
-                      aviatAddLog(`Clear completed failed: ${err.message}`, 'error');
-                  });
+                aviatMutateQueue('replace', remaining, 'Cleared completed radios').catch(() => {});
+            }
+
+            async function aviatCheckFirmwareTargetReady() {
+                const firmwareTarget = document.getElementById('firmwareTarget')?.value || 'final';
+                const response = await aviatFetch(`/firmware-status?target=${encodeURIComponent(firmwareTarget)}`);
+                const data = await parseAviatJson(response);
+                if (!response.ok || !data.success) {
+                    throw new Error(data.error || `Firmware status check failed (${response.status})`);
+                }
+                const active = data.active || {};
+                if (active.ok === false) {
+                    throw new Error(active.error || `Firmware target ${firmwareTarget} is not ready`);
+                }
+                return active;
             }
 
             function computeActivationAt(timeStr) {
@@ -34463,6 +34582,18 @@ Ready for translation!`);
             async function aviatSubmitRun(ips) {
                 const payload = buildRunPayload();
                 if (!payload) return;
+                if (payload.tasks.includes('firmware')) {
+                    try {
+                        const firmware = await aviatCheckFirmwareTargetReady();
+                        if (firmware.local_api_file && firmware.filename) {
+                            aviatAddLog(`Firmware target ready: ${firmware.filename}`, 'info');
+                        }
+                    } catch (err) {
+                        aviatAddLog(`Firmware preflight failed: ${err.message}`, 'error');
+                        aviatResetRunButton();
+                        return;
+                    }
+                }
                 ips.forEach(ip => {
                     const radio = aviatState.radios.find(r => r.ip === ip);
                     if (radio) {
@@ -34482,6 +34613,9 @@ Ready for translation!`);
                         })
                     });
                     const data = await parseAviatJson(response);
+                    if (!response.ok) {
+                        throw new Error(data.error || `Run request failed (${response.status})`);
+                    }
                     if (data.task_id) {
                         aviatState.currentTaskId = data.task_id;
                         const abortBtn = document.getElementById('abortBtn');
@@ -34502,13 +34636,12 @@ Ready for translation!`);
             }
 
             window.aviatRunSingle = async function (ip) {
-                if (aviatState.isProcessing) return;
-                aviatState.isProcessing = true;
-                const runBtn = document.getElementById('runBtn');
-                if (runBtn) {
-                    runBtn.textContent = 'Processing...';
-                    runBtn.disabled = true;
-                }
+                // Per-device guard only — don't use global isProcessing so other
+                // device buttons remain clickable while this one runs.
+                const radio = aviatState.radios.find(r => r.ip === ip);
+                if (!radio) return;
+                const status = aviatNormalizeStatus(radio.status);
+                if (['processing', 'loading', 'pending_verify'].includes(status)) return;
                 await aviatSubmitRun([ip]);
             };
             window.aviatRebootRequired = async function (ip) {
@@ -34721,11 +34854,20 @@ Ready for translation!`);
 
             async function aviatAbortRun() {
                 if (!aviatState.currentTaskId) return;
+                const abortBtn = document.getElementById('abortBtn');
+                if (abortBtn) {
+                    abortBtn.disabled = true;
+                    abortBtn.textContent = 'Aborting...';
+                }
                 try {
                     await aviatFetch(`/abort/${aviatState.currentTaskId}`, { method: 'POST' });
-                    aviatAddLog('Abort requested', 'warning');
+                    aviatAddLog('Abort signal sent — task will stop after current step completes', 'warning');
                 } catch (err) {
                     aviatAddLog(`Abort failed: ${err.message}`, 'error');
+                    if (abortBtn) {
+                        abortBtn.disabled = false;
+                        abortBtn.textContent = 'Abort';
+                    }
                 }
             }
 

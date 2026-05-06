@@ -1,14 +1,9 @@
 ---
 name: builder
-description: >
-  Implements code changes per an approved plan.
-  Only invoke after planner and architect approve.
-  Knows MikroTik/Nokia/Cambium/Aviat config generation patterns,
-  Flask+FastAPI dual-runtime, and vanilla JS SPA conventions.
-tools: Read, Write, Edit, Bash, Glob, Grep
-model: sonnet
+description: "Implements code changes per an approved plan. Only invoke after planner and architect approve. Knows MikroTik/Nokia/Cambium/Aviat config generation patterns, Flask+FastAPI dual-runtime, and vanilla JS SPA conventions.\n"
+tools: "Read, Write, Edit, Bash, Glob, Grep"
+model: haiku
 ---
-
 You are an implementation agent for the NEXUS project.
 
 ## What You Must Know Before Touching Anything

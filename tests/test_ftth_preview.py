@@ -169,6 +169,13 @@ def test_generate_ftth_fiber_site_bundle():
     assert "RTR-MTCCR1072-1.TX-MARLIN-W-FC-2" in body.get("router_1072_config", "")
     assert "RTR-MTCCR1036-1.TX-MARLIN-W-FC-2" in body.get("router_1036_config", "")
     assert "BH-TO-SITE-A" in body.get("port_map", "")
+    assert "Subnet: 10.25.10.16/29" in body.get("port_map", "")
+    assert "Network: 10.25.10.16" in body.get("port_map", "")
+    assert "Gateway (TX-MARLIN-W-FC-2): 10.25.10.17" in body.get("port_map", "")
+    assert "BH Radio A: 10.25.10.18" in body.get("port_map", "")
+    assert "BH Radio B: 10.25.10.19" in body.get("port_map", "")
+    assert "Far-End Port (BH-TO-SITE-A): 10.25.10.20" in body.get("port_map", "")
+    assert "Local Port IP (sfp-sfpplus3): 10.25.10.17" in body.get("port_map", "")
     assert body.get("compliance_source") == "gitlab-verbatim"
 
 
@@ -199,6 +206,9 @@ def test_generate_ftth_isd_fiber_bundle():
     assert body.get("success") is True
     assert "RTR-MTCCR2004-1.TX-MARLIN-W-FC-2" in body.get("config", "")
     assert "BH-TO-SITE-B" in body.get("port_map", "")
+    assert "Subnet: 10.25.10.24/29" in body.get("port_map", "")
+    assert "Gateway (BH-TO-SITE-B): 10.25.10.25" in body.get("port_map", "")
+    assert "Local Port IP (sfp-sfpplus4): 10.25.10.28" in body.get("port_map", "")
     assert body.get("compliance_source") == "gitlab-verbatim"
 
 

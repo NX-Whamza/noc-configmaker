@@ -397,6 +397,14 @@ class MTTowerConfig:
             link_mode = str(backhaul.get("link_mode", "auto")).strip().lower()
             raw_ip = subnet_raw.split("/")[0].strip()
             user_pinned_ip = raw_ip if raw_ip and raw_ip != str(bh_net.network) else ""
+            gateway_ip = str(bh_net.network + 1) if bh_net.size >= 3 else ""
+            if bh_net.prefixlen <= 29 and bh_net.size >= 8:
+                radio_ips = [str(bh_net.network + 2), str(bh_net.network + 3)]
+                far_end_port_ip = str(bh_net.network + 4)
+            else:
+                host_ips = [str(host) for host in bh_net.iter_hosts()]
+                radio_ips = []
+                far_end_port_ip = host_ips[-1] if len(host_ips) >= 2 else ""
 
             if user_pinned_ip:
                 bhip = user_pinned_ip
@@ -414,6 +422,15 @@ class MTTowerConfig:
                 bhip = str(bh_net.network + addr_offset)
             link_side_1 = self.tower_name if backhaul["master"] else backhaul["name"]
             link_side_2 = backhaul["name"] if backhaul["master"] else self.tower_name
+            radio_lines = []
+            for idx, radio_ip in enumerate(radio_ips):
+                if idx == 0:
+                    label = "BH Radio A"
+                elif idx == 1:
+                    label = "BH Radio B"
+                else:
+                    label = f"BH Device {idx + 1}"
+                radio_lines.append({"label": label, "ip": radio_ip})
     
             params["backhauls"].append({
                 "bhname": backhaul["name"],
@@ -430,6 +447,15 @@ class MTTowerConfig:
                 "slavebh_int": str(bh_net.network + 4),
                 "link_side_1": link_side_1,
                 "link_side_2": link_side_2,
+                "local_role": "Gateway side" if backhaul["master"] else "Far-end side",
+                "subnet_cidr": str(bh_net),
+                "network_ip": str(bh_net.network),
+                "gateway_ip_explicit": gateway_ip,
+                "gateway_label": link_side_1,
+                "radio_lines": radio_lines,
+                "far_end_port_ip": far_end_port_ip,
+                "far_end_label": link_side_2,
+                "local_port_ip": gateway_ip if backhaul["master"] else far_end_port_ip,
             })
     
         return params

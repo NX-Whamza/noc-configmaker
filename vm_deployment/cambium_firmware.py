@@ -25,14 +25,22 @@ DEFAULT_PASSWORD = (
     or "admin"
 )
 
-DEVICE_TYPE_ALIASES = {}
+DEVICE_TYPE_ALIASES = {
+    "4600": "CN4600",
+    "4500": "CN4600",
+    "4600c": "CN4600C",
+    "4525": "CN4600C",
+    "3000": "CNEP3K",
+}
 
 # Only AP types deployed at Nextlink towers.
 # CNEP3KL shares the same firmware images as CNEP3K (both use the EP3K folder).
+# CN4600C covers the ePMP 4600c and 4525 variants (same image, F4600C folder).
 DEVICE_FIRMWARE_FAMILIES = {
     "CNEP3K": {"family": "EP3K", "label": "Cambium ePMP 3000"},
     "CNEP3KL": {"family": "EP3K", "label": "Cambium ePMP 3000 Lite"},
-    "CN4600": {"family": "4600", "label": "Cambium ePMP 4600"},
+    "CN4600": {"family": "4600", "label": "Cambium ePMP 4600 / 4500"},
+    "CN4600C": {"family": "F4600C", "label": "Cambium ePMP 4600c / 4525"},
 }
 
 

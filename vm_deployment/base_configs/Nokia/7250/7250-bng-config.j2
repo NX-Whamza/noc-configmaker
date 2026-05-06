@@ -1,18 +1,17 @@
-﻿# Generated Nokia 7250 config
+# Generated Nokia 7250 config
 # Site: {{ site_name|default('SITE-7250') }}
 # Router: {{ hostname|default(router_name|default('RTR-7250')) }}
-/system
-name "{{ hostname|default(router_name|default('RTR-7250')) }}"
+/configure system name "{{ hostname|default(router_name|default('RTR-7250')) }}"
 
 # Management
 {% if system_ip is defined and system_ip %}
-/system/ip-address
-address {{ system_ip }}
+/configure router interface "system" address {{ system_ip }}
+/configure router interface "system" no shutdown
 {% endif %}
 
 # Location
 {% if location is defined and location %}
-/system/location "{{ location }}"
+/configure system location "{{ location }}"
 {% endif %}
 
 # Uplinks

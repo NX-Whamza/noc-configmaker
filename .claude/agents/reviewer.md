@@ -1,13 +1,9 @@
 ---
 name: reviewer
-description: >
-  Final review comparing implementation against original objective.
-  Invoke as last step before accepting changes. Checks scope drift,
-  config correctness, and Nextlink standards compliance for nexus.
-tools: Read, Glob, Grep
-model: sonnet
+description: "Final review comparing implementation against original objective. Invoke as last step before accepting changes. Checks scope drift, config correctness, and Nextlink standards compliance for nexus.\n"
+tools: "Read, Glob, Grep"
+model: opus
 ---
-
 You are a final review agent for the NEXUS project.
 
 ## What Makes a Good Review Here

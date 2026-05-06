@@ -309,3 +309,28 @@ def test_bng2_ldp_interface_entries_generated_for_each_backhaul():
     assert "/mpls ldp interface" in text
     assert "interface=sfp-sfpplus4" in text
     assert "interface=sfp-sfpplus5" in text
+
+
+def test_bng2_portmap_explicitly_lists_backhaul_ip_assignments():
+    r = client.post("/api/mt/bng2/portmap", json=_bng2_payload())
+    assert r.status_code == 200
+    text = r.json()
+    assert isinstance(text, str)
+    assert "Subnet: 10.248.90.248/29" in text
+    assert "Network: 10.248.90.248" in text
+    assert "Gateway (WALLY-BNG2-CN-1): 10.248.90.249" in text
+    assert "BH Radio A: 10.248.90.250" in text
+    assert "BH Radio B: 10.248.90.251" in text
+    assert "Far-End Port (KS-GLADE-NO-1): 10.248.90.252" in text
+    assert "Local Port IP (sfp-sfpplus4): 10.248.90.249" in text
+
+
+def test_tower_portmap_explicitly_lists_backhaul_ip_assignments():
+    r = client.post("/api/mt/tower/portmap", json=_tower_payload())
+    assert r.status_code == 200
+    text = r.json()
+    assert isinstance(text, str)
+    assert "Subnet: 10.36.3.56/30" in text
+    assert "Gateway (WALLYWEST-CN-1): 10.36.3.57" in text
+    assert "Far-End Port (HOGHILL): 10.36.3.58" in text
+    assert "Local Port IP (sfp-sfpplus4): 10.36.3.57" in text

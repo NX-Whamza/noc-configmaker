@@ -10758,6 +10758,10 @@ def gen_enterprise_non_mpls():
         public_cidr = data['public_cidr']
         bh_cidr = data['bh_cidr']
         loopback_ip = data['loopback_ip']  # /32 expected
+        try:
+            ipaddress.ip_interface(loopback_ip)
+        except ValueError:
+            return jsonify({'success': False, 'error': 'Invalid loopback_ip format'}), 400
         device_profile = get_enterprise_device_profile(device)
         uplink_if = (data.get('uplink_interface') or device_profile['uplink_interface']).strip()
         public_port = (data.get('public_port') or device_profile['public_port']).strip()
@@ -10947,9 +10951,10 @@ def gen_enterprise_non_mpls():
             dhcp_net_block += f"add address={private_base}.0/24 comment=PRIVATES dns-server={dns1},{dns2} gateway={private_base}.1\n"
         blocks.append(dhcp_net_block)
         
-        # Firewall NAT (tab-specific rules - NTP, private NAT)
+        # Firewall NAT (tab-specific rules - SMTP, NTP, private NAT)
         # NOTE: Compliance will add additional NAT rules, but these are tab-specific
         blocks.append("/ip firewall nat\n" +
+                      f"add action=src-nat chain=srcnat packet-mark=SMTP to-addresses={loopback_ip_clean}\n" +
                       f"add action=src-nat chain=srcnat packet-mark=NTP to-addresses={loopback_ip_clean}\n" +
                       f"add action=src-nat chain=srcnat src-address={private_base}.0/24 to-addresses={pub_router_ip}\n")
         
@@ -11023,6 +11028,17 @@ def gen_enterprise_non_mpls():
         
         # Normalize and deduplicate configuration before returning
         cfg = normalize_config(cfg)
+
+        # Re-append enterprise-specific srcnat rules that compliance stripping removes.
+        # The compliance script replaces /ip firewall nat entirely (dstnat redirect rules).
+        # These srcnat rules must survive that replacement.
+        if private_base:
+            cfg = cfg.rstrip() + (
+                "\n\n/ip firewall nat\n"
+                f"add action=src-nat chain=srcnat packet-mark=SMTP to-addresses={loopback_ip_clean}\n"
+                f"add action=src-nat chain=srcnat packet-mark=NTP to-addresses={loopback_ip_clean}\n"
+                f"add action=src-nat chain=srcnat src-address={private_base}.0/24 to-addresses={pub_router_ip}\n"
+            )
         
         # Apply dhcp-option-set=optset to non-10.x DHCP networks
         # Must come AFTER normalize_config (which groups sections) and AFTER
@@ -11817,23 +11833,52 @@ def validate_translation(source, translated, compliance_replaced_ips=None):
         text = re.sub(r"(?m)^\s*\[[^\]]+\]\s*", "", text)
         # Drop full-line comments
         text = re.sub(r"(?m)^\s*#.*$", "", text)
-        # Remove /system script blocks (very noisy and may embed many IPs in strings)
+        # Remove sections whose IPs are compliance-managed, not the device's own addresses.
+        # /system script  — embedded scripts contain many irrelevant IPs
+        # /mpls ldp       — LDP accept/advertise filter prefixes are routing policy, not interface IPs
+        # /radius         — RADIUS server addresses are compliance-managed and replaced
+        # /ip dns         — DNS servers are always overwritten by compliance (142.147.112.3/.19)
+        #                   Use word-boundary matching so /ip dns-static is NOT skipped
+        # /system ntp     — NTP servers are always replaced by compliance hostname (ntp-pool.nxlink.com)
+        # /system logging — syslog remote targets are compliance-managed
+        _skip_section_prefixes = ('/system script', '/mpls ldp', '/radius', '/ip dns', '/system ntp', '/system logging')
         lines = text.splitlines()
         out = []
-        in_script = False
+        in_skip = False
         for l in lines:
-            if l.startswith('/system script'):
-                in_script = True
+            stripped_l = l.lstrip()
+            # Word-boundary match: section header is exactly the prefix, or prefix followed by space/tab.
+            # This prevents '/ip dns' from matching '/ip dns-static'.
+            def _matches_skip(s):
+                for p in _skip_section_prefixes:
+                    if s == p or s.startswith(p + ' ') or s.startswith(p + '\t'):
+                        return True
+                return False
+            if _matches_skip(stripped_l):
+                in_skip = True
                 continue
-            if in_script and l.startswith('/'):
-                in_script = False
-            if in_script:
+            if in_skip and stripped_l.startswith('/') and not stripped_l.startswith('//'):
+                in_skip = False
+            if in_skip:
                 continue
             out.append(l)
-        return "\n".join(out)
+        # Remove address-list entries for compliance-managed lists — compliance wipes and
+        # rebuilds these lists entirely, so old IPs in source are expected to be gone.
+        _compliance_managed_lists = {'SNMP', 'managerIP', 'BGP-ALLOW', 'EOIP-ALLOW', 'WALLED-GARDEN'}
+        filtered = []
+        for l in out:
+            m = re.search(r'\blist=(\S+)', l)
+            if m and m.group(1) in _compliance_managed_lists:
+                continue
+            filtered.append(l)
+        return "\n".join(filtered)
 
     def extract_ips(text: str) -> set[str]:
         text = strip_noise(text)
+        # Strip inline comment="..." fields — IPs inside comments are not config data
+        text = re.sub(r'\bcomment="[^"]*"', '', text)
+        # Strip dns-server= attribute values — always overwritten by compliance
+        text = re.sub(r'\bdns-server=\S+', '', text)
         ips = set(re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?\b", text))
         # Normalize /32 to bare IP and filter out obviously invalid IPs
         norm = set()
@@ -15533,10 +15578,10 @@ def generate_nokia7250():
         config_lines.append("##################################")
         config_lines.append("# Generic Universal System Configs")
         config_lines.append("##################################")
-        config_lines.append("# BOF")
-        config_lines.append("/bof primary-config cf3:/startup-config")
+        config_lines.append("# BOF settings")
+        config_lines.append("/bof no auto-boot")
         config_lines.append("/bof save")
-        config_lines.append("/admin save")
+        config_lines.append("exit all")
         config_lines.append("")
         config_lines.append("# ROLLBACK LOCATION")
         config_lines.append("/configure system rollback rollback-location \"cf3:/checkpoint_db\"")
@@ -16850,12 +16895,11 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
     L.append('logout')
     L.append('')
     L.append('')
-    L.append('# BOF')
-    L.append('/bof primary-config cf3:/startup-config')
+    L.append('# BOF settings')
+    L.append('/bof no auto-boot')
     L.append('/bof save')
-    L.append('/admin save')
-    L.append('')
     L.append('exit all')
+    L.append('')
     L.append('configure')
 
     # ── SYSTEM ──
@@ -17043,25 +17087,6 @@ def _build_nokia_config(parsed: dict, nokia_params: dict = None) -> str:
     L.append('    router management')
     L.append('    exit')
     L.append('')
-    if preserve_ips:
-        L.append('# CLASSIC CLI INTERFACE STANZAS')
-        L.append(f'/configure router interface "system" address {loopback}')
-        L.append('/configure router interface "system" no shutdown')
-        seen_cli_ports = set()
-        for ri in router_ifaces:
-            if not ri.get('port') or ri['port'] == 'A/1':
-                continue
-            ri_key = ri['port']
-            if ri_key in seen_cli_ports:
-                continue
-            seen_cli_ports.add(ri_key)
-            L.append(f'/configure router interface "{ri["name"]}" address {ri["address"]}')
-            for sec_addr in ri.get('secondary_addresses', []):
-                L.append(f'/configure router interface "{ri["name"]}" secondary {sec_addr}')
-            L.append(f'/configure router interface "{ri["name"]}" port {ri["port"]}')
-            L.append(f'/configure router interface "{ri["name"]}" no shutdown')
-        L.append('')
-
     # ── ROUTER BASE ──
     echo('"Router (Network Side) Configuration"')
     L.append('    router Base')
@@ -17700,6 +17725,31 @@ def compliance_status():
             status['error'] = str(exc)
 
     return jsonify(status)
+
+
+_SITE_CACHE: list | None = None
+_SITE_CACHE_PATH = Path(__file__).resolve().parent / "site_cache.json"
+
+
+def _load_site_cache() -> list:
+    global _SITE_CACHE
+    if _SITE_CACHE is None:
+        try:
+            with open(_SITE_CACHE_PATH, encoding="utf-8") as f:
+                _SITE_CACHE = json.load(f)
+        except Exception:
+            _SITE_CACHE = []
+    return _SITE_CACHE
+
+
+@app.route('/api/sites/search', methods=['GET'])
+def search_sites():
+    q = (request.args.get('q') or '').strip().upper()
+    if len(q) < 2:
+        return jsonify({"results": []})
+    limit = min(max(1, int(request.args.get('limit', 10))), 25)
+    matches = [s for s in _load_site_cache() if q in s.get('name', '').upper()][:limit]
+    return jsonify({"results": matches})
 
 
 @app.route('/api/health', methods=['GET'])
@@ -19283,6 +19333,7 @@ def migrate_config():
         migrated_config = _set_target_qsfp_state(migrated_config, target_device, allow_qsfp_ports)
         
         compliance_source = None
+        compliance_stripped = set()
         if apply_compliance:
             loopback_ip = extract_loopback_ip(migrated_config) or "10.0.0.1"
             compliance_blocks, compliance_source = _get_dynamic_compliance_blocks(loopback_ip, return_source=True)
@@ -19290,9 +19341,10 @@ def migrate_config():
                 migrated_config,
                 compliance_blocks,
                 loopback_ip=loopback_ip,
+                stripped_ips_out=compliance_stripped,
             )
 
-        validation = validate_translation(config, migrated_config)
+        validation = validate_translation(config, migrated_config, compliance_replaced_ips=compliance_stripped or None)
         target_interface_audit = audit_target_interface_consistency(migrated_config, target_device)
         if not target_interface_audit.get('valid'):
             migration_warnings.extend(target_interface_audit.get('warnings') or [])
@@ -21204,7 +21256,8 @@ def admin_online_users():
     cutoff = _time.time() - _ONLINE_TIMEOUT_SECS
     online = []
     for uid, entry in list(_active_sessions.items()):
-        if entry.get('last_seen', 0) >= cutoff:
+        last_seen = entry.get('last_seen', 0)
+        if last_seen >= cutoff:
             online.append({
                 'id': uid,
                 'email': entry.get('email', ''),
@@ -21212,7 +21265,7 @@ def admin_online_users():
                 'avatar': entry.get('avatar'),
                 'tenant_name': entry.get('tenant_name', ''),
                 'role_label': entry.get('role_label', ''),
-                'last_seen_ago': int(_time.time() - entry['last_seen']),
+                'last_seen_ago': int(max(0, _time.time() - last_seen)),
             })
 
     # Fill missing avatars from DB (handles multi-worker deployments where
@@ -22708,6 +22761,14 @@ def aviat_run_tasks():
     if not ips:
         return jsonify({'error': 'No IPs provided'}), 400
 
+    if any(task in ('firmware', 'all') for task in task_types):
+        firmware_status = _aviat_firmware_preflight(m_params)
+        if not firmware_status.get('ok'):
+            return jsonify({
+                'error': firmware_status.get('error') or 'Firmware preflight failed',
+                'firmware_status': firmware_status,
+            }), 503
+
     # Capture tenant context at request time before background thread starts
     _aviat_run_tenant_ctx = _get_request_tenant_context()
     _aviat_run_tenant_id = None
@@ -22715,6 +22776,10 @@ def aviat_run_tasks():
     if _aviat_run_tenant_ctx and _aviat_run_tenant_ctx.get('tenant') and _aviat_run_tenant_ctx['tenant'].get('id'):
         _aviat_run_tenant_id = _aviat_run_tenant_ctx['tenant']['id']
         _aviat_run_tenant_slug = _aviat_run_tenant_ctx['tenant'].get('slug', '')
+
+    already_processing = [ip for ip in ips if (_aviat_queue_find(ip) or {}).get('status') == 'processing']
+    if already_processing:
+        return jsonify({'error': f'Already processing: {", ".join(already_processing)}'}), 409
 
     for ip in ips:
         _aviat_queue_upsert(ip, {
@@ -23288,6 +23353,7 @@ def aviat_stream_logs(task_id):
             headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
         )
 
+    @stream_with_context
     def generate():
         q = aviat_log_queues[task_id]
         while True:
@@ -23317,6 +23383,7 @@ def aviat_stream_global():
     q = queue.Queue()
     aviat_global_log_queues.add(q)
 
+    @stream_with_context
     def generate():
         # Send persisted backlog first so cross-worker/restart visibility still works.
         persisted = _background_task_recent_logs('aviat', limit=200)
@@ -23366,6 +23433,83 @@ def _aviat_firmware_dir():
     """Path where Aviat .swpack files live inside the container (/opt/firmware/aviat)."""
     import pathlib as _pl
     return _pl.Path(os.getenv('FIRMWARE_PATH', '/opt/firmware')) / 'aviat'
+
+
+def _aviat_firmware_target_uri(target: str = 'final', firmware_uri: str | None = None) -> str:
+    explicit = str(firmware_uri or '').strip()
+    if explicit:
+        return explicit
+    target_name = str(target or 'final').strip().lower()
+    if target_name == 'baseline':
+        return str(getattr(AVIAT_CONFIG, 'firmware_baseline_uri', '') or '')
+    return str(getattr(AVIAT_CONFIG, 'firmware_final_uri', '') or '')
+
+
+def _aviat_firmware_target_version(target: str = 'final', firmware_uri: str | None = None) -> str:
+    explicit = str(firmware_uri or '').strip()
+    if explicit:
+        return _aviat_extract_version(explicit) or ''
+    target_name = str(target or 'final').strip().lower()
+    if target_name == 'baseline':
+        return str(getattr(AVIAT_CONFIG, 'firmware_baseline_version', '') or '')
+    return str(getattr(AVIAT_CONFIG, 'firmware_final_version', '') or '')
+
+
+def _aviat_firmware_uri_status(target: str = 'final', firmware_uri: str | None = None) -> dict:
+    resolved_uri = _aviat_firmware_target_uri(target=target, firmware_uri=firmware_uri)
+    parsed = urlparse(resolved_uri)
+    filename = Path(parsed.path).name if parsed.path else ''
+    local_api_file = parsed.path.startswith('/api/aviat/firmware/')
+    firmware_dir = _aviat_firmware_dir()
+    local_path = firmware_dir / filename if local_api_file and filename else None
+    exists = local_path.exists() if local_path else None
+    version = _aviat_firmware_target_version(target=target, firmware_uri=firmware_uri)
+
+    status = {
+        'target': str(target or 'final').strip().lower() or 'final',
+        'version': version,
+        'uri': resolved_uri,
+        'filename': filename,
+        'firmware_dir': str(firmware_dir),
+        'local_api_file': bool(local_api_file),
+        'local_path': str(local_path) if local_path else None,
+        'exists': exists,
+        'ok': True,
+        'error': None,
+    }
+    if local_api_file and (not local_path or not local_path.exists()):
+        status['ok'] = False
+        status['error'] = (
+            f'Firmware target file not found for {status["target"]}: '
+            f'{filename or "(missing filename)"} in {firmware_dir}'
+        )
+    return status
+
+
+def _aviat_firmware_preflight(maintenance_params: dict | None = None) -> dict:
+    params = maintenance_params or {}
+    return _aviat_firmware_uri_status(
+        target=params.get('firmware_target') or 'final',
+        firmware_uri=params.get('firmware_uri'),
+    )
+
+
+@app.route('/api/aviat/firmware-status', methods=['GET'])
+@require_auth
+def aviat_firmware_status():
+    if not HAS_AVIAT:
+        return jsonify({'error': 'Aviat backend not available'}), 503
+
+    target = request.args.get('target', 'final')
+    override_uri = request.args.get('uri', '').strip() or None
+    return jsonify({
+        'success': True,
+        'active': _aviat_firmware_uri_status(target=target, firmware_uri=override_uri),
+        'targets': {
+            'baseline': _aviat_firmware_uri_status(target='baseline'),
+            'final': _aviat_firmware_uri_status(target='final'),
+        },
+    })
 
 
 @app.route('/api/aviat/firmware/<filename>')
@@ -23624,6 +23768,39 @@ def _cambium_check_single(ip, device_type, password=None, run_tests=True):
     }
 
 
+def _cambium_trigger_unimus_backup(ip, log_cb):
+    """Try Unimus backup first; return True on success, False to trigger local fallback."""
+    try:
+        from unimus_backup_configs import (
+            _unimus_runtime, _list_devices_by_addresses,
+            _trigger_device_backup, _poll_backup_completion,
+            _list_device_backups, _latest_backup_signature, _get_device,
+        )
+        cfg = _unimus_runtime()
+        if not cfg.get("configured"):
+            return False
+        matches = _list_devices_by_addresses([ip], cfg)
+        if not matches:
+            log_cb(f"[{ip}] Unimus backup: device not found in Unimus — falling back to local backup", "warning", ip=ip)
+            return False
+        device_id = matches[0].get("id")
+        # Capture state before triggering so the poller can detect change
+        device = _get_device(device_id, cfg)
+        before_status = str(device.get("lastJobStatus") or "").strip()
+        before_backups = _list_device_backups(device_id, size=10, config=cfg)
+        before_signature = _latest_backup_signature(before_backups)
+        result = _trigger_device_backup(device_id, cfg)
+        if not result or result.get("accepted", 0) < 1:
+            log_cb(f"[{ip}] Unimus backup not accepted (refused/undiscovered) — falling back to local backup", "warning", ip=ip)
+            return False
+        _poll_backup_completion(device_id, before_status, before_signature, before_backups, cfg, ip)
+        log_cb(f"[{ip}] Backup triggered in Unimus — timeline updated", "info", ip=ip)
+        return True
+    except Exception as exc:
+        log_cb(f"[{ip}] Unimus backup error ({exc}) — falling back to local backup", "warning", ip=ip)
+        return False
+
+
 def _cambium_write_backup(ip, running_config):
     backup_dir = Path(__file__).resolve().parent / "secure_data" / "cambium_backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -23693,9 +23870,13 @@ def _cambium_run_single(radio, username, should_abort=None):
             running_config = (before_info or {}).get("running_config")
             if not running_config:
                 raise RuntimeError("Backup failed: running config was not returned by the device")
-            backup_path = _cambium_write_backup(ip, running_config)
+            unimus_ok = _cambium_trigger_unimus_backup(ip, _cambium_broadcast_log)
+            if not unimus_ok:
+                backup_path = _cambium_write_backup(ip, running_config)
+                _cambium_broadcast_log(f"[{ip}] Backup saved to {backup_path}", "info", ip=ip)
+            else:
+                backup_path = "unimus"
             backup_status = "success"
-            log_cb(f"[{ip}] Backup saved to {backup_path}")
         else:
             backup_status = "pending"
 
@@ -24240,6 +24421,77 @@ def cambium_download_backup():
         target = matches[0]
 
     return send_file(str(target), as_attachment=True, download_name=target.name, mimetype='application/json')
+
+
+@app.route("/api/cambium/backups", methods=["GET"])
+@require_auth
+def cambium_list_backups():
+    ip = request.args.get("ip", "").strip()
+    if not ip:
+        return jsonify({"success": False, "error": "ip required"}), 400
+    backup_dir = Path(__file__).resolve().parent / "secure_data" / "cambium_backups"
+    prefix = ip.replace(".", "_") + "_"
+    records = []
+    if backup_dir.exists():
+        for f in sorted(backup_dir.glob(f"{prefix}*.json"), reverse=True):
+            records.append({
+                "filename": f.name,
+                "path": str(f),
+                "timestamp": f.stem.replace(prefix, ""),
+                "size_bytes": f.stat().st_size,
+                "source": "local",
+            })
+    return jsonify({"success": True, "backups": records})
+
+
+@app.route("/api/cambium/backups-unified", methods=["GET"])
+@require_auth
+def cambium_list_backups_unified():
+    ip = request.args.get("ip", "").strip()
+    if not ip:
+        return jsonify({"success": False, "error": "ip required"}), 400
+
+    records = []
+
+    # Try Unimus first
+    try:
+        from unimus_backup_configs import (
+            _unimus_runtime, _list_devices_by_addresses, _list_device_backups,
+            _format_epoch_millis,
+        )
+        cfg = _unimus_runtime()
+        if cfg.get("configured"):
+            matches = _list_devices_by_addresses([ip], cfg)
+            if matches:
+                device_id = matches[0].get("id")
+                backups = _list_device_backups(device_id, config=cfg)
+                for b in (backups or []):
+                    records.append({
+                        "id": b.get("id"),
+                        "device_id": device_id,
+                        "timestamp": b.get("validSince"),
+                        "timestamp_iso": _format_epoch_millis(b.get("validSince")),
+                        "size_bytes": b.get("sizeBytes"),
+                        "type": b.get("type"),
+                        "source": "unimus",
+                    })
+    except Exception:
+        pass
+
+    # Always append local
+    backup_dir = Path(__file__).resolve().parent / "secure_data" / "cambium_backups"
+    prefix = ip.replace(".", "_") + "_"
+    if backup_dir.exists():
+        for f in sorted(backup_dir.glob(f"{prefix}*.json"), reverse=True):
+            records.append({
+                "filename": f.name,
+                "path": str(f),
+                "timestamp": f.stem.replace(prefix, ""),
+                "size_bytes": f.stat().st_size,
+                "source": "local",
+            })
+
+    return jsonify({"success": True, "ip": ip, "backups": records})
 
 
 # ── Wave Firmware Updater helpers ─────────────────────────────────────────────
@@ -25598,7 +25850,49 @@ def _parse_backhaul_rows(backhauls, router_type: str):
     return parsed
 
 
-def _render_backhaul_sections(backhauls):
+def _build_backhaul_port_map_lines(backhaul, local_label: str = 'LOCAL'):
+    subnet = backhaul['subnet']
+    remote_label = str(backhaul.get('name', '')).strip() or 'REMOTE'
+    local_is_gateway = bool(backhaul.get('master'))
+    local_port = str(backhaul.get('interface', '')).strip() or 'unknown'
+    gateway_ip = _ip_at_offset(subnet, 1) if subnet.num_addresses >= 3 else ''
+    radio_hosts = []
+    far_end_port_ip = ''
+    if subnet.prefixlen <= 29 and subnet.num_addresses >= 8:
+        radio_hosts = [_ip_at_offset(subnet, 2), _ip_at_offset(subnet, 3)]
+        far_end_port_ip = _ip_at_offset(subnet, 4)
+    else:
+        hosts = [str(host) for host in subnet.hosts()]
+        far_end_port_ip = hosts[-1] if len(hosts) >= 2 else ''
+    gateway_label = local_label if local_is_gateway else remote_label
+    far_end_label = remote_label if local_is_gateway else local_label
+    local_port_ip = gateway_ip if local_is_gateway else far_end_port_ip
+    local_role = 'Gateway side' if local_is_gateway else 'Far-end side'
+
+    lines = [
+        f'- {local_port} : {remote_label}',
+        f'  Local Role: {local_role}',
+        f'  Subnet: {subnet.with_prefixlen}',
+        f'  Network: {subnet.network_address}',
+    ]
+    if gateway_ip:
+        lines.append(f'  Gateway ({gateway_label}): {gateway_ip}')
+    for idx, radio_ip in enumerate(radio_hosts):
+        if idx == 0:
+            label = 'BH Radio A'
+        elif idx == 1:
+            label = 'BH Radio B'
+        else:
+            label = f'BH Device {idx + 1}'
+        lines.append(f'  {label}: {radio_ip}')
+    if far_end_port_ip and far_end_port_ip != gateway_ip:
+        lines.append(f'  Far-End Port ({far_end_label}): {far_end_port_ip}')
+    if local_port_ip:
+        lines.append(f'  Local Port IP ({local_port}): {local_port_ip}')
+    return lines
+
+
+def _render_backhaul_sections(backhauls, local_label: str = 'LOCAL'):
     config_lines = []
     portmap_lines = [
         '===================================================================',
@@ -25621,19 +25915,8 @@ def _render_backhaul_sections(backhauls):
             '',
         ])
 
-        masterbh_int = _ip_at_offset(backhaul['subnet'], 1)
-        masterbh = _ip_at_offset(backhaul['subnet'], 2)
-        slavebh = _ip_at_offset(backhaul['subnet'], 3)
-        slavebh_int = _ip_at_offset(backhaul['subnet'], 4)
-        towername = backhaul['name'] if not backhaul['master'] else 'LOCAL'
-        bhname = 'LOCAL' if not backhaul['master'] else backhaul['name']
-        portmap_lines.extend([
-            f'{towername}.{backhaul["interface"]}: {masterbh_int}/{backhaul["subnet"].prefixlen}',
-            f'{bhname}-{towername}: {masterbh}/{backhaul["subnet"].prefixlen}',
-            f'{towername}-{bhname}: {slavebh}/{backhaul["subnet"].prefixlen}',
-            f'{bhname}.{backhaul["interface"]}: {slavebh_int}/{backhaul["subnet"].prefixlen}',
-            '',
-        ])
+        portmap_lines.extend(_build_backhaul_port_map_lines(backhaul, local_label=local_label))
+        portmap_lines.append('')
     return '\n'.join(config_lines).strip() + ('\n' if config_lines else ''), '\n'.join(portmap_lines).strip() + '\n'
 
 
@@ -26107,7 +26390,7 @@ def _build_ftth_1072_config(data: dict, backhauls):
         'loopback_ip': str(loopback),
     })
 
-    backhaul_section, port_map = _render_backhaul_sections(backhauls)
+    backhaul_section, port_map = _render_backhaul_sections(backhauls, local_label=tower_name)
     lines = [
         f'# 1072 FIBER SITE CONFIG - {tower_name}',
         '/system identity',
@@ -26313,7 +26596,7 @@ def _build_isd_fiber_config(data: dict, backhauls):
     })
 
     family = _router_port_family(router_type)
-    backhaul_section, port_map = _render_backhaul_sections(backhauls)
+    backhaul_section, port_map = _render_backhaul_sections(backhauls, local_label=tower_name)
     lines = [
         f'# ISD FIBER CONFIG - {tower_name}',
         '/system identity',

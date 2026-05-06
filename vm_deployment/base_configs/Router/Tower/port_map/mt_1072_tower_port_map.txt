@@ -4,7 +4,17 @@ Loopback: {{ loopback.ip }}/{{ loopback.prefixlen }}
 
 Backhauls:
 {% for bh in backhauls -%}
-- {{ bh.port }} : {{ bh.bhname }} ({{ bh.bhip }}/{{ bh.bhip_sub }}) bandwidth={{ bh.interface_bandwidth }} master_side_1={{ bh.link_side_1 }}
+- {{ bh.port }} : {{ bh.bhname }}
+  Local Role: {{ bh.local_role }}
+  Subnet: {{ bh.subnet_cidr }}
+  Network: {{ bh.network_ip }}
+  Gateway ({{ bh.gateway_label }}): {{ bh.gateway_ip_explicit }}
+{% for radio in bh.radio_lines %}
+  {{ radio.label }}: {{ radio.ip }}
+{% endfor %}
+  Far-End Port ({{ bh.far_end_label }}): {{ bh.far_end_port_ip }}
+  Local Port IP ({{ bh.port }}): {{ bh.local_port_ip }}
+  Bandwidth: {{ bh.interface_bandwidth }}
 {% endfor %}
 
 CPE Gateway: {{ cpe_gateway }}
