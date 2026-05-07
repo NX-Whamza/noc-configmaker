@@ -13042,7 +13042,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 return;
             }
 
-            const deviceConfig = getDeviceConfig(selectedDevice, '');
+            const deviceConfig = (typeof DEVICE_CONFIGS !== 'undefined' && DEVICE_CONFIGS[selectedDevice]) || null;
 
             if (!deviceConfig) {
                 portSelect.innerHTML = '<option value="">Select Port (Choose Device First)</option>';
