@@ -5643,7 +5643,7 @@ def validate_enterprise_feeding_config(config_text):
 
     if missing_sections:
         errors.append(f"Missing required sections: {', '.join(missing_sections)}")
-    
+
     # Validate IP address line format: add address=X.X.X.X/29 comment="..." interface=... network=...
     ip_address_match = re.search(r'add address=(\d+\.\d+\.\d+\.\d+)/(\d+)\s+comment=([^\s]+)\s+interface=([^\s]+)\s+network=(\d+\.\d+\.\d+\.\d+)', config_text)
     if not ip_address_match:
@@ -5652,7 +5652,7 @@ def validate_enterprise_feeding_config(config_text):
         gateway_ip = ip_address_match.group(1)
         prefix = ip_address_match.group(2)
         network_addr = ip_address_match.group(5)
-        
+
         # Validate IP address format
         try:
             import ipaddress
@@ -5663,8 +5663,8 @@ def validate_enterprise_feeding_config(config_text):
                 errors.append(f"Invalid prefix length: /{prefix} (must be between /8 and /30)")
         except ValueError as e:
             errors.append(f"Invalid IP address format: {str(e)}")
-    
-    # Validate OSPF configuration — accept both ROS7 interface-template and ROS6 interface+network syntax
+
+    # Validate OSPF — accept both ROS7 interface-template and ROS6 interface+network syntax
     ospf_match = re.search(r'/routing ospf interface-template.*?networks=(\d+\.\d+\.\d+\.\d+/\d+)', config_text, re.DOTALL)
     ospf_match_ros6 = re.search(r'/routing ospf network.*?network=(\d+\.\d+\.\d+\.\d+/\d+)', config_text, re.DOTALL)
     ospf_network = None
