@@ -34,7 +34,11 @@ services:
     volumes:
       - ./vm_deployment/base_configs:/opt/base_configs:ro
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://127.0.0.1:18081/health"]
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://127.0.0.1:18081/health/full | grep -Eq '\"ok\"[[:space:]]*:[[:space:]]*true'",
+        ]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -176,7 +180,11 @@ services:
       ido-backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://127.0.0.1:5000/api/health"]
+      test:
+        [
+          "CMD-SHELL",
+          "body=\"$$(curl -fsS 'http://127.0.0.1:5000/api/health?full=1&refresh=1')\" && printf '%s' \"$$body\" | grep -Eq '\"checks_mode\"[[:space:]]*:[[:space:]]*\"full\"' && printf '%s' \"$$body\" | grep -Eq '\"dependencies_checked\"[[:space:]]*:[[:space:]]*true' && printf '%s' \"$$body\" | grep -Eq '\"degraded\"[[:space:]]*:[[:space:]]*false'",
+        ]
       interval: 15s
       timeout: 15s
       retries: 5

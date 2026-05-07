@@ -5626,16 +5626,24 @@ def validate_enterprise_feeding_config(config_text):
     required_sections = [
         '/interface ethernet',
         '/ip address',
-        '/routing ospf interface-template'
     ]
     missing_sections = []
     for section in required_sections:
         if section not in config_text:
             missing_sections.append(section)
-    
+
+    # Accept either ROS7 interface-template or ROS6 ospf interface/network syntax
+    has_ospf = (
+        '/routing ospf interface-template' in config_text
+        or '/routing ospf interface' in config_text
+        or '/routing ospf network' in config_text
+    )
+    if not has_ospf:
+        missing_sections.append('/routing ospf (interface-template or interface+network)')
+
     if missing_sections:
         errors.append(f"Missing required sections: {', '.join(missing_sections)}")
-    
+
     # Validate IP address line format: add address=X.X.X.X/29 comment="..." interface=... network=...
     ip_address_match = re.search(r'add address=(\d+\.\d+\.\d+\.\d+)/(\d+)\s+comment=([^\s]+)\s+interface=([^\s]+)\s+network=(\d+\.\d+\.\d+\.\d+)', config_text)
     if not ip_address_match:
@@ -5644,7 +5652,7 @@ def validate_enterprise_feeding_config(config_text):
         gateway_ip = ip_address_match.group(1)
         prefix = ip_address_match.group(2)
         network_addr = ip_address_match.group(5)
-        
+
         # Validate IP address format
         try:
             import ipaddress
@@ -5655,18 +5663,21 @@ def validate_enterprise_feeding_config(config_text):
                 errors.append(f"Invalid prefix length: /{prefix} (must be between /8 and /30)")
         except ValueError as e:
             errors.append(f"Invalid IP address format: {str(e)}")
-    
-    # Validate OSPF interface-template format
+
+    # Validate OSPF — accept both ROS7 interface-template and ROS6 interface+network syntax
     ospf_match = re.search(r'/routing ospf interface-template.*?networks=(\d+\.\d+\.\d+\.\d+/\d+)', config_text, re.DOTALL)
-    if not ospf_match:
-        warnings.append("OSPF interface-template not found or malformed")
-    else:
+    ospf_match_ros6 = re.search(r'/routing ospf network.*?network=(\d+\.\d+\.\d+\.\d+/\d+)', config_text, re.DOTALL)
+    ospf_network = None
+    if ospf_match:
         ospf_network = ospf_match.group(1)
-        # Verify OSPF uses network address (should match IP address network)
-        if ip_address_match:
-            expected_network = ip_address_match.group(5)
-            if expected_network not in ospf_network:
-                warnings.append("OSPF network parameter should match IP address network parameter")
+    elif ospf_match_ros6:
+        ospf_network = ospf_match_ros6.group(1)
+    else:
+        warnings.append("OSPF configuration not found or malformed")
+    if ospf_network and ip_address_match:
+        expected_network = ip_address_match.group(5)
+        if expected_network not in ospf_network:
+            warnings.append("OSPF network parameter should match IP address network parameter")
     
     # Validate routes format if present
     route_matches = re.findall(r'add comment=([^\s]+)\s+disabled=no\s+distance=1\s+dst-address=([^\s]+)\s+gateway=([^\s]+)', config_text)

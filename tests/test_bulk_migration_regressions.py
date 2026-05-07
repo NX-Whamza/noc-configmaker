@@ -13,6 +13,7 @@ def _load_app():
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
     os.environ["AI_PROVIDER"] = "none"
+    os.environ.setdefault("DEFAULT_PASSWORD", "TEST_DEFAULT_PASSWORD")
     os.environ["NOKIA7250_SNMP_COMMUNITY"] = "test-snmp"
     os.environ["NOKIA7250_NLROOT_PW"] = "test-nlroot"
     os.environ["NOKIA7250_ADMIN_PW"] = "test-admin"
@@ -27,11 +28,7 @@ def _load_app():
 
 def _auth_headers(client, api_server_mod) -> dict:
     admin_email = os.getenv("PLATFORM_ADMIN_EMAILS", "whamza@team.nxlink.com").split(",")[0].strip()
-    login = client.post(
-        "/api/auth/login",
-        json={"email": admin_email, "password": api_server_mod.DEFAULT_PASSWORD},
-    )
-    token = (login.get_json() or {}).get("token")
+    token = api_server_mod.generate_token(990001, admin_email)
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 

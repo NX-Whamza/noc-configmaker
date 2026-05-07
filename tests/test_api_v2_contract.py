@@ -78,6 +78,32 @@ def test_api_key_only_mode_works_when_signature_disabled(monkeypatch):
     assert body["data"]["api_key"] == "test-key"
 
 
+def test_session_bearer_token_can_read_nexus_discovery_routes(monkeypatch):
+    _, client = _load_api_v2(monkeypatch, require_signature="false", require_idempotency="false")
+
+    repo_root = Path(__file__).resolve().parents[1]
+    vm_dep = repo_root / "vm_deployment"
+    for p in (str(repo_root), str(vm_dep)):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+    import api_server  # noqa: WPS433
+
+    token = api_server.generate_token(999, "session-test@team.nxlink.com")
+    r = client.get("/api/v2/nexus/tenant/defaults", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["data"]["tenant"]["code"]
+
+    app_config = client.get("/api/v2/nexus/app-config", headers={"Authorization": f"Bearer {token}"})
+    assert app_config.status_code == 200
+    assert app_config.json()["status"] == "ok"
+
+    infrastructure = client.get("/api/v2/nexus/infrastructure", headers={"Authorization": f"Bearer {token}"})
+    assert infrastructure.status_code == 200
+    assert infrastructure.json()["status"] == "ok"
+
+
 def test_submit_requires_idempotency_key_when_enabled(monkeypatch):
     _, client = _load_api_v2(monkeypatch, require_signature="false", require_idempotency="true")
     payload = {"action": "health.get", "payload": {}}

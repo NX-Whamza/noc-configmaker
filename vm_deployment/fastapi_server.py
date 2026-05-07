@@ -34,7 +34,7 @@ try:
     from a2wsgi import WSGIMiddleware
 except Exception:
     from starlette.middleware.wsgi import WSGIMiddleware
-from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
@@ -71,11 +71,15 @@ from api_v2 import (
     _maintenance_get,
     _maintenance_list,
     _maintenance_update,
+    _require_scope,
 )
 from unimus_backup_configs import router as unimus_backup_configs_router
 
 _PROCESS_SINGLETONS: dict[str, Path] = {}
 _PROCESS_SINGLETONS_LOCK = threading.Lock()
+# Legacy bridge routes shadow protected Flask endpoints and must not bypass the
+# stricter session/API-key trust boundary already used by /api/v2.
+_LEGACY_ACTIONS_AUTH = _require_scope("actions.read")
 
 
 def _env_int(name: str, default: int, minimum: int = 1, maximum: int = 256) -> int:
@@ -814,7 +818,7 @@ def _ido_local_generic(ip_address: str, run_tests: bool = False) -> Dict[str, An
 
 
 @app.get("/api/ido/capabilities")
-def ido_capabilities():
+def ido_capabilities(_: Dict[str, Any] = Depends(_LEGACY_ACTIONS_AUTH)):
     backend = _ido_backend_url()
     inprocess_module = None if backend else _ido_inprocess_module()
     backend_health: Dict[str, Any] = {"ok": False, "checked": False, "error": None}
@@ -849,7 +853,11 @@ def ido_capabilities():
 
 
 @app.api_route("/api/ido/proxy/{target_path:path}", methods=["GET", "POST"], include_in_schema=False)
-async def ido_proxy(target_path: str, request: Request):
+async def ido_proxy(
+    target_path: str,
+    request: Request,
+    _: Dict[str, Any] = Depends(_LEGACY_ACTIONS_AUTH),
+):
     backend_url = _ido_backend_url()
     inprocess_module = None if backend_url else _ido_inprocess_module()
     if not _ido_target_allowed(target_path):
@@ -1004,7 +1012,11 @@ def _require_base_config_path() -> str:
 
 
 @app.post("/api/mt/{config_type}/config")
-def mt_generate_config(config_type: str, payload: Dict[str, Any] = Body(default_factory=dict)):
+def mt_generate_config(
+    config_type: str,
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    _: Dict[str, Any] = Depends(_LEGACY_ACTIONS_AUTH),
+):
     _require_base_config_path()
     config_cls = _mt_config_class(config_type)
     try:
@@ -1028,7 +1040,11 @@ def mt_generate_config(config_type: str, payload: Dict[str, Any] = Body(default_
 
 
 @app.post("/api/mt/{config_type}/portmap")
-def mt_generate_portmap(config_type: str, payload: Dict[str, Any] = Body(default_factory=dict)):
+def mt_generate_portmap(
+    config_type: str,
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    _: Dict[str, Any] = Depends(_LEGACY_ACTIONS_AUTH),
+):
     _require_base_config_path()
     config_cls = _mt_config_class(config_type)
     try:
@@ -1044,27 +1060,36 @@ def mt_generate_portmap(config_type: str, payload: Dict[str, Any] = Body(default
 
 
 @app.get("/api/ido/defaults")
-def ido_defaults(config_type: str | None = None):
+def ido_defaults(
+    config_type: str | None = None,
+    _: Dict[str, Any] = Depends(_LEGACY_ACTIONS_AUTH),
+):
     return JSONResponse(content=ido_get_defaults(config_type))
 
 
 @app.get("/api/ido/templates")
-def ido_templates(config_type: str | None = None):
+def ido_templates(
+    config_type: str | None = None,
+    _: Dict[str, Any] = Depends(_LEGACY_ACTIONS_AUTH),
+):
     return JSONResponse(content=ido_get_templates(config_type))
 
 
 @app.get("/api/ido/device-profiles")
-def ido_device_profiles():
+def ido_device_profiles(_: Dict[str, Any] = Depends(_LEGACY_ACTIONS_AUTH)):
     return JSONResponse(content=ido_get_device_profiles())
 
 
 @app.get("/api/ido/compliance")
-def ido_compliance(loopback_ip: str = "10.0.0.1"):
+def ido_compliance(
+    loopback_ip: str = "10.0.0.1",
+    _: Dict[str, Any] = Depends(_LEGACY_ACTIONS_AUTH),
+):
     return JSONResponse(content={"compliance": ido_get_compliance(loopback_ip)})
 
 
 @app.get("/api/ido/compliance/status")
-def ido_compliance_status():
+def ido_compliance_status(_: Dict[str, Any] = Depends(_LEGACY_ACTIONS_AUTH)):
     """Diagnostic: check GitLab compliance configuration and cache state."""
     try:
         from gitlab_compliance import get_loader as _gl
@@ -1083,7 +1108,7 @@ def ido_compliance_status():
 
 
 @app.post("/api/ido/compliance/refresh")
-def ido_compliance_refresh():
+def ido_compliance_refresh(_: Dict[str, Any] = Depends(_LEGACY_ACTIONS_AUTH)):
     """Clear GitLab compliance cache — next request will re-fetch from GitLab."""
     try:
         from gitlab_compliance import get_loader as _gl
@@ -1104,7 +1129,11 @@ def ido_compliance_refresh():
 
 
 @app.post("/api/ido/render")
-def ido_render(config_type: str, payload: Dict[str, Any] = Body(default_factory=dict)):
+def ido_render(
+    config_type: str,
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    _: Dict[str, Any] = Depends(_LEGACY_ACTIONS_AUTH),
+):
     _require_base_config_path()
     config_cls = _mt_config_class(config_type)
     try:
@@ -1133,38 +1162,53 @@ def ido_render(config_type: str, payload: Dict[str, Any] = Body(default_factory=
 
 
 @app.get("/api/maintenance/windows")
-def maintenance_windows_list(status: str = "all", limit: int = 250):
+def maintenance_windows_list(
+    status: str = "all",
+    limit: int = 250,
+    _: Dict[str, Any] = Depends(_LEGACY_ACTIONS_AUTH),
+):
     return JSONResponse(content={"windows": _maintenance_list(status=status, limit=limit)})
 
 
 @app.post("/api/maintenance/windows")
-def maintenance_windows_create(payload: Dict[str, Any] = Body(default_factory=dict)):
-    created_by = "nexus-ui"
-    try:
-        created_by = (payload.get("created_by") or payload.get("createdBy") or "nexus-ui").strip() or "nexus-ui"
-    except Exception:
-        pass
-    return JSONResponse(content=_maintenance_create(payload, created_by=created_by), status_code=201)
+def maintenance_windows_create(
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    auth: Dict[str, Any] = Depends(_LEGACY_ACTIONS_AUTH),
+):
+    return JSONResponse(content=_maintenance_create(payload, created_by=auth["api_key"]), status_code=201)
 
 
 @app.get("/api/maintenance/windows/{window_id}")
-def maintenance_windows_get(window_id: str):
+def maintenance_windows_get(
+    window_id: str,
+    _: Dict[str, Any] = Depends(_LEGACY_ACTIONS_AUTH),
+):
     return JSONResponse(content=_maintenance_get(window_id))
 
 
 @app.put("/api/maintenance/windows/{window_id}")
-def maintenance_windows_update(window_id: str, payload: Dict[str, Any] = Body(default_factory=dict)):
+def maintenance_windows_update(
+    window_id: str,
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    _: Dict[str, Any] = Depends(_LEGACY_ACTIONS_AUTH),
+):
     return JSONResponse(content=_maintenance_update(window_id, payload))
 
 
 @app.delete("/api/maintenance/windows/{window_id}")
-def maintenance_windows_delete(window_id: str):
+def maintenance_windows_delete(
+    window_id: str,
+    _: Dict[str, Any] = Depends(_LEGACY_ACTIONS_AUTH),
+):
     _maintenance_delete(window_id)
     return JSONResponse(content={"window_id": window_id, "status": "deleted"})
 
 
 @app.post("/api/command-vault/catalog")
-def command_vault_catalog(payload: Dict[str, Any] = Body(default_factory=dict)):
+def command_vault_catalog(
+    payload: Dict[str, Any] = Body(default_factory=dict),
+    _: Dict[str, Any] = Depends(_LEGACY_ACTIONS_AUTH),
+):
     return JSONResponse(content=_command_vault_catalog(payload))
 
 

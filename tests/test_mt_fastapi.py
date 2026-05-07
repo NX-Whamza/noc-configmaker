@@ -26,12 +26,8 @@ client = TestClient(app)
 def _fastapi_auth_headers() -> dict:
     """Obtain a valid JWT via the Flask login endpoint and return auth headers."""
     admin_email = os.getenv("PLATFORM_ADMIN_EMAILS", "whamza@team.nxlink.com").split(",")[0].strip()
-    r = client.post(
-        "/api/auth/login",
-        json={"email": admin_email, "password": _api_server.DEFAULT_PASSWORD},
-    )
-    token = (r.json() or {}).get("token")
-    return {"Authorization": f"Bearer {token}"} if token else {}
+    token = _api_server.generate_token(999003, admin_email)
+    return {"Authorization": f"Bearer {token}"}
 
 
 def _gitlab_compliance_configured() -> bool:
@@ -98,7 +94,7 @@ def _bng2_payload() -> dict:
 
 
 def test_tower_config_contains_required_routing_blocks():
-    r = client.post("/api/mt/tower/config", json=_tower_payload())
+    r = client.post("/api/mt/tower/config", json=_tower_payload(), headers=_fastapi_auth_headers())
     assert r.status_code == 200
     text = r.json()
     assert isinstance(text, str)
@@ -117,14 +113,14 @@ def test_tower_compliance_requires_gitlab_configuration():
         return
     payload = _tower_payload()
     payload["apply_compliance"] = True
-    r = client.post("/api/mt/tower/config", json=payload)
+    r = client.post("/api/mt/tower/config", json=payload, headers=_fastapi_auth_headers())
     assert r.status_code == 200
     text = r.json()
     assert text.count("# ENGINEERING-COMPLIANCE-APPLIED") == 1
 
 
 def test_bng2_config_is_not_tower_and_contains_vpls():
-    r = client.post("/api/mt/bng2/config", json=_bng2_payload())
+    r = client.post("/api/mt/bng2/config", json=_bng2_payload(), headers=_fastapi_auth_headers())
     assert r.status_code == 200
     text = r.json()
     assert isinstance(text, str)
@@ -135,6 +131,11 @@ def test_bng2_config_is_not_tower_and_contains_vpls():
     assert "nat-public-bridge" not in text
 
 
+def test_mt_bridge_requires_auth():
+    r = client.post("/api/mt/tower/config", json=_tower_payload())
+    assert r.status_code == 401
+
+
 def test_tower_policy_violation_returns_422():
     payload = _tower_payload()
     payload["is_tarana"] = True
@@ -142,7 +143,7 @@ def test_tower_policy_violation_returns_422():
     payload["tarana_sector_count"] = 3
     payload["tarana_sector_start"] = 0
     payload["backhauls"][0]["port"] = "sfp-sfpplus6"  # Reserved by Tarana policy.
-    r = client.post("/api/mt/tower/config", json=payload)
+    r = client.post("/api/mt/tower/config", json=payload, headers=_fastapi_auth_headers())
     assert r.status_code == 422
     detail = r.json().get("detail", "")
     assert "policy violation" in detail.lower() or "reserved" in detail.lower()
@@ -160,19 +161,20 @@ def test_tower_custom_tarana_ports_reserve_matching_backhaul_ports():
         {"name": "Gamma", "port": "sfp-sfpplus12"},
     ]
     payload["backhauls"][0]["port"] = "sfp-sfpplus10"
-    r = client.post("/api/mt/tower/config", json=payload)
+    r = client.post("/api/mt/tower/config", json=payload, headers=_fastapi_auth_headers())
     assert r.status_code == 422
     detail = r.json().get("detail", "")
     assert "policy violation" in detail.lower() or "reserved" in detail.lower()
 
 
 def test_ido_proxy_blocks_site_checker_paths():
-    caps = client.get("/api/ido/capabilities")
+    headers = _fastapi_auth_headers()
+    caps = client.get("/api/ido/capabilities", headers=headers)
     assert caps.status_code == 200
     allowed = caps.json().get("allowed_prefixes", [])
     assert "/api/7250config/" in allowed
 
-    r = client.get("/api/ido/proxy/api/sites/list")
+    r = client.get("/api/ido/proxy/api/sites/list", headers=headers)
     assert r.status_code == 503 or r.status_code == 403
     if r.status_code == 403:
         detail = r.json().get("detail", "")
@@ -234,7 +236,7 @@ def test_bng2_custom_tarana_ports_are_rendered_from_flat_fields():
             "tarana_bng2_gammaPort": "sfp-sfpplus10",
         }
     )
-    r = client.post("/api/mt/bng2/config", json=payload)
+    r = client.post("/api/mt/bng2/config", json=payload, headers=_fastapi_auth_headers())
     assert r.status_code == 200
     text = r.json()
     assert 'default-name=sfp-sfpplus8' in text
@@ -279,7 +281,7 @@ def test_bng2_switch_uplink_generates_vlan_interfaces_on_correct_bridges():
     """Switch uplinks must get VLAN 1000/2000/3000/4000 tagged interfaces mapped to their bridges."""
     payload = _bng2_payload()
     payload["switches"] = [{"name": "Switch-1", "port": "sfp-sfpplus1", "comment": "SW-UPLINK"}]
-    r = client.post("/api/mt/bng2/config", json=payload)
+    r = client.post("/api/mt/bng2/config", json=payload, headers=_fastapi_auth_headers())
     assert r.status_code == 200
     text = r.json()
     # VLAN interfaces must exist on the switch port
@@ -303,7 +305,7 @@ def test_bng2_ldp_interface_entries_generated_for_each_backhaul():
         {"name": "KS-GLADE-NO-1", "subnet": "10.248.90.248/29", "master": True, "port": "sfp-sfpplus4"},
         {"name": "KS-GLADE-NO-2", "subnet": "10.248.90.240/29", "master": False, "port": "sfp-sfpplus5"},
     ]
-    r = client.post("/api/mt/bng2/config", json=payload)
+    r = client.post("/api/mt/bng2/config", json=payload, headers=_fastapi_auth_headers())
     assert r.status_code == 200
     text = r.json()
     assert "/mpls ldp interface" in text
@@ -312,7 +314,7 @@ def test_bng2_ldp_interface_entries_generated_for_each_backhaul():
 
 
 def test_bng2_portmap_explicitly_lists_backhaul_ip_assignments():
-    r = client.post("/api/mt/bng2/portmap", json=_bng2_payload())
+    r = client.post("/api/mt/bng2/portmap", json=_bng2_payload(), headers=_fastapi_auth_headers())
     assert r.status_code == 200
     text = r.json()
     assert isinstance(text, str)
@@ -326,7 +328,7 @@ def test_bng2_portmap_explicitly_lists_backhaul_ip_assignments():
 
 
 def test_tower_portmap_explicitly_lists_backhaul_ip_assignments():
-    r = client.post("/api/mt/tower/portmap", json=_tower_payload())
+    r = client.post("/api/mt/tower/portmap", json=_tower_payload(), headers=_fastapi_auth_headers())
     assert r.status_code == 200
     text = r.json()
     assert isinstance(text, str)

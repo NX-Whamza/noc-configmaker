@@ -13,6 +13,11 @@ import sys
 import re
 import requests
 
+if __name__ != "__main__" and "pytest" in sys.modules:
+    import pytest
+
+    pytest.skip("test_all_generators.py is a script-style harness; skip during pytest collection.", allow_module_level=True)
+
 BASE_URL = (os.getenv("NOC_CONFIGMAKER_BASE_URL") or "").strip().rstrip("/")
 
 if BASE_URL:

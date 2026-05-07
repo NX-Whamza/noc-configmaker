@@ -14,6 +14,7 @@ repo_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repo_root / "vm_deployment"))
 
 os.environ.setdefault("NOC_CONFIGMAKER_TESTS", "1")
+os.environ.setdefault("DEFAULT_PASSWORD", "TEST_DEFAULT_PASSWORD")
 
 from fastapi_server import app  # noqa: E402
 import api_server  # noqa: E402
@@ -24,8 +25,7 @@ client = TestClient(app)
 
 def _auth_headers():
     admin_email = os.getenv("PLATFORM_ADMIN_EMAILS", "whamza@team.nxlink.com").split(",")[0].strip()
-    r = client.post("/api/auth/login", json={"email": admin_email, "password": api_server.DEFAULT_PASSWORD})
-    token = (r.json() or {}).get("token", "")
+    token = api_server.generate_token(990004, admin_email)
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -83,8 +83,8 @@ def test_ftth_ui_contract_outstate_renders_nebraska_style_blocks():
     assert "name=vpls1000-bng1" in config
     assert "cisco-static-id=1249" in config
     assert "# ENGINEERING-COMPLIANCE-APPLIED" in config
-    assert "name=CR7" in config
-    assert "name=CR8" in config
+    assert "name=RR1" in config
+    assert "name=RR2" in config
     assert "output.network=bgp-networks" in config
     assert "WALLED-GARDEN" in config
     assert 'dst-address-list=!WALLED-GARDEN src-address-list=unauth' in config
@@ -108,8 +108,8 @@ def test_ftth_ui_contract_instate_keeps_standard_bridge_layout():
     assert "name=vpls1000-bng1" not in config
     assert "/routing bgp template" in config
     assert "/routing bgp connection" in config
-    assert "name=CR7" in config
-    assert "name=CR8" in config
+    assert "name=RR1" in config
+    assert "name=RR2" in config
     assert "/ip dhcp-server option" in config
     assert "add code=43 name=opt43 value=0x012d68747470733a2f2f6e61342e6e6f6b69616163732e6e6f6b69612e636f6d3a31373534372f6e6578746c696e6b020561646d696e030561646d696e" in config
     assert "/ip dhcp-server option sets" in config
@@ -243,7 +243,7 @@ def test_ftth_bng_prefers_tenant_defaults_when_payload_values_are_omitted(monkey
     payload = _ui_payload("instate")
     payload["loopback_ip"] = "10.26.1.108/32"
 
-    response = client.post("/api/generate-ftth-bng", json=payload)
+    response = client.post("/api/generate-ftth-bng", json=payload, headers=_auth_headers())
     assert response.status_code == 200
     data = response.json()
     assert data.get("success") is True
@@ -256,3 +256,37 @@ def test_ftth_bng_prefers_tenant_defaults_when_payload_values_are_omitted(monkey
     assert "remote.address=10.10.10.11/32" in config
     assert "name=vpls1000-bng1" not in config
     assert "noc@acme.example" in config
+
+
+def test_ftth_bng_uses_neutral_defaults_when_tenant_values_are_absent(monkeypatch):
+    for name in (
+        "NEXUS_DEFAULT_ASN",
+        "NEXUS_ROUTE_REFLECTOR_PEERS_JSON",
+        "NEXUS_BNG_PEERS_JSON",
+        "NEXUS_SNMP_CONTACT",
+        "NEXTLINK_BGP_ASN",
+        "NEXTLINK_BGP_PEER1_NAME",
+        "NEXTLINK_BGP_PEER2_NAME",
+        "NEXTLINK_BGP_PEER1_ADDRESS",
+        "NEXTLINK_BGP_PEER2_ADDRESS",
+        "NEXTLINK_BNG1_IP",
+        "NEXTLINK_BNG2_IP",
+        "NEXTLINK_SNMP_CONTACT",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    payload = _ui_payload("instate")
+    payload["loopback_ip"] = "10.26.1.108/32"
+
+    response = client.post("/api/generate-ftth-bng", json=payload, headers=_auth_headers())
+    assert response.status_code == 200
+    data = response.json()
+    assert data.get("success") is True
+    config = data.get("config", "")
+
+    assert "set default as=65000 disabled=no output.network=bgp-networks router-id=10.26.1.108" in config
+    assert "name=RR1" in config
+    assert "remote.address=192.0.2.10/32" in config
+    assert "name=RR2" in config
+    assert "remote.address=192.0.2.11/32" in config
+    assert "noc@example.com" in config
