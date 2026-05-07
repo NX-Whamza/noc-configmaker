@@ -1,0 +1,120 @@
+name: nexus-dev
+services:
+  backend:
+    image: ghcr.io/nx-whamza/nexus:${NEXUS_VERSION:-latest}
+    restart: unless-stopped
+    command: ["bash", "scripts/start_nexus.sh"]
+    env_file:
+      - path: .env
+        required: false
+    cap_add:
+      - NET_ADMIN
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    environment:
+      NOC_ENVIRONMENT: development
+      NEXUS_APP_PRODUCT: ${NEXUS_APP_PRODUCT:-NEXUS}
+      NEXUS_APP_VERSION: ${NEXUS_VERSION:-}
+      NEXUS_APP_VERSION_BASE: ${NEXUS_APP_VERSION_BASE:-2.6}
+      NEXUS_APP_BUILD_NUMBER: ${NEXUS_APP_BUILD_NUMBER:-0}
+      NEXUS_APP_RELEASE_DATE: ${NEXUS_APP_RELEASE_DATE:-}
+      NEXUS_APP_GIT_SHA: ${NEXUS_APP_GIT_SHA:-}
+      # Auth / JWT
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      JWT_SECRET: ${JWT_SECRET:-}
+      DEFAULT_PASSWORD: ${DEFAULT_PASSWORD:-CHANGE_ME}
+      AUTH_EXPOSE_RESET_TOKEN: ${AUTH_EXPOSE_RESET_TOKEN:-true}
+      PASSWORD_HASH_ITERATIONS: ${PASSWORD_HASH_ITERATIONS:-310000}
+      SSO_STATE_MAX_AGE_SECONDS: ${SSO_STATE_MAX_AGE_SECONDS:-600}
+      # CORS
+      NOC_CORS_ORIGINS: ${NOC_CORS_ORIGINS:-http://localhost,http://127.0.0.1}
+      NOC_CORS_ALLOW_CREDENTIALS: ${NOC_CORS_ALLOW_CREDENTIALS:-true}
+      # Nextlink network standards
+      NEXTLINK_DNS_PRIMARY: ${NEXTLINK_DNS_PRIMARY:-}
+      NEXTLINK_DNS_SECONDARY: ${NEXTLINK_DNS_SECONDARY:-}
+      NEXTLINK_SHARED_KEY: ${NEXTLINK_SHARED_KEY:-}
+      NEXTLINK_RADIUS_SECRET: ${NEXTLINK_RADIUS_SECRET:-}
+      NEXTLINK_RADIUS_DHCP_SERVERS: ${NEXTLINK_RADIUS_DHCP_SERVERS:-}
+      NEXTLINK_RADIUS_LOGIN_SERVERS: ${NEXTLINK_RADIUS_LOGIN_SERVERS:-}
+      NEXTLINK_SNMP_CONTACT: ${NEXTLINK_SNMP_CONTACT:-}
+      NEXTLINK_SSH_USERNAME: ${NEXTLINK_SSH_USERNAME:-}
+      NEXTLINK_SSH_PASSWORD: ${NEXTLINK_SSH_PASSWORD:-}
+      # IDO backend
+      NETLAUNCH_IDO_BACKEND_URL: http://localhost:18081
+      IDO_BACKEND_PATH: ${IDO_BACKEND_PATH:-/app/vm_deployment/ido_modules}
+      IDO_TOOLS_BACKEND_PATH: ${IDO_TOOLS_BACKEND_PATH:-/app/vm_deployment/ido_modules}
+      IDO_REQUIRE_FULL_MODULES: ${IDO_REQUIRE_FULL_MODULES:-false}
+      BASE_CONFIG_PATH: /app/vm_deployment/base_configs
+      # Device auth
+      AP_STANDARD_PW: ${AP_STANDARD_PW:-CHANGE_ME}
+      SM_STANDARD_PW: ${SM_STANDARD_PW:-CHANGE_ME}
+      BH_STANDARD_PW: ${BH_STANDARD_PW:-CHANGE_ME}
+      SWT_STANDARD_PW: ${SWT_STANDARD_PW:-CHANGE_ME}
+      RPC_STANDARD_PW: ${RPC_STANDARD_PW:-CHANGE_ME}
+      CNMATRIX_STANDARD_PW: ${CNMATRIX_STANDARD_PW:-CHANGE_ME}
+      WAVE_AP_PASS: ${WAVE_AP_PASS:-CHANGE_ME}
+      WAVE_SM_PASS: ${WAVE_SM_PASS:-CHANGE_ME}
+      # GitLab compliance
+      GITLAB_COMPLIANCE_TOKEN: ${GITLAB_COMPLIANCE_TOKEN:-}
+      GITLAB_COMPLIANCE_PROJECT_ID: ${GITLAB_COMPLIANCE_PROJECT_ID:-}
+      GITLAB_COMPLIANCE_HOST: ${GITLAB_COMPLIANCE_HOST:-}
+      GITLAB_COMPLIANCE_REF: ${GITLAB_COMPLIANCE_REF:-main}
+      GITLAB_COMPLIANCE_TTL: ${GITLAB_COMPLIANCE_TTL:-900}
+      GITLAB_COMPLIANCE_SCRIPT_PATH: ${GITLAB_COMPLIANCE_SCRIPT_PATH:-TX-ARv2.rsc}
+      # API v2
+      NOC_API_KEYS_JSON: ${NOC_API_KEYS_JSON:-}
+      NOC_API_KEYS: ${NOC_API_KEYS:-}
+      NOC_API_KEY: ${NOC_API_KEY:-}
+      NOC_LEGACY_API_BASE: ${NOC_LEGACY_API_BASE:-http://127.0.0.1:5000}
+      # Nokia 7250
+      NOKIA7250_SNMP_COMMUNITY: ${NOKIA7250_SNMP_COMMUNITY:-CHANGE_ME}
+      NOKIA7250_NLROOT_PW: ${NOKIA7250_NLROOT_PW:-CHANGE_ME}
+      NOKIA7250_ADMIN_PW: ${NOKIA7250_ADMIN_PW:-CHANGE_ME}
+      NOKIA7250_BGP_AUTH_KEY: ${NOKIA7250_BGP_AUTH_KEY:-CHANGE_ME}
+      NOKIA7250_OSPF_AUTH_KEY: ${NOKIA7250_OSPF_AUTH_KEY:-CHANGE_ME}
+      # Unimus
+      UNIMUS_BASE_URL: ${UNIMUS_BASE_URL:-}
+      UNIMUS_API_TOKEN: ${UNIMUS_API_TOKEN:-}
+      # Microsoft SSO
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-0563f465-0f3b-466b-a193-90c9e6dd79d6}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-143673a5-ff46-4d23-8255-b4ef07861814}
+      # Firmware
+      FIRMWARE_PATH: /opt/firmware
+      STARTUP_MAINTENANCE_MODE: ${STARTUP_MAINTENANCE_MODE:-background}
+    volumes:
+      - ./secure_data:/app/secure_data
+      - ./firmware:/opt/firmware:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://127.0.0.1:5000/api/health | grep -q ok",
+        ]
+      interval: 15s
+      timeout: 15s
+      retries: 5
+      start_period: 90s
+
+  frontend:
+    image: ghcr.io/nx-whamza/nexus-frontend:${NEXUS_VERSION:-latest}
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    ports:
+      - "${DEV_FRONTEND_PORT:-8100}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/nexus.html"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
