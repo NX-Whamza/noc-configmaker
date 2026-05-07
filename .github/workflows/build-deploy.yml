@@ -71,26 +71,9 @@ jobs:
             ${{ steps.meta.outputs.frontend_image }}:${{ steps.meta.outputs.version }}
             ${{ steps.meta.outputs.frontend_image }}:latest
 
-  deploy-dev:
-    name: Deploy to Dev (port 8100)
-    needs: build-and-push
-    runs-on: [self-hosted, nexus-deploy]
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      - name: Log in to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
-      - name: Deploy to dev
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NEXUS_APP_GIT_SHA: ${{ github.sha }}
-        run: bash /home/whamza/nexus-dev/scripts/deploy-dev.sh "${{ needs.build-and-push.outputs.version }}"
-
   deploy:
     name: Deploy to Production
-    needs: [build-and-push, deploy-dev]
+    needs: build-and-push
     runs-on: [self-hosted, nexus-deploy]
     permissions:
       contents: read
@@ -107,7 +90,7 @@ jobs:
 
   notify-teams:
     name: Notify Teams
-    needs: [build-and-push, deploy-dev, deploy]
+    needs: [build-and-push, deploy]
     if: always()
     runs-on: ubuntu-latest
     permissions:
