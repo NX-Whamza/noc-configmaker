@@ -50,6 +50,9 @@ Compatibility aliases currently exist at `/api/v2/jobs` and `/api/v2/omni/jobs`,
 | `activity.log` | Write activity entry | `{"username": "...", "type": "new-config", "device": "...", "siteName": "...", "routeros": "...", "success": true}` |
 | `configs.list` | Saved configs list | `{"params": {"search": "", "config_type": "", "limit": 50}}` |
 
+Current live wiring:
+- The NEXUS SPA now prefers `GET /api/v2/nexus/tenant/defaults`, `GET /api/v2/nexus/app-config`, and `GET /api/v2/nexus/infrastructure` for runtime bootstrap and falls back to the legacy `/api/*` equivalents only if typed discovery is unavailable.
+
 ## Completed Configs
 
 | Action | Description | Payload |
@@ -168,6 +171,9 @@ Direct endpoint:
 |--------|-------------|---------|
 | `POST /api/v2/nexus/tools/command-vault` | Filter command-vault catalog for Omni/native UI rendering | Same payload as `command.vault.catalog` |
 
+Current live wiring:
+- The NEXUS SPA now prefers `POST /api/v2/nexus/tools/command-vault` and falls back to legacy `/api/command-vault/catalog` only if the typed route is unavailable.
+
 ## Power Tools
 
 | Action | Description | Payload |
@@ -190,6 +196,9 @@ Use direct REST endpoints instead of job actions:
 | `GET /api/v2/nexus/maintenance/windows/{window_id}` | Read one maintenance window | `{}` |
 | `PUT /api/v2/nexus/maintenance/windows/{window_id}` | Update maintenance window | Same payload shape as create |
 | `DELETE /api/v2/nexus/maintenance/windows/{window_id}` | Delete maintenance window | `{}` |
+
+Current live wiring:
+- Scheduled Maintenance now prefers `/api/v2/nexus/maintenance/windows*` and falls back to legacy `/api/maintenance/windows*` routes only if the typed route is unavailable.
 
 ## Compliance / Config Policies
 

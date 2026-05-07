@@ -78,7 +78,18 @@
       "Read(//c/Python313/**)",
       "Bash(python3.13 -m pytest tests/ --ignore=tests/test_task_state_persistence.py -q --tb=short)",
       "Bash(git fetch *)",
-      "Bash(git merge *)"
+      "Bash(git merge *)",
+      "Bash(git rebase *)",
+      "Bash(git reset *)",
+      "Bash(git restore *)",
+      "Bash(git checkout *)",
+      "Bash(python -c ' *)",
+      "mcp__codexCatalog__catalog__list_sources",
+      "mcp__codexCatalog__catalog__get_source",
+      "mcp__codexCatalog__grafana__search",
+      "mcp__codexCatalog__grafana__list_folders",
+      "Bash(py -3.12 -m pytest tests/ -q --tb=line)",
+      "Bash(where python *)"
     ]
   }
 }

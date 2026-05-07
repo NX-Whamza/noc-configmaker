@@ -93,10 +93,83 @@
     }
 
     function getCambiumStreamUrl(path) {
-        const token = (typeof getAuthToken === 'function') ? getAuthToken() : (localStorage.getItem('auth_token') || '');
         const url = new URL(`${getCambiumApiBase()}${path}`, window.location.origin);
-        if (token) url.searchParams.set('token', token);
         return url.toString();
+    }
+
+    function dispatchCambiumSseEvents(stream, chunk, state) {
+        state.buffer += chunk.replace(/\r\n/g, '\n');
+        const frames = state.buffer.split('\n\n');
+        state.buffer = frames.pop() || '';
+        frames.forEach(frame => {
+            if (!frame.trim()) return;
+            const dataLines = [];
+            frame.split('\n').forEach(line => {
+                if (!line || line.startsWith(':')) return;
+                if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
+            });
+            if (dataLines.length && typeof stream.onmessage === 'function') {
+                stream.onmessage({ data: dataLines.join('\n') });
+            }
+        });
+    }
+
+    function openCambiumStream(path) {
+        const controller = typeof AbortController === 'function' ? new AbortController() : null;
+        const stream = {
+            readyState: 0,
+            onopen: null,
+            onmessage: null,
+            onerror: null,
+            close() {
+                if (stream.readyState === 2) return;
+                stream.readyState = 2;
+                if (controller) controller.abort();
+            }
+        };
+
+        (async function connect() {
+            try {
+                const response = await cambiumFetch(path, {
+                    headers: { Accept: 'text/event-stream' },
+                    cache: 'no-store',
+                    signal: controller ? controller.signal : undefined
+                });
+                if (!response.ok) {
+                    throw new Error(`Cambium stream failed (${response.status})`);
+                }
+                if (!response.body || typeof response.body.getReader !== 'function') {
+                    throw new Error('Cambium live stream is not supported in this browser session.');
+                }
+                stream.readyState = 1;
+                if (typeof stream.onopen === 'function') stream.onopen();
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                const state = { buffer: '' };
+                while (stream.readyState !== 2) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    dispatchCambiumSseEvents(stream, decoder.decode(value, { stream: true }), state);
+                }
+                const trailing = decoder.decode();
+                if (trailing) dispatchCambiumSseEvents(stream, trailing, state);
+                if (stream.readyState !== 2) {
+                    throw new Error('Cambium stream disconnected');
+                }
+            } catch (err) {
+                if (controller && controller.signal.aborted) return;
+                stream.readyState = 2;
+                if (typeof stream.onerror === 'function') stream.onerror(err);
+            }
+        })();
+
+        return stream;
+    }
+
+    function cambiumSupportsStreaming() {
+        return typeof fetch === 'function'
+            && typeof TextDecoder === 'function'
+            && typeof ReadableStream !== 'undefined';
     }
 
     async function parseJson(response) {
@@ -671,14 +744,14 @@
 
     function startGlobalStream() {
         if (cambiumState.globalStreamStarted) return;
-        if (typeof EventSource === 'undefined') {
+        if (!cambiumSupportsStreaming()) {
             addLog('Cambium live stream is not available in this browser session.', 'warning');
             return;
         }
         cambiumState.globalStreamStarted = true;
         let eventSource;
         try {
-            eventSource = new EventSource(getCambiumStreamUrl('/stream/global'));
+            eventSource = openCambiumStream('/stream/global');
         } catch (err) {
             cambiumState.globalStreamStarted = false;
             addLog(`Cambium global stream failed to start: ${err.message}`, 'warning');
@@ -708,10 +781,10 @@
         if (cambiumState.taskStream) {
             try { cambiumState.taskStream.close(); } catch (err) {}
         }
-        if (typeof EventSource === 'undefined') return;
+        if (!cambiumSupportsStreaming()) return;
         let eventSource;
         try {
-            eventSource = new EventSource(getCambiumStreamUrl(`/stream/${encodeURIComponent(taskId)}`));
+            eventSource = openCambiumStream(`/stream/${encodeURIComponent(taskId)}`);
         } catch (err) {
             addLog(`Cambium task stream failed to start: ${err.message}`, 'warning');
             return;

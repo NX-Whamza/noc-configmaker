@@ -9,6 +9,9 @@ COMPOSE_FILE="$APP_DIR/docker-compose.prod.yml"
 echo "[deploy] Version: $VERSION"
 cd "$APP_DIR"
 
+echo "[deploy] Pulling latest compose config..."
+git pull origin main --ff-only || echo "[deploy] git pull skipped (non-fast-forward or offline)"
+
 export NEXUS_VERSION="$VERSION"
 export NEXUS_APP_VERSION="$VERSION"
 export NEXUS_APP_RELEASE_DATE="$(date -u +%Y-%m-%d)"

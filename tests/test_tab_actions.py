@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -20,23 +21,61 @@ import api_server  # noqa: E402
 app = api_server.app
 app.config["TESTING"] = True
 client = app.test_client()
+_ADMIN_HEADERS: dict[str, str] | None = None
+_TEST_ADMIN_EMAIL = "whamza@team.nxlink.com"
+_TEST_DEFAULT_PASSWORD = "TestOnlyNocPass123!"
 
 
 def _admin_auth_header() -> dict[str, str]:
+    global _ADMIN_HEADERS
+    if _ADMIN_HEADERS:
+        return _ADMIN_HEADERS
     # Use platform admin email; fall back to env var for flexibility
-    admin_email = os.getenv("PLATFORM_ADMIN_EMAILS", "whamza@team.nxlink.com").split(",")[0].strip()
+    admin_email = os.getenv("PLATFORM_ADMIN_EMAILS", _TEST_ADMIN_EMAIL).split(",")[0].strip() or _TEST_ADMIN_EMAIL
+    api_server.DEFAULT_PASSWORD = _TEST_DEFAULT_PASSWORD
+    api_server.init_users_db()
+    conn = sqlite3.connect(os.path.join("secure_data", "users.db"))
+    try:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT id FROM users WHERE email = ?", (admin_email,)).fetchone()
+        password_hash = api_server.hash_password(_TEST_DEFAULT_PASSWORD)
+        if row:
+            conn.execute(
+                """
+                UPDATE users
+                SET password_hash = ?, is_active = 1, first_login = 1
+                WHERE id = ?
+                """,
+                (password_hash, row["id"]),
+            )
+            user_id = row["id"]
+        else:
+            cursor = conn.execute(
+                """
+                INSERT INTO users (email, password_hash, display_name, is_active, first_login)
+                VALUES (?, ?, ?, 1, 1)
+                """,
+                (admin_email, password_hash, admin_email.split("@")[0]),
+            )
+            user_id = cursor.lastrowid
+        api_server._sync_user_platform_access(conn, user_id, admin_email)
+        api_server._ensure_user_default_membership(conn, user_id)
+        conn.commit()
+    finally:
+        conn.close()
     login = client.post(
         "/api/auth/login",
         json={
             "email": admin_email,
             # Reuse the single source of truth from api_server — no duplicate secrets in tests
-            "password": api_server.DEFAULT_PASSWORD,
+            "password": _TEST_DEFAULT_PASSWORD,
         },
     )
     assert login.status_code == 200, login.get_data(as_text=True)
     token = (login.get_json() or {}).get("token")
     assert token
-    return {"Authorization": f"Bearer {token}"}
+    _ADMIN_HEADERS = {"Authorization": f"Bearer {token}"}
+    return _ADMIN_HEADERS
 
 
 def test_completed_configs_tab_actions_round_trip():
@@ -177,7 +216,7 @@ def test_feedback_and_admin_tab_actions_work():
         headers=headers,
         json={
             "email": "new.user@team.nxlink.com",
-            "newPassword": api_server.DEFAULT_PASSWORD,
+            "newPassword": _TEST_DEFAULT_PASSWORD,
             "requirePasswordChange": False,
         },
     )

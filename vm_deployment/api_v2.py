@@ -46,6 +46,10 @@ try:
     from tenant_defaults import load_infrastructure_defaults, load_runtime_app_config, load_tenant_defaults
 except Exception:
     from vm_deployment.tenant_defaults import load_infrastructure_defaults, load_runtime_app_config, load_tenant_defaults
+try:
+    from api_server import verify_token as _verify_session_token
+except Exception:
+    from vm_deployment.api_server import verify_token as _verify_session_token
 
 
 router = APIRouter(prefix="/api/v2", tags=["NEXUS API v2"])
@@ -1717,6 +1721,24 @@ def _save_idempotency(
 
 _init_db()
 
+_SESSION_READ_SCOPES: Set[str] = {"health.read", "actions.read", "job.read"}
+
+
+def _session_auth_context(token: str) -> Optional[Dict[str, Any]]:
+    payload = _verify_session_token(token)
+    if not isinstance(payload, dict):
+        return None
+    email = str(payload.get("email") or "").strip().lower()
+    user_id = payload.get("user_id")
+    if not email and not user_id:
+        return None
+    return {
+        "api_key": f"session:{email or user_id}",
+        "scopes": sorted(_SESSION_READ_SCOPES),
+        "auth_type": "session",
+        "session_user": payload,
+    }
+
 
 def _require_scope(required: str) -> Callable[..., Dict[str, Any]]:
     async def _dep(
@@ -1728,16 +1750,22 @@ def _require_scope(required: str) -> Callable[..., Dict[str, Any]]:
         x_nonce: Optional[str] = Header(default=None, alias="X-Nonce"),
         x_signature: Optional[str] = Header(default=None, alias="X-Signature"),
     ) -> Dict[str, Any]:
-        if not _API_KEYS:
-            raise HTTPException(
-                status_code=503,
-                detail="API keys are not configured for /api/v2 (set NOC_API_KEYS_JSON or NOC_API_KEYS)",
-            )
         token = (x_api_key or "").strip()
         if not token and authorization and authorization.lower().startswith("bearer "):
             token = authorization.split(" ", 1)[1].strip()
         if not token:
             raise HTTPException(status_code=401, detail="Missing API key")
+        if token not in _API_KEYS and authorization and authorization.lower().startswith("bearer "):
+            session_auth = _session_auth_context(token)
+            if session_auth:
+                scopes = set(session_auth["scopes"])
+                if "admin" in scopes or required in scopes:
+                    return session_auth
+        if not _API_KEYS:
+            raise HTTPException(
+                status_code=503,
+                detail="API keys are not configured for /api/v2 (set NOC_API_KEYS_JSON or NOC_API_KEYS)",
+            )
         scopes = _API_KEYS.get(token)
         if scopes is None:
             raise HTTPException(status_code=403, detail="Invalid API key")
@@ -4185,6 +4213,15 @@ def v2_nexus_catalog_actions(_: Dict[str, Any] = Depends(_require_scope("actions
 
 @router.get("/nexus/tenant/defaults", tags=["NEXUS Discovery"], summary="Get tenant defaults")
 def v2_nexus_tenant_defaults(_: Dict[str, Any] = Depends(_require_scope("actions.read"))):
+    return _envelope(
+        status="ok",
+        data=_tenant_defaults_data(),
+        message="Tenant defaults",
+    )
+
+
+@router.get("/omni/tenant/defaults", include_in_schema=False)
+def v2_omni_tenant_defaults(_: Dict[str, Any] = Depends(_require_scope("actions.read"))):
     return _envelope(
         status="ok",
         data=_tenant_defaults_data(),

@@ -75,3 +75,37 @@ def test_health_defaults_to_basic_checks_and_only_runs_dependency_checks_in_full
     assert full_health_payload["checks_mode"] == "full"
     assert full_health_payload["dependencies_checked"] is True
     assert calls == [True]
+
+
+def test_full_health_reports_degraded_when_dependency_check_fails(monkeypatch):
+    api_server = _load_api_server()
+    api_server._HEALTH_CHECKS_CACHE.update(
+        {
+            "basic_timestamp": 0.0,
+            "basic_checks": None,
+            "full_timestamp": 0.0,
+            "full_checks": None,
+        }
+    )
+
+    monkeypatch.setattr(api_server, "_health_check_secure_data", lambda: {"name": "secure_data", "ok": True})
+    monkeypatch.setattr(
+        api_server,
+        "_health_check_ido_backend",
+        lambda *, allow_autostart=False: {
+            "name": "ido_backend",
+            "ok": False,
+            "allow_autostart": allow_autostart,
+            "detail": "dependency unavailable",
+        },
+    )
+
+    client = api_server.app.test_client()
+
+    health_payload = client.get("/api/health?full=1&refresh=1").get_json()
+    assert health_payload["status"] == "online"
+    assert health_payload["checks_mode"] == "full"
+    assert health_payload["dependencies_checked"] is True
+    assert health_payload["degraded"] is True
+    assert health_payload["checks"][1]["name"] == "ido_backend"
+    assert health_payload["checks"][1]["ok"] is False

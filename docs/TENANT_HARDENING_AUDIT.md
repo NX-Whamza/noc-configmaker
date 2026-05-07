@@ -23,6 +23,12 @@ These sources now centralize:
 - policy/compliance profile metadata
 - audit hint indicating whether legacy `NEXTLINK_*` envs are still being used
 
+Current remediation status:
+
+- NEXUS SPA infrastructure readers now prefer runtime tenant defaults and backend infrastructure over bundled constants.
+- FTTH BNG rendering now falls back to neutral defaults when tenant/runtime values are not configured, instead of inventing Nextlink-specific ASN, peer, BNG, or SNMP values.
+- Remaining work is still required for MPLS policy bundles, Field Config Studio, and the legacy `/api/*` UI routes.
+
 ## High-Risk Tabs
 
 These tabs still need deeper hardening because their generated output or frontend defaults contain embedded provider assumptions:

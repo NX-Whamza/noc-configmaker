@@ -111,5 +111,6 @@ jobs:
             python3 scripts/post_teams_progress.py release-tag \
               --webhook-url "$TEAMS_DEPLOY_WEBHOOK_URL" \
               --version "$NEXUS_VERSION" \
-              --status "$DEPLOY_STATUS" \n              --repo-path "$GITHUB_WORKSPACE"
+              --status "$DEPLOY_STATUS" \
+              --repo-path "$GITHUB_WORKSPACE"
           fi

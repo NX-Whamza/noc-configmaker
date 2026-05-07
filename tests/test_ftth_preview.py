@@ -13,6 +13,7 @@ repo_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repo_root))
 
 os.environ["NOC_CONFIGMAKER_TESTS"] = "1"
+os.environ.setdefault("DEFAULT_PASSWORD", "TEST_DEFAULT_PASSWORD")
 
 import api_server  # noqa: WPS433
 
@@ -24,8 +25,7 @@ BACKEND_MODULE = sys.modules.get("_noc_configmaker_vm_api_server", api_server)
 
 def _auth_headers():
     admin_email = os.getenv("PLATFORM_ADMIN_EMAILS", "whamza@team.nxlink.com").split(",")[0].strip()
-    r = client.post("/api/auth/login", json={"email": admin_email, "password": api_server.DEFAULT_PASSWORD})
-    token = (r.get_json() or {}).get("token", "")
+    token = api_server.generate_token(990003, admin_email)
     return {"Authorization": f"Bearer {token}"}
 
 MOCK_GITLAB_COMPLIANCE = (
