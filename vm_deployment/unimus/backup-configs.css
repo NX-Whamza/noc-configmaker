@@ -1,48 +1,22 @@
 .unimus-backup-configs-page {
     padding-bottom: 36px;
-    min-width: 0;
 }
 
 .unimus-bc-hidden {
     display: none !important;
 }
 
-.unimus-backup-configs-page,
-.unimus-bc-shell,
-#unimusBcWorkspace,
-.unimus-bc-card,
-.unimus-bc-toolbar,
-.unimus-bc-search-wrap,
-.unimus-bc-search-row,
-.unimus-bc-search-input-wrap,
-.unimus-bc-form-grid,
-.unimus-bc-field,
-.unimus-bc-table-wrap {
-    min-width: 0;
-}
-
 .unimus-bc-hero {
     position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 26px 28px;
+    padding: 28px 28px 24px;
     margin-bottom: 24px;
     border: 1px solid var(--border-color);
     border-radius: 18px;
     background:
-        radial-gradient(circle at top right, rgba(255, 122, 0, 0.13), transparent 30%),
+        radial-gradient(circle at top right, rgba(255, 122, 0, 0.10), transparent 35%),
         linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01)),
         var(--container-bg);
     overflow: hidden;
-}
-
-.unimus-bc-hero-accent {
-    display: none;
-}
-
-.unimus-bc-hero-copy {
-    width: 100%;
     text-align: center;
 }
 
@@ -53,18 +27,13 @@
 }
 
 .unimus-bc-hero-copy p {
-    margin: 0;
+    margin: 0 auto;
     color: var(--text-color-secondary);
     font-size: 0.98rem;
-    max-width: 880px;
+    max-width: 680px;
 }
 
 .unimus-bc-shell {
-    display: grid;
-    gap: 18px;
-}
-
-#unimusBcWorkspace {
     display: grid;
     gap: 18px;
 }
@@ -76,12 +45,6 @@
     border-radius: 16px;
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0)), var(--container-bg);
     box-shadow: 0 18px 42px rgba(0, 0, 0, 0.18);
-    overflow: hidden;
-}
-
-.unimus-bc-shell > .unimus-bc-card:first-child {
-    overflow: visible;
-    z-index: 30;
 }
 
 .unimus-bc-toolbar {
@@ -93,12 +56,6 @@
 
 .unimus-bc-search-wrap {
     position: relative;
-    z-index: 31;
-}
-
-.unimus-bc-search-input-wrap {
-    position: relative;
-    min-width: 0;
 }
 
 .unimus-bc-search-wrap label,
@@ -118,10 +75,9 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
-    align-items: start;
 }
 
-.unimus-bc-search-input-wrap input,
+.unimus-bc-search-row input,
 .unimus-bc-field input {
     width: 100%;
     min-height: 48px;
@@ -134,6 +90,7 @@
 }
 
 .unimus-bc-search-row button,
+.unimus-bc-actions button,
 .unimus-bc-load-more button {
     min-height: 46px;
     padding: 0 16px;
@@ -143,29 +100,13 @@
     color: var(--text-color);
     font-weight: 700;
     cursor: pointer;
-    transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
-    white-space: nowrap;
+    transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 
 .unimus-bc-search-row button:hover,
+.unimus-bc-actions button:hover,
 .unimus-bc-load-more button:hover {
-    border-color: rgba(255, 122, 0, 0.5);
-}
-
-.unimus-bc-actions button {
-    min-height: 46px;
-    padding: 0 16px;
-    border: 1px solid var(--border-color);
-    border-radius: 10px;
-    background: #2f2f32;
-    color: var(--text-color);
-    font-weight: 700;
-    cursor: pointer;
-    transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
-    white-space: nowrap;
-}
-
-.unimus-bc-actions button:hover {
+    transform: translateY(-1px);
     border-color: rgba(255, 122, 0, 0.5);
 }
 
@@ -176,30 +117,23 @@
     border-color: #ff8b21;
 }
 
-.unimus-bc-actions button:not(.primary):not(:disabled) {
-    background: #34353a;
-    color: var(--text-color);
-}
-
 .unimus-bc-actions button:disabled {
     opacity: 0.55;
     cursor: not-allowed;
-    background: #2a2b2f;
-    color: var(--text-color-secondary);
-    border-color: rgba(255, 255, 255, 0.08);
+    transform: none;
 }
 
 .unimus-bc-suggest {
     position: absolute;
     z-index: 25;
-    top: calc(100% + 8px);
+    top: calc(100% - 1px);
     left: 0;
     right: 0;
     display: none;
-    max-height: min(65vh, 540px);
+    max-height: 320px;
     overflow-y: auto;
     border: 1px solid var(--border-color);
-    border-radius: 12px;
+    border-radius: 0 0 12px 12px;
     background: #232326;
     box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
 }
@@ -422,11 +356,9 @@
 }
 
 .unimus-bc-table-wrap {
-    overflow-x: auto;
-    overflow-y: hidden;
+    overflow: auto;
     border: 1px solid var(--border-color);
     border-radius: 14px;
-    max-width: 100%;
 }
 
 .unimus-bc-table {
@@ -470,8 +402,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    min-width: 0;
-    flex-wrap: wrap;
+    min-width: 300px;
 }
 
 .unimus-bc-backup-arrow {
@@ -514,8 +445,6 @@
 .unimus-bc-modal-panel {
     width: min(1180px, 100%);
     max-height: 92vh;
-    display: flex;
-    flex-direction: column;
     overflow: hidden;
     border: 1px solid var(--border-color);
     border-radius: 18px;
@@ -570,12 +499,9 @@
 }
 
 .unimus-bc-modal-body {
-    flex: 1 1 auto;
     max-height: calc(92vh - 130px);
     overflow: auto;
     padding: 18px 20px 22px;
-    overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
 }
 
 .unimus-bc-pre,
@@ -611,6 +537,16 @@
     text-align: center;
 }
 
+.unimus-bc-diff-error {
+    padding: 12px 16px;
+    border-radius: 6px;
+    background: #fef3c7;
+    color: #d97706;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    text-align: center;
+}
+
 @media (max-width: 1080px) {
     .unimus-bc-toolbar,
     .unimus-bc-status-grid,
@@ -621,129 +557,1859 @@
     .unimus-bc-span-2 {
         grid-column: auto;
     }
+}
+
+@media (max-width: 768px) {
+    .unimus-bc-toolbar {
+        grid-template-columns: 1fr;
+        gap: 14px;
+    }
+
+    .unimus-bc-search-wrap {
+        width: 100%;
+    }
 
     .unimus-bc-summary {
         width: 100%;
     }
-}
 
-@media (max-width: 720px) {
+    .unimus-bc-form-grid {
+        grid-template-columns: 1fr;
+        gap: 12px 14px;
+    }
+
+    .unimus-bc-span-2 {
+        grid-column: auto;
+    }
+
+    .unimus-bc-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .unimus-bc-actions button {
+        flex: 1;
+        min-width: 120px;
+    }
+
+    .unimus-bc-status-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .unimus-bc-status-card {
+        padding: 14px;
+    }
+
+    .unimus-bc-table-wrap {
+        overflow-x: auto;
+    }
+
+    .unimus-bc-backup-timeline {
+        min-width: 200px;
+        font-size: 12px;
+    }
+
+    .unimus-bc-modal-panel {
+        width: 100%;
+        max-width: 100vw;
+        max-height: 90vh;
+        border-radius: 12px;
+    }
+
+    .unimus-bc-modal-body {
+        max-height: calc(90vh - 130px);
+        overflow-y: auto;
+        padding: 14px;
+    }
+
     .unimus-bc-hero {
         padding: 20px 18px;
         margin-bottom: 18px;
     }
 
     .unimus-bc-hero-copy h1 {
-        font-size: 1.55rem;
+        font-size: 1.5rem;
+    }
+
+    .unimus-bc-hero-copy p {
+        font-size: 0.9rem;
+        max-width: 100%;
+    }
+
+    .unimus-bc-suggest {
+        max-width: 100%;
+    }
+
+    .unimus-bc-pre,
+    .unimus-bc-diff {
+        overflow-x: auto;
+        white-space: pre;
+        word-break: normal;
+    }
+}
+
+@media (max-width: 480px) {
+    .unimus-bc-hero {
+        padding: 16px 14px;
+    }
+
+    .unimus-bc-hero-copy h1 {
+        font-size: 1.25rem;
+        margin-bottom: 6px;
+    }
+
+    .unimus-bc-hero-copy p {
+        font-size: 0.85rem;
+        max-width: 100%;
     }
 
     .unimus-bc-card {
-        padding: 18px;
+        padding: 14px;
     }
 
     .unimus-bc-search-row {
         grid-template-columns: 1fr;
     }
 
-    .unimus-bc-section-header {
-        flex-direction: column;
-    }
-
-    .unimus-bc-actions {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .unimus-bc-backup-timeline {
-        font-size: 13px;
-    }
-
-    .unimus-bc-host-link,
-    .unimus-bc-count {
+    .unimus-bc-search-row input,
+    .unimus-bc-search-row button {
         width: 100%;
-        text-align: center;
-        justify-content: center;
-    }
-
-    .unimus-bc-modal {
-        padding: 10px;
-        align-items: stretch;
-    }
-
-    .unimus-bc-modal-body {
-        padding: 14px;
-    }
-}
-
-@media (max-width: 480px) {
-    .unimus-backup-configs-page {
-        padding-bottom: 20px;
-    }
-
-    .unimus-bc-hero-copy h1 {
-        font-size: 1.35rem;
-        line-height: 1.2;
-    }
-
-    .unimus-bc-hero-copy p {
-        font-size: 0.92rem;
-    }
-
-    .unimus-bc-card {
-        padding: 14px;
-        border-radius: 14px;
-    }
-
-    .unimus-bc-search-input-wrap input,
-    .unimus-bc-field input {
         min-height: 44px;
-        padding: 10px 12px;
+    }
+
+    .unimus-bc-actions button {
+        width: 100%;
+        min-height: 44px;
         font-size: 14px;
     }
 
-    .unimus-bc-actions {
-        grid-template-columns: 1fr;
+    .unimus-bc-section-header {
+        flex-direction: column;
+        margin-bottom: 14px;
     }
 
-    .unimus-bc-table th,
-    .unimus-bc-table td {
-        padding: 12px 10px;
-        font-size: 13px;
+    .unimus-bc-section-header h2 {
+        font-size: 1.05rem;
+    }
+
+    .unimus-bc-backup-timeline {
+        min-width: 160px;
+        font-size: 11px;
+        gap: 6px;
+    }
+
+    .unimus-bc-status-card {
+        padding: 12px;
+    }
+
+    .unimus-bc-status-pill {
+        min-height: 32px;
+        padding: 0 10px;
+        font-size: 12px;
     }
 
     .unimus-bc-modal {
-        padding: 0;
+        padding: 8px;
     }
 
     .unimus-bc-modal-panel {
-        width: 100%;
-        max-height: 100dvh;
-        min-height: 100dvh;
-        border-radius: 0;
-        border-left: 0;
-        border-right: 0;
+        border-radius: 8px;
     }
 
-    .unimus-bc-modal-header,
-    .unimus-bc-modal-toolbar {
-        position: sticky;
-        top: 0;
-        z-index: 2;
-        background: #1f1f22;
-    }
-
-    .unimus-bc-modal-toolbar {
-        padding: 12px 14px 0;
+    .unimus-bc-modal-header {
+        padding: 14px 16px;
     }
 
     .unimus-bc-modal-body {
-        max-height: none;
-        padding: 12px 14px 18px;
+        padding: 12px;
     }
 
     .unimus-bc-pre,
     .unimus-bc-diff {
-        padding: 14px;
+        padding: 12px;
         font-size: 12px;
+    }
+
+    .unimus-bc-table th,
+    .unimus-bc-table td {
+        padding: 10px 8px;
+        font-size: 12px;
+    }
+
+    .unimus-bc-backup-id {
+        font-size: 11px;
+    }
+
+    .unimus-bc-load-more button {
+        min-width: 180px;
+    }
+}
+
+/* Ensure all elements use border-box sizing for proper responsive layout */
+.unimus-backup-configs-page * {
+    box-sizing: border-box;
+}
+
+/* Ensure modals and overflow containers scroll properly on small screens */
+.unimus-bc-modal-panel {
+    max-height: 90vh;
+    overflow: hidden;
+}
+
+.unimus-bc-modal-body {
+    overflow-y: auto;
+}
+
+.unimus-bc-subnav {
+    display: inline-flex;
+    gap: 4px;
+    padding: 4px;
+    margin: 0 0 16px;
+    border: 1px solid #d7dce5;
+    border-radius: 8px;
+    background: #f4f6f9;
+}
+
+.unimus-bc-subnav button {
+    min-height: 34px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 6px;
+    color: #334155;
+    background: transparent;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.unimus-bc-subnav button.is-active {
+    color: #0f172a;
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+.unimus-cs-search-grid {
+    display: grid;
+    grid-template-columns: minmax(260px, 2fr) repeat(3, minmax(150px, 1fr));
+    gap: 14px;
+    align-items: end;
+}
+
+.unimus-cs-query-field {
+    grid-column: span 2;
+}
+
+.unimus-cs-search-grid select,
+.unimus-cs-search-grid input[type="text"] {
+    width: 100%;
+    min-height: 40px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 0 11px;
+    background: #ffffff;
+    color: #111827;
+}
+
+.unimus-cs-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    color: #334155;
+    font-weight: 700;
+}
+
+.unimus-cs-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.unimus-cs-actions .unimus-bc-inline-message {
+    flex: 1;
+    margin: 0;
+}
+
+#unimusConfigCollapseToggle {
+    min-height: 36px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 0 12px;
+    background: #ffffff;
+    color: #334155;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+#unimusConfigSearchResults {
+    display: grid;
+    gap: 12px;
+}
+
+.unimus-cs-host-card,
+.unimus-cs-backup-card,
+.unimus-cs-empty {
+    border: 1px solid #d7dce5;
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.unimus-cs-host-card {
+    overflow: hidden;
+}
+
+.unimus-cs-host-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 18px;
+    cursor: pointer;
+}
+
+.unimus-cs-host-title h3 {
+    margin: 0 0 5px;
+    font-size: 1rem;
+}
+
+.unimus-cs-host-subtitle,
+.unimus-cs-host-meta,
+.unimus-cs-backup-subtitle {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    color: #64748b;
+    font-size: 0.86rem;
+}
+
+.unimus-cs-host-body {
+    display: grid;
+    gap: 12px;
+    padding: 0 18px 18px;
+}
+
+.unimus-cs-host-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.unimus-cs-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: #e8eef7;
+    color: #1e293b;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.unimus-cs-backup-list {
+    display: grid;
+    gap: 12px;
+}
+
+.unimus-cs-backup-card {
+    padding: 14px;
+    background: #fbfcfe;
+}
+
+.unimus-cs-backup-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.unimus-cs-backup-title {
+    color: #0f172a;
+    font-weight: 800;
+}
+
+.unimus-cs-snippets {
+    display: grid;
+    gap: 10px;
+}
+
+.unimus-cs-snippet {
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #0f172a;
+}
+
+.unimus-cs-snippet-header {
+    padding: 7px 10px;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.18);
+    color: #cbd5e1;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.unimus-cs-snippet-body {
+    overflow-x: auto;
+    padding: 8px 0;
+}
+
+.unimus-cs-snippet-line {
+    display: grid;
+    grid-template-columns: 54px minmax(0, 1fr);
+    gap: 10px;
+    padding: 2px 10px;
+    color: #dbeafe;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    font-size: 12px;
+    white-space: pre;
+}
+
+.unimus-cs-snippet-line.is-match {
+    background: rgba(250, 204, 21, 0.18);
+    color: #fef3c7;
+}
+
+.unimus-cs-line-number {
+    color: #94a3b8;
+    text-align: right;
+}
+
+.unimus-cs-line-text {
+    min-width: 0;
+}
+
+.unimus-cs-copy-link {
+    color: #2563eb;
+    text-decoration: none;
+    font-weight: 700;
+}
+
+.unimus-cs-copy-link:hover {
+    text-decoration: underline;
+}
+
+.unimus-cs-copy-toast {
+    position: fixed;
+    z-index: 99999;
+    transform: translate(-50%, -100%);
+    padding: 7px 10px;
+    border-radius: 6px;
+    background: #111827;
+    color: #ffffff;
+    font-size: 12px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.16s ease;
+}
+
+.unimus-cs-copy-toast.is-visible {
+    opacity: 1;
+}
+
+.unimus-cs-empty {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 18px;
+    color: #334155;
+}
+
+.unimus-cs-empty p {
+    margin: 4px 0 0;
+    color: #64748b;
+}
+
+.unimus-cs-empty-icon {
+    display: grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 8px;
+    background: #e8eef7;
+}
+
+@media (max-width: 980px) {
+    .unimus-cs-search-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .unimus-cs-query-field {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (max-width: 640px) {
+    .unimus-bc-subnav {
+        display: flex;
+        width: 100%;
+    }
+
+    .unimus-bc-subnav button {
+        flex: 1;
+        padding: 0 8px;
+    }
+
+    .unimus-cs-search-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .unimus-cs-actions,
+    .unimus-cs-host-header,
+    .unimus-cs-backup-header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+}
+
+/* Config search legacy dark layout */
+.unimus-backup-configs-page {
+    max-width: 1320px;
+    padding-top: 18px;
+}
+
+.unimus-bc-subnav {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin: 0 auto 28px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
+.unimus-bc-subnav button {
+    min-height: 36px;
+    padding: 0 18px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
+    background: #2d2d2f;
+    color: #d5d5d5;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.unimus-bc-subnav button.is-active {
+    border-color: #ff8a1c;
+    background: #ff8817;
+    color: #101010;
+    box-shadow: none;
+}
+
+.unimus-cs-shell {
+    gap: 20px;
+}
+
+.unimus-cs-panel {
+    padding: 22px;
+    border-color: #4a4a4a;
+    border-radius: 12px;
+    background: #282828;
+    box-shadow: none;
+}
+
+.unimus-cs-panel-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 18px;
+}
+
+.unimus-cs-panel-header h2 {
+    margin: 0 0 10px;
+    color: #ffffff;
+    font-size: 20px;
+    line-height: 1;
+}
+
+.unimus-cs-panel-header p {
+    margin: 0;
+    color: #b8c0cc;
+    font-size: 13px;
+}
+
+.unimus-cs-count {
+    align-self: flex-start;
+    min-height: 30px;
+    padding: 8px 12px;
+    border: 1px solid #555;
+    border-radius: 999px;
+    color: #fff;
+    background: #2f2f31;
+    font-size: 12px;
+    font-weight: 900;
+    white-space: nowrap;
+}
+
+.unimus-cs-control-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 350px;
+    gap: 20px;
+    align-items: start;
+}
+
+.unimus-cs-control-main {
+    min-width: 0;
+}
+
+.unimus-cs-panel .unimus-bc-field label,
+.unimus-cs-panel .unimus-cs-check,
+.unimus-cs-source-label,
+.unimus-cs-advanced-title {
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.unimus-cs-panel .unimus-bc-search-row {
+    grid-template-columns: minmax(0, 1fr) 82px;
+}
+
+.unimus-cs-panel .unimus-bc-search-row input,
+.unimus-cs-panel .unimus-bc-field input,
+.unimus-cs-panel .unimus-bc-field select {
+    min-height: 48px;
+    border: 1px solid #494949;
+    border-radius: 8px;
+    background: #383838;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.unimus-cs-panel .unimus-bc-field select {
+    appearance: auto;
+    padding: 0 12px;
+}
+
+.unimus-cs-panel .unimus-bc-search-row button {
+    min-height: 48px;
+    border-radius: 9px;
+    background: #ff7f11;
+    color: #111;
+    font-weight: 900;
+}
+
+.unimus-cs-scope-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin: 22px 0 26px;
+}
+
+.unimus-cs-scope-buttons {
+    display: inline-flex;
+    gap: 8px;
+    padding: 5px;
+    border: 1px solid #484848;
+    border-radius: 8px;
+    background: #303030;
+}
+
+.unimus-cs-scope-buttons button {
+    min-height: 34px;
+    padding: 0 18px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: #b8b8b8;
+    font-size: 12px;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.unimus-cs-scope-buttons button.is-active {
+    background: #ff7f11;
+    color: #111;
+}
+
+.unimus-cs-native-scope {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.unimus-cs-panel .unimus-cs-check {
+    min-height: 34px;
+    gap: 8px;
+}
+
+.unimus-cs-panel .unimus-cs-check input {
+    width: 14px;
+    height: 14px;
+    accent-color: #ff7f11;
+}
+
+.unimus-cs-advanced-title {
+    padding-top: 18px;
+    margin-bottom: 16px;
+    border-top: 1px solid #383838;
+    color: #ff9a2f;
+}
+
+.unimus-cs-search-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.unimus-cs-source-card {
+    min-height: 280px;
+    padding: 18px;
+    border: 1px solid rgba(255, 127, 17, 0.45);
+    border-radius: 10px;
+    background: linear-gradient(180deg, rgba(255, 127, 17, 0.16), rgba(255, 127, 17, 0.04));
+    color: #ffffff;
+}
+
+.unimus-cs-source-card strong {
+    display: block;
+    margin: 6px 0;
+    font-size: 18px;
+}
+
+.unimus-cs-source-card p {
+    margin: 0;
+    color: #c6b8aa;
+    font-size: 13px;
+    line-height: 1.35;
+}
+
+.unimus-cs-actions {
+    margin-top: 18px;
+}
+
+#unimusConfigCollapseToggle {
+    border-color: rgba(255, 127, 17, 0.5);
+    background: #312820;
+    color: #ffb366;
+}
+
+#unimusConfigSearchStatus {
+    min-height: 42px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    border-color: #3d6d55;
+    background: #203b30;
+    color: #ffffff;
+    font-size: 14px;
+}
+
+#unimusConfigSearchStatus.is-error {
+    border-color: #7a453d;
+    background: #3c2724;
+}
+
+#unimusConfigSearchResults {
+    gap: 14px;
+    padding: 0 22px 22px;
+    border: 1px solid #404040;
+    border-radius: 0 0 12px 12px;
+    border-top: 0;
+    background: #282828;
+}
+
+#unimusConfigSearchResults:empty {
+    display: none;
+}
+
+.unimus-cs-host-card {
+    border-color: #4c4c4c;
+    border-radius: 7px;
+    background: #2d2926;
+    color: #ffffff;
+}
+
+.unimus-cs-host-card[open] {
+    padding-bottom: 12px;
+}
+
+.unimus-cs-host-card > summary {
+    list-style: none;
+}
+
+.unimus-cs-host-card > summary::-webkit-details-marker {
+    display: none;
+}
+
+.unimus-cs-host-header {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    min-height: 50px;
+    padding: 10px 14px;
+    align-items: center;
+}
+
+.unimus-cs-host-header::before {
+    content: ">";
+    color: #ff9a2f;
+    font-size: 14px;
+    font-weight: 900;
+}
+
+.unimus-cs-host-card[open] .unimus-cs-host-header::before {
+    content: "v";
+}
+
+.unimus-cs-host-title {
+    text-align: center;
+}
+
+.unimus-cs-host-title h3 {
+    margin: 0;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 900;
+    line-height: 1.1;
+}
+
+.unimus-cs-host-title h3 .unimus-cs-copy-link {
+    color: #ffffff;
+}
+
+.unimus-cs-host-subtitle {
+    justify-content: center;
+    gap: 0;
+    color: #aeb7c2;
+    font-size: 11px;
+}
+
+.unimus-cs-host-subtitle span:not(:last-child)::after {
+    content: " • ";
+    padding: 0 4px;
+    color: #7c8792;
+}
+
+.unimus-cs-host-badges {
+    gap: 8px;
+}
+
+.unimus-cs-badge {
+    min-height: 22px;
+    padding: 0 9px;
+    border: 1px solid rgba(255, 127, 17, 0.62);
+    border-radius: 999px;
+    background: rgba(255, 127, 17, 0.14);
+    color: #ffbd71;
+    font-size: 11px;
+    font-weight: 900;
+}
+
+.unimus-cs-host-body {
+    gap: 10px;
+    padding: 0 22px 0;
+}
+
+.unimus-cs-host-meta {
+    gap: 14px;
+    color: #b3bcc8;
+    font-size: 11px;
+}
+
+.unimus-cs-backup-card {
+    padding: 10px;
+    border-color: #454545;
+    border-radius: 7px;
+    background: #272522;
+}
+
+.unimus-cs-backup-header {
+    margin-bottom: 8px;
+}
+
+.unimus-cs-backup-title {
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.unimus-cs-backup-subtitle {
+    color: #b1bac4;
+    font-size: 11px;
+}
+
+.unimus-cs-backup-subtitle::before {
+    content: "TEXT • ";
+}
+
+.unimus-cs-snippet {
+    border-color: #3a3a3a;
+    border-radius: 9px;
+    background: #171717;
+}
+
+.unimus-cs-snippet-header {
+    padding: 9px 12px;
+    color: #ffffff;
+    text-transform: uppercase;
+    font-size: 11px;
+}
+
+.unimus-cs-snippet-body {
+    padding: 6px 0;
+}
+
+.unimus-cs-snippet-line {
+    grid-template-columns: 42px minmax(720px, 1fr);
+    gap: 10px;
+    padding: 3px 12px;
+    color: #f5f5f5;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.unimus-cs-snippet-line.is-match {
+    background: rgba(255, 127, 17, 0.18);
+    color: #ffffff;
+}
+
+.unimus-cs-line-number {
+    color: #ffae5d;
+}
+
+.unimus-cs-copy-link {
+    color: #dbeafe;
+}
+
+.unimus-cs-empty {
+    border-color: #4c4c4c;
+    background: #2d2926;
+    color: #ffffff;
+}
+
+.unimus-cs-empty p {
+    color: #b8c0cc;
+}
+
+@media (max-width: 1040px) {
+    .unimus-cs-control-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .unimus-cs-source-card {
+        min-height: 120px;
+    }
+
+    .unimus-cs-search-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 640px) {
+    .unimus-cs-panel-header,
+    .unimus-cs-scope-row {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .unimus-cs-search-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .unimus-cs-host-header {
+        grid-template-columns: 22px minmax(0, 1fr);
+    }
+
+    .unimus-cs-host-badges {
+        grid-column: 2;
+        justify-content: center;
+    }
+}
+
+/* Session restore final overrides. Keep at EOF so older restored styles cannot win. */
+#unimusBcBackupSection,
+#unimusBcWorkspace {
+    display: grid;
+    gap: 16px;
+}
+
+#unimusBcWorkspace.unimus-bc-hidden {
+    display: none !important;
+}
+
+.unimus-bc-suggest {
+    top: calc(100% - 1px);
+    border-radius: 0 0 12px 12px;
+}
+
+.unimus-cs-panel .unimus-cs-query-field {
+    margin-bottom: 0;
+}
+
+.unimus-cs-panel .unimus-cs-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: auto;
+    margin: 6px 0 0;
+    color: var(--text-color-secondary);
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.unimus-cs-panel .unimus-cs-check input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+}
+
+.unimus-cs-scope-buttons {
+    display: none !important;
+}
+
+.unimus-cs-scope-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    margin: 6px 0 14px;
+}
+
+.unimus-cs-native-scope {
+    position: static;
+    width: min(264px, 100%);
+    height: 40px;
+    opacity: 1;
+    pointer-events: auto;
+    padding: 0 36px 0 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--input-bg);
+    color: var(--text-color);
+    font-size: 13px;
+    font-weight: 800;
+}
+
+#unimusConfigSearchStatus {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 46px;
+}
+
+#unimusConfigSearchStatus.unimus-bc-hidden {
+    display: none !important;
+}
+
+#unimusConfigCollapseToggle {
+    min-height: 36px;
+    padding: 0 12px;
+    border: 1px solid rgba(255, 127, 17, 0.5);
+    border-radius: 10px;
+    background: #312820;
+    color: #ffb366;
+    font-size: 12px;
+    font-weight: 900;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+#unimusConfigCollapseToggle:disabled {
+    opacity: 1;
+    cursor: not-allowed;
+}
+
+.unimus-cs-host-subtitle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.unimus-cs-host-subtitle span {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.unimus-cs-host-subtitle span:not(:last-child)::after {
+    content: "•";
+    color: #d0d0d0;
+    opacity: 0.8;
+    font-weight: 800;
+}
+
+.unimus-cs-copy-link {
+    text-decoration: none;
+}
+
+.unimus-cs-backup-subtitle::before {
+    content: none;
+}
+
+@media (max-width: 860px) {
+    .unimus-cs-native-scope {
+        width: 100%;
+    }
+
+    #unimusConfigSearchStatus {
+        align-items: stretch;
+        flex-direction: column;
+    }
+}
+
+/* Final input-anchored autocomplete override. */
+.unimus-bc-search-input-wrap {
+    position: relative;
+    min-width: 0;
+}
+
+.unimus-bc-search-input-wrap .unimus-bc-suggest {
+    top: calc(100% - 1px);
+    left: 0;
+    right: 0;
+    width: auto;
+    border-radius: 0 0 12px 12px;
+}
+
+/* Final search result alignment override. */
+.unimus-cs-host-title {
+    text-align: left;
+}
+
+.unimus-cs-host-subtitle {
+    justify-content: flex-start;
+    gap: 8px;
+}
+
+/* Final advanced-search emphasis restored. */
+.unimus-cs-advanced-title {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    margin: 10px 0 -1px;
+    padding: 0 10px;
+    border: 1px solid rgba(255, 127, 17, 0.35);
+    border-bottom-color: rgba(255, 127, 17, 0.2);
+    border-radius: 8px 8px 0 0;
+    background: rgba(255, 127, 17, 0.08);
+    color: #ffbd7a;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.unimus-cs-search-grid {
+    padding: 14px;
+    border: 1px solid rgba(255, 127, 17, 0.35);
+    border-radius: 0 12px 12px 12px;
+    background: linear-gradient(180deg, rgba(255, 127, 17, 0.07), rgba(255, 127, 17, 0.018));
+}
+
+/* Config Search polish and advanced filters */
+.unimus-cs-control-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 350px);
+    align-items: start;
+}
+
+.unimus-cs-panel .unimus-bc-search-row {
+    align-items: stretch;
+}
+
+#unimusConfigSearchButton,
+#unimusConfigRequiredAdd {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
+    min-width: 112px;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.unimus-cs-top-filters {
+    display: grid;
+    grid-template-columns: minmax(180px, 264px) minmax(170px, 220px) auto;
+    gap: 12px;
+    align-items: end;
+    margin-top: 14px;
+}
+
+.unimus-cs-scope-row label,
+.unimus-cs-preset-field label {
+    margin-bottom: 7px;
+}
+
+.unimus-cs-case-toggle {
+    min-height: 42px;
+    margin: 0 0 2px;
+}
+
+.unimus-cs-advanced {
+    margin-top: 18px;
+}
+
+.unimus-cs-advanced-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    padding: 0 12px;
+    border: 1px solid rgba(255, 138, 28, 0.72);
+    border-radius: 7px 7px 0 0;
+    background: rgba(255, 138, 28, 0.14);
+    color: #ffb35f;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.unimus-cs-advanced-panel {
+    display: grid;
+    gap: 14px;
+    padding: 14px;
+    border: 1px solid rgba(255, 138, 28, 0.48);
+    border-radius: 0 8px 8px 8px;
+    background: rgba(63, 42, 28, 0.54);
+}
+
+.unimus-cs-required-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: stretch;
+}
+
+.unimus-cs-chip-row,
+.unimus-cs-active-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.unimus-cs-chip-row {
+    margin-top: 10px;
+}
+
+.unimus-cs-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    max-width: min(100%, 360px);
+    min-height: 24px;
+    padding: 3px 8px;
+    border: 1px solid rgba(255, 138, 28, 0.55);
+    border-radius: 999px;
+    background: rgba(255, 138, 28, 0.12);
+    color: #ffd2a3;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.unimus-cs-required-chip span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.unimus-cs-required-chip button {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    margin-left: 6px;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.14);
+    color: #ffffff;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+}
+
+.unimus-cs-source-card {
+    min-height: 116px;
+    padding: 18px;
+}
+
+#unimusConfigSearchStatus {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px 16px;
+    align-items: center;
+    margin: 18px 0 0;
+}
+
+#unimusConfigSearchStatusText {
+    min-width: 0;
+}
+
+.unimus-cs-active-filters {
+    grid-column: 1 / -1;
+}
+
+#unimusConfigSearchResults {
+    gap: 14px;
+    margin-top: 18px;
+}
+
+.unimus-cs-host-card {
+    border-color: #4a4a4a;
+    border-radius: 8px;
+    background: #2b2724;
+    overflow: clip;
+}
+
+.unimus-cs-host-card[open] {
+    padding: 0;
+}
+
+.unimus-cs-host-header {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    align-items: center;
+    padding: 14px 16px;
+    gap: 10px;
+    width: 100%;
+    box-sizing: border-box;
+    list-style: none;
+}
+
+.unimus-cs-host-header::-webkit-details-marker {
+    display: none;
+}
+
+.unimus-cs-host-header::before {
+    content: none !important;
+    display: none !important;
+}
+
+.unimus-cs-host-title {
+    min-width: 0;
+}
+
+.unimus-cs-host-badges {
+    min-width: max-content;
+}
+
+.unimus-cs-disclosure {
+    color: #ff9a33;
+    font-weight: 900;
+    transform: rotate(0deg);
+    transition: transform 0.12s ease;
+}
+
+.unimus-cs-host-card[open] .unimus-cs-disclosure {
+    transform: rotate(90deg);
+}
+
+.unimus-cs-host-body {
+    padding: 0 16px 16px 44px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.unimus-cs-host-meta,
+.unimus-cs-host-subtitle {
+    gap: 6px 0;
+}
+
+.unimus-cs-host-subtitle span:not(:last-child)::after {
+    content: none;
+}
+
+.unimus-cs-meta-item {
+    display: inline-flex;
+    align-items: baseline;
+    min-width: 0;
+}
+
+.unimus-cs-meta-item + .unimus-cs-meta-item::before {
+    content: "•";
+    margin: 0 10px;
+    color: #7a7a7a;
+}
+
+.unimus-cs-meta-label {
+    color: #aeb6c3;
+}
+
+.unimus-cs-backup-card {
+    border-color: #4a4a4a;
+    background: #25221f;
+}
+
+.unimus-cs-snippet {
+    border-color: #3f3f3f;
+    background: #151515;
+}
+
+.unimus-cs-snippet-line {
+    grid-template-columns: 58px minmax(0, 1fr);
+    padding: 2px 12px;
+}
+
+.unimus-cs-copy-link {
+    color: #dbeafe;
+}
+
+.unimus-cs-empty {
+    border-color: #4a4a4a;
+    background: #282828;
+    color: #ffffff;
+}
+
+.unimus-cs-empty p {
+    color: #b8c0cc;
+}
+
+@media (max-width: 980px) {
+    .unimus-cs-control-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .unimus-cs-source-card {
+        min-height: 0;
+    }
+
+    .unimus-cs-top-filters {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 640px) {
+    .unimus-cs-top-filters,
+    .unimus-cs-required-row,
+    #unimusConfigSearchStatus {
+        grid-template-columns: 1fr;
+    }
+
+    .unimus-cs-host-header {
+        grid-template-columns: 18px minmax(0, 1fr);
+    }
+
+    .unimus-cs-host-badges {
+        grid-column: 2;
+        justify-content: flex-start;
+    }
+
+    .unimus-cs-host-body {
+        padding-left: 16px;
+    }
+}
+
+/* Final Config Search layout polish: scoped overrides only. */
+.unimus-cs-shell .unimus-cs-control-layout {
+    display: block;
+}
+
+.unimus-cs-shell .unimus-cs-control-main {
+    width: 100%;
+}
+
+.unimus-cs-shell .unimus-cs-source-card {
+    display: none !important;
+}
+
+.unimus-cs-shell .unimus-bc-search-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 112px;
+    gap: 12px;
+    align-items: stretch;
+}
+
+.unimus-cs-shell #unimusConfigSearchInput {
+    margin: 0;
+}
+
+.unimus-cs-shell #unimusConfigSearchButton,
+.unimus-cs-shell #unimusConfigRequiredAdd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
+    height: 48px;
+    min-width: 112px;
+    margin: 0;
+    padding: 0 18px;
+    line-height: 1;
+    text-align: center;
+    box-shadow: none;
+}
+
+.unimus-cs-shell .unimus-cs-top-filters {
+    grid-template-columns: minmax(220px, 280px) minmax(180px, 220px);
+    align-items: end;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.unimus-cs-shell .unimus-cs-preset-field,
+.unimus-cs-shell .unimus-cs-scope-row {
+    display: block;
+    margin: 0;
+}
+
+.unimus-cs-shell .unimus-cs-preset-field label,
+.unimus-cs-shell .unimus-cs-scope-row label {
+    display: block;
+    margin: 0 0 7px;
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 900;
+    line-height: 1.2;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.unimus-cs-shell .unimus-cs-preset-field select,
+.unimus-cs-shell .unimus-cs-scope-row select {
+    width: 100%;
+    min-height: 48px;
+}
+
+.unimus-cs-shell .unimus-cs-query-field .unimus-cs-case-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 24px;
+    margin: 8px 0 0;
+    padding: 0;
+    color: #b8c0cc;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1;
+    text-transform: none;
+}
+
+.unimus-cs-shell .unimus-cs-case-toggle {
+    align-self: auto;
+}
+
+.unimus-cs-shell .unimus-cs-advanced {
+    margin-top: 20px;
+}
+
+.unimus-cs-shell .unimus-cs-advanced-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 34px;
+    margin: 0;
+    padding: 0 14px;
+    border: 1px solid rgba(255, 138, 28, 0.74);
+    border-radius: 8px;
+    background: rgba(255, 138, 28, 0.12);
+    color: #ffbd7a;
+    line-height: 1;
+    box-shadow: none;
+}
+
+.unimus-cs-shell .unimus-cs-advanced-toggle[aria-expanded="true"] {
+    position: relative;
+    z-index: 2;
+    border-bottom-color: rgba(52, 35, 24, 0.96);
+    border-radius: 8px 8px 0 0;
+    background: rgba(63, 42, 28, 0.96);
+}
+
+.unimus-cs-shell .unimus-cs-advanced-panel {
+    margin-top: -1px;
+    padding: 16px;
+    border: 1px solid rgba(255, 138, 28, 0.52);
+    border-radius: 0 10px 10px 10px;
+    background: rgba(52, 35, 24, 0.88);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.unimus-cs-shell .unimus-cs-search-grid {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+.unimus-cs-shell .unimus-cs-required-row {
+    grid-template-columns: minmax(0, 1fr) 112px;
+    align-items: stretch;
+}
+
+.unimus-cs-shell .unimus-cs-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    max-width: min(100%, 520px);
+    min-height: 28px;
+    padding: 4px 9px;
+    line-height: 1.1;
+    vertical-align: middle;
+}
+
+.unimus-cs-shell .unimus-cs-required-chip {
+    padding-right: 5px;
+}
+
+.unimus-cs-shell .unimus-cs-required-chip > span {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.unimus-cs-shell .unimus-cs-required-chip button {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 18px;
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    min-height: 18px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 900;
+    line-height: 1;
+    text-align: center;
+    box-shadow: none;
+    transform: none;
+    overflow: visible;
+}
+
+.unimus-cs-shell .unimus-cs-required-chip button:hover:not(:disabled) {
+    background: rgba(255, 138, 28, 0.42);
+    transform: none;
+    box-shadow: none;
+}
+
+.unimus-cs-shell #unimusConfigSearchStatus {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px 14px;
+    margin: 18px 0 0;
+    padding: 13px 14px;
+}
+
+.unimus-cs-shell #unimusConfigSearchStatus.unimus-bc-hidden {
+    display: none !important;
+}
+
+.unimus-cs-shell #unimusConfigSearchStatusText {
+    min-width: 0;
+}
+
+.unimus-cs-shell .unimus-cs-active-filters {
+    grid-column: 1;
+    margin: 0;
+}
+
+.unimus-cs-shell #unimusConfigCollapseToggle {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: center;
+    justify-self: end;
+    width: auto;
+    min-width: 104px;
+    min-height: 34px;
+    margin: 0;
+    padding: 0 13px;
+    box-shadow: none;
+}
+
+.unimus-cs-shell #unimusConfigSearchResults {
+    display: grid;
+    gap: 12px;
+    margin: 18px 23px 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+.unimus-cs-shell .unimus-cs-host-card {
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    background: #292724;
+    overflow: hidden;
+    box-shadow: none;
+}
+
+.unimus-cs-shell .unimus-cs-host-card[open] {
+    border-color: rgba(255, 138, 28, 0.34);
+}
+
+.unimus-cs-shell .unimus-cs-host-header {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    min-height: 70px;
+    padding: 14px 16px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01));
+    border-bottom: 1px solid transparent;
+    cursor: pointer;
+}
+
+.unimus-cs-shell .unimus-cs-host-card[open] .unimus-cs-host-header {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.unimus-cs-shell .unimus-cs-disclosure {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    color: #ff9a33;
+    font-size: 20px;
+    line-height: 1;
+}
+
+.unimus-cs-shell .unimus-cs-host-title h3 {
+    margin: 0 0 5px;
+    color: #ffffff;
+    font-size: 14px;
+    line-height: 1.2;
+    text-align: left;
+}
+
+.unimus-cs-shell .unimus-cs-host-subtitle {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 5px 0;
+    color: #bac3cf;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.unimus-cs-shell .unimus-cs-host-subtitle .unimus-cs-meta-item {
+    display: inline-flex;
+    align-items: baseline;
+}
+
+.unimus-cs-shell .unimus-cs-host-subtitle .unimus-cs-meta-item + .unimus-cs-meta-item::before {
+    content: "•";
+    margin: 0 10px;
+    color: #777;
+}
+
+.unimus-cs-shell .unimus-cs-copy-link {
+    color: #e7f0ff;
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+}
+
+.unimus-cs-shell .unimus-cs-copy-link:hover {
+    color: #ffbd7a;
+    border-bottom-color: rgba(255, 189, 122, 0.7);
+}
+
+.unimus-cs-shell .unimus-cs-meta-label {
+    margin-right: 4px;
+}
+
+.unimus-cs-shell .unimus-cs-host-badges {
+    display: inline-flex;
+    justify-content: flex-end;
+    gap: 8px;
+    min-width: max-content;
+}
+
+.unimus-cs-shell .unimus-cs-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 24px;
+    padding: 0 9px;
+    border: 1px solid rgba(255, 138, 28, 0.72);
+    border-radius: 999px;
+    background: rgba(255, 138, 28, 0.11);
+    color: #ffc078;
+    font-size: 11px;
+    font-weight: 900;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.unimus-cs-shell .unimus-cs-host-body {
+    padding: 14px 16px 16px 50px;
+    border-top: 0;
+    background: rgba(0, 0, 0, 0.1);
+}
+
+.unimus-cs-shell .unimus-cs-host-meta {
+    margin-bottom: 12px;
+}
+
+.unimus-cs-shell .unimus-cs-backup-list {
+    display: grid;
+    gap: 12px;
+}
+
+.unimus-cs-shell .unimus-cs-backup-card {
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: #211f1d;
+    overflow: hidden;
+}
+
+.unimus-cs-shell .unimus-cs-snippet {
+    margin: 10px 0 0;
+}
+
+@media (max-width: 860px) {
+    .unimus-cs-shell .unimus-cs-top-filters {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .unimus-cs-shell .unimus-cs-case-toggle {
+        justify-self: start;
+    }
+}
+
+@media (max-width: 640px) {
+    .unimus-cs-shell .unimus-bc-search-row,
+    .unimus-cs-shell .unimus-cs-top-filters,
+    .unimus-cs-shell .unimus-cs-required-row,
+    .unimus-cs-shell #unimusConfigSearchStatus {
+        grid-template-columns: 1fr;
+    }
+
+    .unimus-cs-shell #unimusConfigSearchButton,
+    .unimus-cs-shell #unimusConfigRequiredAdd,
+    .unimus-cs-shell #unimusConfigCollapseToggle {
+        width: 100%;
+    }
+
+    .unimus-cs-shell .unimus-cs-active-filters,
+    .unimus-cs-shell #unimusConfigCollapseToggle {
+        grid-column: 1;
+        grid-row: auto;
+    }
+
+    .unimus-cs-shell .unimus-cs-host-header {
+        grid-template-columns: 22px minmax(0, 1fr);
+    }
+
+    .unimus-cs-shell .unimus-cs-host-badges {
+        grid-column: 2;
+        justify-content: flex-start;
+    }
+
+    .unimus-cs-shell .unimus-cs-host-body {
+        padding-left: 16px;
+    }
+
+    .unimus-cs-shell #unimusConfigSearchResults {
+        margin-left: 0;
+        margin-right: 0;
     }
 }

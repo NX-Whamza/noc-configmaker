@@ -22278,6 +22278,116 @@ def get_activity():
         return jsonify({'success': False, 'error': str(e), 'activities': []}), 500
 
 
+@app.route('/api/activity-summary', methods=['GET'])
+@require_auth
+def get_activity_summary():
+    """Return lightweight dashboard activity metrics without shipping the full history to the browser."""
+    try:
+        tenant_context = _get_request_tenant_context()
+        tenant = tenant_context['tenant']
+
+        init_activity_db()
+
+        db_path = os.path.join('secure_data', 'activity_log.db')
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        cols = {row[1] for row in c.execute("PRAGMA table_info(activities)").fetchall()}
+        has_unix = 'timestamp_unix' in cols
+        has_counts = 'counts_toward_metrics' in cols
+        tenant_filter = tenant.get('id')
+        today_start_local = get_cst_now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start_unix = int(today_start_local.astimezone(timezone.utc).timestamp())
+
+        counts_expr = 'COALESCE(counts_toward_metrics, 1)' if has_counts else '1'
+        non_firmware_expr = (
+            f"{counts_expr} != 0 "
+            "AND activity_type NOT IN ('aviat-upgrade', 'cambium-upgrade', 'wave-fw-upgrade') "
+            "AND activity_type NOT LIKE 'maintenance%'"
+        )
+
+        if has_unix:
+            summary_sql = f'''
+                SELECT
+                    SUM(CASE WHEN {non_firmware_expr} THEN 1 ELSE 0 END) AS total_count,
+                    SUM(CASE WHEN {non_firmware_expr} AND success = 1 THEN 1 ELSE 0 END) AS success_count,
+                    SUM(CASE WHEN {non_firmware_expr} AND timestamp_unix >= ? THEN 1 ELSE 0 END) AS today_count,
+                    SUM(CASE WHEN activity_type IN ('migration', 'upgrade') THEN 1 ELSE 0 END) AS migration_count,
+                    SUM(CASE WHEN activity_type IN ('aviat-upgrade', 'cambium-upgrade', 'wave-fw-upgrade') THEN 1 ELSE 0 END) AS firmware_upgrade_count
+                FROM activities
+                WHERE tenant_id = ?
+            '''
+            c.execute(summary_sql, (today_start_unix, tenant_filter))
+            summary_row = dict(c.fetchone() or {})
+            monthly_sql = '''
+                SELECT
+                    strftime('%Y-%m', datetime(timestamp_unix, 'unixepoch')) AS month_key,
+                    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS success_count,
+                    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS fail_count,
+                    COUNT(*) AS total_count
+                FROM activities
+                WHERE tenant_id = ?
+                GROUP BY month_key
+                ORDER BY month_key DESC
+                LIMIT 12
+            '''
+            c.execute(monthly_sql, (tenant_filter,))
+        else:
+            today_start_text = today_start_local.strftime('%Y-%m-%d %H:%M:%S')
+            summary_sql = f'''
+                SELECT
+                    SUM(CASE WHEN {non_firmware_expr} THEN 1 ELSE 0 END) AS total_count,
+                    SUM(CASE WHEN {non_firmware_expr} AND success = 1 THEN 1 ELSE 0 END) AS success_count,
+                    SUM(CASE WHEN {non_firmware_expr} AND timestamp >= ? THEN 1 ELSE 0 END) AS today_count,
+                    SUM(CASE WHEN activity_type IN ('migration', 'upgrade') THEN 1 ELSE 0 END) AS migration_count,
+                    SUM(CASE WHEN activity_type IN ('aviat-upgrade', 'cambium-upgrade', 'wave-fw-upgrade') THEN 1 ELSE 0 END) AS firmware_upgrade_count
+                FROM activities
+                WHERE tenant_id = ?
+            '''
+            c.execute(summary_sql, (today_start_text, tenant_filter))
+            summary_row = dict(c.fetchone() or {})
+            monthly_sql = '''
+                SELECT
+                    substr(timestamp, 1, 7) AS month_key,
+                    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS success_count,
+                    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS fail_count,
+                    COUNT(*) AS total_count
+                FROM activities
+                WHERE tenant_id = ?
+                GROUP BY month_key
+                ORDER BY month_key DESC
+                LIMIT 12
+            '''
+            c.execute(monthly_sql, (tenant_filter,))
+        monthly_rows = c.fetchall()
+        conn.close()
+
+        total_count = int(summary_row.get('total_count') or 0)
+        success_count = int(summary_row.get('success_count') or 0)
+        success_rate = int(round((success_count / total_count) * 100)) if total_count else 100
+
+        monthly = [{
+            'monthKey': row['month_key'],
+            'success': int(row['success_count'] or 0),
+            'fail': int(row['fail_count'] or 0),
+            'total': int(row['total_count'] or 0)
+        } for row in monthly_rows if row['month_key']]
+
+        return jsonify({
+            'success': True,
+            'totalCount': total_count,
+            'todayCount': int(summary_row.get('today_count') or 0),
+            'migrationCount': int(summary_row.get('migration_count') or 0),
+            'firmwareUpgradeCount': int(summary_row.get('firmware_upgrade_count') or 0),
+            'successRate': success_rate,
+            'monthly': monthly
+        })
+    except Exception as e:
+        print(f"[ERROR] Failed to get activity summary: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ========================================
 # AVIAT BACKHAUL UPDATER API
 # ========================================

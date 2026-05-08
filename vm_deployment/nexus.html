@@ -14,7 +14,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="unimus/backup-configs.css">
+    <link rel="stylesheet" href="unimus/backup-configs.css?v=14">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script>
         (function() {
@@ -533,6 +533,11 @@
             opacity: 1;
         }
 
+        .mobile-sidebar-toggle,
+        .mobile-sidebar-overlay {
+            display: none;
+        }
+
         /* Version badge under logo */
         .sidebar-version {
             padding: 4px 13px 8px;
@@ -688,6 +693,99 @@
         .app-sidebar.expanded ~ .app-body,
         .app-sidebar.pinned ~ .app-body {
             margin-left: var(--sidebar-expanded);
+        }
+
+        @media (max-width: 900px) {
+            body.mobile-sidebar-open {
+                overflow: hidden;
+            }
+
+            .mobile-sidebar-toggle {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 36px;
+                min-width: 36px;
+                height: 36px;
+                margin: 0 auto 0 0;
+                padding: 0;
+                border: 1px solid var(--border-color);
+                border-radius: 10px;
+                background: color-mix(in srgb, var(--container-bg) 88%, transparent);
+                color: var(--text-color);
+                box-shadow: none;
+                font-size: 18px;
+                line-height: 1;
+            }
+
+            .mobile-sidebar-toggle:hover:not(:disabled) {
+                background: color-mix(in srgb, var(--accent-color) 16%, var(--container-bg));
+                transform: none;
+                box-shadow: none;
+            }
+
+            .app-sidebar {
+                --sidebar-current: min(82vw, var(--sidebar-expanded));
+                width: min(82vw, var(--sidebar-expanded));
+                max-width: 300px;
+                transform: translateX(-105%);
+                transition: transform var(--sidebar-transition);
+                z-index: 1200;
+                box-shadow: 12px 0 30px rgba(0, 0, 0, 0.38);
+            }
+
+            .app-sidebar.mobile-open {
+                transform: translateX(0);
+            }
+
+            .app-sidebar:hover,
+            .app-sidebar.expanded,
+            .app-sidebar.pinned {
+                --sidebar-current: min(82vw, var(--sidebar-expanded));
+            }
+
+            .app-sidebar .sidebar-logo-text,
+            .app-sidebar .sidebar-section-label,
+            .app-sidebar .sb-item-label,
+            .app-sidebar .sb-item-arrow,
+            .app-sidebar .sidebar-version {
+                opacity: 1;
+                max-width: none;
+                transform: none;
+                pointer-events: auto;
+            }
+
+            .app-sidebar .sidebar-pin-btn {
+                display: none;
+            }
+
+            .mobile-sidebar-overlay {
+                display: block;
+                position: fixed;
+                inset: 0;
+                z-index: 1190;
+                background: rgba(0, 0, 0, 0.52);
+                opacity: 0;
+                pointer-events: none;
+                transition: opacity 0.18s ease;
+            }
+
+            .mobile-sidebar-overlay.is-visible {
+                opacity: 1;
+                pointer-events: auto;
+            }
+
+            .app-body,
+            .app-sidebar:hover ~ .app-body,
+            .app-sidebar.expanded ~ .app-body,
+            .app-sidebar.pinned ~ .app-body {
+                margin-left: 0;
+            }
+
+            .top-bar {
+                justify-content: flex-end;
+                padding-left: 10px;
+            }
         }
 
         /* Top bar (compact, for search/user/settings only) */
@@ -4115,11 +4213,13 @@
                 </div>
             </div>
         </aside>
+        <div class="mobile-sidebar-overlay" id="mobileSidebarOverlay" aria-hidden="true"></div>
 
         <!-- App Body (right of sidebar) -->
         <div class="app-body">
             <!-- Compact Top Bar -->
             <div class="top-bar">
+                <button type="button" class="mobile-sidebar-toggle" id="mobileSidebarToggle" aria-label="Open navigation menu" aria-expanded="false" aria-controls="appSidebar">&#9776;</button>
                 <button class="toggle-dark" onclick="window.openCommandPalette && window.openCommandPalette()"
                     title="Search everything (Ctrl+K)"
                     style="font-size: 9px; padding: 4px 8px;"> SEARCH</button>
@@ -9985,14 +10085,18 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
     <div class="content-pane" id="unimus-backup-configs-pane">
         <div class="container unimus-backup-configs-page">
             <div class="unimus-bc-hero">
-                <div class="unimus-bc-hero-accent"></div>
                 <div class="unimus-bc-hero-copy">
                     <h1>Unimus Backup Configs</h1>
-                    <p>Search by Zabbix host name or IP, review Unimus status, and compare backup configs without leaving Nexus.</p>
+                    <p>Search by Zabbix host name or IP, review Unimus status, compare configs, and search backup config text from PostgreSQL.</p>
                 </div>
             </div>
 
-            <div class="unimus-bc-shell">
+            <div class="unimus-bc-subnav" role="tablist" aria-label="Unimus tools">
+                <button type="button" class="is-active" id="unimusBcBackupTab" data-unimus-bc-view="backup" role="tab" aria-controls="unimusBcBackupSection" aria-selected="true">Backups</button>
+                <button type="button" id="unimusBcConfigSearchTab" data-unimus-bc-view="search" role="tab" aria-controls="unimusBcSearchSection" aria-selected="false">Config Search</button>
+            </div>
+
+            <div class="unimus-bc-shell" id="unimusBcBackupSection" role="tabpanel" aria-labelledby="unimusBcBackupTab">
                 <section class="unimus-bc-card">
                     <div class="unimus-bc-toolbar">
                         <div class="unimus-bc-search-wrap">
@@ -10002,7 +10106,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                                     <input type="text" id="unimusBcSearchInput" placeholder="Search by Zabbix host name or IP..." autocomplete="off">
                                     <div class="unimus-bc-suggest" id="unimusBcSuggest"></div>
                                 </div>
-                                <button type="button" id="unimusBcSearchButton">Load Host</button>
+                                <button type="button" id="unimusBcSearchButton">Search</button>
                             </div>
                         </div>
                         <div class="unimus-bc-summary">
@@ -10150,6 +10254,87 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                         For any issues or questions related to Unimus, please contact <strong>Bob Spicka</strong>, your Unimus administrator.
                     </footer>
                 </div>
+            </div>
+
+            <div class="unimus-bc-shell unimus-bc-hidden unimus-cs-shell" id="unimusBcSearchSection" role="tabpanel" aria-labelledby="unimusBcConfigSearchTab">
+                <section class="unimus-bc-card unimus-cs-panel">
+                    <div class="unimus-cs-panel-header">
+                        <div>
+                            <h2>Config Search</h2>
+                            <p>Search all Unimus config backups in PostgreSQL. Latest backup is the default.</p>
+                        </div>
+                        <div class="unimus-cs-count" id="unimusSearchCountBadge">0 HOSTS • 0 BACKUPS</div>
+                    </div>
+                    <div class="unimus-cs-control-layout">
+                        <div class="unimus-cs-control-main">
+                            <div class="unimus-bc-field unimus-cs-query-field">
+                                <label for="unimusConfigSearchInput">Search Text</label>
+                                <div class="unimus-bc-search-row">
+                                    <input type="text" id="unimusConfigSearchInput" placeholder="input.filter=bgr-a-bgp-in-filter" autocomplete="off">
+                                    <button type="button" id="unimusConfigSearchButton">Search</button>
+                                </div>
+                                <label class="unimus-cs-check unimus-cs-case-toggle">
+                                    <input type="checkbox" id="unimusConfigCaseSensitive">
+                                    <span>Case Sensitive</span>
+                                </label>
+                            </div>
+                            <div class="unimus-cs-top-filters">
+                                <div class="unimus-bc-field unimus-cs-preset-field">
+                                    <label for="unimusConfigPresetSelect">Preset search</label>
+                                    <select id="unimusConfigPresetSelect">
+                                        <option value="">No preset</option>
+                                    </select>
+                                </div>
+                                <div class="unimus-bc-field unimus-cs-scope-row">
+                                    <label for="unimusConfigScopeSelect">Search scope</label>
+                                    <select id="unimusConfigScopeSelect" class="unimus-cs-native-scope">
+                                        <option value="latest">Latest backups</option>
+                                        <option value="all">All backups</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="unimus-cs-advanced">
+                                <button type="button" id="unimusConfigAdvancedToggle" class="unimus-cs-advanced-toggle" aria-expanded="false">Advanced Search ▾</button>
+                                <div id="unimusConfigAdvancedPanel" class="unimus-cs-advanced-panel unimus-bc-hidden">
+                                    <div class="unimus-cs-search-grid">
+                                        <div class="unimus-bc-field">
+                                            <label for="unimusConfigHostnamePrefix">Hostname Starts With</label>
+                                            <input type="text" id="unimusConfigHostnamePrefix" placeholder="RTR-">
+                                        </div>
+                                        <div class="unimus-bc-field">
+                                            <label for="unimusConfigVendorFilter">Vendor</label>
+                                            <select id="unimusConfigVendorFilter"><option value="">Any vendor</option></select>
+                                        </div>
+                                        <div class="unimus-bc-field">
+                                            <label for="unimusConfigTypeFilter">Type</label>
+                                            <select id="unimusConfigTypeFilter"><option value="">Any type</option></select>
+                                        </div>
+                                        <div class="unimus-bc-field">
+                                            <label for="unimusConfigModelFilter">Model</label>
+                                            <select id="unimusConfigModelFilter"><option value="">Any model</option></select>
+                                        </div>
+                                    </div>
+                                    <div class="unimus-bc-field unimus-cs-required-field">
+                                        <label for="unimusConfigRequiredInput">Required text in config</label>
+                                        <div class="unimus-cs-required-row">
+                                            <input type="text" id="unimusConfigRequiredInput" placeholder="/routing ospf">
+                                            <button type="button" id="unimusConfigRequiredAdd">Add</button>
+                                        </div>
+                                        <div class="unimus-cs-chip-row" id="unimusConfigRequiredChips"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="unimus-cs-actions">
+                        <div class="unimus-bc-inline-message unimus-bc-hidden" id="unimusConfigSearchStatus">
+                            <span id="unimusConfigSearchStatusText"></span>
+                            <div class="unimus-cs-active-filters" id="unimusConfigActiveFilters"></div>
+                            <button type="button" class="unimus-bc-hidden" id="unimusConfigCollapseToggle">Expand All</button>
+                        </div>
+                    </div>
+                </section>
+                <div id="unimusConfigSearchResults"></div>
             </div>
         </div>
     </div>
@@ -11238,7 +11423,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             for (let i = 0; i < retries; i++) {
                 try {
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+                    const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
 
                     const response = await fetch(url, {
                         ...merged,
@@ -11740,6 +11925,47 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             window.history.replaceState({}, '', nextUrl);
         }
         window.syncAppRouteUrl = syncAppRouteUrl;
+
+        const toolLifecycleRegistry = new Map();
+        let activeToolLifecycleKey = null;
+
+        function normalizeLifecycleToolKey(tabId, subtab = null) {
+            if (!tabId) return 'home';
+            if (tabId === 'device-firmware-updater') {
+                const resolvedSubtab = subtab === 'cambium' ? 'cambium' : subtab === 'wave-fw' ? 'wave-fw' : 'aviat';
+                return `${tabId}:${resolvedSubtab}`;
+            }
+            return tabId;
+        }
+
+        window.registerToolLifecycle = function (key, handlers) {
+            if (!key || !handlers) return;
+            toolLifecycleRegistry.set(String(key), handlers);
+        };
+
+        window.setActiveToolLifecycle = async function (tabId, subtab = null) {
+            const nextKey = normalizeLifecycleToolKey(tabId, subtab);
+            if (activeToolLifecycleKey === nextKey) return;
+
+            const prevHandlers = toolLifecycleRegistry.get(activeToolLifecycleKey);
+            if (prevHandlers && typeof prevHandlers.deactivate === 'function') {
+                try {
+                    await prevHandlers.deactivate();
+                } catch (error) {
+                    console.warn('[LIFECYCLE] Failed to deactivate tool', activeToolLifecycleKey, error);
+                }
+            }
+
+            activeToolLifecycleKey = nextKey;
+            const nextHandlers = toolLifecycleRegistry.get(nextKey);
+            if (nextHandlers && typeof nextHandlers.activate === 'function') {
+                try {
+                    await nextHandlers.activate();
+                } catch (error) {
+                    console.error('[LIFECYCLE] Failed to activate tool', nextKey, error);
+                }
+            }
+        };
 
         /* ── Activity display helpers (shared across Home, Log History, etc.) ── */
         function getActivityDisplay(type, siteName) {
@@ -15068,6 +15294,10 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                         updateDashboardMetrics();
                     }
                 }
+
+                if (tabId !== 'device-firmware-updater' && typeof window.setActiveToolLifecycle === 'function') {
+                    window.setActiveToolLifecycle(tabId, null);
+                }
             }
 
             // Get or prompt for username
@@ -15227,81 +15457,44 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
 
             window.updateDashboardMetrics = async function () {
                 try {
-                    // Use AI_API_BASE if defined, otherwise construct it
                     const apiBase = resolveApiBase();
-
-                    // Fetch ALL activities for metrics (not just last 24 hours)
-                    const response = await fetch(`${apiBase}/get-activity?all=true&limit=10000`, { headers: getAuthHeaders() });
+                    const response = await fetch(`${apiBase}/activity-summary`, { headers: getAuthHeaders() });
                     if (response.ok) {
                         const data = await response.json();
-                        if (data.success && data.activities) {
-                            const allActivities = data.activities;
-                            window.__ALL_ACTIVITIES = allActivities;
+                        if (data.success) {
+                            window.__ACTIVITY_MONTHLY_BUCKETS = Array.isArray(data.monthly) ? data.monthly : [];
+                            window.__ALL_ACTIVITIES = null;
                             window.__ALL_ACTIVITIES_FETCHED_AT = Date.now();
-                            const now = new Date();
-                            const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-                            // Calculate TODAY's configs (since midnight) - resets every 24 hours
-                            const todayCount = allActivities.filter(entry => {
-                                const entryDate = new Date(entry.timestamp);
-                                return entryDate >= todayStart;
-                            }).length;
-
-                            // Count ALL migrations ever (not just today)
-                            const migrationCount = allActivities.filter(entry =>
-                                entry.type === 'migration' || entry.type === 'upgrade'
-                            ).length;
-
-                            // Calculate ACTUAL success rate from ALL activities
-                            const successCount = allActivities.filter(e => e.success === true || e.success === 1).length;
-                            const failCount = allActivities.filter(e => e.success === false || e.success === 0).length;
-                            const nonFirmwareActivities = allActivities.filter(entry =>
-                                entry.countsTowardMetrics !== false &&
-                                !['aviat-upgrade', 'cambium-upgrade', 'wave-fw-upgrade'].includes(entry.type) &&
-                                !(entry.type || '').startsWith('maintenance')
-                            );
-                            const totalCount = nonFirmwareActivities.length;
-                            const successCountFiltered = nonFirmwareActivities.filter(e => e.success === true).length;
-                            const successRate = totalCount > 0 ?
-                                Math.round((successCountFiltered / totalCount) * 100) : 100;
-                            const firmwareUpgradeCount = allActivities.filter(entry =>
-                                ['aviat-upgrade', 'cambium-upgrade', 'wave-fw-upgrade'].includes(entry.type)
-                            ).length;
-
-                            // Update UI elements
                             const totalEl = document.getElementById('metricTotalConfigs');
                             const migrationsEl = document.getElementById('metricMigrations');
                             const firmwareEl = document.getElementById('metricFirmwareUpgrades');
                             const successEl = document.getElementById('metricSuccess');
                             const todayEl = document.getElementById('metricToday');
+                            if (totalEl) totalEl.textContent = data.totalCount ?? 0;
+                            if (migrationsEl) migrationsEl.textContent = data.migrationCount ?? 0;
+                            if (firmwareEl) firmwareEl.textContent = data.firmwareUpgradeCount ?? 0;
+                            if (successEl) successEl.textContent = `${data.successRate ?? 100}%`;
+                            if (todayEl) todayEl.textContent = data.todayCount ?? 0;
+                            if (window.__ACTIVITY_MONTHLY_BUCKETS.length > 0) {
+                                renderHomeMonthlyTracker(window.__ACTIVITY_MONTHLY_BUCKETS);
+                            }
 
-                            // Total configs = ALL configs ever generated (migrations + new configs) - NEVER RESETS
-                            if (totalEl) totalEl.textContent = totalCount;
-                            if (migrationsEl) migrationsEl.textContent = migrationCount;
-                            if (firmwareEl) firmwareEl.textContent = firmwareUpgradeCount;
-                            if (successEl) successEl.textContent = successRate + '%';
-                            if (todayEl) todayEl.textContent = nonFirmwareActivities.filter(entry => {
-                                const entryDate = new Date(entry.timestamp);
-                                return entryDate >= todayStart;
-                            }).length;
-
-                            console.log(`[METRICS]  Backend: Total=${totalCount} (ALL TIME), Today=${nonFirmwareActivities.filter(entry => {
-                                const entryDate = new Date(entry.timestamp);
-                                return entryDate >= todayStart;
-                            }).length}, Success=${successCountFiltered}/${totalCount} (${successRate}%), Migrations=${migrationCount}, FirmwareUpgrades=${firmwareUpgradeCount}`);
+                            console.log(`[METRICS]  Summary: Total=${data.totalCount ?? 0}, Today=${data.todayCount ?? 0}, Success=${data.successRate ?? 100}%, Migrations=${data.migrationCount ?? 0}, FirmwareUpgrades=${data.firmwareUpgradeCount ?? 0}`);
                             return;
                         } else {
-                            console.log('[METRICS]  Backend returned invalid data format, falling back to localStorage');
+                            console.log('[METRICS]  Summary endpoint returned invalid data, falling back to localStorage');
                         }
                     } else {
-                        console.log(`[METRICS]  Backend returned status ${response.status}, falling back to localStorage`);
+                        console.log(`[METRICS]  Summary endpoint returned status ${response.status}, falling back to localStorage`);
                     }
                 } catch (err) {
-                    console.log('[METRICS]  Backend unavailable:', err.message, '- using localStorage');
+                    console.log('[METRICS]  Summary endpoint unavailable:', err.message, '- using localStorage');
                 }
 
                 // Fallback to localStorage if backend unavailable
                 const history = JSON.parse(localStorage.getItem('configHistory') || '[]');
+                window.__ACTIVITY_MONTHLY_BUCKETS = null;
                 window.__ALL_ACTIVITIES = history;
                 window.__ALL_ACTIVITIES_FETCHED_AT = Date.now();
                 const now = new Date();
@@ -15310,7 +15503,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 // Calculate TODAY's configs (since midnight) - resets every 24 hours
                 const nonFirmwareHistory = history.filter(entry =>
                     entry.countsTowardMetrics !== false &&
-                    !['aviat-upgrade', 'cambium-upgrade'].includes(entry.type) &&
+                    !['aviat-upgrade', 'cambium-upgrade', 'wave-fw-upgrade'].includes(entry.type) &&
                     !(entry.type || '').startsWith('maintenance')
                 );
                 const todayCount = nonFirmwareHistory.filter(entry => {
@@ -15329,7 +15522,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 const successRate = totalCount > 0 ?
                     Math.round((successCount / totalCount) * 100) : 100;
                 const firmwareUpgradeCount = history.filter(entry =>
-                    ['aviat-upgrade', 'cambium-upgrade'].includes(entry.type)
+                    ['aviat-upgrade', 'cambium-upgrade', 'wave-fw-upgrade'].includes(entry.type)
                 ).length;
 
                 // Update UI elements
@@ -15404,10 +15597,11 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     const ongoingHTML = getOngoingActivitiesHTML();
 
                     if (liveActivities && liveActivities.length > 0) {
-                        // Home monthly overview should use ALL history when available.
-                        const allForMonthly = (Array.isArray(window.__ALL_ACTIVITIES) && window.__ALL_ACTIVITIES.length > 0)
-                            ? window.__ALL_ACTIVITIES
-                            : liveActivities;
+                        const allForMonthly = (Array.isArray(window.__ACTIVITY_MONTHLY_BUCKETS) && window.__ACTIVITY_MONTHLY_BUCKETS.length > 0)
+                            ? window.__ACTIVITY_MONTHLY_BUCKETS
+                            : ((Array.isArray(window.__ALL_ACTIVITIES) && window.__ALL_ACTIVITIES.length > 0)
+                                ? window.__ALL_ACTIVITIES
+                                : liveActivities);
                         renderHomeMonthlyTracker(allForMonthly);
                         // Show last 24 hours of activity from all tabs
                         const recentItems = liveActivities.slice(0, 10);
@@ -15532,7 +15726,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             // Poll for live activity updates and metrics every 30 seconds
             setInterval(() => {
                 const homePane = document.getElementById('home-pane');
-                if (homePane && homePane.classList.contains('active')) {
+                if (homePane && homePane.classList.contains('active') && document.visibilityState === 'visible') {
                     console.log('[DASHBOARD] Auto-refreshing activity feed and metrics...');
                     updateRecentActivity();
                     updateDashboardMetrics();
@@ -20622,9 +20816,14 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             // Initialize all event handlers
             initializeEventHandlers();
 
-            // Initialize dashboard
-            updateDashboardMetrics();
-            updateRecentActivity();
+            // Initialize dashboard only when landing on home.
+            {
+                const startupTab = (new URLSearchParams(window.location.search).get('tab') || '').trim();
+                if (!startupTab || startupTab === 'home') {
+                    updateDashboardMetrics();
+                    updateRecentActivity();
+                }
+            }
 
             // Load saved theme preference
             const savedTheme = localStorage.getItem('theme') || 'dark';
@@ -26435,6 +26634,7 @@ Ready for translation!`);
         async function refreshOnlineUsers() {
             const widget = document.getElementById('onlineUsersWidget');
             if (!widget || widget.style.display === 'none') return;
+            if (document.visibilityState !== 'visible') return;
             try {
                 const resp = await fetch('/api/admin/online-users', { headers: getAuthHeaders() });
                 if (!resp.ok) return;
@@ -26504,6 +26704,7 @@ Ready for translation!`);
 
             // Heartbeat every 30s to stay "online" (timeout window is 5 minutes)
             setInterval(function() {
+                if (document.visibilityState !== 'visible') return;
                 fetch('/api/session/heartbeat', { method:'POST', headers: getAuthHeaders() }).catch(function(){});
             }, 30000);
         }
@@ -26516,6 +26717,7 @@ Ready for translation!`);
         async function loadNotifications() {
             const token = localStorage.getItem('auth_token');
             if (!token) return;
+            if (document.visibilityState !== 'visible') return;
             // Always show the bell for logged-in users
             const bell = document.getElementById('notifBell');
             const badge = document.getElementById('notifBadge');
@@ -27711,29 +27913,49 @@ Ready for translation!`);
             if (updated) updated.textContent = new Date().toLocaleString();
             if (!container) return;
 
-            const groups = new Map(); // key: YYYY-MM
-            for (const a of activities || []) {
-                const d = parseActivityDate(a);
-                if (!d) continue;
-                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                const g = groups.get(key) || { year: d.getFullYear(), monthIndex: d.getMonth(), success: 0, fail: 0, total: 0 };
-                g.total += 1;
-                const ok = !(a?.success === false || a?.success === 0);
-                if (ok) g.success += 1;
-                else g.fail += 1;
-                groups.set(key, g);
-            }
+            const source = Array.isArray(activities) ? activities : [];
+            const hasMonthlyBuckets = source.length > 0 && typeof source[0]?.monthKey === 'string';
+            const rows = hasMonthlyBuckets
+                ? source
+                    .map((row) => {
+                        const monthKey = String(row.monthKey || '');
+                        const [yearText, monthText] = monthKey.split('-');
+                        return {
+                            key: monthKey,
+                            year: Number(yearText),
+                            monthIndex: Math.max(0, Number(monthText || '1') - 1),
+                            success: Number(row.success || 0),
+                            fail: Number(row.fail || 0),
+                            total: Number(row.total || 0)
+                        };
+                    })
+                    .filter((row) => row.key && Number.isFinite(row.year) && Number.isFinite(row.monthIndex))
+                    .sort((a, b) => b.key.localeCompare(a.key))
+                    .slice(0, 12)
+                : (() => {
+                    const groups = new Map();
+                    for (const a of source) {
+                        const d = parseActivityDate(a);
+                        if (!d) continue;
+                        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                        const g = groups.get(key) || { year: d.getFullYear(), monthIndex: d.getMonth(), success: 0, fail: 0, total: 0 };
+                        g.total += 1;
+                        const ok = !(a?.success === false || a?.success === 0);
+                        if (ok) g.success += 1;
+                        else g.fail += 1;
+                        groups.set(key, g);
+                    }
+                    return Array.from(groups.entries())
+                        .map(([key, g]) => ({ key, ...g }))
+                        .sort((a, b) => b.key.localeCompare(a.key))
+                        .slice(0, 12);
+                })();
 
-            if (groups.size === 0) {
+            if (rows.length === 0) {
                 container.innerHTML = '<div class="monthly-help">No monthly activity data available yet.</div>';
                 if (summary) summary.textContent = '';
                 return;
             }
-
-            const rows = Array.from(groups.entries())
-                .map(([key, g]) => ({ key, ...g }))
-                .sort((a, b) => b.key.localeCompare(a.key))
-                .slice(0, 12);
 
             const maxTotal = Math.max(...rows.map(r => r.total), 1);
             const scaleTotal = Math.max(100, maxTotal);
@@ -28081,8 +28303,10 @@ Ready for translation!`);
                     }, 200);
                 }
 
-                // Initialize dashboard metrics and recent activity on page load
+                // Initialize dashboard metrics and recent activity only when home is the entry route.
                 setTimeout(() => {
+                    const startupTab = (new URLSearchParams(window.location.search).get('tab') || '').trim();
+                    if (startupTab && startupTab !== 'home') return;
                     if (typeof window.updateDashboardMetrics === 'function') {
                         window.updateDashboardMetrics();
                     }
@@ -30930,7 +31154,11 @@ Ready for translation!`);
         }
 
         window.showDeviceFirmwareUpdaterSubTab = function (tabKey) {
-            setDeviceFirmwareUpdaterSubTabState(tabKey);
+            const resolvedTab = tabKey === 'cambium' ? 'cambium' : tabKey === 'wave-fw' ? 'wave-fw' : 'aviat';
+            setDeviceFirmwareUpdaterSubTabState(resolvedTab);
+            if (typeof window.setActiveToolLifecycle === 'function') {
+                window.setActiveToolLifecycle('device-firmware-updater', resolvedTab);
+            }
         };
 
         window.filterNokiaVaultCommands = function () {
@@ -32715,9 +32943,16 @@ Ready for translation!`);
                 radios: [],
                 isProcessing: false,
                 currentTaskId: null,
+                taskStatusInterval: null,
                 autoStatusInterval: null,
                 nextStatusCheckAt: 0,
-                globalStreamStarted: false
+                globalStreamStarted: false,
+                globalStreamSource: null,
+                globalStreamRetryTimer: null,
+                maintenanceInterval: null,
+                refreshInterval: null,
+                initComplete: false,
+                isActive: false
             };
 
             let aviatApiOverride = null;
@@ -33570,6 +33805,13 @@ Ready for translation!`);
                 }, 60000);
             }
 
+            function aviatStopAutoStatusChecks() {
+                if (aviatState.autoStatusInterval) {
+                    clearInterval(aviatState.autoStatusInterval);
+                    aviatState.autoStatusInterval = null;
+                }
+            }
+
             async function aviatCheckStatus() {
                 try {
                     const now = Date.now();
@@ -33794,6 +34036,7 @@ Ready for translation!`);
                 if (aviatState.globalStreamStarted) return;
                 aviatState.globalStreamStarted = true;
                 const eventSource = new EventSource(getAviatStreamUrl('/stream/global'));
+                aviatState.globalStreamSource = eventSource;
                 eventSource.onopen = function () {
                     aviatAddLog('Live log stream connected', 'info');
                 };
@@ -33810,14 +34053,29 @@ Ready for translation!`);
                 };
                 eventSource.onerror = function () {
                     eventSource.close();
+                    if (aviatState.globalStreamSource === eventSource) {
+                        aviatState.globalStreamSource = null;
+                    }
                     aviatState.globalStreamStarted = false;
+                    if (!aviatState.isActive) return;
                     aviatAddLog('Live log stream disconnected. Monitoring status only.', 'warning');
-                    setTimeout(() => {
-                        if (!aviatState.globalStreamStarted) {
+                    clearTimeout(aviatState.globalStreamRetryTimer);
+                    aviatState.globalStreamRetryTimer = setTimeout(() => {
+                        if (aviatState.isActive && !aviatState.globalStreamStarted) {
                             aviatStartGlobalLogStream();
                         }
                     }, 5000);
                 };
+            }
+
+            function aviatStopGlobalLogStream() {
+                clearTimeout(aviatState.globalStreamRetryTimer);
+                aviatState.globalStreamRetryTimer = null;
+                if (aviatState.globalStreamSource) {
+                    try { aviatState.globalStreamSource.close(); } catch (err) {}
+                    aviatState.globalStreamSource = null;
+                }
+                aviatState.globalStreamStarted = false;
             }
 
             function aviatStartLogStream(taskId) {
@@ -33825,12 +34083,17 @@ Ready for translation!`);
             }
 
             function aviatMonitorStatus(taskId) {
-                const interval = setInterval(async () => {
+                if (aviatState.taskStatusInterval) {
+                    clearInterval(aviatState.taskStatusInterval);
+                    aviatState.taskStatusInterval = null;
+                }
+                aviatState.taskStatusInterval = setInterval(async () => {
                     try {
                         const response = await aviatFetch(`/status/${taskId}`);
                         const data = await parseAviatJson(response);
                         if (data.status === 'completed' || data.status === 'aborted') {
-                            clearInterval(interval);
+                            clearInterval(aviatState.taskStatusInterval);
+                            aviatState.taskStatusInterval = null;
                             (data.results || []).forEach(res => {
                                 const radio = aviatState.radios.find(r => r.ip === res.ip);
                                 if (radio) {
@@ -33876,6 +34139,8 @@ Ready for translation!`);
             }
 
             function aviatBindControls() {
+                if (aviatState.initComplete) return;
+                aviatState.initComplete = true;
                 const addBtn = document.getElementById('aviatAddBtn');
                 const replaceBtn = document.getElementById('aviatReplaceBtn');
                 const clearDoneBtn = document.getElementById('aviatClearDoneBtn');
@@ -33924,7 +34189,8 @@ Ready for translation!`);
                 }
             }
 
-            document.addEventListener('DOMContentLoaded', () => {
+            async function aviatActivateTool() {
+                aviatState.isActive = true;
                 aviatLoadSharedQueue().then(loaded => {
                     if (!loaded) {
                         aviatRestoreRadios();
@@ -33934,18 +34200,55 @@ Ready for translation!`);
                 });
                 aviatBindControls();
                 aviatUpdateMaintenanceBanner();
-                setInterval(aviatUpdateMaintenanceBanner, 60000);
-                setInterval(() => aviatRefreshStatus({ quiet: true }), 30000);
+                if (!aviatState.maintenanceInterval) {
+                    aviatState.maintenanceInterval = setInterval(aviatUpdateMaintenanceBanner, 60000);
+                }
+                if (!aviatState.refreshInterval) {
+                    aviatState.refreshInterval = setInterval(() => aviatRefreshStatus({ quiet: true }), 30000);
+                }
                 aviatStartAutoStatusChecks();
                 aviatStartGlobalLogStream();
                 aviatAddLog('Tool initialized', 'info');
-            });
+            }
+
+            function aviatDeactivateTool() {
+                aviatState.isActive = false;
+                if (aviatState.maintenanceInterval) {
+                    clearInterval(aviatState.maintenanceInterval);
+                    aviatState.maintenanceInterval = null;
+                }
+                if (aviatState.refreshInterval) {
+                    clearInterval(aviatState.refreshInterval);
+                    aviatState.refreshInterval = null;
+                }
+                if (aviatState.taskStatusInterval) {
+                    clearInterval(aviatState.taskStatusInterval);
+                    aviatState.taskStatusInterval = null;
+                }
+                aviatStopAutoStatusChecks();
+                aviatStopGlobalLogStream();
+            }
+
+            window.AviatFirmwareTool = {
+                activate: aviatActivateTool,
+                deactivate: aviatDeactivateTool
+            };
         })();
     </script>
 
     <script src="cambium-firmware-updater.js"></script>
     <script src="wave-firmware-updater.js"></script>
-    <script src="unimus/backup-configs.js"></script>
+    <script src="unimus/backup-configs.js?v=6"></script>
+    <script src="unimus/config-search.js?v=5"></script>
+    <script>
+    (function () {
+        if (typeof window.registerToolLifecycle !== 'function') return;
+        if (window.AviatFirmwareTool) window.registerToolLifecycle('device-firmware-updater:aviat', window.AviatFirmwareTool);
+        if (window.CambiumFirmwareTool) window.registerToolLifecycle('device-firmware-updater:cambium', window.CambiumFirmwareTool);
+        if (window.WaveFirmwareTool) window.registerToolLifecycle('device-firmware-updater:wave-fw', window.WaveFirmwareTool);
+        if (window.UnimusBackupConfigsTool) window.registerToolLifecycle('unimus-backup-configs', window.UnimusBackupConfigsTool);
+    })();
+    </script>
 
     <!-- ═══════════════════════════════════════════════════════════════
          POWER TOOLS: Toast, Command Palette, Config Diff, Bulk Gen,
@@ -36217,9 +36520,13 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
     (function() {
         const sidebar = document.getElementById('appSidebar');
         const pinBtn = document.getElementById('sidebarPinBtn');
+        const mobileToggle = document.getElementById('mobileSidebarToggle');
+        const mobileOverlay = document.getElementById('mobileSidebarOverlay');
         if (!sidebar) return;
         const SIDEBAR_PIN_KEY = 'nocSidebarPinned';
         const LAST_ROUTE_KEY = 'nexusLastRoute';
+        const MOBILE_SIDEBAR_QUERY = '(max-width: 900px)';
+        const mobileSidebarMq = window.matchMedia ? window.matchMedia(MOBILE_SIDEBAR_QUERY) : null;
 
         function makeSidebarNodeFocusable(node) {
             if (!node || node.hasAttribute('tabindex')) return;
@@ -36229,7 +36536,27 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
 
         sidebar.querySelectorAll('.sb-item, .sb-item-header').forEach(makeSidebarNodeFocusable);
 
+        function isMobileSidebar() {
+            return mobileSidebarMq ? mobileSidebarMq.matches : window.innerWidth <= 900;
+        }
+
+        function setMobileSidebarOpen(open) {
+            const shouldOpen = !!open && isMobileSidebar();
+            sidebar.classList.toggle('mobile-open', shouldOpen);
+            document.body.classList.toggle('mobile-sidebar-open', shouldOpen);
+            if (mobileOverlay) mobileOverlay.classList.toggle('is-visible', shouldOpen);
+            if (mobileToggle) {
+                mobileToggle.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+                mobileToggle.setAttribute('aria-label', shouldOpen ? 'Close navigation menu' : 'Open navigation menu');
+            }
+        }
+
+        function closeMobileSidebar() {
+            setMobileSidebarOpen(false);
+        }
+
         function setSidebarPinned(pinned) {
+            if (isMobileSidebar()) pinned = false;
             sidebar.classList.toggle('pinned', pinned);
             sidebar.classList.toggle('expanded', pinned);
             if (pinBtn) {
@@ -36367,6 +36694,35 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
                 window.showDeviceFirmwareUpdaterSubTab(subtab);
             }
             updateSidebarActive(tabId, subtab);
+            closeMobileSidebar();
+        }
+
+        if (mobileToggle) {
+            mobileToggle.addEventListener('click', () => {
+                setMobileSidebarOpen(!sidebar.classList.contains('mobile-open'));
+            });
+        }
+
+        if (mobileOverlay) {
+            mobileOverlay.addEventListener('click', closeMobileSidebar);
+        }
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && sidebar.classList.contains('mobile-open')) {
+                closeMobileSidebar();
+            }
+        });
+
+        if (mobileSidebarMq) {
+            const handleMobileSidebarModeChange = () => {
+                if (!isMobileSidebar()) closeMobileSidebar();
+                setSidebarPinned(getStoredSidebarPin());
+            };
+            if (typeof mobileSidebarMq.addEventListener === 'function') {
+                mobileSidebarMq.addEventListener('change', handleMobileSidebarModeChange);
+            } else if (typeof mobileSidebarMq.addListener === 'function') {
+                mobileSidebarMq.addListener(handleMobileSidebarModeChange);
+            }
         }
 
         sidebar.addEventListener('click', (event) => {
@@ -36525,7 +36881,7 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
             try {
                 const token = localStorage.getItem('auth_token');
                 const currentUser = window.currentUser;
-                if (!token || !currentUser) return;
+                if (!token || !currentUser || document.visibilityState !== 'visible') return;
                 const userName = currentUser.displayName || currentUser.email || '';
                 if (!userName) return;
 
@@ -36553,7 +36909,7 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
             try {
                 const token = localStorage.getItem('auth_token');
                 const currentUser = window.currentUser;
-                if (!token || !currentUser) return;
+                if (!token || !currentUser || document.visibilityState !== 'visible') return;
                 const userName = currentUser.displayName || currentUser.email || '';
                 if (!userName) return;
                 const apiBase = (typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api';

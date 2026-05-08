@@ -7,9 +7,12 @@
         taskId: null,
         taskStream: null,
         taskPollInterval: null,
+        globalStream: null,
+        globalStreamRetryTimer: null,
         globalStreamStarted: false,
         isProcessing: false,
-        initComplete: false
+        initComplete: false,
+        isActive: false
     };
 
     let cambiumApiOverride = null;
@@ -680,6 +683,7 @@
             addLog(`Cambium global stream failed to start: ${err.message}`, 'warning');
             return;
         }
+        cambiumState.globalStream = eventSource;
         eventSource.onopen = function () {
             addLog('Cambium global stream connected', 'info');
         };
@@ -692,12 +696,27 @@
         };
         eventSource.onerror = function () {
             eventSource.close();
+            if (cambiumState.globalStream === eventSource) {
+                cambiumState.globalStream = null;
+            }
             cambiumState.globalStreamStarted = false;
+            if (!cambiumState.isActive) return;
             addLog('Cambium global stream disconnected. Retrying...', 'warning');
-            setTimeout(() => {
-                if (!cambiumState.globalStreamStarted) startGlobalStream();
+            clearTimeout(cambiumState.globalStreamRetryTimer);
+            cambiumState.globalStreamRetryTimer = setTimeout(() => {
+                if (cambiumState.isActive && !cambiumState.globalStreamStarted) startGlobalStream();
             }, 5000);
         };
+    }
+
+    function stopGlobalStream() {
+        clearTimeout(cambiumState.globalStreamRetryTimer);
+        cambiumState.globalStreamRetryTimer = null;
+        if (cambiumState.globalStream) {
+            try { cambiumState.globalStream.close(); } catch (err) {}
+            cambiumState.globalStream = null;
+        }
+        cambiumState.globalStreamStarted = false;
     }
 
     function startTaskStream(taskId) {
@@ -989,24 +1008,23 @@
         updateUI();
         setRunState(false);
         bindControls();
-        startGlobalStream();
-        await loadQueueState({ quiet: true });
-        await loadProviders({ quiet: true });
-        await loadCatalog({ quiet: true });
         addLog('Cambium firmware updater ready.', 'info');
     }
 
     window.getCambiumApiBase = getCambiumApiBase;
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
-            initCambiumUpdater().catch(err => {
-                console.error('[Cambium] Failed to initialize updater', err);
-            });
-        }, { once: true });
-    } else {
-        initCambiumUpdater().catch(err => {
-            console.error('[Cambium] Failed to initialize updater', err);
-        });
-    }
+    window.CambiumFirmwareTool = {
+        async activate() {
+            cambiumState.isActive = true;
+            await initCambiumUpdater();
+            startGlobalStream();
+            await loadQueueState({ quiet: true });
+            await loadProviders({ quiet: true });
+            await loadCatalog({ quiet: true });
+        },
+        deactivate() {
+            cambiumState.isActive = false;
+            stopGlobalStream();
+            stopTaskWatchers();
+        }
+    };
 })();

@@ -8,6 +8,7 @@
         taskPollInterval: null,
         isProcessing: false,
         initComplete: false,
+        isActive: false,
         fileId: null,
         fileName: null,
         searchTerm: '',
@@ -776,21 +777,19 @@
         updateDeviceList();
         setRunState(false);
         bindControls();
-        await loadServerFirmware();
         addLog('Ubiquiti Wave firmware updater ready.', 'info');
     }
 
     window.getWaveApiBase = getWaveApiBase;
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
-            initWaveUpdater().catch(err => {
-                console.error('[WaveFW] Failed to initialize updater', err);
-            });
-        }, { once: true });
-    } else {
-        initWaveUpdater().catch(err => {
-            console.error('[WaveFW] Failed to initialize updater', err);
-        });
-    }
+    window.WaveFirmwareTool = {
+        async activate() {
+            waveState.isActive = true;
+            await initWaveUpdater();
+            await loadServerFirmware();
+        },
+        deactivate() {
+            waveState.isActive = false;
+            stopTaskWatchers();
+        }
+    };
 }());

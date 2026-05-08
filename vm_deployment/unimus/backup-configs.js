@@ -20,6 +20,23 @@
         });
     }
 
+    async function apiFetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            return await window.fetch(url, {
+                ...options,
+                headers: {
+                    ...getHeaders(),
+                    ...(options.headers || {}),
+                },
+                signal: controller.signal,
+            });
+        } finally {
+            window.clearTimeout(timeoutId);
+        }
+    }
+
     function escapeHtml(value) {
         return String(value ?? '').replace(/[&<>"']/g, (char) => ({
             '&': '&amp;',
@@ -47,6 +64,9 @@
         return document.getElementById(id);
     }
 
+    let initialized = false;
+    let activated = false;
+
     function getUrlState() {
         return new URLSearchParams(window.location.search);
     }
@@ -60,21 +80,6 @@
         const nextUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash || ''}`;
         window.history.replaceState({}, '', nextUrl);
     }
-
-    function isSmallViewport() {
-        return window.matchMedia('(max-width: 720px)').matches;
-    }
-
-    function isSearchFieldFocused(inputEl) {
-        return !!inputEl && document.activeElement === inputEl;
-    }
-
-    function dismissMobileKeyboard(inputEl) {
-        if (!isSmallViewport() || !isSearchFieldFocused(inputEl)) return;
-        inputEl.blur();
-    }
-
-    let initialized = false;
 
     function createModal() {
         if ($('unimusBcModal')) return $('unimusBcModal');
@@ -122,7 +127,6 @@
             searchTimer: null,
             searchResults: [],
             searchIndex: -1,
-            searchController: null,
             currentDeviceId: '',
             currentAddress: '',
             backups: [],
@@ -132,6 +136,8 @@
             hasMore: false,
             backupCache: new Map(),
             activeDiff: null,
+            hostLoadSeq: 0,
+            hostLoading: false,
         };
 
         const els = {
@@ -176,8 +182,6 @@
             showFullDiff: $('unimusBcShowFullDiff'),
         };
 
-        const scrollHost = document.querySelector('.content-area');
-
         function showInlineMessage(message, kind = '') {
             els.inlineMessage.textContent = message || '';
             els.inlineMessage.classList.remove('unimus-bc-hidden', 'is-success', 'is-error');
@@ -193,9 +197,25 @@
         }
 
         function updateActionButtons() {
-            els.viewButton.disabled = state.selectedBackupIds.length !== 1;
-            els.downloadButton.disabled = state.selectedBackupIds.length !== 1;
-            els.diffButton.disabled = state.selectedBackupIds.length !== 2;
+            const setDisabled = (button, disabled) => {
+                if (button.disabled !== disabled) button.disabled = disabled;
+            };
+            setDisabled(els.viewButton, state.selectedBackupIds.length !== 1);
+            setDisabled(els.downloadButton, state.selectedBackupIds.length !== 1);
+            setDisabled(els.diffButton, state.selectedBackupIds.length !== 2);
+        }
+
+        function syncBackupSelectionUi() {
+            els.backupsBody.querySelectorAll('input[type="checkbox"][data-backup-id]').forEach((checkbox) => {
+                checkbox.checked = state.selectedBackupIds.includes(String(checkbox.getAttribute('data-backup-id')));
+            });
+            updateActionButtons();
+        }
+
+        function setBackupCheckboxesDisabled(disabled) {
+            els.backupsBody.querySelectorAll('input[type="checkbox"][data-backup-id]').forEach((checkbox) => {
+                checkbox.disabled = !!disabled;
+            });
         }
 
         function setStatusCard(card, pill, detail, payload, fallbackDetail = '') {
@@ -238,10 +258,7 @@
                     event.preventDefault();
                     const idx = Number(itemEl.getAttribute('data-index'));
                     const item = state.searchResults[idx];
-                    if (item?.ip) {
-                        dismissMobileKeyboard(els.searchInput);
-                        loadHost(item.ip);
-                    }
+                    if (item?.ip) loadHost(item.ip);
                 });
             });
         }
@@ -254,8 +271,10 @@
         }
 
         async function loadSummary() {
+            els.summaryValue.textContent = 'Loading...';
+            els.summaryNote.textContent = 'Checking Unimus remote cores.';
             try {
-                const response = await apiFetch(`${API_BASE}/unimus-backup-configs/summary`);
+                const response = await apiFetchWithTimeout(`${API_BASE}/unimus-backup-configs/summary`, {}, 15000);
                 const payload = await response.json().catch(() => ({}));
                 if (!response.ok) throw new Error(payload.detail || payload.error || `HTTP ${response.status}`);
                 if (payload.configured) {
@@ -267,7 +286,9 @@
                 }
             } catch (error) {
                 els.summaryValue.textContent = 'Unavailable';
-                els.summaryNote.textContent = error.message || 'Unable to load the Unimus integration summary.';
+                els.summaryNote.textContent = error?.name === 'AbortError'
+                    ? 'Timed out while checking Unimus remote cores. Try again or verify Unimus API reachability.'
+                    : (error.message || 'Unable to load the Unimus integration summary.');
             }
         }
 
@@ -326,8 +347,7 @@
                     } else {
                         state.selectedBackupIds = state.selectedBackupIds.filter((value) => value !== id);
                     }
-                    renderBackups();
-                    updateActionButtons();
+                    syncBackupSelectionUi();
                 });
             });
             els.loadMoreWrap.classList.toggle('unimus-bc-hidden', !state.hasMore);
@@ -410,9 +430,69 @@
             return filtered;
         }
 
+        function localDiffLines(oldText, newText) {
+            const oldLines = String(oldText || '').split('\n');
+            const newLines = String(newText || '').split('\n');
+            const m = oldLines.length;
+            const n = newLines.length;
+            if (m * n > 9_000_000) {
+                return [
+                    { removed: true, value: oldLines.join('\n') },
+                    { added: true, value: newLines.join('\n') },
+                ];
+            }
+            const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+            for (let i = m - 1; i >= 0; i -= 1) {
+                for (let j = n - 1; j >= 0; j -= 1) {
+                    dp[i][j] = oldLines[i] === newLines[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+                }
+            }
+            const parts = [];
+            const push = (part) => {
+                if (!part.value) return;
+                const last = parts[parts.length - 1];
+                if (last && !!last.added === !!part.added && !!last.removed === !!part.removed) {
+                    last.value += part.value;
+                } else {
+                    parts.push(part);
+                }
+            };
+            let i = 0;
+            let j = 0;
+            while (i < m && j < n) {
+                if (oldLines[i] === newLines[j]) {
+                    push({ value: `${oldLines[i]}\n` });
+                    i += 1;
+                    j += 1;
+                } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+                    push({ removed: true, value: `${oldLines[i]}\n` });
+                    i += 1;
+                } else {
+                    push({ added: true, value: `${newLines[j]}\n` });
+                    j += 1;
+                }
+            }
+            while (i < m) {
+                push({ removed: true, value: `${oldLines[i]}\n` });
+                i += 1;
+            }
+            while (j < n) {
+                push({ added: true, value: `${newLines[j]}\n` });
+                j += 1;
+            }
+            return parts;
+        }
+
+        function diffLines(oldText, newText) {
+            if (window.Diff && typeof window.Diff.diffLines === 'function') {
+                return window.Diff.diffLines(oldText, newText);
+            }
+            return localDiffLines(oldText, newText);
+        }
+
         function rerenderDiff() {
             if (!state.activeDiff) return;
-            const diffParts = window.Diff ? window.Diff.diffLines(state.activeDiff.olderText, state.activeDiff.newerText) : [];
+            const diffParts = diffLines(state.activeDiff.olderText, state.activeDiff.newerText);
             renderDiffRows(buildDiffRows(diffParts, !!els.showFullDiff.checked));
         }
 
@@ -433,26 +513,35 @@
         }
 
         async function loadHost(address) {
+            const loadSeq = ++state.hostLoadSeq;
+            // Strip port suffix from IPv4 addresses (e.g. "10.1.2.3:161" → "10.1.2.3")
+            const cleanAddress = String(address || '').trim().replace(/^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/, '$1');
             hideSuggest();
             hideInlineMessage();
-            els.searchInput.value = address;
+            els.searchInput.value = cleanAddress;
             els.searchButton.disabled = true;
             els.searchButton.textContent = 'Loading...';
+            state.hostLoading = true;
+            state.selectedBackupIds = [];
+            syncBackupSelectionUi();
+            setBackupCheckboxesDisabled(true);
             try {
-                const params = new URLSearchParams({ address: String(address || '').trim() });
+                const params = new URLSearchParams({ address: cleanAddress });
                 const response = await apiFetch(`${API_BASE}/unimus-backup-configs/host-details?${params.toString()}`);
                 const payload = await response.json().catch(() => ({}));
+                if (loadSeq !== state.hostLoadSeq) return;
                 if (response.status === 404 && payload?.code === 'device_not_found') {
-                    state.currentAddress = address;
+                    state.currentAddress = cleanAddress;
                     state.currentDeviceId = '';
                     state.backups = [];
                     state.selectedBackupIds = [];
-                    syncUrlState({ address });
+                    state.hostLoading = false;
+                    syncUrlState({ address: cleanAddress });
                     setWorkspaceMode('missing');
                     return;
                 }
                 if (!response.ok) throw new Error(payload.detail || payload.error || `HTTP ${response.status}`);
-                state.currentAddress = payload.address || address;
+                state.currentAddress = payload.address || cleanAddress;
                 state.currentDeviceId = payload.device_id || '';
                 state.backups = Array.isArray(payload.backups) ? payload.backups : [];
                 state.currentPage = Number(payload.backups_page || 0);
@@ -460,6 +549,7 @@
                 state.hasMore = !!payload.backups_has_more;
                 state.selectedBackupIds = [];
                 state.backupCache.clear();
+                state.hostLoading = false;
                 syncUrlState({ address: state.currentAddress });
                 setWorkspaceMode('workspace');
 
@@ -481,11 +571,17 @@
                 setField(els.downloadExtension, payload.download_extension || '.cfg');
                 renderBackups();
             } catch (error) {
+                if (loadSeq !== state.hostLoadSeq) return;
+                state.hostLoading = false;
                 setWorkspaceMode('empty');
                 showInlineMessage(error.message || 'Failed to load the selected host.', 'error');
             } finally {
-                els.searchButton.disabled = false;
-                els.searchButton.textContent = 'Load Host';
+                if (loadSeq === state.hostLoadSeq) {
+                    state.hostLoading = false;
+                    setBackupCheckboxesDisabled(false);
+                    els.searchButton.disabled = false;
+                    els.searchButton.textContent = 'Search';
+                }
             }
         }
 
@@ -493,12 +589,10 @@
             const query = String(els.searchInput.value || '').trim();
             if (!query) return;
             if (state.searchIndex >= 0 && state.searchResults[state.searchIndex]?.ip) {
-                dismissMobileKeyboard(els.searchInput);
                 loadHost(state.searchResults[state.searchIndex].ip);
                 return;
             }
             if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(query)) {
-                dismissMobileKeyboard(els.searchInput);
                 loadHost(query);
                 return;
             }
@@ -508,7 +602,6 @@
                 if (!response.ok) throw new Error(payload.detail || payload.error || `HTTP ${response.status}`);
                 const first = Array.isArray(payload.results) ? payload.results[0] : null;
                 if (first?.ip) {
-                    dismissMobileKeyboard(els.searchInput);
                     loadHost(first.ip);
                     return;
                 }
@@ -525,31 +618,18 @@
                 return;
             }
             try {
-                if (state.searchController) {
-                    state.searchController.abort();
-                }
-                state.searchController = new AbortController();
-                const response = await apiFetch(`${API_BASE}/unimus-backup-configs/host-search?q=${encodeURIComponent(query)}&limit=50`, {
-                    signal: state.searchController.signal,
-                });
+                const response = await apiFetch(`${API_BASE}/unimus-backup-configs/host-search?q=${encodeURIComponent(query)}&limit=50`);
                 const payload = await response.json().catch(() => ({}));
                 if (!response.ok) throw new Error(payload.detail || payload.error || `HTTP ${response.status}`);
                 renderSuggest(Array.isArray(payload.results) ? payload.results : []);
             } catch (error) {
-                if (error?.name === 'AbortError') return;
                 hideSuggest();
             }
         }
 
         els.searchInput.addEventListener('input', () => {
             clearTimeout(state.searchTimer);
-            state.searchTimer = window.setTimeout(refreshSuggestions, 325);
-        });
-
-        els.searchInput.addEventListener('focus', () => {
-            if (String(els.searchInput.value || '').trim().length >= 2) {
-                refreshSuggestions();
-            }
+            state.searchTimer = window.setTimeout(refreshSuggestions, 250);
         });
 
         els.searchInput.addEventListener('keydown', (event) => {
@@ -652,9 +732,20 @@
             els.backupNowButton.textContent = 'Running...';
             try {
                 const params = new URLSearchParams({ device_id: state.currentDeviceId });
-                const response = await apiFetch(`${API_BASE}/unimus-backup-configs/host-backup-now?${params.toString()}`, {
-                    method: 'POST',
-                });
+                // Use raw fetch with a 90s timeout — robustFetch's 10s limit is too short
+                // for the backup-now polling loop (backend waits up to 45s for completion).
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 90000);
+                let response;
+                try {
+                    response = await fetch(`${API_BASE}/unimus-backup-configs/host-backup-now?${params.toString()}`, {
+                        method: 'POST',
+                        headers: getHeaders(),
+                        signal: controller.signal,
+                    });
+                } finally {
+                    clearTimeout(timeoutId);
+                }
                 const payload = await response.json().catch(() => ({}));
                 if (!response.ok && response.status !== 202) {
                     throw new Error(payload.detail || payload.error || `HTTP ${response.status}`);
@@ -687,20 +778,24 @@
             }
         });
 
-        const dismissOnScroll = () => dismissMobileKeyboard(els.searchInput);
-        els.suggest.addEventListener('scroll', dismissOnScroll, { passive: true });
-        els.suggest.addEventListener('touchmove', dismissOnScroll, { passive: true });
-        window.addEventListener('scroll', dismissOnScroll, { passive: true });
-        scrollHost?.addEventListener('scroll', dismissOnScroll, { passive: true });
+        function activatePane() {
+            if (activated) return;
+            activated = true;
+            loadSummary();
+            setWorkspaceMode('empty');
 
-        loadSummary();
-        setWorkspaceMode('empty');
+            const directAddress = String(getUrlState().get('address') || '').trim();
+            if (directAddress) {
+                els.searchInput.value = directAddress;
+                window.setTimeout(() => loadHost(directAddress), 150);
+            }
+        }
 
-        const urlState = getUrlState();
-        const directAddress = String(urlState.get('address') || '').trim();
-        if (directAddress) {
-            els.searchInput.value = directAddress;
-            window.setTimeout(() => loadHost(directAddress), 150);
+        window.addEventListener('nexus:unimus-tab-activated', activatePane);
+
+        const routeTab = String(getUrlState().get('tab') || '').trim();
+        if (pane.classList.contains('active') || routeTab === 'unimus-backup-configs') {
+            activatePane();
         }
     }
 

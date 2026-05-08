@@ -1,18 +1,27 @@
+import asyncio
 import base64
 import os
 import fnmatch
 import io
+import re
 import tarfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import requests
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
+
+try:
+    import psycopg
+    from psycopg import sql
+except Exception:  # pragma: no cover - dependency/runtime guard
+    psycopg = None
+    sql = None
 
 from api_server import verify_token
 
@@ -24,7 +33,11 @@ _ZONE_CACHE: dict[str, Any] = {
     "zone_numbers": [],
     "zone_map": {},
 }
-_NETONIX_BASE_CONFIG_PATH = Path(__file__).resolve().parent.parent / "base_configs" / "Netonix" / "NETONIX_BASE_CONFIG.ncfg"
+_DEVICE_CACHE: dict[str, Any] = {
+    "expires_at": 0.0,
+    "devices": [],
+}
+_NETONIX_BASE_CONFIG_PATH = Path(__file__).resolve().parent / "assets" / "NETONIX_BASE_CONFIG.ncfg"
 _DOWNLOAD_EXTENSION_RULES = {
     "default_extension": ".cfg",
     "rules": [
@@ -77,6 +90,29 @@ def _unimus_runtime() -> dict[str, Any]:
     }
 
 
+def _unimus_db_runtime() -> dict[str, Any]:
+    base_url = (os.getenv("UNIMUS_BASE_URL") or "").strip()
+    inferred_host = urlparse(base_url).hostname if base_url else ""
+    host = (os.getenv("UNIMUS_DB_HOST") or inferred_host or "10.17.213.178").strip()
+    dbname = (os.getenv("UNIMUS_DB_NAME") or "unimus").strip()
+    username = (os.getenv("UNIMUS_DB_USERNAME") or os.getenv("UNIMUS_DB_USER") or "").strip()
+    password = (os.getenv("UNIMUS_DB_PASSWORD") or os.getenv("UNIMUS_DB_PASS") or "").strip()
+    port = int((os.getenv("UNIMUS_DB_PORT") or "5432").strip() or 5432)
+    sslmode = (os.getenv("UNIMUS_DB_SSLMODE") or "require").strip()
+    timeout = int((os.getenv("UNIMUS_DB_TIMEOUT") or "10").strip() or 10)
+    configured = bool(host and dbname and username and password)
+    return {
+        "configured": configured,
+        "host": host,
+        "port": port,
+        "dbname": dbname,
+        "username": username,
+        "password": password,
+        "sslmode": sslmode,
+        "timeout": timeout,
+    }
+
+
 def _require_auth(request: Request) -> dict[str, Any]:
     auth_header = request.headers.get("Authorization", "")
     token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else auth_header.strip()
@@ -91,6 +127,27 @@ def _require_unimus_runtime() -> dict[str, Any]:
     if not runtime.get("configured"):
         raise HTTPException(status_code=500, detail="Unimus integration is not configured")
     return runtime
+
+
+def _require_unimus_db_runtime() -> dict[str, Any]:
+    runtime = _unimus_db_runtime()
+    if not runtime.get("configured"):
+        raise HTTPException(status_code=500, detail="Unimus PostgreSQL integration is not configured")
+    if psycopg is None or sql is None:
+        raise HTTPException(status_code=500, detail="PostgreSQL driver is not installed")
+    return runtime
+
+
+def _connect_unimus_db(config: dict[str, Any]):
+    return psycopg.connect(
+        host=config["host"],
+        port=config["port"],
+        dbname=config["dbname"],
+        user=config["username"],
+        password=config["password"],
+        sslmode=config["sslmode"],
+        connect_timeout=config["timeout"],
+    )
 
 
 def _headers(config: dict[str, Any]) -> dict[str, str]:
@@ -391,7 +448,10 @@ def _zabbix_request(payload: dict[str, Any]) -> Any:
     response = requests.post(
         str(config.get("api_url")),
         json=payload,
-        headers={"Content-Type": "application/json-rpc"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {config.get('api_token', '')}",
+        },
         timeout=float(config.get("timeout") or 30),
     )
     response.raise_for_status()
@@ -413,6 +473,20 @@ def _build_zabbix_search_wildcard(term: str) -> str:
     return f"*{cleaned}*"
 
 
+def _looks_like_ip_query(query: str) -> bool:
+    """Check if a query looks like an IP address or IP fragment."""
+    cleaned = str(query or "").strip()
+    if not cleaned:
+        return False
+    # Match: starts with digits + dot (e.g., "192.168") or full IP (e.g., "192.168.1.1")
+    if re.match(r"^\d+\.", cleaned):
+        return True
+    # Match full IPv4 pattern
+    if re.match(r"^\d{1,3}(\.\d{1,3}){1,3}$", cleaned):
+        return True
+    return False
+
+
 def _collect_zabbix_hosts(result: list[dict[str, Any]]) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
@@ -421,6 +495,9 @@ def _collect_zabbix_hosts(result: list[dict[str, Any]]) -> list[dict[str, Any]]:
         main_interface = next((item for item in interfaces if str(item.get("main")) == "1"), None)
         selected_interface = main_interface or (interfaces[0] if interfaces else {})
         ip_address = str(selected_interface.get("ip") or "").strip()
+        # Strip port suffix (e.g. "10.1.2.3:161") — Zabbix SNMP interfaces may include port in IP field
+        if ip_address and re.match(r"^\d{1,3}(?:\.\d{1,3}){3}:\d+$", ip_address):
+            ip_address = ip_address.rsplit(":", 1)[0]
         if not ip_address:
             continue
         dedupe_key = (str(host.get("hostid") or "").strip(), ip_address)
@@ -597,7 +674,7 @@ def get_summary(request: Request):
 def search_hosts(request: Request, q: str = "", limit: int = 10):
     _require_auth(request)
     query = str(q or "").strip()
-    limit = max(1, min(int(limit or 10), 50))
+    limit = max(1, min(int(limit or 50), 50))
     if len(query) < 2:
         return {"results": []}
     config = _zabbix_runtime()
@@ -606,6 +683,55 @@ def search_hosts(request: Request, q: str = "", limit: int = 10):
     try:
         matches: list[dict[str, Any]] = []
         seen: set[tuple[str, str]] = set()
+
+        # If query looks like an IP, search via hostinterface.get first (highest relevance)
+        if _looks_like_ip_query(query):
+            ip_search = query if "*" in query or "?" in query else f"{query}*"
+            for idx, status_value in enumerate(("0", "1"), start=77):
+                # Search interfaces by IP
+                interface_payload = {
+                    "jsonrpc": "2.0",
+                    "method": "hostinterface.get",
+                    "params": {
+                        "output": ["hostid", "ip"],
+                        "filter": {"status": [status_value]},
+                        "search": {"ip": ip_search},
+                        "searchWildcardsEnabled": True,
+                        "limit": 75,
+                    },
+                    "auth": config.get("api_token"),
+                    "id": idx,
+                }
+                interfaces = _zabbix_request(interface_payload)
+                host_ids = sorted({str(item.get("hostid") or "").strip() for item in interfaces if str(item.get("hostid") or "").strip()})
+
+                if host_ids:
+                    # Fetch hosts by their IDs
+                    hosts_payload = {
+                        "jsonrpc": "2.0",
+                        "method": "host.get",
+                        "params": {
+                            "output": ["hostid", "host", "name", "status"],
+                            "selectInterfaces": ["ip", "main"],
+                            "hostids": host_ids,
+                            "sortfield": ["name"],
+                            "sortorder": "ASC",
+                        },
+                        "auth": config.get("api_token"),
+                        "id": idx + 100,
+                    }
+                    for host in _collect_zabbix_hosts(_zabbix_request(hosts_payload)):
+                        dedupe_key = (str(host.get("hostid") or "").strip(), str(host.get("ip") or "").strip())
+                        if dedupe_key in seen:
+                            continue
+                        seen.add(dedupe_key)
+                        matches.append(host)
+                        if len(matches) >= limit:
+                            break
+                if len(matches) >= limit:
+                    break
+
+        # Always search by name/host for completeness (append results not already found)
         for idx, status_value in enumerate(("0", "1"), start=77):
             payload = {
                 "jsonrpc": "2.0",
@@ -617,7 +743,6 @@ def search_hosts(request: Request, q: str = "", limit: int = 10):
                     "search": {
                         "host": _build_zabbix_search_wildcard(query),
                         "name": _build_zabbix_search_wildcard(query),
-                        "ip": _build_zabbix_search_wildcard(query),
                     },
                     "searchByAny": True,
                     "searchWildcardsEnabled": True,
@@ -648,6 +773,9 @@ def get_host_details(request: Request, device_id: str = "", address: str = ""):
     _require_auth(request)
     device_id = str(device_id or "").strip()
     address = str(address or "").strip()
+    # Strip port suffix from IPv4 addresses (e.g. "10.1.2.3:161" from Zabbix SNMP interface)
+    if address and re.match(r"^\d{1,3}(?:\.\d{1,3}){3}:\d+$", address):
+        address = address.rsplit(":", 1)[0]
     if not device_id and not address:
         raise HTTPException(status_code=400, detail="Missing required parameter: device_id or address")
     config = _require_unimus_runtime()
@@ -771,8 +899,348 @@ def get_host_backup(request: Request, device_id: str = "", address: str = "", ba
         raise HTTPException(status_code=502, detail=f"Failed to fetch Unimus backup: {exc}")
 
 
+def _poll_backup_completion(
+    device_id: str,
+    before_status: str,
+    before_signature: tuple[str, int, int],
+    before_backups: list[dict[str, Any]],
+    config: dict[str, Any],
+    address: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any], bool]:
+    """Poll for backup completion synchronously. Returns (completed_backups, refreshed_device, completed)."""
+    completed_backups = before_backups
+    completed = False
+    refreshed_device = _get_device(device_id, config)
+    deadline = time.time() + 45
+    while time.time() < deadline:
+        time.sleep(2)
+        refreshed_device = _get_device(device_id, config)
+        current_status = str(refreshed_device.get("lastJobStatus") or "").strip()
+        current_backups = _list_device_backups(device_id, size=100, config=config)
+        if (current_status and current_status != before_status) or (_latest_backup_signature(current_backups) != before_signature):
+            completed_backups = current_backups
+            completed = True
+            break
+    if not completed:
+        completed_backups = _list_device_backups(device_id, size=100, config=config)
+        refreshed_device = _get_device(device_id, config)
+    return completed_backups, refreshed_device, completed
+
+
+
+def _format_pg_timestamp(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat()
+    try:
+        numeric = float(value)
+    except Exception:
+        text = str(value or "").strip()
+        return text
+    if numeric <= 0:
+        return ""
+    try:
+        if numeric > 10_000_000_000:
+            return datetime.fromtimestamp(numeric / 1000, tz=timezone.utc).isoformat()
+        if numeric > 1_000_000_000:
+            return datetime.fromtimestamp(numeric, tz=timezone.utc).isoformat()
+    except Exception:
+        pass
+    return str(value).strip()
+
+
+def _normalize_search_terms(values: list[Any]) -> list[str]:
+    terms: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        terms.append(text)
+    return terms
+
+
+def _line_matches_terms(line: str, terms: list[str], case_sensitive: bool) -> bool:
+    if case_sensitive:
+        return any(term in line for term in terms)
+    haystack = line.lower()
+    return any(term.lower() in haystack for term in terms)
+
+
+def _make_snippets(text: str, query: str, case_sensitive: bool, fallback_terms: list[str] | None = None) -> list[dict[str, Any]]:
+    terms = _normalize_search_terms([query] if str(query or "").strip() else list(fallback_terms or []))
+    if not terms:
+        return []
+    source = text if case_sensitive else text.lower()
+    needles = terms if case_sensitive else [term.lower() for term in terms]
+    lines = text.splitlines()
+    matches = [index for index, line in enumerate(source.splitlines()) if any(needle in line for needle in needles)]
+    snippets: list[dict[str, Any]] = []
+    for match_index in matches[:8]:
+        start = max(0, match_index - 2)
+        end = min(len(lines), match_index + 3)
+        snippets.append(
+            {
+                "start_line": start + 1,
+                "end_line": end,
+                "lines": [
+                    {
+                        "line_number": line_index + 1,
+                        "text": lines[line_index],
+                        "is_match": line_index == match_index,
+                    }
+                    for line_index in range(start, end)
+                ],
+            }
+        )
+    return snippets
+
+
+def _count_config_matches(text: str, query: str, case_sensitive: bool, fallback_terms: list[str] | None = None) -> int:
+    terms = _normalize_search_terms([query] if str(query or "").strip() else list(fallback_terms or []))
+    if not terms:
+        return 0
+    source = text if case_sensitive else text.lower()
+    needles = terms if case_sensitive else [term.lower() for term in terms]
+    return sum(1 for line in source.splitlines() if any(needle in line for needle in needles))
+
+
+def _config_search_options_sync() -> dict[str, Any]:
+    config = _require_unimus_db_runtime()
+    option_queries = {
+        "vendors": """
+            select distinct trim(vendor::text) as value
+            from device
+            where vendor is not null and trim(vendor::text) <> ''
+            order by value
+        """,
+        "types": """
+            select distinct trim(type::text) as value
+            from device
+            where type is not null and trim(type::text) <> ''
+            order by value
+        """,
+        "models": """
+            select distinct trim(model::text) as value
+            from device
+            where model is not null and trim(model::text) <> ''
+            order by value
+        """,
+    }
+    options: dict[str, Any] = {"vendors": [], "types": [], "models": [], "source": "postgresql"}
+    with _connect_unimus_db(config) as conn:
+        with conn.cursor() as cur:
+            for key, query in option_queries.items():
+                cur.execute(query)
+                options[key] = [str(row[0]).strip() for row in cur.fetchall() if str(row[0] or "").strip()]
+    return options
+
+
+def _config_search_sync(
+    query_text: str,
+    required_texts: list[str],
+    latest_only: bool,
+    case_sensitive: bool,
+    vendor: str,
+    device_type: str,
+    model: str,
+    hostname_prefix: str,
+) -> dict[str, Any]:
+    config = _require_unimus_db_runtime()
+    operator = "like" if case_sensitive else "ilike"
+    required_terms = _normalize_search_terms(required_texts)
+    params: list[Any] = []
+    filters = ["cfg.backup_text is not null"]
+
+    if query_text:
+        filters.append(f"cfg.backup_text {operator} %s")
+        params.append(f"%{query_text}%")
+    for required_text in required_terms:
+        filters.append(f"cfg.backup_text {operator} %s")
+        params.append(f"%{required_text}%")
+
+    if hostname_prefix:
+        filters.append("d.description ilike %s")
+        params.append(f"{hostname_prefix}%")
+    if vendor:
+        filters.append("d.vendor = %s")
+        params.append(vendor)
+    if device_type:
+        filters.append("d.type = %s")
+        params.append(device_type)
+    if model:
+        filters.append("d.model = %s")
+        params.append(model)
+
+    selected_backups = """
+        select distinct on (device_id)
+            id,
+            device_id,
+            create_time,
+            backup_segment_group_id
+        from backup
+        where backup_segment_group_id is not null
+        order by device_id, create_time desc, id desc
+    """ if latest_only else """
+        select
+            id,
+            device_id,
+            create_time,
+            backup_segment_group_id
+        from backup
+        where backup_segment_group_id is not null
+    """
+
+    query = f"""
+        with selected_backups as (
+            {selected_backups}
+        )
+        select
+            d.id::text as device_id,
+            nullif(trim(coalesce(d.description::text, '')), '') as description,
+            nullif(trim(coalesce(d.address::text, '')), '') as address,
+            nullif(trim(coalesce(d.vendor::text, '')), '') as vendor,
+            nullif(trim(coalesce(d.type::text, '')), '') as device_type,
+            nullif(trim(coalesce(d.model::text, '')), '') as model,
+            b.id::text as backup_id,
+            b.create_time as backup_create_time,
+            b.backup_segment_group_id::text as backup_segment_group_id,
+            cfg.backup_text
+        from selected_backups b
+        join device d on d.id = b.device_id
+        cross join lateral (
+            select public.mcp_backup_config_text(b.backup_segment_group_id) as backup_text
+        ) cfg
+        where {' and '.join(filters)}
+        order by coalesce(d.description::text, d.address::text, d.id::text), b.create_time desc, b.id desc
+        limit 2000
+    """
+
+    with _connect_unimus_db(config) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            columns = [desc.name for desc in cur.description]
+
+    hosts: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        item = dict(zip(columns, row))
+        text = str(item.get("backup_text") or "")
+        snippets = _make_snippets(text, query_text, case_sensitive, required_terms)
+        if not snippets:
+            continue
+        match_count = _count_config_matches(text, query_text, case_sensitive, required_terms)
+        backup_time_iso = _format_pg_timestamp(item.get("backup_create_time"))
+        device_id = str(item.get("device_id") or "").strip()
+        host = hosts.setdefault(
+            device_id,
+            {
+                "device_id": device_id,
+                "description": str(item.get("description") or "").strip(),
+                "address": str(item.get("address") or "").strip(),
+                "vendor": str(item.get("vendor") or "").strip(),
+                "device_type": str(item.get("device_type") or "").strip(),
+                "model": str(item.get("model") or "").strip(),
+                "latest_backup_time_iso": backup_time_iso,
+                "match_count": 0,
+                "backups": [],
+            },
+        )
+        if backup_time_iso and (not host.get("latest_backup_time_iso") or backup_time_iso > str(host.get("latest_backup_time_iso") or "")):
+            host["latest_backup_time_iso"] = backup_time_iso
+        host["match_count"] += match_count
+        host["backups"].append(
+            {
+                "backup_id": str(item.get("backup_id") or "").strip(),
+                "backup_create_time": _format_pg_timestamp(item.get("backup_create_time")),
+                "backup_create_time_iso": backup_time_iso,
+                "backup_segment_group_id": str(item.get("backup_segment_group_id") or "").strip(),
+                "match_count": match_count,
+                "snippets": snippets,
+            }
+        )
+
+    results = sorted(hosts.values(), key=lambda host: str(host.get("description") or host.get("address") or host.get("device_id") or ""))
+    backup_count = sum(len(host["backups"]) for host in results)
+    return {
+        "query": query_text,
+        "latest_only": latest_only,
+        "source": "postgresql",
+        "active_filters": {
+            "search_text": query_text,
+            "required_texts": required_terms,
+            "scope": "latest" if latest_only else "all",
+            "case_sensitive": case_sensitive,
+            "hostname_prefix": hostname_prefix,
+            "vendor": vendor,
+            "device_type": device_type,
+            "model": model,
+        },
+        "host_count": len(results),
+        "backup_count": backup_count,
+        "results": results,
+    }
+
+
+@router.get("/config-search-options")
+async def get_config_search_options(request: Request):
+    _require_auth(request)
+    try:
+        return await asyncio.to_thread(_config_search_options_sync)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to load Unimus PostgreSQL search options: {exc}")
+
+
+@router.get("/config-search")
+async def search_configs(
+    request: Request,
+    q: str = "",
+    latest_only: str = "1",
+    case_sensitive: str = "0",
+    vendor: str = "",
+    device_type: str = "",
+    model: str = "",
+    hostname_prefix: str = "",
+):
+    _require_auth(request)
+    query_text = str(q or "").strip()
+    required_texts = _normalize_search_terms(
+        list(request.query_params.getlist("requiredTexts"))
+        + list(request.query_params.getlist("required_texts"))
+        + list(request.query_params.getlist("requiredText"))
+        + list(request.query_params.getlist("required_text"))
+    )
+    if len(query_text) < 2 and not required_texts:
+        raise HTTPException(status_code=400, detail="Search text must be at least 2 characters or add a required text filter")
+    try:
+        return await asyncio.to_thread(
+            _config_search_sync,
+            query_text,
+            required_texts,
+            str(latest_only).lower() in {"1", "true", "yes", "on"},
+            str(case_sensitive).lower() in {"1", "true", "yes", "on"},
+            str(vendor or "").strip(),
+            str(device_type or "").strip(),
+            str(model or "").strip(),
+            str(hostname_prefix or "").strip(),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to search Unimus PostgreSQL configs: {exc}")
+
+
 @router.post("/host-backup-now")
-def run_host_backup_now(request: Request, device_id: str = "", address: str = ""):
+async def run_host_backup_now(request: Request, device_id: str = "", address: str = ""):
     _require_auth(request)
     device_id = str(device_id or "").strip()
     address = str(address or "").strip()
@@ -801,22 +1269,16 @@ def run_host_backup_now(request: Request, device_id: str = "", address: str = ""
                 },
             )
 
-        completed_backups = before_backups
-        completed = False
-        refreshed_device = device
-        deadline = time.time() + 45
-        while time.time() < deadline:
-            time.sleep(2)
-            refreshed_device = _get_device(resolved_device_id, config)
-            current_status = str(refreshed_device.get("lastJobStatus") or "").strip()
-            current_backups = _list_device_backups(resolved_device_id, size=100, config=config)
-            if (current_status and current_status != before_status) or (_latest_backup_signature(current_backups) != before_signature):
-                completed_backups = current_backups
-                completed = True
-                break
-        if not completed:
-            completed_backups = _list_device_backups(resolved_device_id, size=100, config=config)
-            refreshed_device = _get_device(resolved_device_id, config)
+        # Run polling asynchronously without blocking thread pool
+        completed_backups, refreshed_device, completed = await asyncio.to_thread(
+            _poll_backup_completion,
+            resolved_device_id,
+            before_status,
+            before_signature,
+            before_backups,
+            config,
+            address,
+        )
 
         connections = _resolve_device_connections(
             config,
