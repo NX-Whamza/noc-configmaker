@@ -33,6 +33,7 @@
         initialized: false,
         copyToastTimer: null,
         requiredTexts: [],
+        missingTexts: [],
         optionValues: { vendors: [], types: [], models: [] },
         pendingPreset: null,
         advancedOpen: false,
@@ -179,6 +180,7 @@
             || String($('unimusConfigModelFilter')?.value || '').trim()
             || String($('unimusConfigPresetSelect')?.value || '').trim()
             || state.requiredTexts.length
+            || state.missingTexts.length
         );
     }
 
@@ -215,6 +217,35 @@
         renderRequiredChips();
     }
 
+    function renderMissingChips() {
+        const wrap = $('unimusConfigMissingChips');
+        if (!wrap) return;
+        wrap.innerHTML = state.missingTexts.map((text) => `
+            <span class="unimus-cs-filter-chip unimus-cs-missing-chip" title="${escapeHtml(text)}">
+                <span>${escapeHtml(text)}</span>
+                <button type="button" aria-label="Remove ${escapeHtml(text)}" data-missing-remove="${escapeHtml(text)}">×</button>
+            </span>
+        `).join('');
+        syncAdvancedVisibility();
+    }
+
+    function addMissingText(raw) {
+        const text = String(raw || '').trim();
+        if (!text) return false;
+        if (state.missingTexts.some((item) => item.toLowerCase() === text.toLowerCase())) return false;
+        state.missingTexts.push(text);
+        const input = $('unimusConfigMissingInput');
+        if (input) input.value = '';
+        renderMissingChips();
+        return true;
+    }
+
+    function removeMissingText(text) {
+        const target = String(text || '').toLowerCase();
+        state.missingTexts = state.missingTexts.filter((item) => item.toLowerCase() !== target);
+        renderMissingChips();
+    }
+
     function applyPreset(presetOrId) {
         const preset = typeof presetOrId === 'string' ? CONFIG_SEARCH_PRESETS.find((item) => item.id === presetOrId) : presetOrId;
         if (!preset) return;
@@ -245,7 +276,10 @@
         $('unimusConfigModelFilter').value = modelValue || '';
         $('unimusConfigCaseSensitive').checked = !!preset.caseSensitive;
         state.requiredTexts = [];
+        state.missingTexts = [];
         (preset.requiredTexts || []).forEach((text) => addRequiredText(text));
+        (preset.missingTexts || []).forEach((text) => addMissingText(text));
+        renderMissingChips();
         setScope(preset.scope || 'latest');
         setAdvancedOpen(true);
     }
@@ -353,6 +387,7 @@
         if (active.model) chips.push(active.model);
         if (active.case_sensitive) chips.push('Case sensitive');
         state.requiredTexts.forEach((text) => chips.push(`Required: ${text}`));
+        state.missingTexts.forEach((text) => chips.push(`Missing: ${text}`));
         wrap.innerHTML = chips.map((chip) => `<span class="unimus-cs-filter-chip">${escapeHtml(chip)}</span>`).join('');
     }
 
@@ -453,13 +488,14 @@
             model: String($('unimusConfigModelFilter')?.value || '').trim(),
             hostname_prefix: String($('unimusConfigHostnamePrefix')?.value || '').trim(),
             required_texts: [...state.requiredTexts],
+            missing_texts: [...state.missingTexts],
         };
     }
 
     async function runSearch() {
         const filters = currentFilters();
-        if (!filters.search_text && !filters.required_texts.length) {
-            setStatus('Enter search text or add at least one required text filter.', 'error');
+        if (!filters.search_text && !filters.required_texts.length && !filters.missing_texts.length) {
+            setStatus('Enter search text, add a required text filter, or add a missing text filter.', 'error');
             return;
         }
         const params = new URLSearchParams({
@@ -476,6 +512,7 @@
             if (value) params.set(key, value);
         });
         filters.required_texts.forEach((text) => params.append('requiredTexts', text));
+        filters.missing_texts.forEach((text) => params.append('missingTexts', text));
 
         const btn = $('unimusConfigSearchButton');
         btn.disabled = true;
@@ -536,10 +573,22 @@
                 addRequiredText(event.target.value);
             }
         });
+        $('unimusConfigMissingAdd')?.addEventListener('click', () => addMissingText($('unimusConfigMissingInput')?.value));
+        $('unimusConfigMissingInput')?.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                addMissingText(event.target.value);
+            }
+        });
         $('unimusConfigRequiredChips')?.addEventListener('click', (event) => {
             const button = event.target.closest('[data-required-remove]');
             if (!button) return;
             removeRequiredText(button.getAttribute('data-required-remove'));
+        });
+        $('unimusConfigMissingChips')?.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-missing-remove]');
+            if (!button) return;
+            removeMissingText(button.getAttribute('data-missing-remove'));
         });
         $('unimusConfigCollapseToggle')?.addEventListener('click', () => {
             const resultCards = [...document.querySelectorAll('#unimusConfigSearchResults .unimus-cs-host-card')];

@@ -20,6 +20,23 @@
         });
     }
 
+    async function apiFetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            return await window.fetch(url, {
+                ...options,
+                headers: {
+                    ...getHeaders(),
+                    ...(options.headers || {}),
+                },
+                signal: controller.signal,
+            });
+        } finally {
+            window.clearTimeout(timeoutId);
+        }
+    }
+
     function escapeHtml(value) {
         return String(value ?? '').replace(/[&<>"']/g, (char) => ({
             '&': '&amp;',
@@ -45,20 +62,6 @@
 
     function $(id) {
         return document.getElementById(id);
-    }
-
-    function getUrlState() {
-        return new URLSearchParams(window.location.search);
-    }
-
-    function syncUrlState(next = {}) {
-        const params = getUrlState();
-        params.set('tab', 'unimus-backup-configs');
-        if (next.address) params.set('address', String(next.address).trim());
-        else params.delete('address');
-        const query = params.toString();
-        const nextUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash || ''}`;
-        window.history.replaceState({}, '', nextUrl);
     }
 
     function isSmallViewport() {
@@ -255,8 +258,10 @@
         }
 
         async function loadSummary() {
+            els.summaryValue.textContent = 'Loading...';
+            els.summaryNote.textContent = 'Checking Unimus remote cores.';
             try {
-                const response = await apiFetch(`${API_BASE}/unimus-backup-configs/summary`);
+                const response = await apiFetchWithTimeout(`${API_BASE}/unimus-backup-configs/summary`, {}, 15000);
                 const payload = await response.json().catch(() => ({}));
                 if (!response.ok) throw new Error(payload.detail || payload.error || `HTTP ${response.status}`);
                 if (payload.configured) {
@@ -268,7 +273,9 @@
                 }
             } catch (error) {
                 els.summaryValue.textContent = 'Unavailable';
-                els.summaryNote.textContent = error.message || 'Unable to load the Unimus integration summary.';
+                els.summaryNote.textContent = error?.name === 'AbortError'
+                    ? 'Timed out while checking Unimus remote cores. Try again or verify Unimus API reachability.'
+                    : (error.message || 'Unable to load the Unimus integration summary.');
             }
         }
 
@@ -448,7 +455,6 @@
                     state.currentDeviceId = '';
                     state.backups = [];
                     state.selectedBackupIds = [];
-                    syncUrlState({ address });
                     setWorkspaceMode('missing');
                     return;
                 }
@@ -461,7 +467,6 @@
                 state.hasMore = !!payload.backups_has_more;
                 state.selectedBackupIds = [];
                 state.backupCache.clear();
-                syncUrlState({ address: state.currentAddress });
                 setWorkspaceMode('workspace');
 
                 const device = payload.device || {};
@@ -699,20 +704,14 @@
             activated = true;
             loadSummary();
             setWorkspaceMode('empty');
-
-            const urlState = getUrlState();
-            const directAddress = String(urlState.get('address') || '').trim();
-            if (directAddress) {
-                els.searchInput.value = directAddress;
-                window.setTimeout(() => loadHost(directAddress), 150);
-            }
         }
 
         window.addEventListener('nexus:unimus-tab-activated', activatePane);
+        window.UnimusBackupConfigsTool = {
+            activate: activatePane,
+        };
 
-        const urlState = getUrlState();
-        const routeTab = String(urlState.get('tab') || '').trim();
-        if (pane.classList.contains('active') || routeTab === 'unimus-backup-configs') {
+        if (pane.classList.contains('active')) {
             activatePane();
         }
     }

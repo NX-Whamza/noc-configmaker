@@ -1046,6 +1046,7 @@ def _config_search_options_sync() -> dict[str, Any]:
 def _config_search_sync(
     query_text: str,
     required_texts: list[str],
+    missing_texts: list[str],
     latest_only: bool,
     case_sensitive: bool,
     vendor: str,
@@ -1056,6 +1057,7 @@ def _config_search_sync(
     config = _require_unimus_db_runtime()
     operator = "like" if case_sensitive else "ilike"
     required_terms = _normalize_search_terms(required_texts)
+    missing_terms = _normalize_search_terms(missing_texts)
     params: list[Any] = []
     filters = ["cfg.backup_text is not null"]
 
@@ -1065,6 +1067,9 @@ def _config_search_sync(
     for required_text in required_terms:
         filters.append(f"cfg.backup_text {operator} %s")
         params.append(f"%{required_text}%")
+    for missing_text in missing_terms:
+        filters.append(f"cfg.backup_text not {operator} %s")
+        params.append(f"%{missing_text}%")
 
     if hostname_prefix:
         filters.append("d.description ilike %s")
@@ -1134,7 +1139,7 @@ def _config_search_sync(
         item = dict(zip(columns, row))
         text = str(item.get("backup_text") or "")
         snippets = _make_snippets(text, query_text, case_sensitive, required_terms)
-        if not snippets:
+        if not snippets and (query_text or required_terms):
             continue
         match_count = _count_config_matches(text, query_text, case_sensitive, required_terms)
         backup_time_iso = _format_pg_timestamp(item.get("backup_create_time"))
@@ -1176,6 +1181,7 @@ def _config_search_sync(
         "active_filters": {
             "search_text": query_text,
             "required_texts": required_terms,
+            "missing_texts": missing_terms,
             "scope": "latest" if latest_only else "all",
             "case_sensitive": case_sensitive,
             "hostname_prefix": hostname_prefix,
@@ -1219,13 +1225,20 @@ async def search_configs(
         + list(request.query_params.getlist("requiredText"))
         + list(request.query_params.getlist("required_text"))
     )
-    if len(query_text) < 2 and not required_texts:
-        raise HTTPException(status_code=400, detail="Search text must be at least 2 characters or add a required text filter")
+    missing_texts = _normalize_search_terms(
+        list(request.query_params.getlist("missingTexts"))
+        + list(request.query_params.getlist("missing_texts"))
+        + list(request.query_params.getlist("missingText"))
+        + list(request.query_params.getlist("missing_text"))
+    )
+    if len(query_text) < 2 and not required_texts and not missing_texts:
+        raise HTTPException(status_code=400, detail="Search text must be at least 2 characters or add a required or missing text filter")
     try:
         return await asyncio.to_thread(
             _config_search_sync,
             query_text,
             required_texts,
+            missing_texts,
             str(latest_only).lower() in {"1", "true", "yes", "on"},
             str(case_sensitive).lower() in {"1", "true", "yes", "on"},
             str(vendor or "").strip(),

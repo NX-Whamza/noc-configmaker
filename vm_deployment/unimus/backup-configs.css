@@ -1717,7 +1717,8 @@
 }
 
 #unimusConfigSearchButton,
-#unimusConfigRequiredAdd {
+#unimusConfigRequiredAdd,
+#unimusConfigMissingAdd {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2023,7 +2024,8 @@
 }
 
 .unimus-cs-shell #unimusConfigSearchButton,
-.unimus-cs-shell #unimusConfigRequiredAdd {
+.unimus-cs-shell #unimusConfigRequiredAdd,
+.unimus-cs-shell #unimusConfigMissingAdd {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -2385,6 +2387,7 @@
 
     .unimus-cs-shell #unimusConfigSearchButton,
     .unimus-cs-shell #unimusConfigRequiredAdd,
+    .unimus-cs-shell #unimusConfigMissingAdd,
     .unimus-cs-shell #unimusConfigCollapseToggle {
         width: 100%;
     }

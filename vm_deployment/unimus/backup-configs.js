@@ -67,20 +67,6 @@
     let initialized = false;
     let activated = false;
 
-    function getUrlState() {
-        return new URLSearchParams(window.location.search);
-    }
-
-    function syncUrlState(next = {}) {
-        const params = getUrlState();
-        params.set('tab', 'unimus-backup-configs');
-        if (next.address) params.set('address', String(next.address).trim());
-        else params.delete('address');
-        const query = params.toString();
-        const nextUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash || ''}`;
-        window.history.replaceState({}, '', nextUrl);
-    }
-
     function createModal() {
         if ($('unimusBcModal')) return $('unimusBcModal');
         const modal = document.createElement('div');
@@ -536,7 +522,6 @@
                     state.backups = [];
                     state.selectedBackupIds = [];
                     state.hostLoading = false;
-                    syncUrlState({ address: cleanAddress });
                     setWorkspaceMode('missing');
                     return;
                 }
@@ -550,7 +535,6 @@
                 state.selectedBackupIds = [];
                 state.backupCache.clear();
                 state.hostLoading = false;
-                syncUrlState({ address: state.currentAddress });
                 setWorkspaceMode('workspace');
 
                 const device = payload.device || {};
@@ -783,18 +767,14 @@
             activated = true;
             loadSummary();
             setWorkspaceMode('empty');
-
-            const directAddress = String(getUrlState().get('address') || '').trim();
-            if (directAddress) {
-                els.searchInput.value = directAddress;
-                window.setTimeout(() => loadHost(directAddress), 150);
-            }
         }
 
         window.addEventListener('nexus:unimus-tab-activated', activatePane);
+        window.UnimusBackupConfigsTool = {
+            activate: activatePane,
+        };
 
-        const routeTab = String(getUrlState().get('tab') || '').trim();
-        if (pane.classList.contains('active') || routeTab === 'unimus-backup-configs') {
+        if (pane.classList.contains('active')) {
             activatePane();
         }
     }

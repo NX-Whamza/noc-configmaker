@@ -14,7 +14,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="unimus/backup-configs.css?v=14">
+    <link rel="stylesheet" href="unimus/backup-configs.css?v=15">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script>
         (function() {
@@ -10322,6 +10322,14 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                                         </div>
                                         <div class="unimus-cs-chip-row" id="unimusConfigRequiredChips"></div>
                                     </div>
+                                    <div class="unimus-bc-field unimus-cs-required-field">
+                                        <label for="unimusConfigMissingInput">Missing text in config</label>
+                                        <div class="unimus-cs-required-row">
+                                            <input type="text" id="unimusConfigMissingInput" placeholder="authentication-key">
+                                            <button type="button" id="unimusConfigMissingAdd">Add</button>
+                                        </div>
+                                        <div class="unimus-cs-chip-row" id="unimusConfigMissingChips"></div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -11907,12 +11915,12 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             const params = new URLSearchParams(window.location.search);
             const normalizedTab = String(tabId || '').trim();
 
-            if (!normalizedTab || normalizedTab === 'home') {
+            if (!normalizedTab || normalizedTab === 'home' || normalizedTab === 'unimus-backup-configs') {
                 params.delete('tab');
                 params.delete('address');
             } else {
                 params.set('tab', normalizedTab);
-                if (normalizedTab !== 'unimus-backup-configs') params.delete('address');
+                params.delete('address');
             }
 
             Object.entries(extras || {}).forEach(([key, value]) => {
@@ -15297,6 +15305,9 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
 
                 if (tabId !== 'device-firmware-updater' && typeof window.setActiveToolLifecycle === 'function') {
                     window.setActiveToolLifecycle(tabId, null);
+                }
+                if (tabId === 'unimus-backup-configs') {
+                    window.dispatchEvent(new CustomEvent('nexus:unimus-tab-activated'));
                 }
             }
 
@@ -20819,7 +20830,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             // Initialize dashboard only when landing on home.
             {
                 const startupTab = (new URLSearchParams(window.location.search).get('tab') || '').trim();
-                if (!startupTab || startupTab === 'home') {
+                if (!startupTab || startupTab === 'home' || startupTab === 'unimus-backup-configs') {
                     updateDashboardMetrics();
                     updateRecentActivity();
                 }
@@ -28306,7 +28317,7 @@ Ready for translation!`);
                 // Initialize dashboard metrics and recent activity only when home is the entry route.
                 setTimeout(() => {
                     const startupTab = (new URLSearchParams(window.location.search).get('tab') || '').trim();
-                    if (startupTab && startupTab !== 'home') return;
+                    if (startupTab && startupTab !== 'home' && startupTab !== 'unimus-backup-configs') return;
                     if (typeof window.updateDashboardMetrics === 'function') {
                         window.updateDashboardMetrics();
                     }
@@ -34238,8 +34249,8 @@ Ready for translation!`);
 
     <script src="cambium-firmware-updater.js"></script>
     <script src="wave-firmware-updater.js"></script>
-    <script src="unimus/backup-configs.js?v=6"></script>
-    <script src="unimus/config-search.js?v=5"></script>
+    <script src="unimus/backup-configs.js?v=7"></script>
+    <script src="unimus/config-search.js?v=6"></script>
     <script>
     (function () {
         if (typeof window.registerToolLifecycle !== 'function') return;
@@ -36582,6 +36593,10 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
         function storeLastRoute(tabId, subtab = null) {
             try {
                 if (!tabId) return;
+                if (tabId === 'unimus-backup-configs') {
+                    localStorage.removeItem(LAST_ROUTE_KEY);
+                    return;
+                }
                 localStorage.setItem(LAST_ROUTE_KEY, JSON.stringify({ tabId, subtab: subtab || null }));
             } catch (e) {
                 // ignore storage errors
@@ -36597,6 +36612,7 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
                 const tabId = typeof parsed.tabId === 'string' ? parsed.tabId.trim() : '';
                 const subtab = typeof parsed.subtab === 'string' ? parsed.subtab.trim() : null;
                 if (!tabId) return null;
+                if (tabId === 'unimus-backup-configs') return null;
                 return getToolRouteDefinition(tabId, subtab) || getToolRouteDefinition(tabId) || null;
             } catch (e) {
                 return null;
@@ -36777,7 +36793,7 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
                 const result = await origNavigateToTab(tabId);
                 const route = getToolRouteDefinition(tabId) || { tabId, subtab: null };
                 updateSidebarActive(route.tabId, route.subtab || null);
-                window.syncAppRouteUrl && window.syncAppRouteUrl(route.tabId === 'unimus-backup-configs' ? route.tabId : 'home');
+                window.syncAppRouteUrl && window.syncAppRouteUrl('home');
                 if (route.tabId === 'ftth-home' || route.tabId === 'command-vault' || route.tabId === 'device-firmware-updater') {
                     storeLastRoute(route.tabId, route.subtab || null);
                 } else if (route.tabId) {
@@ -36830,10 +36846,11 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
             const urlParams = new URLSearchParams(window.location.search);
             const urlTab = (urlParams.get('tab') || '').trim();
             if (urlTab === 'unimus-backup-configs') {
-                navigateToToolRoute(TOOL_ROUTE_DEFINITIONS['unimus-backup-configs']);
-                updateSidebarActive('unimus-backup-configs');
-                storeLastRoute('unimus-backup-configs');
-                return;
+                urlParams.delete('tab');
+                urlParams.delete('address');
+                const query = urlParams.toString();
+                const nextUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash || ''}`;
+                window.history.replaceState({}, '', nextUrl);
             }
             const storedRoute = getStoredRoute();
             if (storedRoute) {
