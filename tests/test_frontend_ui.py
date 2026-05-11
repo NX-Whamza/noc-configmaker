@@ -50,7 +50,7 @@ def test_ftth_speed_controls_and_backend_payload_hooks_exist():
         'Missing FTTH uplink auto-negotiation payload mapping in nexus.html'
     assert "speed: speedSelect.value" in content, 'Missing FTTH OLT speed payload mapping in nexus.html'
     assert 'BGP Peer Configuration' in content, 'Missing FTTH BGP peer display section in nexus.html'
-    assert "fetch(`${apiBase}/tenant/defaults`)" in content, 'Missing tenant-defaults bootstrap fetch in nexus.html'
+    assert "fetchNexusDiscoveryJson('/tenant/defaults', '/tenant/defaults'" in content, 'Missing tenant-defaults bootstrap fetch in nexus.html'
     assert 'getTenantRouteReflectorPeers' in content, 'Missing tenant route-reflector peer helper in nexus.html'
     assert 'getTenantDefaultAsn' in content, 'Missing tenant ASN helper in nexus.html'
     assert "const targetUrl = `${apiBase.replace(/\\/+$/, '')}/preview-ftth-bng`;" in content, \
@@ -205,9 +205,10 @@ def test_command_vault_and_maintenance_tabs_use_backend_contracts():
     assert 'id="nokiaVault7750Grid"' in content, 'Missing Nokia Command Vault backend target grid in nexus.html'
     assert 'id="ciscoVaultGrid"' in content, 'Missing Cisco Command Vault backend target grid in nexus.html'
     assert 'id="mikrotikVaultGrid"' in content, 'Missing MikroTik Command Vault backend target grid in nexus.html'
-    assert "fetch(`${apiBase}/maintenance/windows?status=all&limit=250`)" in content, 'Scheduled Maintenance should load from the backend endpoint'
+    assert "maintenance/windows?status=all&limit=250" in content, 'Scheduled Maintenance should load from the backend endpoint'
+    assert "headers: getSessionAuthHeaders()" in content, 'Scheduled Maintenance should send auth headers on backend loads'
     assert "const MAINT_KEY = 'nexus_maintenance_windows_cache';" in content, 'Scheduled Maintenance should use the NEXUS cache key'
-    assert "fetch(`${apiBase}/tenant/defaults`)" in content, 'Shared tools should hydrate tenant defaults from backend discovery'
+    assert "fetchNexusDiscoveryJson('/tenant/defaults', '/tenant/defaults'" in content, 'Shared tools should hydrate tenant defaults from backend discovery'
 
 
 def test_frontend_copy_is_tenant_neutral_for_shared_tools():
@@ -261,8 +262,10 @@ def test_device_firmware_updater_wraps_aviat_and_cambium():
     assert "cambiumFetch('/queue'" in cambium_js, 'Cambium updater should queue Cambium radios through the backend'
     assert "cambiumFetch('/run'" in cambium_js, 'Cambium updater should start Cambium runs through the backend'
     assert "cambiumFetch(`/status/${taskId}`)" in cambium_js, 'Cambium updater should poll Cambium task status'
-    assert "new EventSource(getCambiumStreamUrl(`/stream/${encodeURIComponent(taskId)}`))" in cambium_js, 'Cambium updater should open per-task Cambium SSE streams via getCambiumStreamUrl'
-    assert "new EventSource(getCambiumStreamUrl('/stream/global'))" in cambium_js, 'Cambium updater should open the Cambium global SSE stream via getCambiumStreamUrl'
+    assert "function openCambiumStream(path)" in cambium_js, 'Cambium updater should expose a fetch-based SSE helper'
+    assert "cambiumFetch(path, {" in cambium_js, 'Cambium updater should stream through the authenticated fetch wrapper'
+    assert "eventSource = openCambiumStream('/stream/global');" in cambium_js, 'Cambium updater should open the Cambium global stream through openCambiumStream'
+    assert "eventSource = openCambiumStream(`/stream/${encodeURIComponent(taskId)}`);" in cambium_js, 'Cambium updater should open per-task Cambium streams through openCambiumStream'
     assert "cambiumFetch('/check-status'" not in cambium_js, 'Cambium updater should not call the removed check-status endpoint'
     assert "cambiumFetch(`/abort/${encodeURIComponent(cambiumState.taskId)}`" in cambium_js, 'Cambium updater should request abort through the Cambium backend'
     assert "requested_by: cambiumGetUsername()" in cambium_js, 'Cambium updater should send the operator as requested_by, not as the radio login username'

@@ -36,6 +36,7 @@ Recommended environment configuration:
 - `GET https://nexus.nxlink.com/api/v2/omni/actions` -> available action IDs
 - `GET https://nexus.nxlink.com/api/v2/omni/bootstrap` -> integration contract metadata
 - `GET https://nexus.nxlink.com/api/v2/omni/workflows` -> workflow to action mapping
+- `GET https://nexus.nxlink.com/api/v2/omni/tenant/defaults` -> tenant bootstrap defaults for UI/API clients
 - `POST https://nexus.nxlink.com/api/v2/omni/jobs` -> submit async job
 - `GET https://nexus.nxlink.com/api/v2/omni/jobs` -> list jobs
 - `GET https://nexus.nxlink.com/api/v2/omni/jobs/{job_id}` -> job detail
@@ -66,6 +67,12 @@ Error responses use FastAPI detail shape:
   "detail": "Missing API key"
 }
 ```
+
+## Tenant Bootstrap
+
+OMNI-native clients should bootstrap tenant-scoped defaults from `GET /api/v2/omni/tenant/defaults` before rendering config forms.
+
+Use explicit payload values first, then tenant defaults, and avoid assuming provider-specific fallback values in the UI.
 
 ## Endpoint request/response contract
 

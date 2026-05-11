@@ -14,9 +14,19 @@ sys.path.insert(0, str(repo_root / "vm_deployment"))
 
 from fastapi_server import app  # noqa: E402
 import fastapi_server as fastapi_server_module  # noqa: E402
+import api_server as _api_server  # noqa: E402
 
 
 client = TestClient(app)
+
+
+def _admin_email() -> str:
+    return os.getenv("PLATFORM_ADMIN_EMAILS", "whamza@team.nxlink.com").split(",")[0].strip()
+
+
+def _fastapi_auth_headers() -> dict[str, str]:
+    token = _api_server.generate_token(999002, _admin_email())
+    return {"Authorization": f"Bearer {token}"}
 
 
 class _FakeResponse:
@@ -34,7 +44,7 @@ class _FakeResponse:
 
 
 def test_ido_capabilities_reports_inprocess_backend():
-    resp = client.get("/api/ido/capabilities")
+    resp = client.get("/api/ido/capabilities", headers=_fastapi_auth_headers())
     assert resp.status_code == 200
     assert resp.headers["x-request-id"]
     body = resp.json()
@@ -42,6 +52,11 @@ def test_ido_capabilities_reports_inprocess_backend():
     assert body["backend_url"] == "inprocess://ido-local"
     assert body["backend_health"]["ok"] is True
     assert body["backend_health"]["missing_required_modules"] == []
+
+
+def test_ido_capabilities_requires_auth():
+    resp = client.get("/api/ido/capabilities")
+    assert resp.status_code == 401
 
 
 def test_ido_proxy_forwards_ap_standard_query_with_device_fields(monkeypatch):
@@ -70,6 +85,7 @@ def test_ido_proxy_forwards_ap_standard_query_with_device_fields(monkeypatch):
             "latitude": "32.100000",
             "longitude": "-97.100000",
         },
+        headers=_fastapi_auth_headers(),
     )
 
     assert resp.status_code == 200
@@ -103,7 +119,7 @@ def test_ido_proxy_forwards_post_configure_payload(monkeypatch):
         "ap_count": "6",
         "ap_voltage": "48V",
     }
-    resp = client.post("/api/ido/proxy/api/swt/configure", json=payload)
+    resp = client.post("/api/ido/proxy/api/swt/configure", json=payload, headers=_fastapi_auth_headers())
 
     assert resp.status_code == 200
     assert captured["url"] == "http://ido-backend.local/api/swt/configure"
@@ -115,7 +131,11 @@ def test_ido_proxy_forwards_post_configure_payload(monkeypatch):
 def test_ido_proxy_rejects_configure_when_backend_missing(monkeypatch):
     monkeypatch.setattr(fastapi_server_module, "_ido_backend_url", lambda: "")
     monkeypatch.setattr(fastapi_server_module, "_ido_inprocess_module", lambda: None)
-    resp = client.post("/api/ido/proxy/api/ap/configure", json={"device_type": "CNEP3K"})
+    resp = client.post(
+        "/api/ido/proxy/api/ap/configure",
+        json={"device_type": "CNEP3K"},
+        headers=_fastapi_auth_headers(),
+    )
     assert resp.status_code == 503
     assert "Embedded fallback supports only /api/ping and /api/generic/device_info" in resp.json()["detail"]
 

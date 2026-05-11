@@ -639,6 +639,13 @@
         .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 20px; border: none; border-radius: var(--radius-sm); cursor: pointer; font-size: 13px; font-weight: 600; font-family: inherit; transition: all var(--transition-fast); box-shadow: var(--shadow-sm); position: relative; overflow: hidden; }
         .btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--shadow-md); }
         .btn:active:not(:disabled) { transform: translateY(0); }
+        .mt-site-suggest { position:absolute; z-index:25; top:calc(100% + 4px); left:0; right:0; display:none; max-height:280px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-sm); background:var(--card-bg); box-shadow:var(--shadow-md); }
+        .mt-site-suggest.is-open { display:block; }
+        .mt-site-suggest-item { padding:10px 14px; border-bottom:1px solid var(--border-color); cursor:pointer; }
+        .mt-site-suggest-item:last-child { border-bottom:0; }
+        .mt-site-suggest-item:hover, .mt-site-suggest-item.active { background:var(--hover-bg, rgba(255,255,255,0.06)); }
+        .mt-site-suggest-primary { color:var(--text-color); font-weight:600; font-size:13px; }
+        .mt-site-suggest-secondary { color:var(--text-muted, var(--text-color-secondary, #888)); font-size:11px; margin-top:2px; }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
         .btn-primary { background: var(--button-primary); color: #fff; }
         .btn-primary:hover:not(:disabled) { background: var(--button-hover); }
@@ -5447,9 +5454,10 @@
                         </div>
 
                         <div class="device-selection-grid">
-                            <div>
+                            <div style="position:relative">
                                 <label for="mtSiteName">Site Name</label>
-                                <input type="text" id="mtSiteName" placeholder="HALLETTSVILLE-NW-1">
+                                <input type="text" id="mtSiteName" placeholder="Search site name…" autocomplete="off" style="width:100%">
+                                <div id="mtSiteSuggest" class="mt-site-suggest"></div>
                             </div>
                             <div>
                                 <label for="mtRouterIdentity">Router Identity (Auto-generated)</label>
@@ -8623,8 +8631,11 @@
                                 <h2 style="color: var(--text-color); margin-top: 0; font-size: 16px;">System Information</h2>
                                 <div class="form-group">
                                     <label for="nokia7250_siteSuffix">Site Name</label>
-                                    <input type="text" id="nokia7250_siteSuffix" placeholder="TX-DRIPPINGSPRINGS-CN-1" oninput="syncNokia7250SystemName(true)"
-                                        style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
+                                    <div style="position:relative">
+                                        <input type="text" id="nokia7250_siteSuffix" placeholder="Search site name…" oninput="syncNokia7250SystemName(true)" autocomplete="off"
+                                            style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); color:var(--text-color);">
+                                        <div id="nokia7250SiteSuggest" class="mt-site-suggest"></div>
+                                    </div>
                                     <div style="margin-top: 4px; font-size: 11px; color: var(--text-color-secondary);">Typing the short site name auto-fills the full Nokia system name as <code>RTR-NK7250-AR1.&lt;SITE-NAME&gt;</code>.</div>
                                 </div>
                                 <div class="form-group">
@@ -11783,34 +11794,85 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
 
     <!-- Tenant Constants - Inlined -->
     <script>
-        // Tenant configuration constants (inlined from nextlink_constants.js)
+        // Bundled infrastructure defaults used only when runtime tenant data is absent.
         const NEXTLINK_INFRASTRUCTURE = {
             dnsServers: {
                 primary: '1.1.1.1',
                 secondary: '8.8.8.8',
                 getList: function () { return `${this.primary},${this.secondary}`; }
             },
-            syslogServer: '142.147.116.215',
+            syslogServer: '',
             ntpServers: {
-                default: ['52.128.59.240', '52.128.59.241'],
+                default: ['pool.ntp.org', 'time.google.com'],
                 custom: ''
             },
             radiusServers: { dhcp: [], login: [] },
             backup: { enabled: false, ftpHost: '', ftpUser: '', ftpPassword: '', ftpPath: 'backups' },
             emailAlerts: { enabled: false, recipient: '', from: '' },
             mpls: { vplsPeer: '10.254.247.3', vplsStaticId: 2245 },
-            snmp: { community: 'CHANGE_ME', trapCommunity: 'CHANGE_ME', contact: 'netops@team.nxlink.com' },
+            snmp: { community: 'CHANGE_ME', trapCommunity: 'CHANGE_ME', contact: 'noc@example.com' },
             sharedKeys: { ospfBgpMd5: '', default: 'CHANGE_ME' }
         };
 
-        // Helper functions for constants access
-        function getDnsServers() { return NEXTLINK_INFRASTRUCTURE.dnsServers; }
-        function getSyslogServer() { return NEXTLINK_INFRASTRUCTURE.syslogServer; }
-        function getNtpServers() { return NEXTLINK_INFRASTRUCTURE.ntpServers; }
         window.__tenantDefaults = null;
-
-        // Tenant infrastructure values loaded from /api/infrastructure
         window._tenantInfra = {};
+
+        function buildRuntimeInfrastructureConfig() {
+            const fallbackDefaults = NEXTLINK_INFRASTRUCTURE || {};
+            const tenantDefaults = window.__tenantDefaults || {};
+            const tenantServices = tenantDefaults.services || {};
+            const tenantSnmp = tenantDefaults.snmp || {};
+            const tenantSecurity = tenantDefaults.security || {};
+            const tenantDns = Array.isArray(tenantServices.dns_servers) ? tenantServices.dns_servers.filter(Boolean) : [];
+            const tenantNtp = Array.isArray(tenantServices.ntp_servers) ? tenantServices.ntp_servers.filter(Boolean) : [];
+            const runtimeOverrides = window._tenantInfra || {};
+            const runtimeSnmp = runtimeOverrides.snmp || {};
+            const runtimeRadius = runtimeOverrides.radiusServers || {};
+            const defaultDnsPrimary = tenantDns[0] || fallbackDefaults?.dnsServers?.primary || '';
+            const defaultDnsSecondary = tenantDns[1] || fallbackDefaults?.dnsServers?.secondary || '';
+
+            return {
+                ...fallbackDefaults,
+                ...runtimeOverrides,
+                dnsServers: {
+                    ...(fallbackDefaults.dnsServers || {}),
+                    ...(runtimeOverrides.dnsServers || {}),
+                    primary: defaultDnsPrimary,
+                    secondary: defaultDnsSecondary,
+                    getList: function () {
+                        return [this.primary, this.secondary].filter(Boolean).join(',');
+                    },
+                },
+                ntpServers: {
+                    ...(fallbackDefaults.ntpServers || {}),
+                    ...(runtimeOverrides.ntpServers || {}),
+                    default: tenantNtp.length ? tenantNtp : ((runtimeOverrides.ntpServers || {}).default || (fallbackDefaults.ntpServers || {}).default || []),
+                },
+                snmp: {
+                    ...(fallbackDefaults.snmp || {}),
+                    ...(runtimeOverrides.snmp || {}),
+                    contact: runtimeSnmp.contact || tenantSnmp.contact || (fallbackDefaults.snmp || {}).contact || '',
+                    community: runtimeSnmp.community || tenantSnmp.community || (fallbackDefaults.snmp || {}).community || '',
+                },
+                sharedKeys: {
+                    ...(fallbackDefaults.sharedKeys || {}),
+                    ...(runtimeOverrides.sharedKeys || {}),
+                    ospfBgpMd5: (runtimeOverrides.sharedKeys || {}).ospfBgpMd5 || tenantSecurity.shared_key || (fallbackDefaults.sharedKeys || {}).ospfBgpMd5 || '',
+                },
+                syslogServer: runtimeOverrides.syslogServer || tenantServices.syslog_server || fallbackDefaults.syslogServer || '',
+                radiusServers: {
+                    ...(fallbackDefaults.radiusServers || {}),
+                    ...(runtimeOverrides.radiusServers || {}),
+                    dhcp: Array.isArray(runtimeRadius.dhcp) ? runtimeRadius.dhcp : ((fallbackDefaults.radiusServers || {}).dhcp || []),
+                    login: Array.isArray(runtimeRadius.login) ? runtimeRadius.login : ((fallbackDefaults.radiusServers || {}).login || []),
+                },
+            };
+        }
+
+        // Helper functions for runtime infrastructure access
+        function getDnsServers() { return buildRuntimeInfrastructureConfig().dnsServers; }
+        function getSyslogServer() { return buildRuntimeInfrastructureConfig().syslogServer; }
+        function getNtpServers() { return buildRuntimeInfrastructureConfig().ntpServers; }
 
         // Update FIELD_CONFIG_REGION_OPTIONS from tenant CNM URL list
         function applyCambiumCnmUrls(cnmUrls) {
@@ -11831,7 +11893,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             }
         }
 
-        console.log('Tenant default constants loaded (inlined)');
+        console.log('Bundled infrastructure defaults loaded');
     </script>
     <script>
         // ========================================
@@ -12200,9 +12262,9 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
         // These functions provide safe access to infrastructure settings with fallbacks
         function getInfrastructureValue(path, fallback = '') {
             try {
-                if (typeof NEXTLINK_INFRASTRUCTURE === 'undefined') return fallback;
+                const source = buildRuntimeInfrastructureConfig();
                 const keys = path.split('.');
-                let value = NEXTLINK_INFRASTRUCTURE;
+                let value = source;
                 for (const key of keys) {
                     if (value && typeof value === 'object' && key in value) {
                         value = value[key];
@@ -12315,10 +12377,10 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
         }
 
         function getNTPServer() {
-            // Always return default NTP servers, plus custom if configured
-            const defaults = ['52.128.59.240', '52.128.59.241'];
+            // Return tenant/runtime defaults, plus any configured custom override.
+            const defaults = getInfrastructureValue('ntpServers.default', ['pool.ntp.org', 'time.google.com']);
             const custom = getInfrastructureValue('ntpServers.custom', '');
-            return { defaults: defaults, custom: custom };
+            return { defaults: Array.isArray(defaults) ? defaults : ['pool.ntp.org', 'time.google.com'], custom: custom };
         }
 
         // Get current time in CST/CDT (America/Chicago timezone) as ISO string
@@ -12619,6 +12681,66 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
         }
         window.extractTicketNum = extractTicketNum;
 
+        function escapeInlineHtml(value) {
+            return String(value == null ? '' : value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function sanitizeNavigableUrl(url) {
+            if (!url) return '';
+            try {
+                const parsed = new URL(String(url).trim(), window.location.origin);
+                return ['http:', 'https:'].includes(parsed.protocol) ? parsed.toString() : '';
+            } catch {
+                return '';
+            }
+        }
+
+        function sanitizeBrandingAssetUrl(url) {
+            return sanitizeNavigableUrl(url);
+        }
+
+        function setSidebarBrandLabel(brandName) {
+            const logoText = document.querySelector('.sidebar-logo-text');
+            if (!logoText) return;
+            logoText.textContent = '';
+            logoText.appendChild(document.createTextNode(brandName));
+            const sub = document.createElement('span');
+            sub.className = 'sub';
+            sub.textContent = 'Unified Network Operations Platform';
+            logoText.appendChild(sub);
+        }
+
+        function setSidebarLogoImage(logoUrl) {
+            const logoIcon = document.querySelector('.sidebar-logo-icon');
+            if (!logoIcon) return;
+            logoIcon.textContent = '';
+            const img = document.createElement('img');
+            img.src = logoUrl;
+            img.alt = 'logo';
+            img.style.width = '28px';
+            img.style.height = '28px';
+            img.style.objectFit = 'contain';
+            img.style.borderRadius = '4px';
+            img.addEventListener('error', function () {
+                this.remove();
+            });
+            logoIcon.appendChild(img);
+        }
+
+        function getTicketLinkParts(ticketUrl, ticketNum) {
+            const href = sanitizeNavigableUrl(ticketUrl);
+            const labelSource = ticketNum || (ticketUrl ? extractTicketNum(ticketUrl) : '');
+            return {
+                href,
+                label: String(labelSource || '').trim()
+            };
+        }
+
         function getRADIUSDHCPServers() {
             const servers = getInfrastructureValue('radiusServers.dhcp', []);
             return Array.isArray(servers) ? servers : [];
@@ -12741,8 +12863,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
 
         // Get Speed Syntax based on RouterOS version
         function getSpeedSyntax(routerOSVersion, port) {
-            // Frontend standard for 7.19.4+ is always new syntax.
-            return '1G-baseT-full';
+            return getRouterOSVersionType(routerOSVersion) === 'classic' ? '1G-full' : '1G-baseT-full';
         }
 
         // ========================================
@@ -12910,29 +13031,48 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
         function handleEnterpriseFeedingDeviceChange() {
             const deviceSelect = document.getElementById('ent_feeding_device');
             const portSelect = document.getElementById('ent_feeding_port');
+            const routerOSSelect = document.getElementById('ent_feeding_routeros');
 
             if (!deviceSelect || !portSelect) return;
 
-            const selectedDevice = deviceSelect.value || 'ccr2004';
-            const deviceConfig = getDeviceConfig(selectedDevice, 'ccr2004');
+            const selectedDevice = deviceSelect.value;
+            if (!selectedDevice) {
+                portSelect.innerHTML = '<option value="">Select Port (Choose Device First)</option>';
+                if (routerOSSelect) routerOSSelect.innerHTML = '<option value="">Select RouterOS Version</option>';
+                return;
+            }
+
+            const deviceConfig = (typeof DEVICE_CONFIGS !== 'undefined' && DEVICE_CONFIGS[selectedDevice]) || null;
 
             if (!deviceConfig) {
                 portSelect.innerHTML = '<option value="">Select Port (Choose Device First)</option>';
                 return;
             }
 
-            // Clear existing options
+            // Populate ports
             portSelect.innerHTML = '<option value="">Select Port</option>';
-
-            // Add all available ports (ethernet + SFP)
             const allPorts = [...deviceConfig.ports, ...deviceConfig.sfpPorts];
-
             allPorts.forEach(port => {
                 const option = document.createElement('option');
                 option.value = port;
                 option.textContent = `${port} (${deviceConfig.name})`;
                 portSelect.appendChild(option);
             });
+
+            // Populate RouterOS versions based on what this device supports
+            if (routerOSSelect) {
+                const supportsROS6 = Array.isArray(deviceConfig.routerOS) && deviceConfig.routerOS.includes('6.x');
+                const supportsROS7 = !Array.isArray(deviceConfig.routerOS) || deviceConfig.routerOS.includes('7.x');
+                routerOSSelect.innerHTML = '<option value="">Select RouterOS Version</option>';
+                if (supportsROS7) {
+                    routerOSSelect.innerHTML += '<option value="7.19.4">7.19.4 (Minimum Supported)</option>';
+                }
+                if (supportsROS6) {
+                    routerOSSelect.innerHTML += '<option value="6.49.17">6.49.17 (Long-Term)</option>';
+                    routerOSSelect.innerHTML += '<option value="6.49.13">6.49.13</option>';
+                }
+                handleEnterpriseFeedingRouterOSChange();
+            }
         }
 
         // Enterprise Feeding RouterOS Version Handler
@@ -12947,19 +13087,31 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 return;
             }
 
-            // Clear existing options
+            const versionType = getRouterOSVersionType(selectedVersion);
             speedSelect.innerHTML = '<option value="auto">Auto Negotiation</option>';
-            speedSelect.innerHTML += `
-                <option value="1G-baseT-full">1G-baseT-full</option>
-                <option value="1G-baseSX-full">1G-baseSX-full</option>
-                <option value="1G-baseLX-full">1G-baseLX-full</option>
-                <option value="10G-baseSR-full">10G-baseSR-full</option>
-                <option value="10G-baseLR-full">10G-baseLR-full</option>
-                <option value="10G-baseSR-LR">10G-baseSR-LR</option>
-                <option value="10G-baseT-full">10G-baseT-full</option>
-                <option value="25G-baseCR">25G-baseCR</option>
-            `;
-            console.log(`RouterOS ${selectedVersion} - Using 7.19.4+ speed syntax`);
+
+            if (versionType === 'classic') {
+                // ROS6 speed values
+                speedSelect.innerHTML += `
+                    <option value="1G-full">1G-full (1 Gbps full-duplex)</option>
+                    <option value="100M-full">100M-full (100 Mbps full-duplex)</option>
+                    <option value="10M-full">10M-full (10 Mbps full-duplex)</option>
+                `;
+                console.log(`RouterOS ${selectedVersion} - Using ROS6 speed syntax`);
+            } else {
+                // ROS7 speed values
+                speedSelect.innerHTML += `
+                    <option value="1G-baseT-full">1G-baseT-full</option>
+                    <option value="1G-baseSX-full">1G-baseSX-full</option>
+                    <option value="1G-baseLX-full">1G-baseLX-full</option>
+                    <option value="10G-baseSR-full">10G-baseSR-full</option>
+                    <option value="10G-baseLR-full">10G-baseLR-full</option>
+                    <option value="10G-baseSR-LR">10G-baseSR-LR</option>
+                    <option value="10G-baseT-full">10G-baseT-full</option>
+                    <option value="25G-baseCR">25G-baseCR</option>
+                `;
+                console.log(`RouterOS ${selectedVersion} - Using ROS7 speed syntax`);
+            }
         }
 
         // Enterprise Config Device Selection Handler
@@ -14828,22 +14980,17 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 // This improves consistency (e.g., RADIUS secret) without forcing humans to type secrets into the UI.
                 (async function loadInfraFromBackend() {
                     try {
-                        const apiBase = (typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api';
-                        const tenantResp = await fetch(`${apiBase}/tenant/defaults`);
-                        if (tenantResp.ok) {
-                            window.__tenantDefaults = await tenantResp.json();
-                            applyTenantDefaultsToFormFields();
-                        }
+                        window.__tenantDefaults = await fetchNexusDiscoveryJson('/tenant/defaults', '/tenant/defaults', {
+                            headers: getSessionAuthHeaders()
+                        });
+                        applyTenantDefaultsToFormFields();
                     } catch (e) {
                         // Non-fatal: UI will fall back to local defaults.
                     }
                     try {
-                        const token = localStorage.getItem('auth_token');
-                        if (!token) return;
-                        const apiBase = (typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api';
-                        const r = await fetch(`${apiBase}/infrastructure`, { headers: { 'Authorization': `Bearer ${token}` } });
-                        if (!r.ok) return;
-                        const data = await r.json();
+                        const data = await fetchNexusDiscoveryJson('/infrastructure', '/infrastructure', {
+                            headers: getSessionAuthHeaders()
+                        });
 
                         const dns = data?.dns_servers;
                         if (dns?.primary && dns?.secondary) {
@@ -14853,10 +15000,9 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                             setIfDefault('sharedKey', data.shared_key);
                         }
                         if (data?.snmp?.contact) {
-                            // Keep NEXTLINK_INFRASTRUCTURE in sync so other generators can read it.
-                            if (typeof NEXTLINK_INFRASTRUCTURE !== 'undefined' && NEXTLINK_INFRASTRUCTURE?.snmp) {
-                                NEXTLINK_INFRASTRUCTURE.snmp.contact = data.snmp.contact;
-                            }
+                            window._tenantInfra = window._tenantInfra || {};
+                            window._tenantInfra.snmp = window._tenantInfra.snmp || {};
+                            window._tenantInfra.snmp.contact = data.snmp.contact;
                         }
 
                         const radiusSecret = data?.radius?.secret;
@@ -14864,10 +15010,10 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                         const loginServers = Array.isArray(data?.radius?.login_servers) ? data.radius.login_servers : [];
                         if (radiusSecret) {
                             setIfDefault('dhcpSecret', radiusSecret);
-                            if (typeof NEXTLINK_INFRASTRUCTURE !== 'undefined' && NEXTLINK_INFRASTRUCTURE?.radiusServers) {
-                                NEXTLINK_INFRASTRUCTURE.radiusServers.dhcp = dhcpServers.map(a => ({ address: a, secret: radiusSecret }));
-                                NEXTLINK_INFRASTRUCTURE.radiusServers.login = loginServers.map(a => ({ address: a, secret: radiusSecret, comment: 'RADIUS' }));
-                            }
+                            window._tenantInfra = window._tenantInfra || {};
+                            window._tenantInfra.radiusServers = window._tenantInfra.radiusServers || {};
+                            window._tenantInfra.radiusServers.dhcp = dhcpServers.map(a => ({ address: a, secret: radiusSecret }));
+                            window._tenantInfra.radiusServers.login = loginServers.map(a => ({ address: a, secret: radiusSecret, comment: 'RADIUS' }));
                         }
 
                         // Store new infrastructure values globally for generator use
@@ -23521,9 +23667,18 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     config += `\n`;
                 }
 
-                // OSPF Interface Template
-                config += `/routing ospf interface-template\n`;
-                config += `add area=backbone-v2 auth-id=1 comment="${label}" cost=10 disabled=no networks=${backhaulNetworkCidr} priority=1\n`;
+                // OSPF configuration — syntax differs between ROS6 and ROS7
+                if (versionType === 'classic') {
+                    // ROS6 syntax: separate interface and network entries
+                    config += `/routing ospf interface\n`;
+                    config += `add area=backbone interface=${port} network-type=ptmp\n\n`;
+                    config += `/routing ospf network\n`;
+                    config += `add area=backbone network=${backhaulNetworkCidr}\n`;
+                } else {
+                    // ROS7 syntax: unified interface-template
+                    config += `/routing ospf interface-template\n`;
+                    config += `add area=backbone-v2 auth-id=1 comment="${label}" cost=10 disabled=no networks=${backhaulNetworkCidr} priority=1\n`;
+                }
 
                 // Display config immediately
                 const warnBox = document.getElementById('ent_feeding_warn');
@@ -24046,15 +24201,13 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
         // Fetch dynamic config from backend
         (async function fetchAppConfig() {
             try {
-                const apiBase = (typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api';
-                const response = await fetch(`${apiBase}/app-config`);
-                if (response.ok) {
-                    const config = await response.json();
-                    window.APP_CONFIG = { ...window.APP_CONFIG, ...config };
-                    console.log('[CONFIG] Loaded dynamic app config:', window.APP_CONFIG);
-                    if (config.ftth_template_hash) {
-                        console.log('[FTTH] Template hash:', config.ftth_template_hash);
-                    }
+                const config = await fetchNexusDiscoveryJson('/app-config', '/app-config', {
+                    headers: getSessionAuthHeaders()
+                });
+                window.APP_CONFIG = { ...window.APP_CONFIG, ...config };
+                console.log('[CONFIG] Loaded dynamic app config:', window.APP_CONFIG);
+                if (config.ftth_template_hash) {
+                    console.log('[FTTH] Template hash:', config.ftth_template_hash);
                 }
             } catch (e) {
                 console.warn('[CONFIG] Failed to load app config, using defaults:', e);
@@ -27021,27 +27174,21 @@ Ready for translation!`);
             const brandName = (tenantSettings.brand_name || '').trim();
             if (brandName) {
                 document.title = brandName;
-                const logoText = document.querySelector('.sidebar-logo-text');
-                if (logoText) {
-                    logoText.innerHTML = `${brandName}<span class="sub">Unified Network Operations Platform</span>`;
-                }
+                setSidebarBrandLabel(brandName);
                 const logoIcon = document.querySelector('.sidebar-logo-icon');
                 if (logoIcon) {
                     logoIcon.textContent = brandName.slice(0, 2).toUpperCase();
                 }
             }
-            const logoUrl = (tenantSettings.logo_url || '').trim();
+            const logoUrl = sanitizeBrandingAssetUrl((tenantSettings.logo_url || '').trim());
             if (logoUrl) {
-                const logoIcon = document.querySelector('.sidebar-logo-icon');
-                if (logoIcon) {
-                    logoIcon.innerHTML = `<img src="${logoUrl.replace(/"/g, '').replace(/'/g, '')}" alt="logo" style="width:28px; height:28px; object-fit:contain; border-radius:4px;" onerror="this.style.display='none'" />`;
-                }
+                setSidebarLogoImage(logoUrl);
             }
-            const faviconUrl = (tenantSettings.favicon_url || '').trim();
+            const faviconUrl = sanitizeBrandingAssetUrl((tenantSettings.favicon_url || '').trim());
             if (faviconUrl) {
                 let link = document.querySelector("link[rel~='icon']");
                 if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link); }
-                link.href = faviconUrl.replace(/"/g, '').replace(/'/g, '');
+                link.href = faviconUrl;
             }
         }
 
@@ -27984,14 +28131,16 @@ Ready for translation!`);
                 document.documentElement.style.setProperty('--primary-color', branding.primary_color);
                 document.documentElement.style.setProperty('--accent-color', branding.primary_color);
             }
-            if (branding.logo_url) {
+            const safeLogoUrl = sanitizeBrandingAssetUrl(branding.logo_url);
+            if (safeLogoUrl) {
                 const logo = document.getElementById('appLogo');
-                if (logo) logo.src = branding.logo_url;
+                if (logo) logo.src = safeLogoUrl;
             }
-            if (branding.favicon_url) {
+            const safeFaviconUrl = sanitizeBrandingAssetUrl(branding.favicon_url);
+            if (safeFaviconUrl) {
                 let link = document.querySelector("link[rel~='icon']");
                 if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link); }
-                link.href = branding.favicon_url;
+                link.href = safeFaviconUrl;
             }
             if (branding.company_name) {
                 document.title = branding.company_name + ' — Config Maker';
@@ -29102,8 +29251,13 @@ Ready for translation!`);
                           // Build ticket column: show ticket # as clickable hyperlink
                           let ticketHTML = '';
                           if (activity.ticketUrl) {
-                              const tNum = extractTicketNum(activity.ticketUrl);
-                              ticketHTML = `<a href="${sanitizeActivityText(activity.ticketUrl)}" target="_blank" rel="noopener" style="color:#58a6ff;text-decoration:none;font-weight:600" title="Open ticket">#${sanitizeActivityText(tNum)}</a>`;
+                              const ticketLink = getTicketLinkParts(activity.ticketUrl, '');
+                              const safeLabel = escapeInlineHtml(ticketLink.label);
+                              if (ticketLink.href && safeLabel) {
+                                  ticketHTML = `<a href="${escapeInlineHtml(ticketLink.href)}" target="_blank" rel="noopener" style="color:#58a6ff;text-decoration:none;font-weight:600" title="Open ticket">#${safeLabel}</a>`;
+                              } else if (safeLabel) {
+                                  ticketHTML = `<span style="color:var(--text-color-secondary);font-weight:600">#${safeLabel}</span>`;
+                              }
                           }
 
                           return `
@@ -31555,6 +31709,96 @@ Ready for translation!`);
                 URL.revokeObjectURL(url);
             };
         });
+
+        // Site name typeahead — auto-fills lat/lon — used on MikroTik and Nokia tabs
+        (function () {
+            function _esc(s) {
+                return String(s || '').replace(/[&<>"']/g, function(c) {
+                    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+                });
+            }
+
+            function makeSiteTypeahead(cfg) {
+                // cfg: { inputId, suggestId, latId, lonId }
+                var _st = null, _results = [], _idx = -1, _selecting = false;
+
+                function _suggest() { return document.getElementById(cfg.suggestId); }
+
+                function _hide() {
+                    var s = _suggest(); if (s) { s.classList.remove('is-open'); s.innerHTML = ''; }
+                    _results = []; _idx = -1;
+                }
+
+                function _highlight(index) {
+                    _idx = index;
+                    var items = (_suggest() || document.createElement('div')).querySelectorAll('.mt-site-suggest-item');
+                    items.forEach(function(el, i) { el.classList.toggle('active', i === index); });
+                }
+
+                function _select(item) {
+                    _selecting = true;
+                    document.getElementById(cfg.inputId).value = item.name;
+                    document.getElementById(cfg.latId).value = item.lat;
+                    document.getElementById(cfg.lonId).value = item.lon;
+                    _hide();
+                    _selecting = false;
+                }
+
+                function _render(results) {
+                    var s = _suggest(); if (!s) return;
+                    _results = results || []; _idx = -1;
+                    if (!_results.length) { _hide(); return; }
+                    s.innerHTML = _results.map(function(r, i) {
+                        var meta = [r.status, r.zone].filter(Boolean).join(' · ');
+                        return '<div class="mt-site-suggest-item" data-index="' + i + '">' +
+                            '<div class="mt-site-suggest-primary">' + _esc(r.name) + '</div>' +
+                            '<div class="mt-site-suggest-secondary">' + _esc(meta) + '</div>' +
+                            '</div>';
+                    }).join('');
+                    s.querySelectorAll('.mt-site-suggest-item').forEach(function(el) {
+                        el.addEventListener('mousedown', function(e) {
+                            e.preventDefault();
+                            _select(_results[Number(el.getAttribute('data-index'))]);
+                        });
+                    });
+                    s.classList.add('is-open');
+                }
+
+                document.addEventListener('DOMContentLoaded', function() {
+                    var inp = document.getElementById(cfg.inputId);
+                    if (!inp) return;
+
+                    inp.addEventListener('input', function() {
+                        if (_selecting) return;
+                        clearTimeout(_st);
+                        var q = this.value.trim();
+                        if (q.length < 2) { _hide(); return; }
+                        _st = setTimeout(function() {
+                            fetch('/api/sites/search?q=' + encodeURIComponent(q) + '&limit=10')
+                                .then(function(r) { return r.json(); })
+                                .then(function(d) { _render(d.results || []); })
+                                .catch(function() {});
+                        }, 250);
+                    });
+
+                    inp.addEventListener('keydown', function(e) {
+                        var items = (_suggest() || document.createElement('div')).querySelectorAll('.mt-site-suggest-item');
+                        if (!items.length) return;
+                        if (e.key === 'ArrowDown') { e.preventDefault(); _highlight(Math.min(_idx + 1, items.length - 1)); }
+                        else if (e.key === 'ArrowUp') { e.preventDefault(); _highlight(Math.max(_idx - 1, 0)); }
+                        else if (e.key === 'Enter' && _idx >= 0) { e.preventDefault(); _select(_results[_idx]); }
+                        else if (e.key === 'Escape') { _hide(); }
+                    });
+
+                    inp.addEventListener('blur', function() { setTimeout(_hide, 150); });
+                });
+            }
+
+            // MikroTik New Device
+            makeSiteTypeahead({ inputId:'mtSiteName', suggestId:'mtSiteSuggest', latId:'mtLatitude', lonId:'mtLongitude' });
+            // Nokia 7250
+            makeSiteTypeahead({ inputId:'nokia7250_siteSuffix', suggestId:'nokia7250SiteSuggest', latId:'nokia7250_lat', lonId:'nokia7250_lon' });
+        })();
     </script>
 
     <!-- Live Progress Tracker (MUSHU-style) -->
@@ -32032,6 +32276,33 @@ Ready for translation!`);
                 : ((typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api');
         }
 
+        function getNexusV2Base() {
+            const legacyBase = getCommandVaultApiBase();
+            return legacyBase.endsWith('/api') ? `${legacyBase}/v2/nexus` : `${legacyBase}/api/v2/nexus`;
+        }
+
+        function getSessionAuthHeaders(extraHeaders = {}) {
+            const token = (typeof getAuthToken === 'function') ? getAuthToken() : (localStorage.getItem('auth_token') || '');
+            const headers = { ...extraHeaders };
+            if (token) headers.Authorization = `Bearer ${token}`;
+            return headers;
+        }
+
+        async function fetchNexusDiscoveryJson(v2Path, legacyPath, options = {}) {
+            const fetchOptions = { ...(options || {}) };
+            try {
+                const typedResp = await fetch(`${getNexusV2Base()}${v2Path}`, fetchOptions);
+                if (!typedResp.ok) throw new Error(`HTTP ${typedResp.status}`);
+                const typedData = await typedResp.json();
+                return typedData?.data ?? typedData;
+            } catch (typedErr) {
+                console.warn(`[NEXUS DISCOVERY] Typed route failed for ${v2Path}; trying legacy ${legacyPath}`, typedErr);
+            }
+            const legacyResp = await fetch(`${getCommandVaultApiBase()}${legacyPath}`, fetchOptions);
+            if (!legacyResp.ok) throw new Error(`HTTP ${legacyResp.status}`);
+            return await legacyResp.json();
+        }
+
         function buildCommandVaultCardHtml(entry, options = {}) {
             const title = escapeVaultText(entry?.title || 'Command');
             const command = escapeVaultText(entry?.command || '');
@@ -32090,16 +32361,28 @@ Ready for translation!`);
 
         async function syncCommandVaultCatalog() {
             try {
-                const resp = await fetch(`${getCommandVaultApiBase()}/command-vault/catalog`, {
+                const resp = await fetch(`${getNexusV2Base()}/tools/command-vault`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: getSessionAuthHeaders({ 'Content-Type': 'application/json' }),
                     body: JSON.stringify({})
                 });
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const data = await resp.json();
-                applyCommandVaultCatalogResults(data.results || []);
+                applyCommandVaultCatalogResults(data?.data?.results || []);
             } catch (error) {
-                console.warn('[COMMAND VAULT] Backend catalog sync failed; using bundled UI catalog.', error);
+                console.warn('[COMMAND VAULT] Typed catalog sync failed; trying legacy catalog.', error);
+                try {
+                    const legacyResp = await fetch(`${getCommandVaultApiBase()}/command-vault/catalog`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({})
+                    });
+                    if (!legacyResp.ok) throw new Error(`HTTP ${legacyResp.status}`);
+                    const legacyData = await legacyResp.json();
+                    applyCommandVaultCatalogResults(legacyData.results || []);
+                } catch (legacyError) {
+                    console.warn('[COMMAND VAULT] Legacy catalog sync failed; using bundled UI catalog.', legacyError);
+                }
             }
         }
 
@@ -34026,10 +34309,83 @@ Ready for translation!`);
             }
 
             function getAviatStreamUrl(path) {
-                const token = (typeof getAuthToken === 'function') ? getAuthToken() : (localStorage.getItem('auth_token') || '');
                 const url = new URL(`${getAviatStreamBase()}${path}`, window.location.origin);
-                if (token) url.searchParams.set('token', token);
                 return url.toString();
+            }
+
+            function dispatchAviatSseEvents(stream, chunk, state) {
+                state.buffer += chunk.replace(/\r\n/g, '\n');
+                const frames = state.buffer.split('\n\n');
+                state.buffer = frames.pop() || '';
+                frames.forEach(frame => {
+                    if (!frame.trim()) return;
+                    const dataLines = [];
+                    frame.split('\n').forEach(line => {
+                        if (!line || line.startsWith(':')) return;
+                        if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
+                    });
+                    if (dataLines.length && typeof stream.onmessage === 'function') {
+                        stream.onmessage({ data: dataLines.join('\n') });
+                    }
+                });
+            }
+
+            function aviatSupportsStreaming() {
+                return typeof fetch === 'function'
+                    && typeof AbortController === 'function'
+                    && typeof TextDecoder === 'function'
+                    && typeof ReadableStream !== 'undefined';
+            }
+
+            function openAviatStream(path) {
+                const controller = typeof AbortController === 'function' ? new AbortController() : null;
+                const stream = {
+                    readyState: 0,
+                    onopen: null,
+                    onmessage: null,
+                    onerror: null,
+                    close() {
+                        if (stream.readyState === 2) return;
+                        stream.readyState = 2;
+                        if (controller) controller.abort();
+                    }
+                };
+
+                (async function connect() {
+                    try {
+                        const response = await aviatFetch(path, {
+                            headers: { Accept: 'text/event-stream' },
+                            cache: 'no-store',
+                            signal: controller ? controller.signal : undefined
+                        });
+                        if (!response.ok) {
+                            throw new Error(`Aviat stream failed (${response.status})`);
+                        }
+                        if (!response.body || typeof response.body.getReader !== 'function') {
+                            throw new Error('Aviat live stream is not supported in this browser session.');
+                        }
+                        stream.readyState = 1;
+                        if (typeof stream.onopen === 'function') stream.onopen();
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder();
+                        const state = { buffer: '' };
+                        while (stream.readyState !== 2) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+                            dispatchAviatSseEvents(stream, decoder.decode(value, { stream: true }), state);
+                        }
+                        const trailing = decoder.decode();
+                        if (trailing) dispatchAviatSseEvents(stream, trailing, state);
+                        stream.close();
+                    } catch (err) {
+                        if (stream.readyState !== 2 && typeof stream.onerror === 'function') {
+                            stream.onerror(err);
+                        }
+                        stream.close();
+                    }
+                })();
+
+                return stream;
             }
 
             async function aviatFetchWithTimeout(path, options, timeoutMs = 15000) {
@@ -34060,7 +34416,11 @@ Ready for translation!`);
                     : sourceDate.toLocaleTimeString();
                 const entry = document.createElement('div');
                 entry.className = `aviat-log-entry log-${type}`;
-                entry.innerHTML = `<span class="aviat-log-time">[${time}]</span> ${text}`;
+                const timeNode = document.createElement('span');
+                timeNode.className = 'aviat-log-time';
+                timeNode.textContent = `[${time}]`;
+                entry.appendChild(timeNode);
+                entry.appendChild(document.createTextNode(` ${text}`));
                 logBox.appendChild(entry);
                 logBox.scrollTop = logBox.scrollHeight;
             }
@@ -34068,7 +34428,15 @@ Ready for translation!`);
             function aviatClearLog() {
                 const logBox = document.getElementById('logBox');
                 if (!logBox) return;
-                logBox.innerHTML = '<div class="aviat-log-entry"><span class="aviat-log-time">[--:--:--]</span> Log cleared.</div>';
+                logBox.innerHTML = '';
+                const entry = document.createElement('div');
+                entry.className = 'aviat-log-entry';
+                const timeNode = document.createElement('span');
+                timeNode.className = 'aviat-log-time';
+                timeNode.textContent = '[--:--:--]';
+                entry.appendChild(timeNode);
+                entry.appendChild(document.createTextNode(' Log cleared.'));
+                logBox.appendChild(entry);
             }
 
             function aviatNormalizeStatus(status, successFlag) {
@@ -35021,8 +35389,12 @@ Ready for translation!`);
 
             function aviatStartGlobalLogStream() {
                 if (aviatState.globalStreamStarted) return;
+                if (!aviatSupportsStreaming()) {
+                    aviatAddLog('Live log stream is not available in this browser session. Monitoring status only.', 'warning');
+                    return;
+                }
                 aviatState.globalStreamStarted = true;
-                const eventSource = new EventSource(getAviatStreamUrl('/stream/global'));
+                const eventSource = openAviatStream('/stream/global');
                 eventSource.onopen = function () {
                     aviatAddLog('Live log stream connected', 'info');
                 };
@@ -35526,19 +35898,39 @@ Ready for translation!`);
             const textA = await getDiffText('A');
             const textB = await getDiffText('B');
             if (!textA.trim() && !textB.trim()) { nocToast('Paste or load configs first', 'warning'); return; }
-            const linesA = textA.split('\n');
-            const linesB = textB.split('\n');
-
-            // Simple LCS-based diff
-            const diff = computeDiff(linesA, linesB);
-            renderDiff(diff, linesA, linesB);
+            let diff = null;
+            try {
+                const resp = await fetch(`${getNexusV2Base()}/tools/config-diff`, {
+                    method: 'POST',
+                    headers: getSessionAuthHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify({
+                        text_a: textA,
+                        text_b: textB,
+                        label_a: 'Config A',
+                        label_b: 'Config B'
+                    })
+                });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const data = await resp.json();
+                diff = data?.data || null;
+            } catch (err) {
+                console.warn('[DIFF] Typed backend diff failed; using local diff engine.', err);
+            }
+            if (!diff) {
+                const linesA = textA.split('\n');
+                const linesB = textB.split('\n');
+                diff = computeDiff(linesA, linesB);
+            }
+            renderDiff(diff, textA.split('\n'), textB.split('\n'));
             document.getElementById('diffOutput').style.display = '';
-            nocToast(`Diff complete: ${diff.added} added, ${diff.removed} removed`, 'success');
+            const added = diff?.summary?.added ?? diff?.added ?? 0;
+            const removed = diff?.summary?.removed ?? diff?.removed ?? 0;
+            nocToast(`Diff complete: ${added} added, ${removed} removed`, 'success');
             if (typeof window.sendActivityToBackend === 'function') {
                 const ipA = (document.getElementById('diffSshIpA')?.value || '').trim();
                 const ipB = (document.getElementById('diffSshIpB')?.value || '').trim();
                 const device = [ipA, ipB].filter(Boolean).join(' vs ') || 'pasted';
-                window.sendActivityToBackend({ type: 'config-diff', device, siteName: `Diff \u2014 ${diff.added} added, ${diff.removed} removed`, success: true, countsTowardMetrics: false });
+                window.sendActivityToBackend({ type: 'config-diff', device, siteName: `Diff \u2014 ${added} added, ${removed} removed`, success: true, countsTowardMetrics: false });
             }
         };
 
@@ -37144,7 +37536,7 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
                 tasks: Array.isArray(raw.tasks) ? raw.tasks : [],
                 notes: raw.notes || '',
                 ticketNum: raw.ticket_number || raw.ticketNum || '',
-                ticketUrl: raw.ticket_url || raw.ticketUrl || '',
+                ticketUrl: sanitizeNavigableUrl(raw.ticket_url || raw.ticketUrl || ''),
                 status: raw.status || 'scheduled',
                 createdAt: raw.created_at || raw.createdAt || '',
                 updatedAt: raw.updated_at || raw.updatedAt || '',
@@ -37153,37 +37545,72 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
         }
         function maintSave() { localStorage.setItem(MAINT_KEY, JSON.stringify(maintWindows)); }
         async function maintLoad() {
-            const apiBase = (typeof resolveApiBase === 'function') ? resolveApiBase() : ((typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api');
             try {
-                const resp = await fetch(`${apiBase}/maintenance/windows?status=all&limit=250`);
+                const resp = await fetch(`${getNexusV2Base()}/maintenance/windows?status=all&limit=250`, {
+                    headers: getSessionAuthHeaders()
+                });
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const data = await resp.json();
-                maintWindows = (data.windows || []).map(normalizeMaintWindow);
+                maintWindows = ((data?.data?.windows) || []).map(normalizeMaintWindow);
                 maintSave();
                 return;
             } catch (err) {
-                console.warn('[MAINT] Backend load failed, using cached windows:', err);
+                console.warn('[MAINT] Typed backend load failed, trying legacy windows endpoint:', err);
+            }
+            const apiBase = (typeof resolveApiBase === 'function') ? resolveApiBase() : ((typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api');
+            try {
+                const legacyResp = await fetch(`${apiBase}/maintenance/windows?status=all&limit=250`, {
+                    headers: getSessionAuthHeaders()
+                });
+                if (!legacyResp.ok) throw new Error(`HTTP ${legacyResp.status}`);
+                const legacyData = await legacyResp.json();
+                maintWindows = (legacyData.windows || []).map(normalizeMaintWindow);
+                maintSave();
+                return;
+            } catch (legacyErr) {
+                console.warn('[MAINT] Legacy backend load failed, using cached windows:', legacyErr);
             }
             try { maintWindows = JSON.parse(localStorage.getItem(MAINT_KEY) || '[]'); } catch { maintWindows = []; }
         }
         async function maintPersist(method, path, payload) {
-            const apiBase = (typeof resolveApiBase === 'function') ? resolveApiBase() : ((typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api');
             const options = {
                 method,
-                headers: { 'Content-Type': 'application/json' }
+                headers: getSessionAuthHeaders({ 'Content-Type': 'application/json' })
             };
             if (payload !== undefined) options.body = JSON.stringify(payload);
-            const resp = await fetch(`${apiBase}${path}`, options);
-            if (!resp.ok) {
-                let detail = `HTTP ${resp.status}`;
+            try {
+                const resp = await fetch(`${getNexusV2Base()}${path}`, options);
+                if (!resp.ok) {
+                    let detail = `HTTP ${resp.status}`;
+                    try {
+                        const data = await resp.json();
+                        detail = data.detail || data.error || detail;
+                    } catch {}
+                    throw new Error(detail);
+                }
+                if (resp.status === 204) return null;
+                const data = await resp.json();
+                return data?.data ?? null;
+            } catch (typedErr) {
+                console.warn('[MAINT] Typed maintenance call failed, trying legacy endpoint:', typedErr);
+            }
+            const apiBase = (typeof resolveApiBase === 'function') ? resolveApiBase() : ((typeof AI_API_BASE !== 'undefined' ? AI_API_BASE : window.AI_API_BASE) || '/api');
+            const legacyOptions = {
+                method,
+                headers: getSessionAuthHeaders({ 'Content-Type': 'application/json' })
+            };
+            if (payload !== undefined) legacyOptions.body = JSON.stringify(payload);
+            const legacyResp = await fetch(`${apiBase}${path}`, legacyOptions);
+            if (!legacyResp.ok) {
+                let detail = `HTTP ${legacyResp.status}`;
                 try {
-                    const data = await resp.json();
+                    const data = await legacyResp.json();
                     detail = data.detail || data.error || detail;
                 } catch {}
                 throw new Error(detail);
             }
-            if (resp.status === 204) return null;
-            return await resp.json();
+            if (legacyResp.status === 204) return null;
+            return await legacyResp.json();
         }
 
         window.openMaintModal = function () {
@@ -37210,7 +37637,7 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
             const tasks = Array.from(document.querySelectorAll('input[name="maintTasks"]:checked')).map(cb => cb.value);
             const notes = document.getElementById('maintNotes').value.trim();
             const ticketNum = (document.getElementById('maintTicketNum')?.value || '').trim();
-            const ticketUrl = (document.getElementById('maintTicketUrl')?.value || '').trim();
+            const ticketUrl = sanitizeNavigableUrl((document.getElementById('maintTicketUrl')?.value || '').trim());
 
             if (!name || !dateStr || !devices.length) { nocToast('Fill in all required fields', 'warning'); return; }
             if (!tasks.length) { nocToast('Select at least one task', 'warning'); return; }
@@ -37296,7 +37723,15 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
                     </div>
                     <div class="maint-card-devices">${devChips}</div>
                     <div class="maint-card-tasks">${taskBadges}</div>
-                    ${w.ticketUrl || w.ticketNum ? `<div style="margin-top:10px;font-size:12px"><a href="${escHtml(w.ticketUrl || '#')}" target="_blank" rel="noopener" style="color:var(--accent-color);text-decoration:none;font-weight:600;display:inline-flex;align-items:center;gap:4px;background:rgba(230,126,34,.08);padding:3px 10px;border-radius:12px;border:1px solid rgba(230,126,34,.2)"> Ticket #${escHtml(w.ticketNum || extractTicketNum(w.ticketUrl))}</a></div>` : ''}
+                    ${(() => {
+                        const ticketLink = getTicketLinkParts(w.ticketUrl, w.ticketNum);
+                        if (!ticketLink.label) return '';
+                        const safeLabel = escapeInlineHtml(ticketLink.label);
+                        const sharedStyle = 'color:var(--accent-color);text-decoration:none;font-weight:600;display:inline-flex;align-items:center;gap:4px;background:rgba(230,126,34,.08);padding:3px 10px;border-radius:12px;border:1px solid rgba(230,126,34,.2)';
+                        return `<div style="margin-top:10px;font-size:12px">${ticketLink.href
+                            ? `<a href="${escapeInlineHtml(ticketLink.href)}" target="_blank" rel="noopener" style="${sharedStyle}"> Ticket #${safeLabel}</a>`
+                            : `<span style="${sharedStyle};cursor:default"> Ticket #${safeLabel}</span>`}</div>`;
+                    })()}
                     ${w.notes ? `<div style="margin-top:8px;font-size:12px;color:var(--text-color-secondary);font-style:italic">${escHtml(w.notes)}</div>` : ''}
                 </div>`;
             }).join('');
@@ -37397,7 +37832,12 @@ BNG2 Site,MT2216,10.255.1.1/32,10.200.0.0/22,10.200.4.0/22,100.65.0.0/22,132.147
                 const d = new Date(w.scheduledAt);
                 const dateLabel = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
                 const statusDot = w.status === 'running' ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f39c12;animation:pulse 1.5s infinite;margin-right:6px"></span>' : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#3498db;margin-right:6px"></span>';
-                const ticketLink = (w.ticketUrl || w.ticketNum) ? ` <a href="${escHtml(w.ticketUrl || '#')}" target="_blank" rel="noopener" style="color:var(--accent-color);text-decoration:none;font-size:11px;font-weight:700;background:rgba(230,126,34,.1);padding:1px 8px;border-radius:10px" onclick="event.stopPropagation()">#${escHtml(w.ticketNum || extractTicketNum(w.ticketUrl))}</a>` : '';
+                const ticketParts = getTicketLinkParts(w.ticketUrl, w.ticketNum);
+                const ticketLink = ticketParts.label
+                    ? ` ${ticketParts.href
+                        ? `<a href="${escapeInlineHtml(ticketParts.href)}" target="_blank" rel="noopener" style="color:var(--accent-color);text-decoration:none;font-size:11px;font-weight:700;background:rgba(230,126,34,.1);padding:1px 8px;border-radius:10px" onclick="event.stopPropagation()">#${escapeInlineHtml(ticketParts.label)}</a>`
+                        : `<span style="color:var(--accent-color);font-size:11px;font-weight:700;background:rgba(230,126,34,.1);padding:1px 8px;border-radius:10px" onclick="event.stopPropagation()">#${escapeInlineHtml(ticketParts.label)}</span>`}`
+                    : '';
                 return `<div style="padding:12px 16px;border-radius:var(--radius-sm);background:var(--card-bg);border:1px solid var(--border-color);margin-bottom:8px;cursor:pointer;transition:border-color .2s" onmouseover="this.style.borderColor='var(--accent-color)'" onmouseout="this.style.borderColor='var(--border-color)'" onclick="window.navigateToTab('maintenance')">
                     <div style="display:flex;justify-content:space-between;align-items:center">
                         <div style="font-weight:600;font-size:14px;color:var(--text-color)">${statusDot}${escHtml(w.name)}${ticketLink}</div>

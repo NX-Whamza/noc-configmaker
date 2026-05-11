@@ -5622,16 +5622,24 @@ def validate_enterprise_feeding_config(config_text):
     required_sections = [
         '/interface ethernet',
         '/ip address',
-        '/routing ospf interface-template'
     ]
     missing_sections = []
     for section in required_sections:
         if section not in config_text:
             missing_sections.append(section)
-    
+
+    # Accept either ROS7 interface-template or ROS6 ospf interface/network syntax
+    has_ospf = (
+        '/routing ospf interface-template' in config_text
+        or '/routing ospf interface' in config_text
+        or '/routing ospf network' in config_text
+    )
+    if not has_ospf:
+        missing_sections.append('/routing ospf (interface-template or interface+network)')
+
     if missing_sections:
         errors.append(f"Missing required sections: {', '.join(missing_sections)}")
-    
+
     # Validate IP address line format: add address=X.X.X.X/29 comment="..." interface=... network=...
     ip_address_match = re.search(r'add address=(\d+\.\d+\.\d+\.\d+)/(\d+)\s+comment=([^\s]+)\s+interface=([^\s]+)\s+network=(\d+\.\d+\.\d+\.\d+)', config_text)
     if not ip_address_match:
@@ -5640,7 +5648,7 @@ def validate_enterprise_feeding_config(config_text):
         gateway_ip = ip_address_match.group(1)
         prefix = ip_address_match.group(2)
         network_addr = ip_address_match.group(5)
-        
+
         # Validate IP address format
         try:
             import ipaddress
@@ -5651,18 +5659,21 @@ def validate_enterprise_feeding_config(config_text):
                 errors.append(f"Invalid prefix length: /{prefix} (must be between /8 and /30)")
         except ValueError as e:
             errors.append(f"Invalid IP address format: {str(e)}")
-    
-    # Validate OSPF interface-template format
+
+    # Validate OSPF — accept both ROS7 interface-template and ROS6 interface+network syntax
     ospf_match = re.search(r'/routing ospf interface-template.*?networks=(\d+\.\d+\.\d+\.\d+/\d+)', config_text, re.DOTALL)
-    if not ospf_match:
-        warnings.append("OSPF interface-template not found or malformed")
-    else:
+    ospf_match_ros6 = re.search(r'/routing ospf network.*?network=(\d+\.\d+\.\d+\.\d+/\d+)', config_text, re.DOTALL)
+    ospf_network = None
+    if ospf_match:
         ospf_network = ospf_match.group(1)
-        # Verify OSPF uses network address (should match IP address network)
-        if ip_address_match:
-            expected_network = ip_address_match.group(5)
-            if expected_network not in ospf_network:
-                warnings.append("OSPF network parameter should match IP address network parameter")
+    elif ospf_match_ros6:
+        ospf_network = ospf_match_ros6.group(1)
+    else:
+        warnings.append("OSPF configuration not found or malformed")
+    if ospf_network and ip_address_match:
+        expected_network = ip_address_match.group(5)
+        if expected_network not in ospf_network:
+            warnings.append("OSPF network parameter should match IP address network parameter")
     
     # Validate routes format if present
     route_matches = re.findall(r'add comment=([^\s]+)\s+disabled=no\s+distance=1\s+dst-address=([^\s]+)\s+gateway=([^\s]+)', config_text)
@@ -17728,23 +17739,36 @@ def compliance_status():
     return jsonify(status)
 
 
+<<<<<<< HEAD
 
 _SITE_CACHE = None
 _SITE_CACHE_PATH = Path(__file__).resolve().parent / "site_cache.json"
 
 
 def _load_site_cache():
+=======
+_SITE_CACHE: list | None = None
+_SITE_CACHE_PATH = Path(__file__).resolve().parent / "site_cache.json"
+
+
+def _load_site_cache() -> list:
+>>>>>>> origin/main
     global _SITE_CACHE
     if _SITE_CACHE is None:
         try:
             with open(_SITE_CACHE_PATH, encoding="utf-8") as f:
+<<<<<<< HEAD
                 data = json.load(f)
             _SITE_CACHE = data.get("sites", data) if isinstance(data, dict) else data
+=======
+                _SITE_CACHE = json.load(f)
+>>>>>>> origin/main
         except Exception:
             _SITE_CACHE = []
     return _SITE_CACHE
 
 
+<<<<<<< HEAD
 @app.route("/api/sites/search", methods=["GET"])
 def search_sites():
     q = (request.args.get("q") or "").strip().upper()
@@ -17794,6 +17818,18 @@ def refresh_status():
     return jsonify(_REFRESH_STATUS)
 
 
+=======
+@app.route('/api/sites/search', methods=['GET'])
+def search_sites():
+    q = (request.args.get('q') or '').strip().upper()
+    if len(q) < 2:
+        return jsonify({"results": []})
+    limit = min(max(1, int(request.args.get('limit', 10))), 25)
+    matches = [s for s in _load_site_cache() if q in s.get('name', '').upper()][:limit]
+    return jsonify({"results": matches})
+
+
+>>>>>>> origin/main
 @app.route('/api/health', methods=['GET'])
 def health():
     """Check if API server is running and configured
@@ -25547,6 +25583,8 @@ def wave_fw_stream_logs(task_id):
             """
             import time as _time
             pos = 0
+            idle_polls = 0
+            max_idle_polls = 8
             # Wait up to 5 s for the log file to appear (task may not have written yet)
             for _ in range(20):
                 if log_path.exists():
@@ -25560,12 +25598,14 @@ def wave_fw_stream_logs(task_id):
             terminal = {'completed', 'failed', 'aborted', 'error'}
             _stream_deadline = _time.time() + 14400  # 4-hour hard cap — prevents infinite hang
             while _time.time() < _stream_deadline:
+                emitted = False
                 try:
                     with open(log_path) as _lf:
                         _lf.seek(pos)
                         for line in _lf:
                             line = line.strip()
                             if line:
+                                emitted = True
                                 yield f'data: {line}\n\n'
                         pos = _lf.tell()
                 except Exception:
@@ -25585,6 +25625,12 @@ def wave_fw_stream_logs(task_id):
                     except Exception:
                         pass
                     break
+                if emitted:
+                    idle_polls = 0
+                else:
+                    idle_polls += 1
+                    if task_id not in wave_fw_log_queues and idle_polls >= max_idle_polls:
+                        break
                 yield ': keep-alive\n\n'
                 _time.sleep(0.25)
 

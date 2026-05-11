@@ -7,7 +7,11 @@ def _load_api_server():
     repo_root = Path(__file__).resolve().parents[1]
     for p in (str(repo_root), str(repo_root / "vm_deployment")):
         if p not in sys.path: sys.path.insert(0, p)
-    return importlib.import_module("vm_deployment.api_server")
+    os.environ.setdefault("DEFAULT_PASSWORD", "TEST_DEFAULT_PASSWORD")
+    module_name = "vm_deployment.api_server"
+    if module_name in sys.modules:
+        return importlib.reload(sys.modules[module_name])
+    return importlib.import_module(module_name)
 
 
 def _patch_dbs(monkeypatch, api_server):

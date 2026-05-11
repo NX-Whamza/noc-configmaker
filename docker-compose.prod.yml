@@ -1,52 +1,12 @@
 name: nexus
 services:
-  ido-backend:
-    build: .
-    restart: unless-stopped
-    command: ["uvicorn", "--app-dir", ".", "vm_deployment.ido_local_backend:app", "--host", "0.0.0.0", "--port", "18081"]
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "5"
-    environment:
-      IDO_BACKEND_PATH: ${IDO_BACKEND_PATH:-/app/vm_deployment/ido_modules}
-      IDO_TOOLS_BACKEND_PATH: ${IDO_TOOLS_BACKEND_PATH:-/app/vm_deployment/ido_modules}
-      BASE_CONFIG_PATH: /opt/base_configs
-      FIRMWARE_PATH: ${IDO_BACKEND_PATH:-/app/vm_deployment/ido_modules}
-      IDO_REQUIRE_FULL_MODULES: ${IDO_REQUIRE_FULL_MODULES:-false}
-      # Device auth defaults used by netlaunch backend modules (Field Config Studio)
-      AP_STANDARD_PW: ${AP_STANDARD_PW:-CHANGE_ME}
-      SM_STANDARD_PW: ${SM_STANDARD_PW:-CHANGE_ME}
-      BH_STANDARD_PW: ${BH_STANDARD_PW:-CHANGE_ME}
-      SWT_STANDARD_PW: ${SWT_STANDARD_PW:-CHANGE_ME}
-      RPC_STANDARD_PW: ${RPC_STANDARD_PW:-CHANGE_ME}
-      CNMATRIX_STANDARD_PW: ${CNMATRIX_STANDARD_PW:-CHANGE_ME}
-      WAVE_AP_PASS: ${WAVE_AP_PASS:-CHANGE_ME}
-      NEXTLINK_SSH_PASSWORD: ${NEXTLINK_SSH_PASSWORD:-CHANGE_ME}
-      # GitLab dynamic compliance (RFC-09-10-25)
-      GITLAB_COMPLIANCE_TOKEN: ${GITLAB_COMPLIANCE_TOKEN:-}
-      GITLAB_COMPLIANCE_PROJECT_ID: ${GITLAB_COMPLIANCE_PROJECT_ID:-}
-      GITLAB_COMPLIANCE_HOST: ${GITLAB_COMPLIANCE_HOST:-}
-      GITLAB_COMPLIANCE_REF: ${GITLAB_COMPLIANCE_REF:-main}
-      GITLAB_COMPLIANCE_TTL: ${GITLAB_COMPLIANCE_TTL:-900}
-      GITLAB_COMPLIANCE_SCRIPT_PATH: ${GITLAB_COMPLIANCE_SCRIPT_PATH:-TX-ARv2.rsc}
-    volumes:
-      - ./vm_deployment/base_configs:/opt/base_configs:ro
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "curl -fsS http://127.0.0.1:18081/health/full | grep -Eq '\"ok\"[[:space:]]*:[[:space:]]*true'",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
   backend:
-    build: .
+    image: ghcr.io/nx-whamza/nexus:${NEXUS_VERSION:-latest}
     restart: unless-stopped
+    command: ["bash", "scripts/start_nexus.sh"]
+    env_file:
+      - path: .env
+        required: false
     cap_add:
       - NET_ADMIN
     logging:
@@ -55,73 +15,33 @@ services:
         max-size: "10m"
         max-file: "5"
     environment:
+      # Auth / JWT
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       JWT_SECRET: ${JWT_SECRET:-}
       DEFAULT_PASSWORD: ${DEFAULT_PASSWORD:-CHANGE_ME}
       AUTH_EXPOSE_RESET_TOKEN: ${AUTH_EXPOSE_RESET_TOKEN:-true}
       PASSWORD_HASH_ITERATIONS: ${PASSWORD_HASH_ITERATIONS:-310000}
       SSO_STATE_MAX_AGE_SECONDS: ${SSO_STATE_MAX_AGE_SECONDS:-600}
+      # CORS
       NOC_CORS_ORIGINS: ${NOC_CORS_ORIGINS:-http://localhost,http://127.0.0.1,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173}
       NOC_CORS_ALLOW_CREDENTIALS: ${NOC_CORS_ALLOW_CREDENTIALS:-true}
+      # Nextlink network standards
       NEXTLINK_DNS_PRIMARY: ${NEXTLINK_DNS_PRIMARY:-}
       NEXTLINK_DNS_SECONDARY: ${NEXTLINK_DNS_SECONDARY:-}
       NEXTLINK_SHARED_KEY: ${NEXTLINK_SHARED_KEY:-}
       NEXTLINK_RADIUS_SECRET: ${NEXTLINK_RADIUS_SECRET:-}
       NEXTLINK_RADIUS_DHCP_SERVERS: ${NEXTLINK_RADIUS_DHCP_SERVERS:-}
       NEXTLINK_RADIUS_LOGIN_SERVERS: ${NEXTLINK_RADIUS_LOGIN_SERVERS:-}
-      NETLAUNCH_IDO_BACKEND_URL: ${NETLAUNCH_IDO_BACKEND_URL:-http://ido-backend:18081}
       NEXTLINK_SNMP_CONTACT: ${NEXTLINK_SNMP_CONTACT:-}
       NEXTLINK_SSH_USERNAME: ${NEXTLINK_SSH_USERNAME:-}
       NEXTLINK_SSH_PASSWORD: ${NEXTLINK_SSH_PASSWORD:-}
-      # Warehouse SM default-radio access bootstrap (192.168.0.x from factory).
-      WAREHOUSE_SM_AUTO_DEFAULT_ACCESS: ${WAREHOUSE_SM_AUTO_DEFAULT_ACCESS:-true}
-      WAREHOUSE_SM_SWITCH_INTERFACE: ${WAREHOUSE_SM_SWITCH_INTERFACE:-}
-      FTTH_USER_ROOT_PASSWORD: ${FTTH_USER_ROOT_PASSWORD:-CHANGE_ME}
-      FTTH_USER_DEPLOYMENT_PASSWORD: ${FTTH_USER_DEPLOYMENT_PASSWORD:-CHANGE_ME}
-      FTTH_USER_INFRA_PASSWORD: ${FTTH_USER_INFRA_PASSWORD:-CHANGE_ME}
-      FTTH_USER_IDO_PASSWORD: ${FTTH_USER_IDO_PASSWORD:-CHANGE_ME}
-      FTTH_USER_STS_PASSWORD: ${FTTH_USER_STS_PASSWORD:-CHANGE_ME}
-      FTTH_USER_ENG_PASSWORD: ${FTTH_USER_ENG_PASSWORD:-CHANGE_ME}
-      FTTH_USER_NOC_PASSWORD: ${FTTH_USER_NOC_PASSWORD:-CHANGE_ME}
-      FTTH_USER_COMENG_PASSWORD: ${FTTH_USER_COMENG_PASSWORD:-CHANGE_ME}
-      FTTH_USER_DEVOPS_PASSWORD: ${FTTH_USER_DEVOPS_PASSWORD:-CHANGE_ME}
-      FTTH_USER_ACQ_PASSWORD: ${FTTH_USER_ACQ_PASSWORD:-CHANGE_ME}
-      FTTH_ADMIN_PASSWORD: ${FTTH_ADMIN_PASSWORD:-CHANGE_ME}
-      AVIAT_AUTO_ACTIVATE: ${AVIAT_AUTO_ACTIVATE:-true}
-      AVIAT_ACTIVATION_MAX: ${AVIAT_ACTIVATION_MAX:-20}
-      AVIAT_AUTO_ACTIVATE_POLL: ${AVIAT_AUTO_ACTIVATE_POLL:-60}
-      AVIAT_LOADING_CHECK_INTERVAL: ${AVIAT_LOADING_CHECK_INTERVAL:-900}
-      AVIAT_LOADING_MAX_WAIT: ${AVIAT_LOADING_MAX_WAIT:-5400}
-      # API v2 integration/auth settings
-      NOC_API_KEYS_JSON: ${NOC_API_KEYS_JSON:-}
-      NOC_API_KEYS: ${NOC_API_KEYS:-}
-      NOC_API_KEY: ${NOC_API_KEY:-}
-      NOC_LEGACY_API_BASE: ${NOC_LEGACY_API_BASE:-http://127.0.0.1:5000}
-      NOC_API_V2_JOB_WORKERS: ${NOC_API_V2_JOB_WORKERS:-8}
-      NOC_API_V2_REQUIRE_SIGNATURE: ${NOC_API_V2_REQUIRE_SIGNATURE:-true}
-      NOC_API_SIGNING_KEYS_JSON: ${NOC_API_SIGNING_KEYS_JSON:-}
-      NOC_API_SIGNING_KEYS: ${NOC_API_SIGNING_KEYS:-}
-      NOC_API_V2_SIGNATURE_SKEW_SECONDS: ${NOC_API_V2_SIGNATURE_SKEW_SECONDS:-300}
-      NOC_API_V2_NONCE_TTL_SECONDS: ${NOC_API_V2_NONCE_TTL_SECONDS:-900}
-      NOC_API_V2_REQUIRE_IDEMPOTENCY: ${NOC_API_V2_REQUIRE_IDEMPOTENCY:-true}
-      NOC_API_V2_IDEMPOTENCY_TTL_SECONDS: ${NOC_API_V2_IDEMPOTENCY_TTL_SECONDS:-86400}
-      # One-shot cleanup for known bad Aviat log rows (safe, filtered delete).
-      AUTO_PURGE_BAD_AVIAT_LOGS: ${AUTO_PURGE_BAD_AVIAT_LOGS:-false}
-      AUTO_PURGE_BAD_AVIAT_LOGS_FROM: ${AUTO_PURGE_BAD_AVIAT_LOGS_FROM:-2026-02-02T04:00:00}
-      AUTO_PURGE_BAD_AVIAT_LOGS_TO: ${AUTO_PURGE_BAD_AVIAT_LOGS_TO:-2026-02-02T05:00:00}
-      AUTO_PURGE_BAD_AVIAT_LOGS_USERNAME: ${AUTO_PURGE_BAD_AVIAT_LOGS_USERNAME:-whamza}
-      AUTO_PURGE_BAD_AVIAT_LOGS_FW: ${AUTO_PURGE_BAD_AVIAT_LOGS_FW:-0.0.0}
-      STARTUP_MAINTENANCE_MODE: ${STARTUP_MAINTENANCE_MODE:-background}
-      STARTUP_MAINTENANCE_DELAY_SECONDS: ${STARTUP_MAINTENANCE_DELAY_SECONDS:-2}
-      # Keep default at 1 until async jobs/task state move to shared storage.
-      NEXUS_UVICORN_WORKERS: ${NEXUS_UVICORN_WORKERS:-1}
-      # Single process, but allow Flask routes to use a larger in-process thread pool.
-      NEXUS_WSGI_WORKERS: ${NEXUS_WSGI_WORKERS:-32}
-      # Codex Catalog API for SiteTracker site cache refresh
-      CODEX_CATALOG_URL: ${CODEX_CATALOG_URL:-https://codex-catalog.nxlink.com/mcp}
-      CODEX_CATALOG_AUTH: ${CODEX_CATALOG_AUTH:-}
-      NEXUS_WSGI_SEND_QUEUE_SIZE: ${NEXUS_WSGI_SEND_QUEUE_SIZE:-32}
-      # Device auth defaults (also used by backend for SSH-fetch, Field Config Studio proxy)
+      # IDO backend — now runs in-process on loopback
+      NETLAUNCH_IDO_BACKEND_URL: http://localhost:18081
+      IDO_BACKEND_PATH: ${IDO_BACKEND_PATH:-/app/vm_deployment/ido_modules}
+      IDO_TOOLS_BACKEND_PATH: ${IDO_TOOLS_BACKEND_PATH:-/app/vm_deployment/ido_modules}
+      IDO_REQUIRE_FULL_MODULES: ${IDO_REQUIRE_FULL_MODULES:-false}
+      BASE_CONFIG_PATH: /app/vm_deployment/base_configs
+      # Device auth defaults (shared by both runtimes)
       AP_STANDARD_PW: ${AP_STANDARD_PW:-CHANGE_ME}
       SM_STANDARD_PW: ${SM_STANDARD_PW:-CHANGE_ME}
       BH_STANDARD_PW: ${BH_STANDARD_PW:-CHANGE_ME}
@@ -134,44 +54,90 @@ services:
       WAVE_FW_MAX_PASSES: ${WAVE_FW_MAX_PASSES:-4}
       WAVE_FW_REBOOT_TIMEOUT: ${WAVE_FW_REBOOT_TIMEOUT:-300}
       WAVE_FW_UPGRADE_TIMEOUT: ${WAVE_FW_UPGRADE_TIMEOUT:-180}
+      # Warehouse SM
+      WAREHOUSE_SM_AUTO_DEFAULT_ACCESS: ${WAREHOUSE_SM_AUTO_DEFAULT_ACCESS:-true}
+      WAREHOUSE_SM_SWITCH_INTERFACE: ${WAREHOUSE_SM_SWITCH_INTERFACE:-}
+      # FTTH user passwords
+      FTTH_USER_ROOT_PASSWORD: ${FTTH_USER_ROOT_PASSWORD:-CHANGE_ME}
+      FTTH_USER_DEPLOYMENT_PASSWORD: ${FTTH_USER_DEPLOYMENT_PASSWORD:-CHANGE_ME}
+      FTTH_USER_INFRA_PASSWORD: ${FTTH_USER_INFRA_PASSWORD:-CHANGE_ME}
+      FTTH_USER_IDO_PASSWORD: ${FTTH_USER_IDO_PASSWORD:-CHANGE_ME}
+      FTTH_USER_STS_PASSWORD: ${FTTH_USER_STS_PASSWORD:-CHANGE_ME}
+      FTTH_USER_ENG_PASSWORD: ${FTTH_USER_ENG_PASSWORD:-CHANGE_ME}
+      FTTH_USER_NOC_PASSWORD: ${FTTH_USER_NOC_PASSWORD:-CHANGE_ME}
+      FTTH_USER_COMENG_PASSWORD: ${FTTH_USER_COMENG_PASSWORD:-CHANGE_ME}
+      FTTH_USER_DEVOPS_PASSWORD: ${FTTH_USER_DEVOPS_PASSWORD:-CHANGE_ME}
+      FTTH_USER_ACQ_PASSWORD: ${FTTH_USER_ACQ_PASSWORD:-CHANGE_ME}
+      FTTH_ADMIN_PASSWORD: ${FTTH_ADMIN_PASSWORD:-CHANGE_ME}
+      # Aviat
+      AVIAT_AUTO_ACTIVATE: ${AVIAT_AUTO_ACTIVATE:-true}
+      AVIAT_ACTIVATION_MAX: ${AVIAT_ACTIVATION_MAX:-20}
+      AVIAT_AUTO_ACTIVATE_POLL: ${AVIAT_AUTO_ACTIVATE_POLL:-60}
+      AVIAT_LOADING_CHECK_INTERVAL: ${AVIAT_LOADING_CHECK_INTERVAL:-900}
+      AVIAT_LOADING_MAX_WAIT: ${AVIAT_LOADING_MAX_WAIT:-5400}
       # UISP integration (Wave firmware updater)
       UISP_API_URL: ${UISP_API_URL:-}
       UISP_USERNAME: ${UISP_USERNAME:-}
       UISP_PASSWORD: ${UISP_PASSWORD:-}
+      # Firmware
       FIRMWARE_PATH: /opt/firmware
-      # IDO module enforcement
-      IDO_REQUIRE_FULL_MODULES: ${IDO_REQUIRE_FULL_MODULES:-false}
-      # GitLab dynamic compliance (RFC-09-10-25)
+      # API v2
+      NOC_API_KEYS_JSON: ${NOC_API_KEYS_JSON:-}
+      NOC_API_KEYS: ${NOC_API_KEYS:-}
+      NOC_API_KEY: ${NOC_API_KEY:-}
+      NOC_LEGACY_API_BASE: ${NOC_LEGACY_API_BASE:-http://127.0.0.1:5000}
+      NOC_API_V2_JOB_WORKERS: ${NOC_API_V2_JOB_WORKERS:-8}
+      NOC_API_V2_REQUIRE_SIGNATURE: ${NOC_API_V2_REQUIRE_SIGNATURE:-true}
+      NOC_API_SIGNING_KEYS_JSON: ${NOC_API_SIGNING_KEYS_JSON:-}
+      NOC_API_SIGNING_KEYS: ${NOC_API_SIGNING_KEYS:-}
+      NOC_API_V2_SIGNATURE_SKEW_SECONDS: ${NOC_API_V2_SIGNATURE_SKEW_SECONDS:-300}
+      NOC_API_V2_NONCE_TTL_SECONDS: ${NOC_API_V2_NONCE_TTL_SECONDS:-900}
+      NOC_API_V2_REQUIRE_IDEMPOTENCY: ${NOC_API_V2_REQUIRE_IDEMPOTENCY:-true}
+      NOC_API_V2_IDEMPOTENCY_TTL_SECONDS: ${NOC_API_V2_IDEMPOTENCY_TTL_SECONDS:-86400}
+      # Aviat log cleanup
+      AUTO_PURGE_BAD_AVIAT_LOGS: ${AUTO_PURGE_BAD_AVIAT_LOGS:-false}
+      AUTO_PURGE_BAD_AVIAT_LOGS_FROM: ${AUTO_PURGE_BAD_AVIAT_LOGS_FROM:-2026-02-02T04:00:00}
+      AUTO_PURGE_BAD_AVIAT_LOGS_TO: ${AUTO_PURGE_BAD_AVIAT_LOGS_TO:-2026-02-02T05:00:00}
+      AUTO_PURGE_BAD_AVIAT_LOGS_USERNAME: ${AUTO_PURGE_BAD_AVIAT_LOGS_USERNAME:-whamza}
+      AUTO_PURGE_BAD_AVIAT_LOGS_FW: ${AUTO_PURGE_BAD_AVIAT_LOGS_FW:-0.0.0}
+      # Startup
+      STARTUP_MAINTENANCE_MODE: ${STARTUP_MAINTENANCE_MODE:-background}
+      STARTUP_MAINTENANCE_DELAY_SECONDS: ${STARTUP_MAINTENANCE_DELAY_SECONDS:-2}
+      # Workers
+      NEXUS_UVICORN_WORKERS: ${NEXUS_UVICORN_WORKERS:-1}
+      NEXUS_WSGI_WORKERS: ${NEXUS_WSGI_WORKERS:-32}
+      NEXUS_WSGI_SEND_QUEUE_SIZE: ${NEXUS_WSGI_SEND_QUEUE_SIZE:-32}
+      # GitLab compliance
       GITLAB_COMPLIANCE_TOKEN: ${GITLAB_COMPLIANCE_TOKEN:-}
       GITLAB_COMPLIANCE_PROJECT_ID: ${GITLAB_COMPLIANCE_PROJECT_ID:-}
       GITLAB_COMPLIANCE_HOST: ${GITLAB_COMPLIANCE_HOST:-}
       GITLAB_COMPLIANCE_REF: ${GITLAB_COMPLIANCE_REF:-main}
       GITLAB_COMPLIANCE_TTL: ${GITLAB_COMPLIANCE_TTL:-900}
       GITLAB_COMPLIANCE_SCRIPT_PATH: ${GITLAB_COMPLIANCE_SCRIPT_PATH:-TX-ARv2.rsc}
-      # Nokia 7250 config-maker credentials (served via /api/nokia7250-defaults)
+      # Nokia 7250
       NOKIA7250_SNMP_COMMUNITY: ${NOKIA7250_SNMP_COMMUNITY:-CHANGE_ME}
       NOKIA7250_NLROOT_PW: ${NOKIA7250_NLROOT_PW:-CHANGE_ME}
       NOKIA7250_ADMIN_PW: ${NOKIA7250_ADMIN_PW:-CHANGE_ME}
       NOKIA7250_BGP_AUTH_KEY: ${NOKIA7250_BGP_AUTH_KEY:-CHANGE_ME}
       NOKIA7250_OSPF_AUTH_KEY: ${NOKIA7250_OSPF_AUTH_KEY:-CHANGE_ME}
-      # Unimus backup configs integration
+      # Unimus
       UNIMUS_BASE_URL: ${UNIMUS_BASE_URL:-}
       UNIMUS_API_TOKEN: ${UNIMUS_API_TOKEN:-}
       UNIMUS_TIMEOUT: ${UNIMUS_TIMEOUT:-30}
       UNIMUS_VERIFY_SSL: ${UNIMUS_VERIFY_SSL:-true}
-      # Zabbix monitoring integration (for Unimus host search)
+      # Zabbix
       ZABBIX_BASE_URL: ${ZABBIX_BASE_URL:-}
       ZABBIX_API_URL: ${ZABBIX_API_URL:-}
       ZABBIX_API_TOKEN: ${ZABBIX_API_TOKEN:-}
       ZABBIX_TIMEOUT: ${ZABBIX_TIMEOUT:-30}
-      # Microsoft SSO (Azure AD)
+      # Microsoft SSO
       AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-0563f465-0f3b-466b-a193-90c9e6dd79d6}
       AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
       AZURE_TENANT_ID: ${AZURE_TENANT_ID:-143673a5-ff46-4d23-8255-b4ef07861814}
-      # Environment label (dev/production) — used for UI banners and logging
+      # App identity
       NOC_ENVIRONMENT: ${NOC_ENVIRONMENT:-production}
       NEXUS_APP_PRODUCT: ${NEXUS_APP_PRODUCT:-NEXUS}
-      NEXUS_APP_VERSION: ${NEXUS_APP_VERSION:-}
+      NEXUS_APP_VERSION: ${NEXUS_VERSION:-}
       NEXUS_APP_VERSION_BASE: ${NEXUS_APP_VERSION_BASE:-2.6}
       NEXUS_APP_BUILD_NUMBER: ${NEXUS_APP_BUILD_NUMBER:-0}
       NEXUS_APP_RELEASE_DATE: ${NEXUS_APP_RELEASE_DATE:-}
@@ -179,9 +145,6 @@ services:
     volumes:
       - ./secure_data:/app/secure_data
       - ./firmware:/opt/firmware:ro
-    depends_on:
-      ido-backend:
-        condition: service_healthy
     healthcheck:
       test:
         [
@@ -191,10 +154,10 @@ services:
       interval: 15s
       timeout: 15s
       retries: 5
-      start_period: 60s
+      start_period: 90s
 
   frontend:
-    image: nginx:alpine
+    image: ghcr.io/nx-whamza/nexus-frontend:${NEXUS_VERSION:-latest}
     restart: unless-stopped
     logging:
       driver: json-file
@@ -203,9 +166,6 @@ services:
         max-file: "5"
     ports:
       - "${FRONTEND_PORT:-8000}:80"
-    volumes:
-      - ./vm_deployment:/usr/share/nginx/html:ro
-      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       backend:
         condition: service_healthy

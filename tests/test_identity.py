@@ -14,6 +14,7 @@ sys.path.insert(0, str(repo_root))
 
 # Disable AI for deterministic testing
 os.environ["AI_PROVIDER"] = "none"
+os.environ.setdefault("DEFAULT_PASSWORD", "TEST_DEFAULT_PASSWORD")
 
 import api_server  # noqa: WPS433 - repo-local import (shim -> vm_deployment)
 
@@ -24,8 +25,7 @@ client = app.test_client()
 
 def _auth_headers():
     admin_email = os.getenv("PLATFORM_ADMIN_EMAILS", "whamza@team.nxlink.com").split(",")[0].strip()
-    r = client.post("/api/auth/login", json={"email": admin_email, "password": api_server.DEFAULT_PASSWORD})
-    token = (r.get_json() or {}).get("token", "")
+    token = api_server.generate_token(990006, admin_email)
     return {"Authorization": f"Bearer {token}"}
 
 

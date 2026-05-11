@@ -12,6 +12,7 @@ dist
 
 docs
 scripts
+!scripts/start_nexus.sh
 tests
 
 *.zip

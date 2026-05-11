@@ -21,6 +21,17 @@ _LEGACY_SECRET_REPLACEMENTS = {
     "Nl22021234": "CHANGE_ME_RADIUS_SECRET",
 }
 
+_NEUTRAL_FTTH_DEFAULTS = {
+    "asn": "65000",
+    "peer_1_name": "RR1",
+    "peer_2_name": "RR2",
+    "peer_1_address": "192.0.2.10/32",
+    "peer_2_address": "192.0.2.11/32",
+    "bng_1_ip": "198.51.100.10",
+    "bng_2_ip": "198.51.100.11",
+    "snmp_contact": "noc@example.com",
+}
+
 # ---------------------------------------------------------------------------
 # GitLab dynamic compliance loader (optional — falls back gracefully)
 # ---------------------------------------------------------------------------
@@ -1153,26 +1164,29 @@ def render_ftth_config(data: dict) -> str:
     bgp_as = str(
         data.get('asn')
         or tenant_defaults.get("routing", {}).get("asn")
-        or os.getenv('NEXTLINK_BGP_ASN', '26077')
-    ).strip() or '26077'
+        or os.getenv('NEXTLINK_BGP_ASN')
+        or _NEUTRAL_FTTH_DEFAULTS["asn"]
+    ).strip() or _NEUTRAL_FTTH_DEFAULTS["asn"]
     bgp_md5_key = str(data.get('bgp_md5_key') or os.getenv('NEXTLINK_BGP_MD5_KEY', 'm8M5JwvdYM')).strip()
     peer_1_name = str(
         data.get('peer_1_name')
         or peer_1_default.get("name")
-        or os.getenv('NEXTLINK_BGP_PEER1_NAME', 'CR7')
-    ).strip() or 'CR7'
+        or os.getenv('NEXTLINK_BGP_PEER1_NAME')
+        or _NEUTRAL_FTTH_DEFAULTS["peer_1_name"]
+    ).strip() or _NEUTRAL_FTTH_DEFAULTS["peer_1_name"]
     peer_2_name = str(
         data.get('peer_2_name')
         or peer_2_default.get("name")
-        or os.getenv('NEXTLINK_BGP_PEER2_NAME', 'CR8')
-    ).strip() or 'CR8'
+        or os.getenv('NEXTLINK_BGP_PEER2_NAME')
+        or _NEUTRAL_FTTH_DEFAULTS["peer_2_name"]
+    ).strip() or _NEUTRAL_FTTH_DEFAULTS["peer_2_name"]
     peer_1_address = _normalize_bgp_peer_address(
         data.get('peer_1_address'),
-        peer_1_default.get("remote") or peer_1_default.get("ip") or os.getenv('NEXTLINK_BGP_PEER1_ADDRESS', '10.2.0.107/32'),
+        peer_1_default.get("remote") or peer_1_default.get("ip") or os.getenv('NEXTLINK_BGP_PEER1_ADDRESS') or _NEUTRAL_FTTH_DEFAULTS["peer_1_address"],
     )
     peer_2_address = _normalize_bgp_peer_address(
         data.get('peer_2_address'),
-        peer_2_default.get("remote") or peer_2_default.get("ip") or os.getenv('NEXTLINK_BGP_PEER2_ADDRESS', '10.2.0.108/32'),
+        peer_2_default.get("remote") or peer_2_default.get("ip") or os.getenv('NEXTLINK_BGP_PEER2_ADDRESS') or _NEUTRAL_FTTH_DEFAULTS["peer_2_address"],
     )
 
     if routeros_version == '7.20.2':
@@ -1210,12 +1224,14 @@ def render_ftth_config(data: dict) -> str:
         data.get('bng_1_ip')
         or tenant_defaults.get("routing", {}).get("default_bng_peer")
         or (bng_peer_values[0] if len(bng_peer_values) > 0 else "")
-        or os.getenv('NEXTLINK_BNG1_IP', '10.249.0.200')
+        or os.getenv('NEXTLINK_BNG1_IP')
+        or _NEUTRAL_FTTH_DEFAULTS["bng_1_ip"]
     ).strip()
     bng_2_ip = str(
         data.get('bng_2_ip')
         or (bng_peer_values[1] if len(bng_peer_values) > 1 else "")
-        or os.getenv('NEXTLINK_BNG2_IP', '10.249.0.201')
+        or os.getenv('NEXTLINK_BNG2_IP')
+        or _NEUTRAL_FTTH_DEFAULTS["bng_2_ip"]
     ).strip()
     vpls_l2mtu = str(data.get('vpls_l2_mtu') or os.getenv('NEXTLINK_VPLS_L2_MTU', '1580')).strip()
     bridge_lines = _render_bridge_lines(is_outstate=is_outstate)
@@ -1282,7 +1298,8 @@ def render_ftth_config(data: dict) -> str:
         "{{SNMP_CONTACT}}": (
             str(data.get('snmp_contact') or "")
             or str(infrastructure_defaults.get("snmp", {}).get("contact") or "")
-            or os.getenv('NEXTLINK_SNMP_CONTACT', 'noc@team.nxlink.com')
+            or os.getenv('NEXTLINK_SNMP_CONTACT')
+            or _NEUTRAL_FTTH_DEFAULTS["snmp_contact"]
         ),
         "{{GENERATED_AT}}": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "{{BGP_INSTANCE_BLOCK}}": bgp_instance_block,

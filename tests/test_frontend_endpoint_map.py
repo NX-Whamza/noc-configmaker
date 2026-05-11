@@ -20,11 +20,14 @@ def _backend_routes() -> set[str]:
         repo_root / 'vm_deployment' / 'routes' / 'ftth.py',
         repo_root / 'vm_deployment' / 'routes' / 'runtime.py',
     ]
-    route_re = re.compile(r"""@(?:app|bp)\.(?:route|get|post|put|delete|patch)\((?:'|")([^'"]+)""")
+    route_re = re.compile(r"""@(?:app|bp|router)\.(?:route|get|post|put|delete|patch)\((?:'|")([^'"]+)""")
     routes: set[str] = set()
     for path in files:
         text = path.read_text(encoding='utf-8', errors='ignore')
-        routes.update(route_re.findall(text))
+        found = set(route_re.findall(text))
+        routes.update(found)
+        if path.name == 'api_v2.py':
+            routes.update(f"/api/v2{route}" for route in found)
     return routes
 
 
@@ -44,6 +47,9 @@ def test_frontend_endpoint_wiring_has_backend_routes():
         '/api/version',
         '/api/app-config',
         '/api/tenant/defaults',
+        '/api/v2/nexus/app-config',
+        '/api/v2/nexus/tenant/defaults',
+        '/api/v2/nexus/infrastructure',
         '/api/preview-ftth-bng',
         '/api/generate-ftth-bng',
         '/api/generate-ftth-fiber-customer',
@@ -92,6 +98,9 @@ def test_frontend_endpoint_wiring_has_backend_routes():
         '/api/maintenance/windows',
         '/api/maintenance/windows/X',
         '/api/command-vault/catalog',
+        '/api/v2/nexus/tools/command-vault',
+        '/api/v2/nexus/maintenance/windows',
+        '/api/v2/nexus/maintenance/windows/X',
     }
     missing = sorted(ep for ep in frontend_endpoints if ep not in routes)
     assert not missing, f"Frontend endpoints missing backend routes: {missing}"
