@@ -5211,9 +5211,10 @@ if AI_PROVIDER == 'openai':
         from openai import OpenAI, OpenAIError, RateLimitError, AuthenticationError
         openai_client = OpenAI(api_key=OPENAI_API_KEY)
         safe_print(f"Using OpenAI (API Key: {'configured' if OPENAI_API_KEY else 'MISSING'})")
-    except ImportError:
-        safe_print("WARNING: OpenAI library not installed. Install with: pip install openai")
+    except Exception as _ai_err:
+        safe_print(f"WARNING: OpenAI unavailable ({_ai_err}) -- AI features disabled")
         AI_PROVIDER = 'none'
+        openai_client = None
 else:
     safe_print(f"AI Provider: {AI_PROVIDER} (no AI features available)")
 
@@ -17725,6 +17726,72 @@ def compliance_status():
             status['error'] = str(exc)
 
     return jsonify(status)
+
+
+
+_SITE_CACHE = None
+_SITE_CACHE_PATH = Path(__file__).resolve().parent / "site_cache.json"
+
+
+def _load_site_cache():
+    global _SITE_CACHE
+    if _SITE_CACHE is None:
+        try:
+            with open(_SITE_CACHE_PATH, encoding="utf-8") as f:
+                data = json.load(f)
+            _SITE_CACHE = data.get("sites", data) if isinstance(data, dict) else data
+        except Exception:
+            _SITE_CACHE = []
+    return _SITE_CACHE
+
+
+@app.route("/api/sites/search", methods=["GET"])
+def search_sites():
+    q = (request.args.get("q") or "").strip().upper()
+    if len(q) < 2:
+        return jsonify({"results": []})
+    limit = min(max(1, int(request.args.get("limit", 10))), 25)
+    matches = [s for s in _load_site_cache() if q in s.get("name", "").upper()][:limit]
+    return jsonify({"results": matches})
+
+
+_REFRESH_STATUS = {"running": False, "last_count": None, "last_error": None, "last_run": None}
+
+def _do_refresh():
+    global _SITE_CACHE, _REFRESH_STATUS
+    _REFRESH_STATUS["running"] = True
+    _REFRESH_STATUS["last_error"] = None
+    try:
+        from sitetracker_client import fetch_all_sites, build_cache_payload
+        import datetime
+        sites = fetch_all_sites()
+        payload = build_cache_payload(sites)
+        with open(_SITE_CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        _SITE_CACHE = sites
+        _REFRESH_STATUS["last_count"] = len(sites)
+        _REFRESH_STATUS["last_run"] = datetime.datetime.utcnow().isoformat()
+    except Exception as exc:
+        import logging
+        logging.exception("Site cache refresh failed")
+        _REFRESH_STATUS["last_error"] = str(exc)
+    finally:
+        _REFRESH_STATUS["running"] = False
+
+@app.route("/api/sites/refresh", methods=["POST"])
+def refresh_sites():
+    if not os.environ.get("CODEX_CATALOG_AUTH"):
+        return jsonify({"success": False, "error": "CODEX_CATALOG_AUTH env var not set"}), 500
+    if _REFRESH_STATUS["running"]:
+        return jsonify({"success": False, "error": "Refresh already in progress"}), 409
+    import threading
+    t = threading.Thread(target=_do_refresh, daemon=True)
+    t.start()
+    return jsonify({"success": True, "status": "started", "message": "Refresh running in background — poll /api/sites/refresh/status"})
+
+@app.route("/api/sites/refresh/status", methods=["GET"])
+def refresh_status():
+    return jsonify(_REFRESH_STATUS)
 
 
 @app.route('/api/health', methods=['GET'])

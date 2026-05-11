@@ -113,6 +113,9 @@ services:
       NEXUS_UVICORN_WORKERS: ${NEXUS_UVICORN_WORKERS:-1}
       # Single process, but allow Flask routes to use a larger in-process thread pool.
       NEXUS_WSGI_WORKERS: ${NEXUS_WSGI_WORKERS:-32}
+      # Codex Catalog API for SiteTracker site cache refresh
+      CODEX_CATALOG_URL: ${CODEX_CATALOG_URL:-https://codex-catalog.nxlink.com/mcp}
+      CODEX_CATALOG_AUTH: ${CODEX_CATALOG_AUTH:-}
       NEXUS_WSGI_SEND_QUEUE_SIZE: ${NEXUS_WSGI_SEND_QUEUE_SIZE:-32}
       # Device auth defaults (also used by backend for SSH-fetch, Field Config Studio proxy)
       AP_STANDARD_PW: ${AP_STANDARD_PW:-CHANGE_ME}
