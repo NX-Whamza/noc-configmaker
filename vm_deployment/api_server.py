@@ -10275,7 +10275,55 @@ Output (copy every line, update device model to {target_device.upper()}, preserv
                 print(f"[IP PRESERVATION] ✓ Re-injected {len(missing_ips)} missing IP addresses")
         else:
             print(f"[IP PRESERVATION] ✓ All {len(source_ip_set)} IP addresses are preserved")
-        
+
+        # CRITICAL: Preserve /ip firewall address-list entries verbatim.
+        # These are hardware-independent; the AI sometimes truncates large lists (VOYANT, VOXO, NTP).
+        # Missing address-list IPs trigger the >10 hard-fail threshold in the frontend validator.
+        src_addrlist_section = re.search(r"(?ms)^/ip firewall address-list\s*\n(.*?)(?=\n/[a-z]|\Z)", source_config)
+        if src_addrlist_section:
+            src_addrlist_entries = [
+                m.group(0).strip()
+                for m in re.finditer(r"(?m)^add\s+[^\n]+$", src_addrlist_section.group(1))
+            ]
+            if src_addrlist_entries:
+                # Build set of addresses already present in translated address-list
+                translated_addrs = set()
+                trans_al_section = re.search(r"(?ms)^/ip firewall address-list\s*\n(.*?)(?=\n/[a-z]|\Z)", translated)
+                if trans_al_section:
+                    for m in re.finditer(r"(?m)^add\s+[^\n]+$", trans_al_section.group(1)):
+                        am = re.search(r'address=(\S+)', m.group(0))
+                        if am:
+                            translated_addrs.add(am.group(1))
+
+                missing_al_entries = []
+                for entry in src_addrlist_entries:
+                    am = re.search(r'address=(\S+)', entry)
+                    if am and am.group(1) not in translated_addrs:
+                        missing_al_entries.append(entry)
+
+                if missing_al_entries:
+                    print(f"[FW ADDR PRESERVATION] Re-injecting {len(missing_al_entries)} missing address-list entries")
+                    if '/ip firewall address-list' in translated:
+                        al_block = re.search(r'(?ms)^(/ip firewall address-list\s*\n)(.*?)(?=\n/[a-z]|\Z)', translated)
+                        if al_block:
+                            translated = translated.replace(
+                                al_block.group(1) + al_block.group(2),
+                                al_block.group(1) + al_block.group(2).rstrip() + '\n' + '\n'.join(missing_al_entries) + '\n'
+                            )
+                    elif '/ip firewall filter' in translated:
+                        translated = translated.replace(
+                            '/ip firewall filter',
+                            '/ip firewall address-list\n' + '\n'.join(missing_al_entries) + '\n/ip firewall filter'
+                        )
+                    elif '/ip firewall' in translated:
+                        idx = translated.find('/ip firewall')
+                        translated = translated[:idx] + '/ip firewall address-list\n' + '\n'.join(missing_al_entries) + '\n\n' + translated[idx:]
+                    else:
+                        translated += '\n/ip firewall address-list\n' + '\n'.join(missing_al_entries) + '\n'
+                    print(f"[FW ADDR PRESERVATION] ✓ Re-injected {len(missing_al_entries)} address-list entries")
+                else:
+                    print(f"[FW ADDR PRESERVATION] ✓ All {len(src_addrlist_entries)} address-list entries preserved")
+
         # Non-strict postprocessing is intended to repair broken AI output (dedup/orphan fixes/reordering).
         # In strict mode we avoid any step that might drop or reorder lines.
         if not strict_preserve:
