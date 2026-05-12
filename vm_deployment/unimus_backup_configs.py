@@ -815,12 +815,7 @@ def get_host_backup(request: Request, device_id: str = "", address: str = "", ba
                 str(device.get("model") or "").strip(),
             )
             host_name = str(device.get("description") or device.get("address") or "unimus-device").strip()
-            address_label = str(device.get("address") or address or "unimus-device").strip()
-            model_label = str(device.get("model") or "unknown-model").strip()
-            timestamp_label = str(_format_epoch_millis(backup.get("validSince")) or backup.get("validSince") or backup_id)
-            download_name = (
-                f"{_safe_label(host_name)}_{_safe_label(address_label)}_{_safe_label(model_label)}_{_safe_label(timestamp_label)}{extension}"
-            )
+            download_name = f"{_safe_label(host_name)}{extension}"
             return Response(
                 content=payload_bytes,
                 media_type=mimetype,

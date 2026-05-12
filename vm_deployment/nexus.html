@@ -5473,6 +5473,14 @@
                             </div>
                             <div id="mtBgpPeerFields">
                             <div>
+                                <label for="mtBgpStateProfile">State (BGP)</label>
+                                <select id="mtBgpStateProfile" onchange="applyMtBgpStateProfile(this.value)">
+                                    <option value="">-- Manual --</option>
+                                    <option value="TX">TX (Texas)</option>
+                                    <option value="OK">OK (Oklahoma)</option>
+                                </select>
+                            </div>
+                            <div>
                                 <label for="mtAsn">ASN</label>
                                 <input type="text" id="mtAsn" placeholder="Tenant ASN">
                             </div>
@@ -18015,6 +18023,16 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 if (!identityEl) return;
                 identityEl.value = getMtRouterIdentity();
             }
+
+            window.applyMtBgpStateProfile = function(state) {
+                if (state === 'TX' || state === 'OK') {
+                    document.getElementById('mtAsn').value = '26077';
+                    document.getElementById('mtBgpPeer1Name').value = 'CR7';
+                    document.getElementById('mtBgpPeer1Address').value = '10.2.0.107/32';
+                    document.getElementById('mtBgpPeer2Name').value = 'CR8';
+                    document.getElementById('mtBgpPeer2Address').value = '10.2.0.108/32';
+                }
+            };
 
             function getTowerBaseFilename() {
                 const identity = getMtRouterIdentity();
@@ -31742,6 +31760,7 @@ Ready for translation!`);
                     document.getElementById(cfg.lonId).value = item.lon;
                     _hide();
                     _selecting = false;
+                    if (typeof cfg.onSelect === 'function') cfg.onSelect(item);
                 }
 
                 function _render(results) {
@@ -31795,7 +31814,19 @@ Ready for translation!`);
             }
 
             // MikroTik New Device
-            makeSiteTypeahead({ inputId:'mtSiteName', suggestId:'mtSiteSuggest', latId:'mtLatitude', lonId:'mtLongitude' });
+            makeSiteTypeahead({
+                inputId:'mtSiteName', suggestId:'mtSiteSuggest', latId:'mtLatitude', lonId:'mtLongitude',
+                onSelect: function(item) {
+                    if (typeof syncMtRouterIdentity === 'function') syncMtRouterIdentity();
+                    var match = (item.name || '').match(/\.([A-Z]{2})[-.]/);
+                    var state = match ? match[1].toUpperCase() : '';
+                    if (state === 'TX' || state === 'OK') {
+                        var sel = document.getElementById('mtBgpStateProfile');
+                        if (sel) sel.value = state;
+                        if (typeof applyMtBgpStateProfile === 'function') applyMtBgpStateProfile(state);
+                    }
+                }
+            });
             // Nokia 7250
             makeSiteTypeahead({ inputId:'nokia7250_siteSuffix', suggestId:'nokia7250SiteSuggest', latId:'nokia7250_lat', lonId:'nokia7250_lon' });
         })();
