@@ -17793,6 +17793,7 @@ def _do_refresh():
 
 @app.route('/api/sites/refresh', methods=['POST'])
 def refresh_sites():
+    """Start async site cache rebuild from live SiteTracker data. Poll /status for result."""
     if not os.environ.get("CODEX_CATALOG_AUTH"):
         return jsonify({"success": False, "error": "CODEX_CATALOG_AUTH env var not set"}), 500
     if _REFRESH_STATUS["running"]:
@@ -17804,14 +17805,14 @@ def refresh_sites():
 
 @app.route('/api/sites/refresh/status', methods=['GET'])
 def refresh_status():
+    """Check background site cache refresh progress."""
     return jsonify(_REFRESH_STATUS)
-
 
 
 @app.route('/api/health', methods=['GET'])
 def health():
     """Check if API server is running and configured
-    
+
     This is the unified backend - api_server.py handles all AI internally.
     Backend is considered 'online' if this endpoint responds.
     The backend will handle AI provider availability and fallbacks internally.
