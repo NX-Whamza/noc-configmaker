@@ -5211,12 +5211,8 @@ if AI_PROVIDER == 'openai':
         from openai import OpenAI, OpenAIError, RateLimitError, AuthenticationError
         openai_client = OpenAI(api_key=OPENAI_API_KEY)
         safe_print(f"Using OpenAI (API Key: {'configured' if OPENAI_API_KEY else 'MISSING'})")
-    except ImportError:
-        safe_print("WARNING: OpenAI library not installed. Install with: pip install openai")
-        AI_PROVIDER = 'none'
-        openai_client = None
-    except Exception as e:
-        safe_print(f"WARNING: OpenAI client init failed ({e}). AI features disabled.")
+    except Exception as _ai_err:
+        safe_print(f"WARNING: OpenAI unavailable ({_ai_err}) -- AI features disabled")
         AI_PROVIDER = 'none'
         openai_client = None
 else:
@@ -17743,6 +17739,7 @@ def compliance_status():
     return jsonify(status)
 
 
+
 _SITE_CACHE: list | None = None
 _SITE_CACHE_PATH = Path(__file__).resolve().parent / "site_cache.json"
 
@@ -17777,7 +17774,7 @@ def _do_refresh():
     _REFRESH_STATUS["running"] = True
     _REFRESH_STATUS["last_error"] = None
     try:
-        import datetime, threading as _t
+        import datetime
         from sitetracker_client import fetch_all_sites, build_cache_payload
         sites = fetch_all_sites()
         payload = build_cache_payload(sites)
@@ -17787,6 +17784,7 @@ def _do_refresh():
         _REFRESH_STATUS["last_count"] = len(sites)
         _REFRESH_STATUS["last_run"] = datetime.datetime.utcnow().isoformat()
     except Exception as exc:
+        import logging
         logging.exception("Site cache refresh failed")
         _REFRESH_STATUS["last_error"] = str(exc)
     finally:
