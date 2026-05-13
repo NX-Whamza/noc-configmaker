@@ -5554,6 +5554,8 @@
                                 <div>
                                     <label for="mtBng2StateCode">State Profile</label>
                                     <select id="mtBng2StateCode">
+                                        <option value="TX">TX (Texas)</option>
+                                        <option value="OK">OK (Oklahoma)</option>
                                         <option value="KS" selected>KS (Kansas)</option>
                                         <option value="NE">NE (Nebraska)</option>
                                         <option value="IA">IA (Iowa)</option>
@@ -19889,11 +19891,13 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             }
 
             window.STATE_PROFILES = {
-                IA: { code: 'IA', ospf_area: '42', ospf_area_id: '0.0.0.42', vpls: ['1245', '2245', '3245', '4245'], vpls_state_id: '245' },
+                TX: { code: 'TX', ospf_area: '245', ospf_area_id: '0.0.0.245', vpls: ['1245', '2245', '3245', '4245'], vpls_state_id: '245' },
+                OK: { code: 'OK', ospf_area: '243', ospf_area_id: '0.0.0.243', vpls: ['1243', '2243', '3243', '4243'], vpls_state_id: '243' },
+                IA: { code: 'IA', ospf_area: '42',  ospf_area_id: '0.0.0.42',  vpls: ['1245', '2245', '3245', '4245'], vpls_state_id: '245' },
                 NE: { code: 'NE', ospf_area: '249', ospf_area_id: '0.0.0.249', vpls: ['1249', '2249', '3249', '4249'], vpls_state_id: '249' },
                 KS: { code: 'KS', ospf_area: '248', ospf_area_id: '0.0.0.248', vpls: ['1248', '2248', '3248', '4248'], vpls_state_id: '248' },
                 LA: { code: 'LA', ospf_area: '250', ospf_area_id: '0.0.0.250', vpls: ['1250', '2250', '3250', '4250'], vpls_state_id: '250' },
-                IL: { code: 'IL', ospf_area: '0', ospf_area_id: '0.0.0.0', vpls: ['1247', '2247', '3247', '4247'], vpls_state_id: '247' }
+                IL: { code: 'IL', ospf_area: '0',   ospf_area_id: '0.0.0.0',   vpls: ['1247', '2247', '3247', '4247'], vpls_state_id: '247' }
             };
 
             window.getStateProfile = function (stateCode) {
@@ -19971,8 +19975,8 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 const routerType = mapTargetDeviceToMtRouterType(targetDevice);
                 const backhauls = collectTowerBackhaulsForBackend();
                 const switches = readModernSwitches();
-                const stateCode = ((siteName.match(/\.([A-Z]{2})[-.]/) || [])[1] || 'KS').toUpperCase();
-                const deploymentMode = (document.getElementById('configType')?.value || 'in-state').trim().toLowerCase();
+                const stateCode = ((siteName.match(/^([A-Z]{2})[-.]/) || [])[1] || 'KS').toUpperCase();
+                const deploymentMode = (stateCode === 'TX' || stateCode === 'OK') ? 'in-state' : 'out-of-state';
                 const rosVer = (document.getElementById('mtRouterOSVersion')?.value || '7.19.4').trim();
                 const isTarana = !!(document.getElementById('mtFeatureTarana')?.checked || document.getElementById('enableTarana')?.checked);
                 const is326 = !!(document.getElementById('mtFeatureCrs326')?.checked || document.getElementById('enableSWT')?.checked);
@@ -20013,10 +20017,10 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                     state_code: stateCode,
                     deployment_mode: deploymentMode,
                     asn: asn || getTenantDefaultAsn() || '65000',
-                    peer_1_name: peers[0]?.name || getTenantRouteReflectorPeers()[0]?.name || 'RR1',
-                    peer_1_address: peers[0]?.remote || getTenantRouteReflectorPeers()[0]?.remote || getTenantRouteReflectorPeers()[0]?.ip || '',
-                    peer_2_name: peers[1]?.name || getTenantRouteReflectorPeers()[1]?.name || 'RR2',
-                    peer_2_address: peers[1]?.remote || getTenantRouteReflectorPeers()[1]?.remote || getTenantRouteReflectorPeers()[1]?.ip || '',
+                    peer_1_name: (document.getElementById('mtBgpPeer1Name')?.value || '').trim() || peers[0]?.name || getTenantRouteReflectorPeers()[0]?.name || 'RR1',
+                    peer_1_address: ensureCIDR((document.getElementById('mtBgpPeer1Address')?.value || '').trim(), 32) || peers[0]?.remote || getTenantRouteReflectorPeers()[0]?.remote || getTenantRouteReflectorPeers()[0]?.ip || '',
+                    peer_2_name: (document.getElementById('mtBgpPeer2Name')?.value || '').trim() || peers[1]?.name || getTenantRouteReflectorPeers()[1]?.name || 'RR2',
+                    peer_2_address: ensureCIDR((document.getElementById('mtBgpPeer2Address')?.value || '').trim(), 32) || peers[1]?.remote || getTenantRouteReflectorPeers()[1]?.remote || getTenantRouteReflectorPeers()[1]?.ip || '',
                     ros_ver: rosVer,
                     is_tarana: isTarana,
                     is_326: is326,
@@ -31818,12 +31822,20 @@ Ready for translation!`);
                 inputId:'mtSiteName', suggestId:'mtSiteSuggest', latId:'mtLatitude', lonId:'mtLongitude',
                 onSelect: function(item) {
                     if (typeof syncMtRouterIdentity === 'function') syncMtRouterIdentity();
-                    var match = (item.name || '').match(/\.([A-Z]{2})[-.]/);
+                    var match = (item.name || '').match(/^([A-Z]{2})[-.]/);
                     var state = match ? match[1].toUpperCase() : '';
                     if (state === 'TX' || state === 'OK') {
-                        var sel = document.getElementById('mtBgpStateProfile');
-                        if (sel) sel.value = state;
+                        var bgpSel = document.getElementById('mtBgpStateProfile');
+                        if (bgpSel) bgpSel.value = state;
                         if (typeof applyMtBgpStateProfile === 'function') applyMtBgpStateProfile(state);
+                    }
+                    // Sync BNG2 state code dropdown if the state has a BNG2 profile
+                    if (state && window.STATE_PROFILES && window.STATE_PROFILES[state]) {
+                        var bng2Sel = document.getElementById('mtBng2StateCode');
+                        if (bng2Sel) {
+                            bng2Sel.value = state;
+                            if (typeof syncBng2StateProfileFields === 'function') syncBng2StateProfileFields();
+                        }
                     }
                 }
             });
