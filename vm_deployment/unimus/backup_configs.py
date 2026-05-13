@@ -1238,6 +1238,70 @@ def _config_search_sync(
     return response
 
 
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).lower() in {"1", "true", "yes", "on"}
+
+
+def _as_search_term_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    return [value]
+
+
+async def _run_config_search(
+    request: Request,
+    *,
+    query_text: str,
+    required_texts: list[Any],
+    missing_texts: list[Any],
+    latest_only: Any,
+    case_sensitive: Any,
+    vendor: str,
+    device_type: str,
+    model: str,
+    hostname_prefix: str,
+    debug: Any = "0",
+) -> dict[str, Any]:
+    _require_auth(request)
+    query_text = str(query_text or "").strip()
+    required_terms = _normalize_search_terms(required_texts)
+    missing_terms = _normalize_search_terms(missing_texts)
+    vendor = str(vendor or "").strip()
+    device_type = str(device_type or "").strip()
+    model = str(model or "").strip()
+    hostname_prefix = str(hostname_prefix or "").strip()
+    has_advanced_filter = any((vendor, device_type, model, hostname_prefix))
+    if len(query_text) < 3 and not required_terms and not missing_terms and not has_advanced_filter:
+        raise HTTPException(
+            status_code=400,
+            detail="Search is too broad. Enter at least 3 search characters, add a required or missing text filter, or choose an advanced filter.",
+        )
+    try:
+        return await asyncio.to_thread(
+            _config_search_sync,
+            query_text,
+            required_terms,
+            missing_terms,
+            _truthy(latest_only),
+            _truthy(case_sensitive),
+            vendor,
+            device_type,
+            model,
+            hostname_prefix,
+            _truthy(debug),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to search Unimus PostgreSQL configs: {exc}")
+
+
 @router.get("/config-search-options")
 async def get_config_search_options(request: Request):
     _require_auth(request)
@@ -1261,44 +1325,59 @@ async def search_configs(
     hostname_prefix: str = "",
     debug: str = "0",
 ):
-    _require_auth(request)
-    query_text = str(q or "").strip()
-    required_texts = _normalize_search_terms(
-        list(request.query_params.getlist("requiredTexts"))
-        + list(request.query_params.getlist("required_texts"))
-        + list(request.query_params.getlist("requiredText"))
-        + list(request.query_params.getlist("required_text"))
+    return await _run_config_search(
+        request,
+        query_text=q,
+        required_texts=(
+            list(request.query_params.getlist("requiredTexts"))
+            + list(request.query_params.getlist("required_texts"))
+            + list(request.query_params.getlist("requiredText"))
+            + list(request.query_params.getlist("required_text"))
+        ),
+        missing_texts=(
+            list(request.query_params.getlist("missingTexts"))
+            + list(request.query_params.getlist("missing_texts"))
+            + list(request.query_params.getlist("missingText"))
+            + list(request.query_params.getlist("missing_text"))
+        ),
+        latest_only=latest_only,
+        case_sensitive=case_sensitive,
+        vendor=vendor,
+        device_type=device_type,
+        model=model,
+        hostname_prefix=hostname_prefix,
+        debug=debug,
     )
-    missing_texts = _normalize_search_terms(
-        list(request.query_params.getlist("missingTexts"))
-        + list(request.query_params.getlist("missing_texts"))
-        + list(request.query_params.getlist("missingText"))
-        + list(request.query_params.getlist("missing_text"))
+
+
+@router.post("/config-search")
+async def search_configs_post(request: Request):
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid config search payload")
+    return await _run_config_search(
+        request,
+        query_text=payload.get("q") or payload.get("search_text") or "",
+        required_texts=_as_search_term_list(
+            payload.get("requiredTexts")
+            or payload.get("required_texts")
+            or payload.get("requiredText")
+            or []
+        ),
+        missing_texts=_as_search_term_list(
+            payload.get("missingTexts")
+            or payload.get("missing_texts")
+            or payload.get("missingText")
+            or []
+        ),
+        latest_only=payload.get("latest_only", "1"),
+        case_sensitive=payload.get("case_sensitive", "0"),
+        vendor=payload.get("vendor") or "",
+        device_type=payload.get("device_type") or "",
+        model=payload.get("model") or "",
+        hostname_prefix=payload.get("hostname_prefix") or "",
+        debug=payload.get("debug", "0"),
     )
-    has_advanced_filter = any(str(value or "").strip() for value in (vendor, device_type, model, hostname_prefix))
-    if len(query_text) < 3 and not required_texts and not missing_texts and not has_advanced_filter:
-        raise HTTPException(
-            status_code=400,
-            detail="Search is too broad. Enter at least 3 search characters, add a required or missing text filter, or choose an advanced filter.",
-        )
-    try:
-        return await asyncio.to_thread(
-            _config_search_sync,
-            query_text,
-            required_texts,
-            missing_texts,
-            str(latest_only).lower() in {"1", "true", "yes", "on"},
-            str(case_sensitive).lower() in {"1", "true", "yes", "on"},
-            str(vendor or "").strip(),
-            str(device_type or "").strip(),
-            str(model or "").strip(),
-            str(hostname_prefix or "").strip(),
-            str(debug).lower() in {"1", "true", "yes", "on"},
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Failed to search Unimus PostgreSQL configs: {exc}")
 
 
 @router.post("/host-backup-now")

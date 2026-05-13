@@ -492,6 +492,36 @@
         };
     }
 
+    function normalizeSearchText(value) {
+        return String(value || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\u00a0/g, ' ');
+    }
+
+    function textContainsTerm(text, term, caseSensitive) {
+        const haystack = normalizeSearchText(text);
+        const needle = normalizeSearchText(term);
+        if (!needle) return false;
+        if (caseSensitive) return haystack.includes(needle);
+        return haystack.toLowerCase().includes(needle.toLowerCase());
+    }
+
+    function filterSnippetMissingText(results, missingTexts, caseSensitive) {
+        const terms = Array.isArray(missingTexts) ? missingTexts.filter((text) => String(text || '').trim()) : [];
+        if (!terms.length) return Array.isArray(results) ? results : [];
+        return (Array.isArray(results) ? results : []).map((host) => {
+            const backups = (Array.isArray(host.backups) ? host.backups : []).filter((backup) => {
+                const snippets = Array.isArray(backup.snippets) ? backup.snippets : [];
+                return !snippets.some((snippet) => (
+                    (Array.isArray(snippet.lines) ? snippet.lines : []).some((line) => (
+                        terms.some((term) => textContainsTerm(line.text, term, caseSensitive))
+                    ))
+                ));
+            });
+            if (!backups.length) return null;
+            const matchCount = backups.reduce((total, backup) => total + Number(backup.match_count || 0), 0);
+            return { ...host, backups, match_count: matchCount };
+        }).filter(Boolean);
+    }
+
     async function runSearch() {
         const filters = currentFilters();
         const hasAdvancedFilter = Boolean(filters.vendor || filters.device_type || filters.model || filters.hostname_prefix);
@@ -500,21 +530,17 @@
             setStatus('Search is too broad. Enter at least 3 search characters, add a Required or Missing text chip, or choose an advanced filter.', 'error');
             return;
         }
-        const params = new URLSearchParams({
+        const requestPayload = {
             q: filters.search_text,
-            latest_only: filters.latest_only ? '1' : '0',
-            case_sensitive: filters.case_sensitive ? '1' : '0',
-        });
-        [
-            ['vendor', filters.vendor],
-            ['device_type', filters.device_type],
-            ['model', filters.model],
-            ['hostname_prefix', filters.hostname_prefix],
-        ].forEach(([key, value]) => {
-            if (value) params.set(key, value);
-        });
-        filters.required_texts.forEach((text) => params.append('requiredTexts', text));
-        filters.missing_texts.forEach((text) => params.append('missingTexts', text));
+            latest_only: filters.latest_only,
+            case_sensitive: filters.case_sensitive,
+            vendor: filters.vendor,
+            device_type: filters.device_type,
+            model: filters.model,
+            hostname_prefix: filters.hostname_prefix,
+            requiredTexts: filters.required_texts,
+            missingTexts: filters.missing_texts,
+        };
 
         const btn = $('unimusConfigSearchButton');
         btn.disabled = true;
@@ -523,13 +549,19 @@
         $('unimusConfigSearchResults').innerHTML = '';
         updateCollapseToggle();
         try {
-            const response = await apiFetchWithTimeout(`${API_BASE}/unimus-backup-configs/config-search?${params.toString()}`);
-            const payload = await response.json().catch(() => ({}));
-            if (!response.ok) throw new Error(payload.detail || payload.error || `HTTP ${response.status}`);
+            const response = await apiFetchWithTimeout(`${API_BASE}/unimus-backup-configs/config-search`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestPayload),
+            });
+            const responsePayload = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(responsePayload.detail || responsePayload.error || `HTTP ${response.status}`);
             setSearchSource();
-            renderResults(Array.isArray(payload.results) ? payload.results : []);
-            const modeLabel = payload.latest_only ? 'latest backups' : 'all backups';
-            setStatus(`Found ${payload.host_count || 0} host(s) and ${payload.backup_count || 0} backup(s) across ${modeLabel}.`, 'success');
+            const results = filterSnippetMissingText(responsePayload.results, filters.missing_texts, filters.case_sensitive);
+            renderResults(results);
+            const modeLabel = responsePayload.latest_only ? 'latest backups' : 'all backups';
+            const visibleBackupCount = results.reduce((total, host) => total + (host.backups || []).length, 0);
+            setStatus(`Found ${results.length} host(s) and ${visibleBackupCount} backup(s) across ${modeLabel}.`, 'success');
             renderActiveFilters(filters);
         } catch (error) {
             const message = error?.name === 'AbortError'
