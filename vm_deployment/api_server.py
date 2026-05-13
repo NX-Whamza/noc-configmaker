@@ -11089,16 +11089,26 @@ def gen_enterprise_non_mpls():
         # Normalize and deduplicate configuration before returning
         cfg = normalize_config(cfg)
 
-        # Re-append enterprise-specific srcnat rules that compliance stripping removes.
-        # The compliance script replaces /ip firewall nat entirely (dstnat redirect rules).
-        # These srcnat rules must survive that replacement.
+        # Inject enterprise-specific srcnat rules into the /ip firewall nat section.
+        # Compliance strips the NAT section and replaces with dstnat-only rules.
+        # These srcnat rules must coexist in the SAME block so they are visible together.
         if private_base:
-            cfg = cfg.rstrip() + (
-                "\n\n/ip firewall nat\n"
+            _srcnat = (
                 f"add action=src-nat chain=srcnat packet-mark=SMTP to-addresses={loopback_ip_clean}\n"
                 f"add action=src-nat chain=srcnat packet-mark=NTP to-addresses={loopback_ip_clean}\n"
                 f"add action=src-nat chain=srcnat src-address={private_base}.0/24 to-addresses={pub_router_ip}\n"
             )
+            # Remove pre-existing srcnat lines to prevent duplication
+            cfg = re.sub(r'(?m)^add action=src-nat chain=srcnat[^\n]*\n', '', cfg)
+            # Inject at end of existing /ip firewall nat block, before the next section
+            _nat_m = re.search(r'(?m)^/ip firewall nat[ \t]*$', cfg)
+            if _nat_m:
+                _after_nat = cfg[_nat_m.end():]
+                _next_sec = re.search(r'(?m)^/', _after_nat)
+                _ins = _nat_m.end() + (_next_sec.start() if _next_sec else len(_after_nat))
+                cfg = cfg[:_ins].rstrip('\n') + '\n' + _srcnat + cfg[_ins:]
+            else:
+                cfg = cfg.rstrip() + "\n\n/ip firewall nat\n" + _srcnat
         
         # Apply dhcp-option-set=optset to non-10.x DHCP networks
         # Must come AFTER normalize_config (which groups sections) and AFTER
@@ -26387,7 +26397,7 @@ def _build_switch_profile_config(data: dict):
             '/interface bridge msti add bridge=lan-bridge identifier=1 vlan-mapping=1000,2000,3000,4000,75,444',
             '/interface bridge port',
             bridge_ports,
-            '/ip neighbor discovery-settings set discover-interface-list=all',
+            '/ip neighbor discovery-settings set discover-interface-list=!dynamic',
             f'/interface bridge vlan add bridge=lan-bridge tagged={tagged_1000} vlan-ids=4000',
             '/interface bridge vlan add bridge=lan-bridge tagged=sfp-sfpplus3,bonding1,lan-bridge vlan-ids=75',
             '/interface bridge vlan add bridge=lan-bridge tagged=sfp-sfpplus3,bonding1,lan-bridge vlan-ids=444',
