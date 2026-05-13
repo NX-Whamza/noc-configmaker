@@ -18023,6 +18023,8 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 if (!identityEl) return;
                 identityEl.value = getMtRouterIdentity();
             }
+            // Expose globally so the site typeahead IIFE's onSelect callback can reach it
+            window.syncMtRouterIdentity = syncMtRouterIdentity;
 
             window.applyMtBgpStateProfile = function(state) {
                 if (state === 'TX' || state === 'OK') {
