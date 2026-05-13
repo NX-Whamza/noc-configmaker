@@ -5,7 +5,7 @@
     window.__UnimusConfigSearchCompatLoaded = true;
 
     const script = document.createElement('script');
-    script.src = 'unimus/config-search.js?v=8';
+    script.src = 'unimus/config-search.js?v=9';
     script.defer = true;
     (document.currentScript?.parentNode || document.head || document.body).appendChild(script);
 })();

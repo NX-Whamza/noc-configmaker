@@ -27,6 +27,19 @@
             scope: 'latest',
             caseSensitive: false,
         },
+        {
+            id: 'mikrotik-missing-all-mpls-interface',
+            label: 'Missing MPLS on all interfaces on MikroTiks',
+            searchText: '/mpls interface',
+            hostnamePrefix: 'RTR-',
+            vendor: 'MIKROTIK',
+            type: '',
+            model: '',
+            requiredTexts: [],
+            missingTexts: ['disabled=no interface=all mpls-mtu=9000'],
+            scope: 'latest',
+            caseSensitive: false,
+        },
     ];
 
     const state = {
@@ -530,17 +543,22 @@
             setStatus('Search is too broad. Enter at least 3 search characters, add a Required or Missing text chip, or choose an advanced filter.', 'error');
             return;
         }
-        const requestPayload = {
+        const params = new URLSearchParams({
             q: filters.search_text,
-            latest_only: filters.latest_only,
-            case_sensitive: filters.case_sensitive,
-            vendor: filters.vendor,
-            device_type: filters.device_type,
-            model: filters.model,
-            hostname_prefix: filters.hostname_prefix,
-            requiredTexts: filters.required_texts,
-            missingTexts: filters.missing_texts,
-        };
+            latest_only: filters.latest_only ? '1' : '0',
+            case_sensitive: filters.case_sensitive ? '1' : '0',
+            _: String(Date.now()),
+        });
+        [
+            ['vendor', filters.vendor],
+            ['device_type', filters.device_type],
+            ['model', filters.model],
+            ['hostname_prefix', filters.hostname_prefix],
+        ].forEach(([key, value]) => {
+            if (value) params.set(key, value);
+        });
+        filters.required_texts.forEach((text) => params.append('requiredTexts', text));
+        filters.missing_texts.forEach((text) => params.append('missingTexts', text));
 
         const btn = $('unimusConfigSearchButton');
         btn.disabled = true;
@@ -549,10 +567,8 @@
         $('unimusConfigSearchResults').innerHTML = '';
         updateCollapseToggle();
         try {
-            const response = await apiFetchWithTimeout(`${API_BASE}/unimus-backup-configs/config-search`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestPayload),
+            const response = await apiFetchWithTimeout(`${API_BASE}/unimus-backup-configs/config-search?${params.toString()}`, {
+                cache: 'no-store',
             });
             const responsePayload = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(responsePayload.detail || responsePayload.error || `HTTP ${response.status}`);
