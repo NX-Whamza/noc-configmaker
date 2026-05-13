@@ -1016,20 +1016,20 @@ def _normalize_line_endings(value: str) -> str:
     return value.replace("\r\n", "\n").replace("\r", "\n")
 
 
+def _normalize_config_search_text(value: str) -> str:
+    return _normalize_line_endings(value).replace("\u00a0", " ")
+
+
 def _config_text_contains(text: str, term: str, case_sensitive: bool) -> bool:
-    haystack = str(text or "")
-    needle = str(term or "")
+    haystack = _normalize_config_search_text(str(text or ""))
+    needle = _normalize_config_search_text(str(term or ""))
     if not needle:
         return True
     if case_sensitive:
-        if needle in haystack:
-            return True
-        return _normalize_line_endings(needle) in _normalize_line_endings(haystack)
+        return needle in haystack
     folded_haystack = haystack.lower()
     folded_needle = needle.lower()
-    if folded_needle in folded_haystack:
-        return True
-    return _normalize_line_endings(folded_needle) in _normalize_line_endings(folded_haystack)
+    return folded_needle in folded_haystack
 
 
 def _config_search_options_sync() -> dict[str, Any]:
@@ -1073,6 +1073,7 @@ def _config_search_sync(
     device_type: str,
     model: str,
     hostname_prefix: str,
+    include_debug: bool = False,
 ) -> dict[str, Any]:
     config = _require_unimus_db_runtime()
     required_terms = _normalize_search_terms(required_texts)
@@ -1092,9 +1093,6 @@ def _config_search_sync(
         add_contains_filter(query_text, True)
     for required_text in required_terms:
         add_contains_filter(required_text, True)
-    for missing_text in missing_terms:
-        add_contains_filter(missing_text, False)
-
     if hostname_prefix:
         filters.append("d.description ilike %s")
         params.append(f"{hostname_prefix}%")
@@ -1157,6 +1155,12 @@ def _config_search_sync(
             rows = cur.fetchall()
             columns = [desc.name for desc in cur.description]
 
+    debug_missing_filter = {
+        "received_count": len(missing_terms),
+        "received_terms": missing_terms,
+        "excluded_backup_count": 0,
+        "sample_excluded_backup_ids": [],
+    }
     hosts: dict[str, dict[str, Any]] = {}
     for row in rows:
         item = dict(zip(columns, row))
@@ -1165,7 +1169,11 @@ def _config_search_sync(
             continue
         if required_terms and not all(_config_text_contains(text, term, case_sensitive) for term in required_terms):
             continue
-        if missing_terms and any(_config_text_contains(text, term, case_sensitive) for term in missing_terms):
+        missing_hits = [term for term in missing_terms if _config_text_contains(text, term, case_sensitive)]
+        if missing_hits:
+            debug_missing_filter["excluded_backup_count"] += 1
+            if len(debug_missing_filter["sample_excluded_backup_ids"]) < 5:
+                debug_missing_filter["sample_excluded_backup_ids"].append(str(item.get("backup_id") or "").strip())
             continue
         snippets = _make_snippets(text, query_text, case_sensitive, required_terms)
         if not snippets and (query_text or required_terms):
@@ -1203,7 +1211,7 @@ def _config_search_sync(
 
     results = sorted(hosts.values(), key=lambda host: str(host.get("description") or host.get("address") or host.get("device_id") or ""))
     backup_count = sum(len(host["backups"]) for host in results)
-    return {
+    response = {
         "query": query_text,
         "latest_only": latest_only,
         "source": "postgresql",
@@ -1222,6 +1230,12 @@ def _config_search_sync(
         "backup_count": backup_count,
         "results": results,
     }
+    if include_debug:
+        response["debug"] = {
+            "missing_filter": debug_missing_filter,
+            "source": "postgresql_full_config",
+        }
+    return response
 
 
 @router.get("/config-search-options")
@@ -1245,6 +1259,7 @@ async def search_configs(
     device_type: str = "",
     model: str = "",
     hostname_prefix: str = "",
+    debug: str = "0",
 ):
     _require_auth(request)
     query_text = str(q or "").strip()
@@ -1278,6 +1293,7 @@ async def search_configs(
             str(device_type or "").strip(),
             str(model or "").strip(),
             str(hostname_prefix or "").strip(),
+            str(debug).lower() in {"1", "true", "yes", "on"},
         )
     except HTTPException:
         raise
