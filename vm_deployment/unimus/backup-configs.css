@@ -1808,13 +1808,13 @@
     font-weight: 800;
 }
 
-.unimus-cs-required-chip span {
+.unimus-cs-removable-chip span {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.unimus-cs-required-chip button {
+.unimus-cs-removable-chip button {
     display: inline-grid;
     place-items: center;
     width: 18px;
@@ -2147,11 +2147,11 @@
     vertical-align: middle;
 }
 
-.unimus-cs-shell .unimus-cs-required-chip {
+.unimus-cs-shell .unimus-cs-removable-chip {
     padding-right: 5px;
 }
 
-.unimus-cs-shell .unimus-cs-required-chip > span {
+.unimus-cs-shell .unimus-cs-removable-chip > span {
     display: block;
     min-width: 0;
     overflow: hidden;
@@ -2159,7 +2159,7 @@
     white-space: nowrap;
 }
 
-.unimus-cs-shell .unimus-cs-required-chip button {
+.unimus-cs-shell .unimus-cs-removable-chip button {
     appearance: none;
     display: inline-flex;
     align-items: center;
@@ -2184,7 +2184,7 @@
     overflow: visible;
 }
 
-.unimus-cs-shell .unimus-cs-required-chip button:hover:not(:disabled) {
+.unimus-cs-shell .unimus-cs-removable-chip button:hover:not(:disabled) {
     background: rgba(255, 138, 28, 0.42);
     transform: none;
     box-shadow: none;

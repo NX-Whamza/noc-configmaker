@@ -1012,6 +1012,26 @@ def _count_config_matches(text: str, query: str, case_sensitive: bool, fallback_
     return sum(1 for line in source.splitlines() if any(needle in line for needle in needles))
 
 
+def _normalize_line_endings(value: str) -> str:
+    return value.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _config_text_contains(text: str, term: str, case_sensitive: bool) -> bool:
+    haystack = str(text or "")
+    needle = str(term or "")
+    if not needle:
+        return True
+    if case_sensitive:
+        if needle in haystack:
+            return True
+        return _normalize_line_endings(needle) in _normalize_line_endings(haystack)
+    folded_haystack = haystack.lower()
+    folded_needle = needle.lower()
+    if folded_needle in folded_haystack:
+        return True
+    return _normalize_line_endings(folded_needle) in _normalize_line_endings(folded_haystack)
+
+
 def _config_search_options_sync() -> dict[str, Any]:
     config = _require_unimus_db_runtime()
     option_queries = {
@@ -1055,21 +1075,25 @@ def _config_search_sync(
     hostname_prefix: str,
 ) -> dict[str, Any]:
     config = _require_unimus_db_runtime()
-    operator = "like" if case_sensitive else "ilike"
     required_terms = _normalize_search_terms(required_texts)
     missing_terms = _normalize_search_terms(missing_texts)
     params: list[Any] = []
     filters = ["cfg.backup_text is not null"]
 
+    def add_contains_filter(term: str, should_contain: bool) -> None:
+        if case_sensitive:
+            filters.append(f"position(%s in cfg.backup_text) {'>' if should_contain else '='} 0")
+            params.append(term)
+            return
+        filters.append(f"position(lower(%s) in lower(cfg.backup_text)) {'>' if should_contain else '='} 0")
+        params.append(term)
+
     if query_text:
-        filters.append(f"cfg.backup_text {operator} %s")
-        params.append(f"%{query_text}%")
+        add_contains_filter(query_text, True)
     for required_text in required_terms:
-        filters.append(f"cfg.backup_text {operator} %s")
-        params.append(f"%{required_text}%")
+        add_contains_filter(required_text, True)
     for missing_text in missing_terms:
-        filters.append(f"cfg.backup_text not {operator} %s")
-        params.append(f"%{missing_text}%")
+        add_contains_filter(missing_text, False)
 
     if hostname_prefix:
         filters.append("d.description ilike %s")
@@ -1125,7 +1149,6 @@ def _config_search_sync(
         ) cfg
         where {' and '.join(filters)}
         order by coalesce(d.description::text, d.address::text, d.id::text), b.create_time desc, b.id desc
-        limit 2000
     """
 
     with _connect_unimus_db(config) as conn:
@@ -1138,6 +1161,12 @@ def _config_search_sync(
     for row in rows:
         item = dict(zip(columns, row))
         text = str(item.get("backup_text") or "")
+        if query_text and not _config_text_contains(text, query_text, case_sensitive):
+            continue
+        if required_terms and not all(_config_text_contains(text, term, case_sensitive) for term in required_terms):
+            continue
+        if missing_terms and any(_config_text_contains(text, term, case_sensitive) for term in missing_terms):
+            continue
         snippets = _make_snippets(text, query_text, case_sensitive, required_terms)
         if not snippets and (query_text or required_terms):
             continue
@@ -1231,8 +1260,12 @@ async def search_configs(
         + list(request.query_params.getlist("missingText"))
         + list(request.query_params.getlist("missing_text"))
     )
-    if len(query_text) < 2 and not required_texts and not missing_texts:
-        raise HTTPException(status_code=400, detail="Search text must be at least 2 characters or add a required or missing text filter")
+    has_advanced_filter = any(str(value or "").strip() for value in (vendor, device_type, model, hostname_prefix))
+    if len(query_text) < 3 and not required_texts and not missing_texts and not has_advanced_filter:
+        raise HTTPException(
+            status_code=400,
+            detail="Search is too broad. Enter at least 3 search characters, add a required or missing text filter, or choose an advanced filter.",
+        )
     try:
         return await asyncio.to_thread(
             _config_search_sync,

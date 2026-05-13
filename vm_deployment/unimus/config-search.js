@@ -192,7 +192,7 @@
         const wrap = $('unimusConfigRequiredChips');
         if (!wrap) return;
         wrap.innerHTML = state.requiredTexts.map((text) => `
-            <span class="unimus-cs-filter-chip unimus-cs-required-chip" title="${escapeHtml(text)}">
+            <span class="unimus-cs-filter-chip unimus-cs-removable-chip" title="${escapeHtml(text)}">
                 <span>${escapeHtml(text)}</span>
                 <button type="button" aria-label="Remove ${escapeHtml(text)}" data-required-remove="${escapeHtml(text)}">×</button>
             </span>
@@ -221,7 +221,7 @@
         const wrap = $('unimusConfigMissingChips');
         if (!wrap) return;
         wrap.innerHTML = state.missingTexts.map((text) => `
-            <span class="unimus-cs-filter-chip unimus-cs-missing-chip" title="${escapeHtml(text)}">
+            <span class="unimus-cs-filter-chip unimus-cs-removable-chip" title="${escapeHtml(text)}">
                 <span>${escapeHtml(text)}</span>
                 <button type="button" aria-label="Remove ${escapeHtml(text)}" data-missing-remove="${escapeHtml(text)}">×</button>
             </span>
@@ -494,8 +494,10 @@
 
     async function runSearch() {
         const filters = currentFilters();
-        if (!filters.search_text && !filters.required_texts.length && !filters.missing_texts.length) {
-            setStatus('Enter search text, add a required text filter, or add a missing text filter.', 'error');
+        const hasAdvancedFilter = Boolean(filters.vendor || filters.device_type || filters.model || filters.hostname_prefix);
+        const hasTextChip = Boolean(filters.required_texts.length || filters.missing_texts.length);
+        if (!hasTextChip && !hasAdvancedFilter && filters.search_text.length < 3) {
+            setStatus('Search is too broad. Enter at least 3 search characters, add a Required or Missing text chip, or choose an advanced filter.', 'error');
             return;
         }
         const params = new URLSearchParams({
