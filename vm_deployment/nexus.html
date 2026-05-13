@@ -5554,8 +5554,6 @@
                                 <div>
                                     <label for="mtBng2StateCode">State Profile</label>
                                     <select id="mtBng2StateCode">
-                                        <option value="TX">TX (Texas)</option>
-                                        <option value="OK">OK (Oklahoma)</option>
                                         <option value="KS" selected>KS (Kansas)</option>
                                         <option value="NE">NE (Nebraska)</option>
                                         <option value="IA">IA (Iowa)</option>
@@ -19891,8 +19889,6 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
             }
 
             window.STATE_PROFILES = {
-                TX: { code: 'TX', ospf_area: '245', ospf_area_id: '0.0.0.245', vpls: ['1245', '2245', '3245', '4245'], vpls_state_id: '245' },
-                OK: { code: 'OK', ospf_area: '243', ospf_area_id: '0.0.0.243', vpls: ['1243', '2243', '3243', '4243'], vpls_state_id: '243' },
                 IA: { code: 'IA', ospf_area: '42',  ospf_area_id: '0.0.0.42',  vpls: ['1245', '2245', '3245', '4245'], vpls_state_id: '245' },
                 NE: { code: 'NE', ospf_area: '249', ospf_area_id: '0.0.0.249', vpls: ['1249', '2249', '3249', '4249'], vpls_state_id: '249' },
                 KS: { code: 'KS', ospf_area: '248', ospf_area_id: '0.0.0.248', vpls: ['1248', '2248', '3248', '4248'], vpls_state_id: '248' },
@@ -31828,14 +31824,6 @@ Ready for translation!`);
                         var bgpSel = document.getElementById('mtBgpStateProfile');
                         if (bgpSel) bgpSel.value = state;
                         if (typeof applyMtBgpStateProfile === 'function') applyMtBgpStateProfile(state);
-                    }
-                    // Sync BNG2 state code dropdown if the state has a BNG2 profile
-                    if (state && window.STATE_PROFILES && window.STATE_PROFILES[state]) {
-                        var bng2Sel = document.getElementById('mtBng2StateCode');
-                        if (bng2Sel) {
-                            bng2Sel.value = state;
-                            if (typeof syncBng2StateProfileFields === 'function') syncBng2StateProfileFields();
-                        }
                     }
                 }
             });
