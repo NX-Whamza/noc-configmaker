@@ -893,3 +893,86 @@ def test_nokia_configurator_backend_generates_7750_tunnel() -> None:
     assert "NOKIA 7750 TUNNEL CONFIG" in config
     assert '/configure service sdp 201 mpls description "OMAHA-BNG"' in config
     assert '/configure service vpls 2245 mesh-sdp 201:2245 create' in config
+
+
+# ─── Firmware-type and model-header migration tests ───────────────────────────
+
+def test_firmware_type_rewritten_tilegx_to_arm() -> None:
+    """CCR1036 (tilegx) → CCR2004 (arm): firmware-type header must be updated."""
+    _, api_mod = _load_app()
+    src = (
+        "# model: CCR1036-12G-4S\n"
+        "# firmware-type: tilegx\n"
+        "# current-firmware: 7.19.4\n"
+        "/ip address\n"
+        "add address=10.248.3.108/29 interface=sfp1 comment=KS-WINFIELD-NE-1 network=10.248.3.104\n"
+        "/system identity\n"
+        "set name=RTR-MT1036-AR1.KS-WINFIELD\n"
+    )
+    result = api_mod._rewrite_migration_metadata(src, "CCR1036-12G-4S", "CCR2004-1G-12S+2XS", "7")
+    assert "# firmware-type: arm" in result
+    assert "tilegx" not in result
+    assert "# model: CCR2004-1G-12S+2XS" in result
+
+
+def test_firmware_type_rewritten_tilegx_to_arm64() -> None:
+    """CCR1036 (tilegx) → CCR2216 (arm64): firmware-type header must be updated."""
+    _, api_mod = _load_app()
+    src = (
+        "# model: CCR1036-12G-4S\n"
+        "# firmware-type: tilegx\n"
+    )
+    result = api_mod._rewrite_migration_metadata(src, "CCR1036-12G-4S", "CCR2216-1G-12XS-2XQ", "7")
+    assert "# firmware-type: arm64" in result
+    assert "tilegx" not in result
+
+
+def test_firmware_type_unchanged_when_same_arch() -> None:
+    """arm → arm migration (CCR2004 → CCR2116) should keep firmware-type: arm."""
+    _, api_mod = _load_app()
+    src = "# model: CCR2004-1G-12S+2XS\n# firmware-type: arm\n"
+    result = api_mod._rewrite_migration_metadata(src, "CCR2004-1G-12S+2XS", "CCR2116-12G-4S+", "7")
+    assert "# firmware-type: arm" in result
+
+
+def test_detect_device_colon_format_model_header() -> None:
+    """Backup-file colon-format `# model:` line must be recognized."""
+    _, api_mod = _load_app()
+    cfg = (
+        "# model: CCR1036-12G-4S\n"
+        "# firmware-type: tilegx\n"
+        "/ip address\n"
+        "add address=10.248.3.108/29 interface=sfp1\n"
+    )
+    assert api_mod.detect_device_from_config(cfg) == "CCR1036-12G-4S"
+
+
+def test_detect_device_colon_takes_priority_over_equals() -> None:
+    """When both colon (backup header) and equals (config body) are present, colon wins."""
+    _, api_mod = _load_app()
+    cfg = (
+        "# model: CCR1036-12G-4S\n"
+        "# firmware-type: tilegx\n"
+        "# model=CCR2004-1G-12S+2XS\n"
+        "/ip address\n"
+        "add address=10.248.3.108/29 interface=sfp1\n"
+    )
+    assert api_mod.detect_device_from_config(cfg) == "CCR1036-12G-4S"
+
+
+def test_all_routerboard_models_have_firmware_type() -> None:
+    """Every model in ROUTERBOARD_INTERFACES must declare a firmware_type."""
+    _, api_mod = _load_app()
+    missing = [
+        model for model, specs in api_mod.ROUTERBOARD_INTERFACES.items()
+        if not specs.get("firmware_type")
+    ]
+    assert not missing, f"Models missing firmware_type: {missing}"
+
+
+def test_rb1009_is_arm64_not_tilegx() -> None:
+    """RB1009UG+S+ is Marvell ARMADA 8040 (arm64), not Tilera."""
+    _, api_mod = _load_app()
+    specs = api_mod.ROUTERBOARD_INTERFACES["RB1009UG+S+"]
+    assert specs["firmware_type"] == "arm64"
+    assert "tilera" not in specs["cpu"].lower()

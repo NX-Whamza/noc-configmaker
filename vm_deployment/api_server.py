@@ -2410,6 +2410,7 @@ ROUTERBOARD_INTERFACES = {
         'model': 'CCR1036-12G-4S',
         'series': 'CCR1036',
         'cpu': 'Tilera Tile-Gx36',
+        'firmware_type': 'tilegx',
         'ports': {
             'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6',
                            'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12'],
@@ -2430,6 +2431,7 @@ ROUTERBOARD_INTERFACES = {
         'model': 'CCR2004-1G-12S+2XS',
         'series': 'CCR2004',
         'cpu': 'Annapurna Labs Alpine v2',
+        'firmware_type': 'arm',
         'ports': {
             'ethernet_1g': ['ether1'],
             'sfp_plus_10g': ['sfp-sfpplus1', 'sfp-sfpplus2', 'sfp-sfpplus3', 'sfp-sfpplus4',
@@ -2451,6 +2453,7 @@ ROUTERBOARD_INTERFACES = {
         'model': 'CCR2004-16G-2S+',
         'series': 'CCR2004',
         'cpu': 'Annapurna Labs Alpine v2',
+        'firmware_type': 'arm',
         'ports': {
             'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6',
                            'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12',
@@ -2471,6 +2474,7 @@ ROUTERBOARD_INTERFACES = {
         'model': 'CCR2116-12G-4S+',
         'series': 'CCR2116',
         'cpu': 'Annapurna Labs Alpine v2',
+        'firmware_type': 'arm',
         'ports': {
             'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6',
                            'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12'],
@@ -2490,6 +2494,7 @@ ROUTERBOARD_INTERFACES = {
         'model': 'CCR2216-1G-12XS-2XQ',
         'series': 'CCR2216',
         'cpu': 'Annapurna Labs Alpine v3',
+        'firmware_type': 'arm64',
         'ports': {
             'ethernet_1g': ['ether1'],
             'sfp28_25g': ['sfp28-1', 'sfp28-2', 'sfp28-3', 'sfp28-4', 'sfp28-5', 'sfp28-6',
@@ -2510,6 +2515,7 @@ ROUTERBOARD_INTERFACES = {
         'model': 'CCR1072-12G-4S+',
         'series': 'CCR1072',
         'cpu': 'Tilera Tile-Gx72',
+        'firmware_type': 'tilegx',
         'ports': {
             'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6',
                            'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12'],
@@ -2529,6 +2535,7 @@ ROUTERBOARD_INTERFACES = {
         'model': 'RB5009UG+S+',
         'series': 'RB5009',
         'cpu': 'Marvell ARMADA 7040',
+        'firmware_type': 'arm',
         'ports': {
             'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10'],
             'sfp_plus_10g': ['sfp-sfpplus1']
@@ -2547,6 +2554,7 @@ ROUTERBOARD_INTERFACES = {
         'model': 'RB2011UiAS',
         'series': 'RB2011',
         'cpu': 'Atheros AR9344',
+        'firmware_type': 'mipsbe',
         'ports': {
             'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9', 'ether10'],
             'sfp_1g': ['sfp1']
@@ -2564,7 +2572,8 @@ ROUTERBOARD_INTERFACES = {
     'RB1009UG+S+': {
         'model': 'RB1009UG+S+',
         'series': 'RB1009',
-        'cpu': 'Tilera Tile-Gx9',
+        'cpu': 'Marvell ARMADA 8040',
+        'firmware_type': 'arm64',
         'ports': {
             'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6', 'ether7', 'ether8', 'ether9'],
             'sfp_plus_10g': ['sfp-sfpplus1']
@@ -2583,6 +2592,7 @@ ROUTERBOARD_INTERFACES = {
         'model': 'CRS326-24G-2S+',
         'series': 'CRS326',
         'cpu': 'Marvell-98DX3236',
+        'firmware_type': 'arm',
         'ports': {
             'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6',
                            'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12',
@@ -2603,6 +2613,7 @@ ROUTERBOARD_INTERFACES = {
         'model': 'CRS354-48G-4S+2Q+',
         'series': 'CRS354',
         'cpu': 'Marvell-98DX3257',
+        'firmware_type': 'arm',
         'ports': {
             'ethernet_1g': ['ether1', 'ether2', 'ether3', 'ether4', 'ether5', 'ether6',
                            'ether7', 'ether8', 'ether9', 'ether10', 'ether11', 'ether12',
@@ -2821,6 +2832,7 @@ def _rewrite_migration_metadata(config_text: str, source_model: str, target_mode
         text = re.sub(r'(?m)^(#.*RouterOS )\d+(?:\.\d+)+', rf'\g<1>{target_version}', text)
 
     if target_model:
+        # Equals format: `# model=CCR2004-1G-12S+2XS` (RouterOS config body)
         if re.search(r'(?m)^#\s*model\s*=.*$', text):
             text = re.sub(r'(?m)^#\s*model\s*=.*$', f"# model ={target_model}", text)
         else:
@@ -2828,6 +2840,13 @@ def _rewrite_migration_metadata(config_text: str, source_model: str, target_mode
             if header_match:
                 insert_at = header_match.end()
                 text = text[:insert_at] + f"\n# model ={target_model}" + text[insert_at:]
+        # Colon format: `# model: CCR1036-12G-4S` (backup/export file header)
+        text = re.sub(r'(?m)^#\s*model\s*:\s*.*$', f"# model: {target_model}", text)
+
+    # Rewrite firmware-type header to match target hardware architecture
+    target_fw_type = ROUTERBOARD_INTERFACES.get(target_model, {}).get('firmware_type')
+    if target_fw_type:
+        text = re.sub(r'(?m)^#\s*firmware-type\s*:\s*.*$', f"# firmware-type: {target_fw_type}", text)
 
     def _format_identity_for_set(name: str) -> str:
         s = (name or '').strip()
@@ -3670,7 +3689,11 @@ def detect_device_from_config(config_text):
     text_lower = text.lower()
 
     # Prefer explicit model metadata from RouterOS exports.
+    # Colon format (`# model: CCR1036`) comes from backup file headers and represents
+    # the physical hardware — it takes priority over the equals format (`# model=...`)
+    # which comes from the config body and may already reflect a prior migration target.
     explicit_patterns = [
+        r'(?mi)^\s*#\s*model\s*:\s*([^\r\n#]+)',
         r'(?mi)^\s*#\s*model\s*=\s*([^\r\n#]+)',
         r'(?mi)^\s*#\s*board-name\s*:\s*([^\r\n#]+)',
         r'(?mi)^\s*#\s*board-name\s*=\s*([^\r\n#]+)',
@@ -19724,7 +19747,8 @@ def get_routerboards():
                 'total_ports': specs['total_ports'],
                 'management_port': specs['management_port'],
                 'port_types': list(specs['ports'].keys()),
-                'typical_use': specs['typical_use']
+                'typical_use': specs['typical_use'],
+                'firmware_type': specs.get('firmware_type', '')
             })
         
         return jsonify({
