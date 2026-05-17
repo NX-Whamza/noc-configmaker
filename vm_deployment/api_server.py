@@ -3782,6 +3782,143 @@ def detect_routeros_version(config_text):
     else:
         return None
 
+def _convert_ros6_filter_to_ros7_rule(text):
+    """Convert ROS6 /routing filter add ... to ROS7 /routing filter rule add chain=... rule="..."."""
+    if '/routing filter rule' in text and not re.search(r'(?m)^/routing filter\s*$', text):
+        return text
+    if not re.search(r'(?m)^/routing filter\s+add\b[^\n]*\baction=|^/routing filter\s*$', text):
+        return text
+
+    def _parse_kv(line):
+        kv = {}
+        for m in re.finditer(r'\b([a-z][a-z0-9-]*)=("[^"]*"|[^\s"]+)', line):
+            kv[m.group(1)] = m.group(2).strip('"')
+        return kv
+
+    def _build_rule(kv):
+        action = kv.get('action', 'accept')
+        action_str = {'accept': 'accept', 'discard': 'reject', 'return': 'return'}.get(action, 'accept')
+        conditions = []
+        prefix = kv.get('prefix', '')
+        prefix_len = kv.get('prefix-length', '')
+        if prefix and prefix_len:
+            conditions.append(f'dst == {prefix} && dst-len == {prefix_len}')
+        elif prefix and '/' in prefix:
+            pl = prefix.split('/')[-1]
+            conditions.append(f'dst == {prefix} && dst-len == {pl}')
+        elif prefix_len:
+            conditions.append(f'dst-len == {prefix_len}')
+        bgp_comm = kv.get('bgp-communities', '')
+        if bgp_comm:
+            conditions.append(f'bgp-communities includes "{bgp_comm}"')
+        ospf_type = kv.get('ospf-type', '')
+        if ospf_type:
+            conditions.append(f'ospf-type == {ospf_type}')
+        sets = []
+        if kv.get('set-bgp-local-pref'):
+            sets.append(f'set bgp-local-pref {kv["set-bgp-local-pref"]}')
+        if kv.get('set-type') == 'blackhole':
+            sets.append('set blackhole yes')
+        body = '; '.join(sets)
+        if body:
+            body += '; '
+        body += action_str + ';'
+        if conditions:
+            return f'if ({" && ".join(conditions)}) {{ {body} }}'
+        return body
+
+    collected = []
+    block = re.search(r'(?ms)^/routing filter\s*\n((?:add[^\n]*\n?)+)', text)
+    if block:
+        for ln in block.group(1).splitlines():
+            s = ln.strip()
+            if s.startswith('add '):
+                collected.append(s)
+    for ln in re.findall(r'(?m)^/routing filter\s+add\b[^\n]*$', text):
+        bare = re.sub(r'^/routing filter\s+', '', ln).strip()
+        if bare.startswith('add ') and bare not in collected:
+            collected.append(bare)
+
+    if not collected:
+        return text
+
+    new_lines = []
+    for add_line in collected:
+        kv = _parse_kv(add_line)
+        chain = kv.get('chain', '')
+        if not chain:
+            continue
+        new_lines.append(f'add chain={chain} disabled=no rule="{_build_rule(kv)}"')
+
+    if not new_lines:
+        return text
+
+    text = re.sub(r'(?ms)^/routing filter\s*\n(?:add[^\n]*\n?)+', '', text)
+    text = re.sub(r'(?m)^/routing filter\s+add\b[^\n]*\n?', '', text)
+    text = re.sub(r'(?m)^/routing filter\s*$\n?', '', text)
+    text = text.rstrip('\n') + '\n\n/routing filter rule\n' + '\n'.join(new_lines) + '\n'
+    return text
+
+
+def _convert_ros6_bfd_to_ros7(text):
+    """Convert ROS6 /routing bfd interface to ROS7 /routing bfd configuration."""
+    if '/routing bfd interface' not in text:
+        return text
+
+    def _cvt_time(val):
+        m = re.match(r'^(\d+(?:\.\d+)?)s$', val or '')
+        if m:
+            return f'{int(float(m.group(1)) * 1000)}ms'
+        return val or ''
+
+    def _parse_bfd_add(bare):
+        kv = dict(re.findall(r'([a-z][a-z0-9-]*)=([^\s]+)', bare))
+        iface = kv.get('interface', '')
+        if not iface:
+            return None
+        parts = [f'interfaces={iface}', f'disabled={kv.get("disabled", "no")}']
+        interval = _cvt_time(kv.get('interval', ''))
+        if interval:
+            parts.append(f'min-tx={interval}')
+        min_rx = _cvt_time(kv.get('min-rx', ''))
+        if min_rx:
+            parts.append(f'min-rx={min_rx}')
+        multi = kv.get('multiplier', '')
+        if multi:
+            parts.append(f'multiplier={multi}')
+        return 'add ' + ' '.join(parts)
+
+    new_adds = []
+    block = re.search(r'(?ms)^/routing bfd interface\s*\n((?:(?:set|add)[^\n]*\n?)+)', text)
+    if block:
+        for ln in block.group(1).splitlines():
+            s = ln.strip()
+            if s.startswith('set'):
+                continue
+            if s.startswith('add '):
+                r = _parse_bfd_add(s[4:])
+                if r:
+                    new_adds.append(r)
+    for ln in re.findall(r'(?m)^/routing bfd interface\s+add\b[^\n]*$', text):
+        bare = re.sub(r'^/routing bfd interface\s+add\s*', '', ln).strip()
+        r = _parse_bfd_add(bare)
+        if r and r not in new_adds:
+            new_adds.append(r)
+
+    text = re.sub(r'(?ms)^/routing bfd interface\s*\n(?:(?:set|add)[^\n]*\n?)+', '', text)
+    text = re.sub(r'(?m)^/routing bfd interface\s+(?:set|add)\b[^\n]*\n?', '', text)
+    text = re.sub(r'(?m)^/routing bfd interface\s*$\n?', '', text)
+
+    if new_adds:
+        seen, unique = set(), []
+        for a in new_adds:
+            if a not in seen:
+                seen.add(a)
+                unique.append(a)
+        text = text.rstrip('\n') + '\n\n/routing bfd configuration\n' + '\n'.join(unique) + '\n'
+    return text
+
+
 def apply_ros6_to_ros7_syntax(config_text):
     """
     Convert RouterOS 6 syntax to RouterOS 7
@@ -4221,6 +4358,11 @@ def apply_ros6_to_ros7_syntax(config_text):
             migrated
         )
         migrated = migrated.replace(" remote-peer=", " peer=")
+
+    # ROS6 routing filter → ROS7 routing filter rule
+    migrated = _convert_ros6_filter_to_ros7_rule(migrated)
+    # ROS6 bfd interface → ROS7 bfd configuration
+    migrated = _convert_ros6_bfd_to_ros7(migrated)
 
     return migrated
 
@@ -6637,7 +6779,7 @@ Port Roles:
             
             is_valid = len(missing) == 0
             return is_valid, missing, warnings
-        
+
         def postprocess_to_v7(translated_text, target_version):
             """
             MINIMAL postprocessing - ONLY fix critical RouterOS 7.x syntax.
@@ -6887,8 +7029,10 @@ Port Roles:
                     line += ' routing-table=main'
                 return line
 
-            # derive ASN from existing config if possible
-            asn_match = re.search(r"(?m)\bas=(\d+)\b", text)
+            # derive ASN from existing config if possible — scope to template line to avoid remote-as= matches
+            asn_match = re.search(r"(?m)^/routing bgp template\s+set\s+default\b[^\n]*\bas=(\d+)\b", text)
+            if not asn_match:
+                asn_match = re.search(r"(?m)^/routing bgp instance\s+set\s+default\b[^\n]*\bas=(\d+)\b", text)
             asn_val = asn_match.group(1) if asn_match else ''
 
             if re.search(r"(?m)^/routing bgp template\s+set\s+default", text):
@@ -6920,6 +7064,13 @@ Port Roles:
                     line += ' listen=yes'
                 # Enforce /32 remote.address if missing mask
                 line = re.sub(r"remote\.address=(\d+\.\d+\.\d+\.\d+)(?!/\d+)", r"remote.address=\1/32", line)
+                # Strip ROS6 ttl=default which is not valid in ROS7
+                line = re.sub(r'\s+ttl=default\b', '', line)
+                # Inject local.role for iBGP (same AS) connections when not already set
+                if ' local.role=' not in line and asn_val:
+                    peer_as_m = re.search(r'\bremote\.as=(\d+)\b', line)
+                    if peer_as_m and peer_as_m.group(1) == asn_val:
+                        line += ' local.role=ibgp'
                 return line
 
             if re.search(r"(?m)^/routing bgp ", text):
@@ -7486,11 +7637,15 @@ Port Roles:
                 t = t[:insert_pos] + prefix + block + t[insert_pos:]
                 return t
 
+            # Convert ROS6 routing filter and BFD syntax to ROS7 before consolidating
+            text = _convert_ros6_filter_to_ros7_rule(text)
+            text = _convert_ros6_bfd_to_ros7(text)
+
             # Safe sections to consolidate
             safe_headers = [
                 '/interface vpls',
                 '/routing bgp connection',
-                '/routing filter',
+                '/routing filter rule',
                 '/interface bridge port',
                 '/ip firewall address-list',
                 '/ip firewall filter',
@@ -8747,7 +8902,13 @@ Port Roles:
                     return '\n'.join(out_lines)
 
                 translated = _rewrite_ospf_params_in_template_section(translated)
-            
+
+                # Convert ROS6 routing filter and BFD syntax to ROS7
+                translated = _convert_ros6_filter_to_ros7_rule(translated)
+                translated = _convert_ros6_bfd_to_ros7(translated)
+                if is_v6_to_v7:
+                    print(f"[SYNTAX] Applied ROS6→ROS7 routing filter and BFD conversion")
+
             # 5. Ensure OSPF area section exists and has proper content
             ospf_instance_name = None
             ospf_area_name = None
