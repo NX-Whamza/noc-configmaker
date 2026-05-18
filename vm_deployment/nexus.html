@@ -8506,14 +8506,17 @@
                                 <h4 style="color:var(--text-color); font-size:13px; margin-bottom:12px;">Assign Role to User</h4>
                                 <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
                                     <div style="display:flex; align-items:center; gap:6px;">
-                                        <label style="font-size:12px; color:var(--text-color-secondary);">User Email:</label>
-                                        <input type="email" id="nlAssignEmail" placeholder="user@team.nxlink.com" style="padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px; width:220px;" />
+                                        <label style="font-size:12px; color:var(--text-color-secondary);">User:</label>
+                                        <select id="nlAssignUserSelect" style="padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px; width:260px;">
+                                            <option value="">(select user)</option>
+                                        </select>
                                     </div>
                                     <div style="display:flex; align-items:center; gap:6px;">
                                         <label style="font-size:12px; color:var(--text-color-secondary);">Role:</label>
                                         <select id="nlAssignRole" style="padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px;"></select>
                                     </div>
                                     <button type="button" id="nlAssignBtn" onclick="assignNextlinkRoleToUser()" style="background:var(--primary-color); color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:12px; cursor:pointer;">Assign</button>
+                                    <button type="button" id="nlRefreshUsersBtn" title="Refresh user list" style="background:transparent; border:1px solid var(--border-color); border-radius:6px; padding:6px 10px; font-size:12px; color:var(--text-color); cursor:pointer;">↻</button>
                                 </div>
                                 <div id="nlAssignStatus" class="status-msg" style="color:var(--text-color-secondary); font-size:12px; margin-top:8px;"></div>
                             </div>
@@ -27443,9 +27446,40 @@ Ready for translation!`);
                         assignSelect.appendChild(opt);
                     });
                 }
+
+                // Also load the user list for the assignment dropdown
+                await loadNextlinkUsers();
+
+                // Wire the refresh button
+                const refreshBtn = document.getElementById('nlRefreshUsersBtn');
+                if (refreshBtn) {
+                    refreshBtn.addEventListener('click', loadNextlinkUsers);
+                }
             } catch (e) {
                 console.error('loadNextlinkRoleData failed:', e);
                 alert('Failed to load role data: ' + e.message);
+            }
+        }
+
+        async function loadNextlinkUsers() {
+            try {
+                const res = await fetch('/api/admin/users', {
+                    headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || '') }
+                });
+                if (!res.ok) throw new Error('Failed to load users');
+                const data = await res.json();
+                const users = data.users || [];
+                const sel = document.getElementById('nlAssignUserSelect');
+                if (!sel) return;
+                const current = sel.value;
+                sel.innerHTML = '<option value="">(select user)</option>' + users.map(u => {
+                    const role = u.nextlink_role || '(none)';
+                    const platform = u.platform_role || 'user';
+                    return `<option value="${u.id}" data-email="${u.email}">${u.email} — ${platform} · ${role}</option>`;
+                }).join('');
+                if (current) sel.value = current;
+            } catch (e) {
+                console.error('loadNextlinkUsers failed:', e);
             }
         }
 
@@ -27460,23 +27494,75 @@ Ready for translation!`);
             const allowedTabs = new Set(roleData.tabs || []);
             const allowedFeatures = new Set(roleData.features || []);
 
+            // Group tabs by 'group' field
+            const tabGroups = {};
+            _nlAvailableTabs.forEach(t => {
+                const g = t.group || 'Other';
+                if (!tabGroups[g]) tabGroups[g] = [];
+                tabGroups[g].push(t);
+            });
+
+            // Define explicit group order
+            const groupOrder = [
+                'MikroTik / Wireless',
+                'Nokia',
+                'Firmware Updaters',
+                'FTTH',
+                'Migration & Operations',
+                'Reference & Vault',
+                'Other',
+            ];
+
             const tabGrid = document.getElementById('nlTabGrid');
             if (tabGrid) {
-                tabGrid.innerHTML = _nlAvailableTabs.map(t => `
-                    <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-color);">
-                        <input type="checkbox" data-perm-type="tab" data-perm-value="${t.value}" ${allowedTabs.has(t.value) ? 'checked' : ''}>
-                        <span>${t.label}</span>
-                    </label>
-                `).join('');
+                const groupedTabsHtml = groupOrder
+                    .filter(g => tabGroups[g])
+                    .map(g => `
+                        <div style="margin-bottom:14px;">
+                            <h5 style="font-size:12px; text-transform:uppercase; color:#888; margin:8px 0 4px; letter-spacing:0.5px;">${g}</h5>
+                            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:4px 12px;">
+                                ${tabGroups[g].map(t => `
+                                    <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-color);">
+                                        <input type="checkbox" data-perm-type="tab" data-perm-value="${t.value}" ${allowedTabs.has(t.value) ? 'checked' : ''}>
+                                        <span>${t.label}</span>
+                                    </label>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `).join('');
+
+                const universalNote = `
+                    <div style="margin-bottom:14px; opacity:0.7; border-top:1px dashed #444; padding-top:8px; margin-top:10px;">
+                        <h5 style="font-size:12px; text-transform:uppercase; color:#888; margin:8px 0 4px; letter-spacing:0.5px;">Universal (always visible)</h5>
+                        <div style="font-size:12px; color:var(--text-color-secondary);"><em>home · completed-configs · log-history · admin-panel (admins only)</em></div>
+                    </div>
+                `;
+
+                tabGrid.innerHTML = groupedTabsHtml + universalNote;
             }
+
+            // Group features by 'group' field
+            const featureGroups = {};
+            _nlAvailableFeatures.forEach(f => {
+                const g = f.group || 'Features';
+                if (!featureGroups[g]) featureGroups[g] = [];
+                featureGroups[g].push(f);
+            });
 
             const featureGrid = document.getElementById('nlFeatureGrid');
             if (featureGrid) {
-                featureGrid.innerHTML = _nlAvailableFeatures.map(f => `
-                    <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-color);">
-                        <input type="checkbox" data-perm-type="feature" data-perm-value="${f.value}" ${allowedFeatures.has(f.value) ? 'checked' : ''}>
-                        <span>${f.label}</span>
-                    </label>
+                featureGrid.innerHTML = Object.keys(featureGroups).map(g => `
+                    <div style="margin-bottom:14px;">
+                        <h5 style="font-size:12px; text-transform:uppercase; color:#888; margin:8px 0 4px; letter-spacing:0.5px;">${g}</h5>
+                        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:4px 12px;">
+                            ${featureGroups[g].map(f => `
+                                <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-color);">
+                                    <input type="checkbox" data-perm-type="feature" data-perm-value="${f.value}" ${allowedFeatures.has(f.value) ? 'checked' : ''}>
+                                    <span>${f.label}</span>
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
                 `).join('');
             }
         }
@@ -27514,29 +27600,16 @@ Ready for translation!`);
         }
 
         async function assignNextlinkRoleToUser() {
-            const email = document.getElementById('nlAssignEmail').value.trim();
+            const userSelect = document.getElementById('nlAssignUserSelect');
+            const userId = userSelect ? userSelect.value : '';
             const role = document.getElementById('nlAssignRole').value || null;
             const statusEl = document.getElementById('nlAssignStatus');
-            if (!email) {
-                if (statusEl) statusEl.textContent = 'Email is required.';
+            if (!userId) {
+                if (statusEl) statusEl.textContent = 'Please select a user.';
                 return;
             }
-            // Look up user by email first
             try {
-                const userRes = await fetch('/api/admin/users?email=' + encodeURIComponent(email), {
-                    headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || '') }
-                });
-                if (!userRes.ok) {
-                    if (statusEl) statusEl.textContent = 'User lookup failed.';
-                    return;
-                }
-                const userData = await userRes.json();
-                const user = (userData.users || []).find(u => (u.email || '').toLowerCase() === email.toLowerCase());
-                if (!user) {
-                    if (statusEl) statusEl.textContent = 'User not found.';
-                    return;
-                }
-                const res = await fetch('/api/admin/users/' + user.id + '/nextlink-role', {
+                const res = await fetch('/api/admin/users/' + userId + '/nextlink-role', {
                     method: 'PATCH',
                     headers: {
                         'Content-Type': 'application/json',
@@ -27549,7 +27622,13 @@ Ready for translation!`);
                     if (statusEl) statusEl.textContent = 'Assign failed: ' + (err.error || res.statusText);
                     return;
                 }
-                if (statusEl) statusEl.textContent = `Assigned ${role || '(none)'} to ${email}.`;
+                const selectedOption = userSelect.querySelector(`option[value="${userId}"]`);
+                const userEmail = selectedOption ? selectedOption.getAttribute('data-email') : 'user';
+                if (statusEl) statusEl.textContent = `Assigned ${role || '(none)'} to ${userEmail}.`;
+                statusEl.style.color = 'var(--success-color, #22c55e)';
+                setTimeout(() => { if (statusEl) statusEl.style.color = 'var(--text-color-secondary)'; }, 2500);
+                // Refresh the user list to reflect the change
+                await loadNextlinkUsers();
             } catch (e) {
                 if (statusEl) statusEl.textContent = 'Assign failed: ' + e.message;
             }
@@ -28167,6 +28246,19 @@ Ready for translation!`);
                     const platformRoleSelect = ADMIN_PLATFORM_ROLE_OPTIONS.map(role =>
                         `<option value="${role}" ${(u.platform_role || 'user') === role ? 'selected' : ''}>${_roleLabel(role)}</option>`
                     ).join('');
+                    const nextlinkRoleOptions = [
+                        { value: '', label: '(none)' },
+                        { value: 'super_admin', label: 'super_admin' },
+                        { value: 'noc', label: 'noc' },
+                        { value: 'netlaunch', label: 'netlaunch' },
+                        { value: 'rdo', label: 'rdo' },
+                        { value: 'admins', label: 'admins' },
+                        { value: 'fiber_team', label: 'fiber_team' },
+                        { value: 'infra_tech', label: 'infra_tech' }
+                    ];
+                    const nextlinkRoleSelect = nextlinkRoleOptions.map(role =>
+                        `<option value="${role.value}" ${(u.nextlink_role || '') === role.value ? 'selected' : ''}>${role.label}</option>`
+                    ).join('');
                     const selectedMembership = selectedTenantId
                         ? (u.memberships || []).find(m => String(m.tenant_id) === String(selectedTenantId))
                         : null;
@@ -28195,6 +28287,15 @@ Ready for translation!`);
                             </div>
                             <div id="adminPlatformRoleCurrent_${u.id}" style="margin-top:4px; font-size:10px; color:var(--text-color-secondary);">Current: ${_roleLabel(u.platform_role || 'user')}</div>
                         </td>
+                        <td style="padding:6px 10px;">
+                            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                                <select id="adminNextlinkRole_${u.id}" style="padding:5px 8px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:11px;">
+                                    ${nextlinkRoleSelect}
+                                </select>
+                                <button onclick="updateAdminUserNextlinkRole(${u.id})" style="font-size:11px; padding:4px 10px; background:var(--primary-color); color:#fff; border:none; border-radius:5px; cursor:pointer;">Save</button>
+                            </div>
+                            <div id="adminNextlinkRoleCurrent_${u.id}" style="margin-top:4px; font-size:10px; color:var(--text-color-secondary);">Current: ${u.nextlink_role || '(none)'}</div>
+                        </td>
                         <td style="padding:6px 10px;">${memberships || '<span style="color:var(--text-color-secondary)">none</span>'}</td>
                         <td style="padding:6px 10px;">${tenantRoleEditor}</td>
                     </tr>`;
@@ -28203,6 +28304,7 @@ Ready for translation!`);
                     <thead><tr style="background:var(--table-header-bg, var(--container-bg)); font-size:11px; text-transform:uppercase; color:var(--text-color-secondary);">
                         <th style="padding:8px 10px; text-align:left;">Email</th>
                         <th style="padding:8px 10px; text-align:left;">Platform Role</th>
+                        <th style="padding:8px 10px; text-align:left;">Nextlink Role</th>
                         <th style="padding:8px 10px; text-align:left;">Tenant Memberships</th>
                         <th style="padding:8px 10px; text-align:left;">Tenant Role Editor</th>
                     </tr></thead><tbody>${rows}</tbody></table>`;
@@ -28270,6 +28372,40 @@ Ready for translation!`);
                     setTimeout(() => { if (currentLabel) currentLabel.style.color = 'var(--text-color-secondary)'; }, 2500);
                 }
                 if (typeof nocToast === 'function') nocToast('Tenant role updated. User must refresh their page for the new role to take effect.', 'success', 4000);
+                if (typeof loadAdminUsers === 'function') loadAdminUsers();
+            } catch (e) {
+                if (typeof nocToast === 'function') nocToast(`Role update failed: ${e.message}`, 'error', 4000);
+                else alert(`Role update failed: ${e.message}`);
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+            }
+        }
+
+        async function updateAdminUserNextlinkRole(userId) {
+            const select = document.getElementById(`adminNextlinkRole_${userId}`);
+            if (!select) return;
+            const nextlink_role = select.value || null;
+            const btn = select.parentElement?.querySelector('button');
+            if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+            const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : '/api';
+            try {
+                const resp = await fetch(`${apiBase}/admin/users/${userId}/nextlink-role`, {
+                    method: 'PATCH',
+                    headers: getAuthHeaders('application/json'),
+                    body: JSON.stringify({ nextlink_role })
+                });
+                const data = await resp.json();
+                if (!resp.ok || !data.success) {
+                    throw new Error(data.error || 'Failed to update nextlink role');
+                }
+                // Immediately update the "Current:" label in the row
+                const currentLabel = document.getElementById(`adminNextlinkRoleCurrent_${userId}`);
+                if (currentLabel) {
+                    currentLabel.textContent = `Current: ${nextlink_role || '(none)'}`;
+                    currentLabel.style.color = 'var(--success-color, #22c55e)';
+                    setTimeout(() => { if (currentLabel) currentLabel.style.color = 'var(--text-color-secondary)'; }, 2500);
+                }
+                if (typeof nocToast === 'function') nocToast('Nextlink role updated. User must refresh their page for the new role to take effect.', 'success', 4000);
                 if (typeof loadAdminUsers === 'function') loadAdminUsers();
             } catch (e) {
                 if (typeof nocToast === 'function') nocToast(`Role update failed: ${e.message}`, 'error', 4000);

@@ -693,44 +693,44 @@ NEXTLINK_TAB_CATALOG = {
     "tabs": [
         {"value": "home", "label": "Home dashboard"},
         # MikroTik / wireless
-        {"value": "tower", "label": "MikroTik Config Generator"},
-        {"value": "enterprise", "label": "Non-MPLS Enterprise"},
-        {"value": "enterprise-mpls", "label": "MPLS Enterprise"},
-        {"value": "tarana", "label": "Tarana Sectors"},
-        {"value": "enterprise-feeding", "label": "Enterprise Feeding"},
-        {"value": "ccr2004", "label": "6GHz Switch Port"},
-        {"value": "switch-maker", "label": "MikroTik Switch Maker"},
-        {"value": "warehouse-sm", "label": "Warehouse SM Provisioning"},
-        {"value": "field-config-studio", "label": "Device Config Studio"},
+        {"value": "tower", "label": "MikroTik Config Generator", "group": "MikroTik / Wireless"},
+        {"value": "enterprise", "label": "Non-MPLS Enterprise", "group": "MikroTik / Wireless"},
+        {"value": "enterprise-mpls", "label": "MPLS Enterprise", "group": "MikroTik / Wireless"},
+        {"value": "tarana", "label": "Tarana Sectors", "group": "MikroTik / Wireless"},
+        {"value": "enterprise-feeding", "label": "Enterprise Feeding", "group": "MikroTik / Wireless"},
+        {"value": "ccr2004", "label": "6GHz Switch Port", "group": "MikroTik / Wireless"},
+        {"value": "switch-maker", "label": "MikroTik Switch Maker", "group": "MikroTik / Wireless"},
+        {"value": "warehouse-sm", "label": "Warehouse SM Provisioning", "group": "MikroTik / Wireless"},
+        {"value": "field-config-studio", "label": "Device Config Studio", "group": "MikroTik / Wireless"},
         # Nokia
-        {"value": "nokia7250-maker", "label": "Nokia Configurator"},
-        {"value": "mikrotik-to-nokia", "label": "Nokia Migration"},
+        {"value": "nokia7250-maker", "label": "Nokia Configurator", "group": "Nokia"},
+        {"value": "mikrotik-to-nokia", "label": "Nokia Migration", "group": "Nokia"},
         # Firmware / hardware updaters
-        {"value": "device-firmware-updater", "label": "Device Firmware Updater"},
+        {"value": "device-firmware-updater", "label": "Device Firmware Updater", "group": "Firmware Updaters"},
         # FTTH
-        {"value": "ftth-home", "label": "FTTH Configuration"},
+        {"value": "ftth-home", "label": "FTTH Configuration", "group": "FTTH"},
         # Migration / ops
-        {"value": "command-vault", "label": "Command Vault (Nokia/Cisco/MikroTik)"},
-        {"value": "cisco-config", "label": "Cisco Port Setup"},
-        {"value": "unimus-backup-configs", "label": "Unimus Backup Configs"},
-        {"value": "config-diff", "label": "Config Diff Viewer"},
-        {"value": "bulk-config", "label": "Bulk Operations Center"},
-        {"value": "maintenance", "label": "Scheduled Maintenance"},
-        {"value": "compliance-scanner", "label": "Compliance Scanner"},
+        {"value": "command-vault", "label": "Command Vault (Nokia/Cisco/MikroTik)", "group": "Reference & Vault"},
+        {"value": "cisco-config", "label": "Cisco Port Setup", "group": "Reference & Vault"},
+        {"value": "unimus-backup-configs", "label": "Unimus Backup Configs", "group": "Reference & Vault"},
+        {"value": "config-diff", "label": "Config Diff Viewer", "group": "Migration & Operations"},
+        {"value": "bulk-config", "label": "Bulk Operations Center", "group": "Migration & Operations"},
+        {"value": "maintenance", "label": "Scheduled Maintenance", "group": "Migration & Operations"},
+        {"value": "compliance-scanner", "label": "Compliance Scanner", "group": "Migration & Operations"},
         {"value": "completed-configs", "label": "Completed Configs (history)"},
         {"value": "log-history", "label": "Log History"},
         {"value": "admin-panel", "label": "Admin Panel"},
     ],
     "features": [
-        {"value": "mikrotik", "label": "MikroTik Generator"},
-        {"value": "nokia", "label": "Nokia Generator"},
-        {"value": "cambium", "label": "Cambium Support"},
-        {"value": "aviat", "label": "Aviat Support"},
-        {"value": "ftth", "label": "FTTH Support"},
-        {"value": "bulk_ops", "label": "Bulk Operations"},
-        {"value": "compliance", "label": "Compliance Scanning"},
-        {"value": "ai_assistant", "label": "AI Assistant"},
-        {"value": "config_diff", "label": "Config Diff"},
+        {"value": "mikrotik", "label": "MikroTik Generator", "group": "Features"},
+        {"value": "nokia", "label": "Nokia Generator", "group": "Features"},
+        {"value": "cambium", "label": "Cambium Support", "group": "Features"},
+        {"value": "aviat", "label": "Aviat Support", "group": "Features"},
+        {"value": "ftth", "label": "FTTH Support", "group": "Features"},
+        {"value": "bulk_ops", "label": "Bulk Operations", "group": "Features"},
+        {"value": "compliance", "label": "Compliance Scanning", "group": "Features"},
+        {"value": "ai_assistant", "label": "AI Assistant", "group": "Features"},
+        {"value": "config_diff", "label": "Config Diff", "group": "Features"},
     ]
 }
 
@@ -19291,7 +19291,7 @@ def admin_list_users():
         c = conn.cursor()
         if tenant_id_filter:
             c.execute('''
-                SELECT u.id, u.email, u.display_name, u.platform_role, u.is_active, u.last_login
+                SELECT u.id, u.email, u.display_name, u.platform_role, u.nextlink_role, u.is_active, u.last_login
                 FROM users AS u
                 JOIN user_tenant_memberships AS m ON m.user_id = u.id
                 WHERE m.tenant_id = ? AND m.status = 'active'
@@ -19299,7 +19299,7 @@ def admin_list_users():
             ''', (tenant_id_filter,))
         else:
             c.execute('''
-                SELECT id, email, display_name, platform_role, is_active, last_login
+                SELECT id, email, display_name, platform_role, nextlink_role, is_active, last_login
                 FROM users
                 ORDER BY email ASC
             ''')
