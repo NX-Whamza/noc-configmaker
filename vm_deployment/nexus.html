@@ -28246,6 +28246,19 @@ Ready for translation!`);
                     const platformRoleSelect = ADMIN_PLATFORM_ROLE_OPTIONS.map(role =>
                         `<option value="${role}" ${(u.platform_role || 'user') === role ? 'selected' : ''}>${_roleLabel(role)}</option>`
                     ).join('');
+                    const nextlinkRoleOptions = [
+                        { value: '', label: '(none)' },
+                        { value: 'super_admin', label: 'super_admin' },
+                        { value: 'noc', label: 'noc' },
+                        { value: 'netlaunch', label: 'netlaunch' },
+                        { value: 'rdo', label: 'rdo' },
+                        { value: 'admins', label: 'admins' },
+                        { value: 'fiber_team', label: 'fiber_team' },
+                        { value: 'infra_tech', label: 'infra_tech' }
+                    ];
+                    const nextlinkRoleSelect = nextlinkRoleOptions.map(role =>
+                        `<option value="${role.value}" ${(u.nextlink_role || '') === role.value ? 'selected' : ''}>${role.label}</option>`
+                    ).join('');
                     const selectedMembership = selectedTenantId
                         ? (u.memberships || []).find(m => String(m.tenant_id) === String(selectedTenantId))
                         : null;
@@ -28274,6 +28287,15 @@ Ready for translation!`);
                             </div>
                             <div id="adminPlatformRoleCurrent_${u.id}" style="margin-top:4px; font-size:10px; color:var(--text-color-secondary);">Current: ${_roleLabel(u.platform_role || 'user')}</div>
                         </td>
+                        <td style="padding:6px 10px;">
+                            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                                <select id="adminNextlinkRole_${u.id}" style="padding:5px 8px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:11px;">
+                                    ${nextlinkRoleSelect}
+                                </select>
+                                <button onclick="updateAdminUserNextlinkRole(${u.id})" style="font-size:11px; padding:4px 10px; background:var(--primary-color); color:#fff; border:none; border-radius:5px; cursor:pointer;">Save</button>
+                            </div>
+                            <div id="adminNextlinkRoleCurrent_${u.id}" style="margin-top:4px; font-size:10px; color:var(--text-color-secondary);">Current: ${u.nextlink_role || '(none)'}</div>
+                        </td>
                         <td style="padding:6px 10px;">${memberships || '<span style="color:var(--text-color-secondary)">none</span>'}</td>
                         <td style="padding:6px 10px;">${tenantRoleEditor}</td>
                     </tr>`;
@@ -28282,6 +28304,7 @@ Ready for translation!`);
                     <thead><tr style="background:var(--table-header-bg, var(--container-bg)); font-size:11px; text-transform:uppercase; color:var(--text-color-secondary);">
                         <th style="padding:8px 10px; text-align:left;">Email</th>
                         <th style="padding:8px 10px; text-align:left;">Platform Role</th>
+                        <th style="padding:8px 10px; text-align:left;">Nextlink Role</th>
                         <th style="padding:8px 10px; text-align:left;">Tenant Memberships</th>
                         <th style="padding:8px 10px; text-align:left;">Tenant Role Editor</th>
                     </tr></thead><tbody>${rows}</tbody></table>`;
@@ -28349,6 +28372,40 @@ Ready for translation!`);
                     setTimeout(() => { if (currentLabel) currentLabel.style.color = 'var(--text-color-secondary)'; }, 2500);
                 }
                 if (typeof nocToast === 'function') nocToast('Tenant role updated. User must refresh their page for the new role to take effect.', 'success', 4000);
+                if (typeof loadAdminUsers === 'function') loadAdminUsers();
+            } catch (e) {
+                if (typeof nocToast === 'function') nocToast(`Role update failed: ${e.message}`, 'error', 4000);
+                else alert(`Role update failed: ${e.message}`);
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+            }
+        }
+
+        async function updateAdminUserNextlinkRole(userId) {
+            const select = document.getElementById(`adminNextlinkRole_${userId}`);
+            if (!select) return;
+            const nextlink_role = select.value || null;
+            const btn = select.parentElement?.querySelector('button');
+            if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+            const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : '/api';
+            try {
+                const resp = await fetch(`${apiBase}/admin/users/${userId}/nextlink-role`, {
+                    method: 'PATCH',
+                    headers: getAuthHeaders('application/json'),
+                    body: JSON.stringify({ nextlink_role })
+                });
+                const data = await resp.json();
+                if (!resp.ok || !data.success) {
+                    throw new Error(data.error || 'Failed to update nextlink role');
+                }
+                // Immediately update the "Current:" label in the row
+                const currentLabel = document.getElementById(`adminNextlinkRoleCurrent_${userId}`);
+                if (currentLabel) {
+                    currentLabel.textContent = `Current: ${nextlink_role || '(none)'}`;
+                    currentLabel.style.color = 'var(--success-color, #22c55e)';
+                    setTimeout(() => { if (currentLabel) currentLabel.style.color = 'var(--text-color-secondary)'; }, 2500);
+                }
+                if (typeof nocToast === 'function') nocToast('Nextlink role updated. User must refresh their page for the new role to take effect.', 'success', 4000);
                 if (typeof loadAdminUsers === 'function') loadAdminUsers();
             } catch (e) {
                 if (typeof nocToast === 'function') nocToast(`Role update failed: ${e.message}`, 'error', 4000);
