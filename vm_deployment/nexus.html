@@ -27644,7 +27644,9 @@ Ready for translation!`);
                 tabGroups[g].push(t);
             });
 
-            // Define explicit group order
+            // Explicit group order. "Other" intentionally excluded — the backend
+            // catalog should not emit ungrouped tabs. If one slips in, it falls to
+            // the end via the fallback merge below.
             const groupOrder = [
                 'MikroTik / Wireless',
                 'Nokia',
@@ -27652,19 +27654,24 @@ Ready for translation!`);
                 'FTTH',
                 'Migration & Operations',
                 'Reference & Vault',
-                'Other',
             ];
+            // Append any unexpected groups not in groupOrder
+            Object.keys(tabGroups).forEach(g => { if (!groupOrder.includes(g)) groupOrder.push(g); });
+
+            const itemCellStyle = 'display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-color); padding:2px 0;';
+            const gridStyle = 'display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:2px 14px;';
+            const groupHeadingStyle = 'font-size:11px; text-transform:uppercase; color:#888; margin:10px 0 4px; letter-spacing:0.6px; font-weight:600;';
 
             const tabGrid = document.getElementById('nlTabGrid');
             if (tabGrid) {
                 const groupedTabsHtml = groupOrder
                     .filter(g => tabGroups[g])
                     .map(g => `
-                        <div style="margin-bottom:14px;">
-                            <h5 style="font-size:12px; text-transform:uppercase; color:#888; margin:8px 0 4px; letter-spacing:0.5px;">${g}</h5>
-                            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:4px 12px;">
+                        <div style="margin-bottom:10px;">
+                            <h5 style="${groupHeadingStyle}">${g}</h5>
+                            <div style="${gridStyle}">
                                 ${tabGroups[g].map(t => `
-                                    <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-color);">
+                                    <label style="${itemCellStyle}">
                                         <input type="checkbox" data-perm-type="tab" data-perm-value="${t.value}" ${allowedTabs.has(t.value) ? 'checked' : ''}>
                                         <span>${t.label}</span>
                                     </label>
@@ -27674,9 +27681,8 @@ Ready for translation!`);
                     `).join('');
 
                 const universalNote = `
-                    <div style="margin-bottom:14px; opacity:0.7; border-top:1px dashed #444; padding-top:8px; margin-top:10px;">
-                        <h5 style="font-size:12px; text-transform:uppercase; color:#888; margin:8px 0 4px; letter-spacing:0.5px;">Universal (always visible)</h5>
-                        <div style="font-size:12px; color:var(--text-color-secondary);"><em>home · completed-configs · log-history · admin-panel (admins only)</em></div>
+                    <div style="opacity:0.55; border-top:1px dashed #444; padding-top:6px; margin-top:8px; font-size:11px; color:var(--text-color-secondary);">
+                        <em>Always visible to everyone: home · completed-configs · log-history. Admin panel is shown to platform admins only.</em>
                     </div>
                 `;
 
@@ -27693,12 +27699,15 @@ Ready for translation!`);
 
             const featureGrid = document.getElementById('nlFeatureGrid');
             if (featureGrid) {
-                featureGrid.innerHTML = Object.keys(featureGroups).map(g => `
-                    <div style="margin-bottom:14px;">
-                        <h5 style="font-size:12px; text-transform:uppercase; color:#888; margin:8px 0 4px; letter-spacing:0.5px;">${g}</h5>
-                        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:4px 12px;">
+                // If only one feature group, hide the heading (redundant with section header)
+                const featureGroupKeys = Object.keys(featureGroups);
+                const hideFeatureHeading = featureGroupKeys.length === 1;
+                featureGrid.innerHTML = featureGroupKeys.map(g => `
+                    <div style="margin-bottom:10px;">
+                        ${hideFeatureHeading ? '' : `<h5 style="${groupHeadingStyle}">${g}</h5>`}
+                        <div style="${gridStyle}">
                             ${featureGroups[g].map(f => `
-                                <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-color);">
+                                <label style="${itemCellStyle}">
                                     <input type="checkbox" data-perm-type="feature" data-perm-value="${f.value}" ${allowedFeatures.has(f.value) ? 'checked' : ''}>
                                     <span>${f.label}</span>
                                 </label>
