@@ -1826,7 +1826,9 @@ def require_tab_v2(tab_value: str):
     async def _dep(
         auth: Dict[str, Any] = Depends(_require_scope("actions.read")),
     ) -> Dict[str, Any]:
-        # Machine-to-machine API keys pass through (no nextlink_role context)
+        # Machine-to-machine API keys pass through. M2M keys are tenant-scoped,
+        # not user-scoped — no nextlink_role applies. Tab gating only governs
+        # session-authenticated browser/UI callers.
         if auth.get("auth_type") != "session":
             return auth
 
@@ -1838,37 +1840,39 @@ def require_tab_v2(tab_value: str):
         if email and _platform_role_for_email(email) == "platform_admin":
             return auth
 
-        # Look up nextlink_role from DB
+        # Look up nextlink_role from DB. try/finally guarantees connection
+        # close even if a SQLite error fires mid-query (file handle safety).
         nextlink_role = None
+        allowed = False
         db_path = os.path.join("secure_data", "users.db")
         conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        if user_id:
-            c.execute("SELECT nextlink_role FROM users WHERE id = ?", (user_id,))
-        elif email:
-            c.execute("SELECT nextlink_role FROM users WHERE email = ?", (email,))
-        row = c.fetchone() if (user_id or email) else None
-        if row:
-            nextlink_role = row["nextlink_role"]
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            if user_id:
+                c.execute("SELECT nextlink_role FROM users WHERE id = ?", (user_id,))
+            elif email:
+                c.execute("SELECT nextlink_role FROM users WHERE email = ?", (email,))
+            row = c.fetchone() if (user_id or email) else None
+            if row:
+                nextlink_role = row["nextlink_role"]
 
-        # Bypass 2: super_admin nextlink_role
-        if nextlink_role == "super_admin":
+            # Bypass 2: super_admin nextlink_role
+            if nextlink_role == "super_admin":
+                return auth
+
+            # Deny: no nextlink_role assigned
+            if not nextlink_role:
+                raise HTTPException(status_code=403, detail="Your role does not have access to this tool")
+
+            # Check tab permission
+            c.execute(
+                "SELECT 1 FROM nextlink_role_permissions WHERE role = ? AND perm_type = 'tab' AND perm_value = ?",
+                (nextlink_role, tab_value),
+            )
+            allowed = c.fetchone() is not None
+        finally:
             conn.close()
-            return auth
-
-        # Deny: no nextlink_role assigned
-        if not nextlink_role:
-            conn.close()
-            raise HTTPException(status_code=403, detail="Your role does not have access to this tool")
-
-        # Check tab permission
-        c.execute(
-            "SELECT 1 FROM nextlink_role_permissions WHERE role = ? AND perm_type = 'tab' AND perm_value = ?",
-            (nextlink_role, tab_value),
-        )
-        allowed = c.fetchone() is not None
-        conn.close()
 
         if not allowed:
             raise HTTPException(status_code=403, detail="Your role does not have access to this tool")

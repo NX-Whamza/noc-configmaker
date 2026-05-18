@@ -734,6 +734,14 @@ NEXTLINK_TAB_CATALOG = {
     ]
 }
 
+# Server-side allowlist of valid Nextlink role names. Role permissions are
+# editable via the admin UI, but the role NAME itself must be one of these.
+# Prevents typos (e.g., 'NOC' vs 'noc') from silently creating dead permission
+# rows that map to no actual user.
+NEXTLINK_VALID_ROLES = frozenset({
+    'super_admin', 'noc', 'netlaunch', 'rdo', 'admins', 'fiber_team', 'infra_tech',
+})
+
 def _get_tenant_features(tenant_id) -> dict:
     """Return feature flags for a tenant. Defaults to all enabled."""
     if not tenant_id:
@@ -10807,38 +10815,40 @@ def require_tab(tab_value):
             if _platform_role_for_email(email) == 'platform_admin':
                 return f(*args, **kwargs)
 
-            # Look up nextlink_role from DB
+            # Look up nextlink_role from DB. try/finally ensures connection
+            # is closed even on SQLite errors (locked DB, disk I/O failure).
             user_id = user_info.get('user_id') or user_info.get('id')
             nextlink_role = None
+            allowed = False
             db_path = os.path.join('secure_data', 'users.db')
             conn = sqlite3.connect(db_path)
-            conn.row_factory = sqlite3.Row
-            c = conn.cursor()
-            if user_id:
-                c.execute("SELECT nextlink_role FROM users WHERE id = ?", (user_id,))
-            elif email:
-                c.execute("SELECT nextlink_role FROM users WHERE email = ?", (email,))
-            row = c.fetchone() if (user_id or email) else None
-            if row:
-                nextlink_role = row['nextlink_role']
+            try:
+                conn.row_factory = sqlite3.Row
+                c = conn.cursor()
+                if user_id:
+                    c.execute("SELECT nextlink_role FROM users WHERE id = ?", (user_id,))
+                elif email:
+                    c.execute("SELECT nextlink_role FROM users WHERE email = ?", (email,))
+                row = c.fetchone() if (user_id or email) else None
+                if row:
+                    nextlink_role = row['nextlink_role']
 
-            # Bypass 2: super_admin nextlink_role
-            if nextlink_role == 'super_admin':
+                # Bypass 2: super_admin nextlink_role
+                if nextlink_role == 'super_admin':
+                    return f(*args, **kwargs)
+
+                # Deny: no nextlink_role assigned
+                if not nextlink_role:
+                    return jsonify({'success': False, 'error': 'Your role does not have access to this tool'}), 403
+
+                # Check tab permission
+                c.execute(
+                    "SELECT 1 FROM nextlink_role_permissions WHERE role = ? AND perm_type = 'tab' AND perm_value = ?",
+                    (nextlink_role, tab_value)
+                )
+                allowed = c.fetchone() is not None
+            finally:
                 conn.close()
-                return f(*args, **kwargs)
-
-            # Deny: no nextlink_role assigned
-            if not nextlink_role:
-                conn.close()
-                return jsonify({'success': False, 'error': 'Your role does not have access to this tool'}), 403
-
-            # Check tab permission
-            c.execute(
-                "SELECT 1 FROM nextlink_role_permissions WHERE role = ? AND perm_type = 'tab' AND perm_value = ?",
-                (nextlink_role, tab_value)
-            )
-            allowed = c.fetchone() is not None
-            conn.close()
 
             if not allowed:
                 return jsonify({'success': False, 'error': 'Your role does not have access to this tool'}), 403
@@ -19483,6 +19493,8 @@ def admin_set_nextlink_role_permissions():
 
         if not role:
             return jsonify({'error': 'role is required'}), 400
+        if role not in NEXTLINK_VALID_ROLES:
+            return jsonify({'error': f'Unknown role: {role}. Must be one of {sorted(NEXTLINK_VALID_ROLES)}'}), 400
         if not isinstance(tabs, list):
             return jsonify({'error': 'tabs must be a list'}), 400
         if not isinstance(features, list):
@@ -19491,52 +19503,47 @@ def admin_set_nextlink_role_permissions():
         init_users_db()
         db_path = os.path.join('secure_data', 'users.db')
         conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-
         try:
-            # Delete existing permissions for this role
-            c.execute('DELETE FROM nextlink_role_permissions WHERE role = ?', (role,))
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
 
-            # Insert tab permissions
-            for tab_value in tabs:
-                c.execute(
-                    'INSERT OR IGNORE INTO nextlink_role_permissions (role, perm_type, perm_value) VALUES (?, ?, ?)',
-                    (role, 'tab', tab_value)
-                )
+            # Capture previous state for audit log (delete-then-insert erases history otherwise)
+            c.execute('SELECT perm_type, perm_value FROM nextlink_role_permissions WHERE role = ?', (role,))
+            prev_rows = c.fetchall()
+            previous_tabs = [r['perm_value'] for r in prev_rows if r['perm_type'] == 'tab']
+            previous_features = [r['perm_value'] for r in prev_rows if r['perm_type'] == 'feature']
 
-            # Insert feature permissions
-            for feature_value in features:
-                c.execute(
-                    'INSERT OR IGNORE INTO nextlink_role_permissions (role, perm_type, perm_value) VALUES (?, ?, ?)',
-                    (role, 'feature', feature_value)
-                )
+            # Atomic delete-then-insert. `with conn:` opens a transaction that
+            # rolls back on any exception inside the block.
+            with conn:
+                c.execute('DELETE FROM nextlink_role_permissions WHERE role = ?', (role,))
+                for tab_value in tabs:
+                    c.execute(
+                        'INSERT OR IGNORE INTO nextlink_role_permissions (role, perm_type, perm_value) VALUES (?, ?, ?)',
+                        (role, 'tab', tab_value)
+                    )
+                for feature_value in features:
+                    c.execute(
+                        'INSERT OR IGNORE INTO nextlink_role_permissions (role, perm_type, perm_value) VALUES (?, ?, ?)',
+                        (role, 'feature', feature_value)
+                    )
 
-            conn.commit()
-
-            # Write audit log
+            # Write audit log with before AND after state
             _write_audit_log(
                 'nextlink_role_permissions_change',
                 detail={
                     'role': role,
+                    'previous_tabs': previous_tabs,
+                    'previous_features': previous_features,
                     'tabs': tabs,
-                    'features': features
+                    'features': features,
                 }
             )
 
-            # Return the updated matrix for this role only
-            matrix = {
-                role: {
-                    'tabs': tabs,
-                    'features': features
-                }
-            }
-
-            conn.close()
+            matrix = {role: {'tabs': tabs, 'features': features}}
             return jsonify({'success': True, 'matrix': matrix})
-        except Exception as inner_e:
+        finally:
             conn.close()
-            raise inner_e
     except Exception as e:
         print(f"[ADMIN RBAC] Set permissions failed: {e}")
         return jsonify({'error': str(e)}), 500
@@ -19560,6 +19567,10 @@ def admin_update_user_nextlink_role(user_id):
             nextlink_role = None
         else:
             return jsonify({'error': 'nextlink_role must be null or a string'}), 400
+
+        # Allowlist check — prevent typos creating dead user/role mappings
+        if nextlink_role is not None and nextlink_role not in NEXTLINK_VALID_ROLES:
+            return jsonify({'error': f'Unknown role: {nextlink_role}. Must be one of {sorted(NEXTLINK_VALID_ROLES)} or null'}), 400
 
         init_users_db()
         db_path = os.path.join('secure_data', 'users.db')
@@ -27550,6 +27561,7 @@ def _sanitize_bng2_transport_output(config_text: str) -> str:
 
 @app.route('/api/mt/<config_type>/config', methods=['POST'])
 @require_auth
+@require_tab('tower')
 def mt_generate_config(config_type):
     if not HAS_MT_CONFIG_GEN:
         return jsonify({'error': f'MikroTik config generator unavailable: {MT_CONFIG_GEN_ERROR}'}), 503
@@ -27587,6 +27599,7 @@ def mt_generate_config(config_type):
 
 @app.route('/api/mt/<config_type>/portmap', methods=['POST'])
 @require_auth
+@require_tab('tower')
 def mt_generate_portmap(config_type):
     if not HAS_MT_CONFIG_GEN:
         return jsonify({'error': f'MikroTik config generator unavailable: {MT_CONFIG_GEN_ERROR}'}), 503
