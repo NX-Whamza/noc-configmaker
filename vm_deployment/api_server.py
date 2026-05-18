@@ -680,6 +680,60 @@ _DEFAULT_FEATURES = {
     'ai_assistant': True, 'config_diff': True
 }
 
+# ── RBAC Tab & Feature Catalog ──────────────────────────────────────────────
+# WARNING: Renaming any `value` in this constant requires a migration.
+# The `value` fields are stored in nextlink_role_permissions.perm_value.
+# If you rename a tab or feature, you MUST also:
+#   1. Update the DB (nextlink_role_permissions table)
+#   2. Migrate existing role assignments to the new name
+#   3. Update frontend code to reference the new value
+# Backend source of truth: keep this synchronized with
+# `.claude/skills/nexus-section-find/data/tab_index.md`
+NEXTLINK_TAB_CATALOG = {
+    "tabs": [
+        {"value": "home", "label": "Home dashboard"},
+        # MikroTik / wireless
+        {"value": "tower", "label": "MikroTik Config Generator"},
+        {"value": "enterprise", "label": "Non-MPLS Enterprise"},
+        {"value": "enterprise-mpls", "label": "MPLS Enterprise"},
+        {"value": "tarana", "label": "Tarana Sectors"},
+        {"value": "enterprise-feeding", "label": "Enterprise Feeding"},
+        {"value": "ccr2004", "label": "6GHz Switch Port"},
+        {"value": "switch-maker", "label": "MikroTik Switch Maker"},
+        {"value": "warehouse-sm", "label": "Warehouse SM Provisioning"},
+        {"value": "field-config-studio", "label": "Device Config Studio"},
+        # Nokia
+        {"value": "nokia7250-maker", "label": "Nokia Configurator"},
+        {"value": "mikrotik-to-nokia", "label": "Nokia Migration"},
+        # Firmware / hardware updaters
+        {"value": "device-firmware-updater", "label": "Device Firmware Updater"},
+        # FTTH
+        {"value": "ftth-home", "label": "FTTH Configuration"},
+        # Migration / ops
+        {"value": "command-vault", "label": "Command Vault (Nokia/Cisco/MikroTik)"},
+        {"value": "cisco-config", "label": "Cisco Port Setup"},
+        {"value": "unimus-backup-configs", "label": "Unimus Backup Configs"},
+        {"value": "config-diff", "label": "Config Diff Viewer"},
+        {"value": "bulk-config", "label": "Bulk Operations Center"},
+        {"value": "maintenance", "label": "Scheduled Maintenance"},
+        {"value": "compliance-scanner", "label": "Compliance Scanner"},
+        {"value": "completed-configs", "label": "Completed Configs (history)"},
+        {"value": "log-history", "label": "Log History"},
+        {"value": "admin-panel", "label": "Admin Panel"},
+    ],
+    "features": [
+        {"value": "mikrotik", "label": "MikroTik Generator"},
+        {"value": "nokia", "label": "Nokia Generator"},
+        {"value": "cambium", "label": "Cambium Support"},
+        {"value": "aviat", "label": "Aviat Support"},
+        {"value": "ftth", "label": "FTTH Support"},
+        {"value": "bulk_ops", "label": "Bulk Operations"},
+        {"value": "compliance", "label": "Compliance Scanning"},
+        {"value": "ai_assistant", "label": "AI Assistant"},
+        {"value": "config_diff", "label": "Config Diff"},
+    ]
+}
+
 def _get_tenant_features(tenant_id) -> dict:
     """Return feature flags for a tenant. Defaults to all enabled."""
     if not tenant_id:
@@ -20200,6 +20254,8 @@ def init_users_db():
         c.execute("ALTER TABLE users ADD COLUMN email_verification_token TEXT")
     if 'email_verified_at' not in existing_cols:
         c.execute("ALTER TABLE users ADD COLUMN email_verified_at DATETIME")
+    if 'nextlink_role' not in existing_cols:
+        c.execute("ALTER TABLE users ADD COLUMN nextlink_role TEXT")
 
     # User sessions table
     c.execute('''CREATE TABLE IF NOT EXISTS user_sessions
@@ -20314,6 +20370,28 @@ def init_users_db():
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (tenant_id) REFERENCES tenants(id)
     )''')
+
+    # ── Nextlink role-based access control table ──────────────────────────
+    c.execute('''CREATE TABLE IF NOT EXISTS nextlink_role_permissions (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        role        TEXT    NOT NULL,
+        perm_type   TEXT    NOT NULL CHECK(perm_type IN ('tab', 'feature')),
+        perm_value  TEXT    NOT NULL,
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(role, perm_type, perm_value)
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_nrp_role ON nextlink_role_permissions(role)')
+
+    # Integrity check: verify all tab values in DB have catalog entries
+    c.execute('SELECT DISTINCT perm_value FROM nextlink_role_permissions WHERE perm_type = ?', ('tab',))
+    tab_orphans = []
+    catalog_tab_values = {t['value'] for t in NEXTLINK_TAB_CATALOG['tabs']}
+    for (perm_value,) in c.fetchall():
+        if perm_value not in catalog_tab_values:
+            tab_orphans.append(perm_value)
+    if tab_orphans:
+        import logging
+        logging.warning(f"[RBAC] Found orphaned tab values in nextlink_role_permissions (no catalog entry): {tab_orphans}")
 
     # ── Tenant branding columns (additive migration on tenants table) ──────
     c.execute("PRAGMA table_info(tenants)")
