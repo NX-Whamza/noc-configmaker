@@ -1809,6 +1809,52 @@ def _require_scope(required: str) -> Callable[..., Dict[str, Any]]:
     return _dep
 
 
+def require_tab_v2(tab_value: str):
+    """Dependency to gate FastAPI routes by nextlink role tab permissions.
+
+    Allows machine-to-machine (API key) access to pass through.
+    For session-based auth: allows platform_admin or super_admin nextlink_role.
+    Others require explicit tab permission in nextlink_role_permissions.
+    """
+    async def _dep(
+        auth: Dict[str, Any] = Depends(_require_scope("actions.read")),
+    ) -> Dict[str, Any]:
+        # Machine-to-machine API keys pass through (no nextlink_role context)
+        if auth.get("auth_type") != "session":
+            return auth
+
+        session_user = auth.get("session_user") or {}
+        platform_role = session_user.get("platformRole") or "user"
+        nextlink_role = session_user.get("nextlinkRole")
+
+        # Bypass: platform_admin OR super_admin nextlink_role
+        if platform_role == "platform_admin" or nextlink_role == "super_admin":
+            return auth
+
+        # Deny: no nextlink_role
+        if not nextlink_role:
+            raise HTTPException(status_code=403, detail="Your role does not have access to this tool")
+
+        # Check database for tab permission
+        db_path = os.path.join("secure_data", "users.db")
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute(
+            "SELECT 1 FROM nextlink_role_permissions WHERE role = ? AND perm_type = 'tab' AND perm_value = ?",
+            (nextlink_role, tab_value),
+        )
+        allowed = c.fetchone() is not None
+        conn.close()
+
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Your role does not have access to this tool")
+
+        return auth
+
+    return _dep
+
+
 def _legacy_api_base() -> str:
     return (os.getenv("NOC_LEGACY_API_BASE") or "http://127.0.0.1:5000").rstrip("/")
 
@@ -4274,7 +4320,7 @@ def v2_nexus_enterprise_feeding(
             }
         },
     ),
-    _: Dict[str, Any] = Depends(_require_scope("actions.read")),
+    _: Dict[str, Any] = Depends(require_tab_v2("enterprise-feeding")),
 ):
     return _envelope(status="ok", data=_render_enterprise_feeding(payload), message="Enterprise feeding config generated")
 
@@ -4290,7 +4336,7 @@ def v2_nexus_enterprise_feeding_outstate(
             }
         },
     ),
-    _: Dict[str, Any] = Depends(_require_scope("actions.read")),
+    _: Dict[str, Any] = Depends(require_tab_v2("enterprise-feeding")),
 ):
     return _envelope(status="ok", data=_render_enterprise_feeding_outstate(payload), message="Out-of-state enterprise feeding config generated")
 
@@ -4306,7 +4352,7 @@ def v2_nexus_config_diff(
             }
         },
     ),
-    _: Dict[str, Any] = Depends(_require_scope("actions.read")),
+    _: Dict[str, Any] = Depends(require_tab_v2("config-diff")),
 ):
     return _envelope(status="ok", data=_compute_config_diff(payload), message="Config diff computed")
 
@@ -4322,7 +4368,7 @@ def v2_nexus_command_vault_catalog(
             }
         },
     ),
-    _: Dict[str, Any] = Depends(_require_scope("actions.read")),
+    _: Dict[str, Any] = Depends(require_tab_v2("command-vault")),
 ):
     return _envelope(status="ok", data=_command_vault_catalog(payload), message="Command Vault catalog")
 
@@ -4338,7 +4384,7 @@ def v2_nexus_6ghz_instate(
             }
         },
     ),
-    _: Dict[str, Any] = Depends(_require_scope("actions.read")),
+    _: Dict[str, Any] = Depends(require_tab_v2("ccr2004")),
 ):
     return _envelope(status="ok", data=_render_6ghz_switch(payload), message="6GHz in-state config generated")
 
@@ -4362,7 +4408,7 @@ def v2_nexus_6ghz_outstate(
             },
         },
     ),
-    _: Dict[str, Any] = Depends(_require_scope("actions.read")),
+    _: Dict[str, Any] = Depends(require_tab_v2("ccr2004")),
 ):
     return _envelope(status="ok", data=_render_6ghz_switch_outstate(payload), message="6GHz out-of-state config generated")
 
@@ -4378,7 +4424,7 @@ def v2_nexus_enterprise_mpls(
             }
         },
     ),
-    _: Dict[str, Any] = Depends(_require_scope("actions.read")),
+    _: Dict[str, Any] = Depends(require_tab_v2("enterprise-mpls")),
 ):
     return _envelope(status="ok", data=_render_mpls_enterprise(payload), message="MPLS enterprise config generated")
 
