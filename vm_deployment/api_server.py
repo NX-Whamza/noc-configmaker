@@ -20566,7 +20566,67 @@ def _serialize_user_row(user):
         'platformRole': user['platform_role'] or ('platform_admin' if user['is_platform_admin'] else 'user'),
         'isPlatformAdmin': bool(user['is_platform_admin']),
         'profilePhoto': dict(user).get('profile_photo') or None,
-        'nextlinkRole': user.get('nextlink_role'),
+        'nextlinkRole': dict(user).get('nextlink_role'),
+    }
+
+
+def _get_nextlink_tab_permissions(user_row, conn):
+    """
+    Compute tab and feature permissions for a user based on nextlink_role.
+
+    Returns:
+        {
+            "restricted": bool,           # True if user has restricted access
+            "allowed_tabs": list or None, # List of tab values if restricted, None if unrestricted
+            "allowed_features": list or None  # List of feature values if restricted, None if unrestricted
+        }
+
+    Bypass logic (unrestricted):
+        - platform_role == 'platform_admin' OR nextlink_role == 'super_admin'
+
+    NULL nextlink_role → restricted with empty lists.
+    """
+    platform_role = user_row['platform_role'] or ('platform_admin' if user_row['is_platform_admin'] else 'user')
+    # Get nextlink_role - convert to dict to use .get()
+    nextlink_role = dict(user_row).get('nextlink_role')
+
+    # Bypass: platform_admin or super_admin → unrestricted
+    if platform_role == 'platform_admin' or nextlink_role == 'super_admin':
+        return {
+            'restricted': False,
+            'allowed_tabs': None,
+            'allowed_features': None,
+        }
+
+    # NULL nextlink_role → restricted with empty lists
+    if not nextlink_role:
+        return {
+            'restricted': True,
+            'allowed_tabs': [],
+            'allowed_features': [],
+        }
+
+    # User has a specific nextlink_role → fetch their permissions
+    c = conn.cursor()
+    c.execute(
+        'SELECT perm_type, perm_value FROM nextlink_role_permissions WHERE role = ?',
+        (nextlink_role,)
+    )
+    perms = c.fetchall()
+
+    allowed_tabs = []
+    allowed_features = []
+    for row in perms:
+        perm_type, perm_value = row['perm_type'], row['perm_value']
+        if perm_type == 'tab':
+            allowed_tabs.append(perm_value)
+        elif perm_type == 'feature':
+            allowed_features.append(perm_value)
+
+    return {
+        'restricted': True,
+        'allowed_tabs': allowed_tabs,
+        'allowed_features': allowed_features,
     }
 
 
@@ -20682,6 +20742,9 @@ def _load_session_bootstrap_for_user(user_id):
         except Exception:
             pass
 
+    # Compute RBAC tab permissions
+    tab_permissions = _get_nextlink_tab_permissions(user, conn)
+
     bootstrap = {
         'user': _serialize_user_row(user),
         'memberships': memberships,
@@ -20704,6 +20767,7 @@ def _load_session_bootstrap_for_user(user_id):
         },
         'tenantSettings': tenant_settings,
         'branding': branding,
+        'tabPermissions': tab_permissions,
     }
     conn.close()
     return bootstrap
