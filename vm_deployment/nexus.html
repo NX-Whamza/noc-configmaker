@@ -4568,10 +4568,101 @@
             }
         }
 
+        /* Nexus Loading Overlay */
+        .nexus-loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(8, 17, 29, 0.94);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            opacity: 1;
+            visibility: visible;
+            transition: opacity 300ms ease, visibility 300ms ease;
+        }
+
+        .nexus-loading-overlay.hidden {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        .nexus-loading-inner {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 28px;
+        }
+
+        .nexus-loading-logo {
+            width: 88px;
+            height: 88px;
+            display: block;
+            animation: nexus-pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes nexus-pulse {
+            0%, 100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(1.04);
+                opacity: 0.95;
+            }
+        }
+
+        .nexus-loading-bar {
+            width: 240px;
+            height: 3px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .nexus-loading-bar::after {
+            content: '';
+            display: block;
+            height: 100%;
+            width: 40%;
+            background: linear-gradient(90deg, transparent, #ff7a00, transparent);
+            animation: nexus-slide 1.5s ease-in-out infinite;
+        }
+
+        @keyframes nexus-slide {
+            0% {
+                transform: translateX(-100%);
+            }
+            100% {
+                transform: translateX(400%);
+            }
+        }
+
+        .nexus-loading-text {
+            color: var(--text-soft);
+            font-size: 14px;
+            font-weight: 500;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
     </style>
 </head>
 
 <body>
+    <div id="nexusLoadingOverlay" class="nexus-loading-overlay hidden">
+        <div class="nexus-loading-inner">
+            <img src="assets/favicon.svg" alt="NEXUS" class="nexus-loading-logo">
+            <div class="nexus-loading-bar"></div>
+            <div class="nexus-loading-text">Loading NEXUS...</div>
+        </div>
+    </div>
+
     <div class="sidebar-mobile-backdrop" id="sidebarMobileBackdrop"></div>
     <div class="main-container">
         <!-- Sidebar Navigation -->
@@ -11971,6 +12062,13 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 return;
             }
 
+            // Check if we should show the loading overlay (set by login page on successful login)
+            const shouldShowLoading = sessionStorage.getItem('nexus_loading') === '1';
+            if (shouldShowLoading) {
+                const overlay = document.getElementById('nexusLoadingOverlay');
+                if (overlay) overlay.classList.remove('hidden');
+            }
+
             // Verify token is still valid (async, but don't block page load if backend is down)
             // Use same API detection logic as main API_BASE
             const isFileProtocol = window.location.protocol === 'file:';
@@ -12010,6 +12108,11 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                         // Token invalid, clear and redirect
                         localStorage.removeItem('auth_token');
                         localStorage.removeItem('user_info');
+                        const overlay = document.getElementById('nexusLoadingOverlay');
+                        if (overlay) {
+                            overlay.classList.add('hidden');
+                            sessionStorage.removeItem('nexus_loading');
+                        }
                         window.location.href = 'login.html';
                     } else {
                         // Update user info
@@ -12018,6 +12121,11 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
 
                         // Check if password change is required
                         if (data.user.firstLogin) {
+                            const overlay = document.getElementById('nexusLoadingOverlay');
+                            if (overlay) {
+                                overlay.classList.add('hidden');
+                                sessionStorage.removeItem('nexus_loading');
+                            }
                             window.location.href = 'change-password.html?firstLogin=true';
                             return;
                         }
@@ -12030,7 +12138,14 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                         })
                             .then(response => response.ok ? response.json() : null)
                             .then(session => {
-                                if (!session || !session.success) return;
+                                if (!session || !session.success) {
+                                    const overlay = document.getElementById('nexusLoadingOverlay');
+                                    if (overlay) {
+                                        overlay.classList.add('hidden');
+                                        sessionStorage.removeItem('nexus_loading');
+                                    }
+                                    return;
+                                }
                                 applySessionBootstrap(session);
                                 updateUserDisplay();
                                 if (typeof applyAdminPanelRoles === 'function') applyAdminPanelRoles(session);
@@ -12039,12 +12154,22 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                             })
                             .catch(error => {
                                 console.warn('[AUTH] Session bootstrap unavailable, continuing with cached tenant context:', error);
+                                const overlay = document.getElementById('nexusLoadingOverlay');
+                                if (overlay) {
+                                    overlay.classList.add('hidden');
+                                    sessionStorage.removeItem('nexus_loading');
+                                }
                             });
                     }
                 })
                 .catch(error => {
                     // If backend is down, allow access but log warning
                     console.warn('[AUTH] Backend verification unavailable, continuing with cached token:', error);
+                    const overlay = document.getElementById('nexusLoadingOverlay');
+                    if (overlay) {
+                        overlay.classList.add('hidden');
+                        sessionStorage.removeItem('nexus_loading');
+                    }
                 });
         })();
 
@@ -27202,6 +27327,7 @@ Ready for translation!`);
                 localStorage.removeItem('auth_token');
                 localStorage.removeItem('user_info');
                 localStorage.removeItem('session_bootstrap');
+                sessionStorage.removeItem('nexus_loading');
                 window.location.href = 'login.html';
             }
         }
@@ -27212,6 +27338,21 @@ Ready for translation!`);
             const token = localStorage.getItem('auth_token');
             if (token) headers['Authorization'] = `Bearer ${token}`;
             return headers;
+        }
+
+        function showNexusLoading() {
+            const overlay = document.getElementById('nexusLoadingOverlay');
+            if (overlay) {
+                overlay.classList.remove('hidden');
+            }
+        }
+
+        function hideNexusLoading() {
+            const overlay = document.getElementById('nexusLoadingOverlay');
+            if (overlay) {
+                overlay.classList.add('hidden');
+            }
+            sessionStorage.removeItem('nexus_loading');
         }
 
         function applySessionBootstrap(session) {
@@ -27235,6 +27376,7 @@ Ready for translation!`);
             initProfileAvatar(session);
             initNotificationBell();
             if (session.tenantSettings) applyTenantBranding(session.tenantSettings);
+            hideNexusLoading();
         }
 
         function applyTenantBranding(tenantSettings) {

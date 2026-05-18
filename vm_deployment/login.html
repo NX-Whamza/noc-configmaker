@@ -450,6 +450,89 @@
             }
         }
 
+        /* Nexus Loading Overlay */
+        .nexus-loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(8, 17, 29, 0.94);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            opacity: 1;
+            visibility: visible;
+            transition: opacity 300ms ease, visibility 300ms ease;
+        }
+
+        .nexus-loading-overlay.hidden {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        .nexus-loading-inner {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 28px;
+        }
+
+        .nexus-loading-logo {
+            width: 88px;
+            height: 88px;
+            display: block;
+            animation: nexus-pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes nexus-pulse {
+            0%, 100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(1.04);
+                opacity: 0.95;
+            }
+        }
+
+        .nexus-loading-bar {
+            width: 240px;
+            height: 3px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .nexus-loading-bar::after {
+            content: '';
+            display: block;
+            height: 100%;
+            width: 40%;
+            background: linear-gradient(90deg, transparent, #ff7a00, transparent);
+            animation: nexus-slide 1.5s ease-in-out infinite;
+        }
+
+        @keyframes nexus-slide {
+            0% {
+                transform: translateX(-100%);
+            }
+            100% {
+                transform: translateX(400%);
+            }
+        }
+
+        .nexus-loading-text {
+            color: var(--text-soft);
+            font-size: 14px;
+            font-weight: 500;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
         @media (max-width: 980px) {
             .auth-shell {
                 grid-template-columns: 1fr;
@@ -492,6 +575,14 @@
 </head>
 
 <body>
+    <div id="nexusLoadingOverlay" class="nexus-loading-overlay hidden">
+        <div class="nexus-loading-inner">
+            <img src="assets/favicon.svg" alt="NEXUS" class="nexus-loading-logo">
+            <div class="nexus-loading-bar"></div>
+            <div class="nexus-loading-text">Loading NEXUS...</div>
+        </div>
+    </div>
+
     <div class="auth-shell">
         <section class="brand-panel">
             <div class="brand-block">
@@ -593,6 +684,21 @@
                 window.location.replace(httpsUrl);
             }
         })();
+
+        // Nexus Loading Overlay Control
+        function showNexusLoading() {
+            const overlay = document.getElementById('nexusLoadingOverlay');
+            if (overlay) {
+                overlay.classList.remove('hidden');
+            }
+        }
+
+        function hideNexusLoading() {
+            const overlay = document.getElementById('nexusLoadingOverlay');
+            if (overlay) {
+                overlay.classList.add('hidden');
+            }
+        }
 
         // API Base URL detection (mirrors nexus.html logic)
         const _isFileProtocol = window.location.protocol === 'file:';
@@ -730,6 +836,10 @@
                     localStorage.setItem('auth_token', data.token);
                     localStorage.setItem('user_info', JSON.stringify(data.user));
 
+                    // Show loading overlay and set flag so next page knows to keep it visible
+                    showNexusLoading();
+                    sessionStorage.setItem('nexus_loading', '1');
+
                     if (data.requiresPasswordChange) {
                         window.location.href = 'change-password.html?firstLogin=true';
                     } else {
@@ -749,6 +859,7 @@
                 showError(errorMessage);
                 button.disabled = false;
                 button.innerHTML = originalText;
+                hideNexusLoading();
             }
         }
 
