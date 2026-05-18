@@ -11981,6 +11981,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                                 applySessionBootstrap(session);
                                 updateUserDisplay();
                                 if (typeof applyAdminPanelRoles === 'function') applyAdminPanelRoles(session);
+                                if (typeof applyNextlinkTabPermissions === 'function') applyNextlinkTabPermissions(session);
                                 window.dispatchEvent(new CustomEvent('session-bootstrap-loaded', { detail: session }));
                             })
                             .catch(error => {
@@ -27668,6 +27669,51 @@ Ready for translation!`);
             if (session.branding) applyBrandingFromBootstrap(session.branding);
         }
 
+        function applyNextlinkTabPermissions(session) {
+            // Null-guard for stale pre-Phase-1 localStorage bootstrap.
+            // Missing or null tabPermissions = show everything (no restriction).
+            if (!session || !session.tabPermissions || session.tabPermissions === null) return;
+
+            const tp = session.tabPermissions;
+            if (!tp.restricted) return;  // platform_admin / super_admin bypass
+
+            const allowedTabs = new Set(tp.allowed_tabs || []);
+            const allowedFeatures = new Set(tp.allowed_features || []);
+
+            // Universal tabs always visible
+            const universalTabs = new Set(['home', 'completed-configs', 'log-history', 'admin-panel']);
+
+            // Hide nav items whose data-tab is not in allowedTabs
+            document.querySelectorAll('[data-tab]').forEach(el => {
+                const tabValue = el.getAttribute('data-tab');
+                if (universalTabs.has(tabValue)) return;
+                if (!allowedTabs.has(tabValue)) {
+                    el.style.display = 'none';
+                }
+            });
+
+            // Hide elements gated by data-feature not in allowedFeatures
+            document.querySelectorAll('[data-feature]').forEach(el => {
+                const featureValue = el.getAttribute('data-feature');
+                if (!allowedFeatures.has(featureValue)) {
+                    el.style.display = 'none';
+                }
+            });
+
+            // Hide dropdown parents whose ALL children are hidden
+            document.querySelectorAll('.nav-item.dropdown').forEach(parent => {
+                const childLinks = parent.querySelectorAll('a[data-tab]');
+                const visibleChildren = Array.from(childLinks).filter(c => c.style.display !== 'none');
+                if (childLinks.length > 0 && visibleChildren.length === 0) {
+                    parent.style.display = 'none';
+                }
+            });
+
+            // Expose allowed sets on window for any other code that needs them
+            window._nextlinkAllowedTabs = allowedTabs;
+            window._nextlinkAllowedFeatures = allowedFeatures;
+        }
+
         async function loadTenantSettings() {
             const apiBase = typeof resolveApiBase === 'function' ? resolveApiBase() : '/api';
             try {
@@ -28705,6 +28751,9 @@ Ready for translation!`);
             const cachedBootstrap = window.sessionBootstrap || null;
             if (cachedBootstrap && typeof applyAdminPanelRoles === 'function') {
                 applyAdminPanelRoles(cachedBootstrap);
+            }
+            if (cachedBootstrap && typeof applyNextlinkTabPermissions === 'function') {
+                applyNextlinkTabPermissions(cachedBootstrap);
             }
         }
 
