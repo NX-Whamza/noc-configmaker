@@ -4644,7 +4644,10 @@
         }
 
         .nexus-loading-text {
-            color: var(--text-soft);
+            /* Use a hardcoded value because --text-soft is not defined in nexus.html
+               (it exists in login.html but never propagated). Hardcoding ensures
+               the text is always readable against the dark overlay backdrop. */
+            color: #b7c6d9;
             font-size: 14px;
             font-weight: 500;
             letter-spacing: 0.05em;
@@ -4657,7 +4660,7 @@
 <body>
     <div id="nexusLoadingOverlay" class="nexus-loading-overlay hidden">
         <div class="nexus-loading-inner">
-            <img src="assets/favicon.svg" alt="NEXUS" class="nexus-loading-logo">
+            <img src="/assets/favicon.svg" alt="NEXUS" class="nexus-loading-logo" onerror="this.style.display='none'">
             <div class="nexus-loading-bar"></div>
             <div class="nexus-loading-text">Loading NEXUS...</div>
         </div>
