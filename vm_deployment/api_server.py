@@ -680,6 +680,68 @@ _DEFAULT_FEATURES = {
     'ai_assistant': True, 'config_diff': True
 }
 
+# ── RBAC Tab & Feature Catalog ──────────────────────────────────────────────
+# WARNING: Renaming any `value` in this constant requires a migration.
+# The `value` fields are stored in nextlink_role_permissions.perm_value.
+# If you rename a tab or feature, you MUST also:
+#   1. Update the DB (nextlink_role_permissions table)
+#   2. Migrate existing role assignments to the new name
+#   3. Update frontend code to reference the new value
+# Backend source of truth: keep this synchronized with
+# `.claude/skills/nexus-section-find/data/tab_index.md`
+NEXTLINK_TAB_CATALOG = {
+    "tabs": [
+        {"value": "home", "label": "Home dashboard"},
+        # MikroTik / wireless
+        {"value": "tower", "label": "MikroTik Config Generator"},
+        {"value": "enterprise", "label": "Non-MPLS Enterprise"},
+        {"value": "enterprise-mpls", "label": "MPLS Enterprise"},
+        {"value": "tarana", "label": "Tarana Sectors"},
+        {"value": "enterprise-feeding", "label": "Enterprise Feeding"},
+        {"value": "ccr2004", "label": "6GHz Switch Port"},
+        {"value": "switch-maker", "label": "MikroTik Switch Maker"},
+        {"value": "warehouse-sm", "label": "Warehouse SM Provisioning"},
+        {"value": "field-config-studio", "label": "Device Config Studio"},
+        # Nokia
+        {"value": "nokia7250-maker", "label": "Nokia Configurator"},
+        {"value": "mikrotik-to-nokia", "label": "Nokia Migration"},
+        # Firmware / hardware updaters
+        {"value": "device-firmware-updater", "label": "Device Firmware Updater"},
+        # FTTH
+        {"value": "ftth-home", "label": "FTTH Configuration"},
+        # Migration / ops
+        {"value": "command-vault", "label": "Command Vault (Nokia/Cisco/MikroTik)"},
+        {"value": "cisco-config", "label": "Cisco Port Setup"},
+        {"value": "unimus-backup-configs", "label": "Unimus Backup Configs"},
+        {"value": "config-diff", "label": "Config Diff Viewer"},
+        {"value": "bulk-config", "label": "Bulk Operations Center"},
+        {"value": "maintenance", "label": "Scheduled Maintenance"},
+        {"value": "compliance-scanner", "label": "Compliance Scanner"},
+        {"value": "completed-configs", "label": "Completed Configs (history)"},
+        {"value": "log-history", "label": "Log History"},
+        {"value": "admin-panel", "label": "Admin Panel"},
+    ],
+    "features": [
+        {"value": "mikrotik", "label": "MikroTik Generator"},
+        {"value": "nokia", "label": "Nokia Generator"},
+        {"value": "cambium", "label": "Cambium Support"},
+        {"value": "aviat", "label": "Aviat Support"},
+        {"value": "ftth", "label": "FTTH Support"},
+        {"value": "bulk_ops", "label": "Bulk Operations"},
+        {"value": "compliance", "label": "Compliance Scanning"},
+        {"value": "ai_assistant", "label": "AI Assistant"},
+        {"value": "config_diff", "label": "Config Diff"},
+    ]
+}
+
+# Server-side allowlist of valid Nextlink role names. Role permissions are
+# editable via the admin UI, but the role NAME itself must be one of these.
+# Prevents typos (e.g., 'NOC' vs 'noc') from silently creating dead permission
+# rows that map to no actual user.
+NEXTLINK_VALID_ROLES = frozenset({
+    'super_admin', 'noc', 'netlaunch', 'rdo', 'admins', 'fiber_team', 'infra_tech',
+})
+
 def _get_tenant_features(tenant_id) -> dict:
     """Return feature flags for a tenant. Defaults to all enabled."""
     if not tenant_id:
@@ -10733,6 +10795,69 @@ def require_auth(f):
     return decorated_function
 
 
+def require_tab(tab_value):
+    """Decorator to require access to a specific tab via nextlink role permissions.
+
+    Allows: platform_admin (via _platform_role_for_email) OR super_admin nextlink_role.
+    Denies: users without nextlink_role OR users whose role lacks the tab permission.
+
+    Note: JWT payload (request.current_user) only contains id/user_id/email/exp.
+    platform_role check uses email-based _platform_role_for_email (matches existing
+    codebase pattern, 28+ usages). nextlink_role is looked up from users.db per call.
+    """
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            user_info = getattr(request, 'current_user', {}) or {}
+            email = user_info.get('email', '') or ''
+
+            # Bypass 1: platform_admin via email lookup (matches codebase convention)
+            if _platform_role_for_email(email) == 'platform_admin':
+                return f(*args, **kwargs)
+
+            # Look up nextlink_role from DB. try/finally ensures connection
+            # is closed even on SQLite errors (locked DB, disk I/O failure).
+            user_id = user_info.get('user_id') or user_info.get('id')
+            nextlink_role = None
+            allowed = False
+            db_path = os.path.join('secure_data', 'users.db')
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.row_factory = sqlite3.Row
+                c = conn.cursor()
+                if user_id:
+                    c.execute("SELECT nextlink_role FROM users WHERE id = ?", (user_id,))
+                elif email:
+                    c.execute("SELECT nextlink_role FROM users WHERE email = ?", (email,))
+                row = c.fetchone() if (user_id or email) else None
+                if row:
+                    nextlink_role = row['nextlink_role']
+
+                # Bypass 2: super_admin nextlink_role
+                if nextlink_role == 'super_admin':
+                    return f(*args, **kwargs)
+
+                # Deny: no nextlink_role assigned
+                if not nextlink_role:
+                    return jsonify({'success': False, 'error': 'Your role does not have access to this tool'}), 403
+
+                # Check tab permission
+                c.execute(
+                    "SELECT 1 FROM nextlink_role_permissions WHERE role = ? AND perm_type = 'tab' AND perm_value = ?",
+                    (nextlink_role, tab_value)
+                )
+                allowed = c.fetchone() is not None
+            finally:
+                conn.close()
+
+            if not allowed:
+                return jsonify({'success': False, 'error': 'Your role does not have access to this tool'}), 403
+
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
 # ========================================
 # ENDPOINT 4: Apply Compliance to Config
 # ========================================
@@ -10990,6 +11115,7 @@ def _ros_quote(value: str) -> str:
 @app.route('/api/gen-enterprise-non-mpls', methods=['POST'])
 @app.route('/api/gen-enterprise-Non-MPLS', methods=['POST'])  # Legacy UI alias
 @require_auth
+@require_tab('enterprise')
 def gen_enterprise_non_mpls():
     try:
         _tenant_ctx = _get_request_tenant_context()
@@ -12388,6 +12514,7 @@ def validate_tarana_config(config_text, device, routeros_version):
 
 @app.route('/api/gen-tarana-config', methods=['POST'])
 @require_auth
+@require_tab('tarana')
 def gen_tarana_config():
     """
     Generates and validates Tarana sector configuration with AI-powered network calculation.
@@ -15079,6 +15206,7 @@ def _warehouse_sm_probe_ip(ip_address: str, password: str | None = None) -> dict
 
 @app.route('/api/warehouse-sm/scan', methods=['POST'])
 @require_auth
+@require_tab('warehouse-sm')
 def warehouse_sm_scan():
     """
     Scan selected warehouse switch port and discover connected Cambium SM details.
@@ -15175,6 +15303,7 @@ def _warehouse_sm_public_task(task: dict | None) -> dict | None:
 
 @app.route('/api/warehouse-sm/closeout-check', methods=['POST'])
 @require_auth
+@require_tab('warehouse-sm')
 def warehouse_sm_closeout_check():
     try:
         data = request.get_json(force=True) or {}
@@ -15187,6 +15316,7 @@ def warehouse_sm_closeout_check():
 
 @app.route('/api/warehouse-sm/provision', methods=['POST'])
 @require_auth
+@require_tab('warehouse-sm')
 def warehouse_sm_provision():
     try:
         _require_feature('cambium')
@@ -15258,6 +15388,7 @@ def warehouse_sm_provision():
 
 @app.route('/api/warehouse-sm/status/<task_id>', methods=['GET'])
 @require_auth
+@require_tab('warehouse-sm')
 def warehouse_sm_status(task_id):
     task = warehouse_sm_tasks.get(task_id) or _background_task_load(_WAREHOUSE_SM_TASK_KIND, task_id)
     if not task:
@@ -15270,6 +15401,7 @@ def warehouse_sm_status(task_id):
 
 @app.route('/api/warehouse-sm/tasks', methods=['GET'])
 @require_auth
+@require_tab('warehouse-sm')
 def warehouse_sm_tasks_list():
     tenant_id = _request_tenant_id()
     tasks = _background_task_list(_WAREHOUSE_SM_TASK_KIND, limit=100)
@@ -15285,6 +15417,7 @@ def warehouse_sm_tasks_list():
 
 @app.route('/api/warehouse-sm/abort/<task_id>', methods=['POST'])
 @require_auth
+@require_tab('warehouse-sm')
 def warehouse_sm_abort(task_id):
     task = warehouse_sm_tasks.get(task_id) or _background_task_load(_WAREHOUSE_SM_TASK_KIND, task_id)
     if not task:
@@ -15703,6 +15836,7 @@ def _render_nokia_7750_backend(data: dict):
 
 @app.route('/api/generate-nokia-configurator', methods=['POST'])
 @require_auth
+@require_tab('nokia7250-maker')
 def generate_nokia_configurator():
     _require_feature('nokia')
     _tenant_ctx = _get_request_tenant_context()
@@ -15751,6 +15885,7 @@ def generate_nokia_configurator():
 
 @app.route('/api/generate-nokia7250', methods=['POST'])
 @require_auth
+@require_tab('nokia7250-maker')
 def generate_nokia7250():
     """
     Generate Nokia 7250 configuration based on provided parameters.
@@ -17767,6 +17902,7 @@ def parse_mikrotik_for_nokia_endpoint():
 
 @app.route('/api/migrate-mikrotik-to-nokia', methods=['POST'])
 @require_auth
+@require_tab('mikrotik-to-nokia')
 def migrate_mikrotik_to_nokia():
     """
     Convert MikroTik RouterOS configuration to Nokia SR OS classic CLI syntax.
@@ -19286,6 +19422,201 @@ def admin_update_user_membership(user_id):
 
 
 # ========================================
+# RBAC: Nextlink Role Permissions Endpoints
+# ========================================
+
+@app.route('/api/admin/nextlink-role-permissions', methods=['GET'])
+@require_auth
+def admin_get_nextlink_role_permissions():
+    """Get the nextlink role permissions matrix. Requires platform_admin."""
+    try:
+        if not _can_manage_platform():
+            return jsonify({'error': 'Platform admin access required'}), 403
+        init_users_db()
+        db_path = os.path.join('secure_data', 'users.db')
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        # Build matrix: {role: {tabs: [...], features: [...]}}
+        c.execute('SELECT DISTINCT role FROM nextlink_role_permissions')
+        roles = [row['role'] for row in c.fetchall()]
+
+        matrix = {}
+        for role in roles:
+            c.execute(
+                "SELECT perm_value FROM nextlink_role_permissions WHERE role = ? AND perm_type = 'tab' ORDER BY perm_value",
+                (role,)
+            )
+            tabs = [row['perm_value'] for row in c.fetchall()]
+
+            c.execute(
+                "SELECT perm_value FROM nextlink_role_permissions WHERE role = ? AND perm_type = 'feature' ORDER BY perm_value",
+                (role,)
+            )
+            features = [row['perm_value'] for row in c.fetchall()]
+
+            matrix[role] = {
+                'tabs': tabs,
+                'features': features
+            }
+
+        conn.close()
+
+        # Return catalog tabs and features
+        available_tabs = NEXTLINK_TAB_CATALOG['tabs']
+        available_features = NEXTLINK_TAB_CATALOG['features']
+
+        return jsonify({
+            'success': True,
+            'matrix': matrix,
+            'available_tabs': available_tabs,
+            'available_features': available_features
+        })
+    except Exception as e:
+        print(f"[ADMIN RBAC] Get permissions failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/nextlink-role-permissions', methods=['POST'])
+@require_auth
+def admin_set_nextlink_role_permissions():
+    """Update permissions for a nextlink role. Requires platform_admin."""
+    try:
+        if not _can_manage_platform():
+            return jsonify({'error': 'Platform admin access required'}), 403
+
+        data = request.get_json(silent=True) or {}
+        role = (data.get('role') or '').strip()
+        tabs = data.get('tabs') or []
+        features = data.get('features') or []
+
+        if not role:
+            return jsonify({'error': 'role is required'}), 400
+        if role not in NEXTLINK_VALID_ROLES:
+            return jsonify({'error': f'Unknown role: {role}. Must be one of {sorted(NEXTLINK_VALID_ROLES)}'}), 400
+        if not isinstance(tabs, list):
+            return jsonify({'error': 'tabs must be a list'}), 400
+        if not isinstance(features, list):
+            return jsonify({'error': 'features must be a list'}), 400
+
+        init_users_db()
+        db_path = os.path.join('secure_data', 'users.db')
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            # Capture previous state for audit log (delete-then-insert erases history otherwise)
+            c.execute('SELECT perm_type, perm_value FROM nextlink_role_permissions WHERE role = ?', (role,))
+            prev_rows = c.fetchall()
+            previous_tabs = [r['perm_value'] for r in prev_rows if r['perm_type'] == 'tab']
+            previous_features = [r['perm_value'] for r in prev_rows if r['perm_type'] == 'feature']
+
+            # Atomic delete-then-insert. `with conn:` opens a transaction that
+            # rolls back on any exception inside the block.
+            with conn:
+                c.execute('DELETE FROM nextlink_role_permissions WHERE role = ?', (role,))
+                for tab_value in tabs:
+                    c.execute(
+                        'INSERT OR IGNORE INTO nextlink_role_permissions (role, perm_type, perm_value) VALUES (?, ?, ?)',
+                        (role, 'tab', tab_value)
+                    )
+                for feature_value in features:
+                    c.execute(
+                        'INSERT OR IGNORE INTO nextlink_role_permissions (role, perm_type, perm_value) VALUES (?, ?, ?)',
+                        (role, 'feature', feature_value)
+                    )
+
+            # Write audit log with before AND after state
+            _write_audit_log(
+                'nextlink_role_permissions_change',
+                detail={
+                    'role': role,
+                    'previous_tabs': previous_tabs,
+                    'previous_features': previous_features,
+                    'tabs': tabs,
+                    'features': features,
+                }
+            )
+
+            matrix = {role: {'tabs': tabs, 'features': features}}
+            return jsonify({'success': True, 'matrix': matrix})
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f"[ADMIN RBAC] Set permissions failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:user_id>/nextlink-role', methods=['PATCH'])
+@require_auth
+def admin_update_user_nextlink_role(user_id):
+    """Update a user's nextlink role. Requires platform_admin."""
+    try:
+        if not _can_manage_platform():
+            return jsonify({'error': 'Platform admin access required'}), 403
+
+        data = request.get_json(silent=True) or {}
+        nextlink_role = data.get('nextlink_role')
+
+        # Validate: nextlink_role is either None/null/empty or a non-empty string
+        if nextlink_role is not None and isinstance(nextlink_role, str):
+            nextlink_role = nextlink_role.strip() if nextlink_role else None
+        elif nextlink_role == '' or nextlink_role is None:
+            nextlink_role = None
+        else:
+            return jsonify({'error': 'nextlink_role must be null or a string'}), 400
+
+        # Allowlist check — prevent typos creating dead user/role mappings
+        if nextlink_role is not None and nextlink_role not in NEXTLINK_VALID_ROLES:
+            return jsonify({'error': f'Unknown role: {nextlink_role}. Must be one of {sorted(NEXTLINK_VALID_ROLES)} or null'}), 400
+
+        init_users_db()
+        db_path = os.path.join('secure_data', 'users.db')
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        # Get current user to record old role
+        c.execute('SELECT id, email, nextlink_role FROM users WHERE id = ?', (user_id,))
+        target_user = c.fetchone()
+        if not target_user:
+            conn.close()
+            return jsonify({'error': 'User not found'}), 404
+
+        previous_role = target_user.get('nextlink_role')
+
+        # Update the user's nextlink_role
+        c.execute(
+            'UPDATE users SET nextlink_role = ? WHERE id = ?',
+            (nextlink_role, user_id)
+        )
+        conn.commit()
+
+        # Write audit log
+        _write_audit_log(
+            'user_nextlink_role_change',
+            detail={
+                'previous_role': previous_role,
+                'new_role': nextlink_role
+            },
+            target_user_id=user_id,
+            target_email=target_user.get('email')
+        )
+
+        conn.close()
+        return jsonify({
+            'success': True,
+            'user_id': user_id,
+            'nextlink_role': nextlink_role
+        })
+    except Exception as e:
+        print(f"[ADMIN RBAC] Update user nextlink role failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ========================================
 # TENANT SETTINGS ENDPOINTS
 # ========================================
 
@@ -19508,6 +19839,7 @@ def admin_get_audit_log():
 
 @app.route('/api/migrate-config', methods=['POST'])
 @require_auth
+@require_tab('mikrotik-to-nokia')
 def migrate_config():
     """
     Intelligent device-aware configuration migration
@@ -20200,6 +20532,8 @@ def init_users_db():
         c.execute("ALTER TABLE users ADD COLUMN email_verification_token TEXT")
     if 'email_verified_at' not in existing_cols:
         c.execute("ALTER TABLE users ADD COLUMN email_verified_at DATETIME")
+    if 'nextlink_role' not in existing_cols:
+        c.execute("ALTER TABLE users ADD COLUMN nextlink_role TEXT")
 
     # User sessions table
     c.execute('''CREATE TABLE IF NOT EXISTS user_sessions
@@ -20314,6 +20648,28 @@ def init_users_db():
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (tenant_id) REFERENCES tenants(id)
     )''')
+
+    # ── Nextlink role-based access control table ──────────────────────────
+    c.execute('''CREATE TABLE IF NOT EXISTS nextlink_role_permissions (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        role        TEXT    NOT NULL,
+        perm_type   TEXT    NOT NULL CHECK(perm_type IN ('tab', 'feature')),
+        perm_value  TEXT    NOT NULL,
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(role, perm_type, perm_value)
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_nrp_role ON nextlink_role_permissions(role)')
+
+    # Integrity check: verify all tab values in DB have catalog entries
+    c.execute('SELECT DISTINCT perm_value FROM nextlink_role_permissions WHERE perm_type = ?', ('tab',))
+    tab_orphans = []
+    catalog_tab_values = {t['value'] for t in NEXTLINK_TAB_CATALOG['tabs']}
+    for (perm_value,) in c.fetchall():
+        if perm_value not in catalog_tab_values:
+            tab_orphans.append(perm_value)
+    if tab_orphans:
+        import logging
+        logging.warning(f"[RBAC] Found orphaned tab values in nextlink_role_permissions (no catalog entry): {tab_orphans}")
 
     # ── Tenant branding columns (additive migration on tenants table) ──────
     c.execute("PRAGMA table_info(tenants)")
@@ -20488,6 +20844,67 @@ def _serialize_user_row(user):
         'platformRole': user['platform_role'] or ('platform_admin' if user['is_platform_admin'] else 'user'),
         'isPlatformAdmin': bool(user['is_platform_admin']),
         'profilePhoto': dict(user).get('profile_photo') or None,
+        'nextlinkRole': dict(user).get('nextlink_role'),
+    }
+
+
+def _get_nextlink_tab_permissions(user_row, conn):
+    """
+    Compute tab and feature permissions for a user based on nextlink_role.
+
+    Returns:
+        {
+            "restricted": bool,           # True if user has restricted access
+            "allowed_tabs": list or None, # List of tab values if restricted, None if unrestricted
+            "allowed_features": list or None  # List of feature values if restricted, None if unrestricted
+        }
+
+    Bypass logic (unrestricted):
+        - platform_role == 'platform_admin' OR nextlink_role == 'super_admin'
+
+    NULL nextlink_role → restricted with empty lists.
+    """
+    platform_role = user_row['platform_role'] or ('platform_admin' if user_row['is_platform_admin'] else 'user')
+    # Get nextlink_role - convert to dict to use .get()
+    nextlink_role = dict(user_row).get('nextlink_role')
+
+    # Bypass: platform_admin or super_admin → unrestricted
+    if platform_role == 'platform_admin' or nextlink_role == 'super_admin':
+        return {
+            'restricted': False,
+            'allowed_tabs': None,
+            'allowed_features': None,
+        }
+
+    # NULL nextlink_role → restricted with empty lists
+    if not nextlink_role:
+        return {
+            'restricted': True,
+            'allowed_tabs': [],
+            'allowed_features': [],
+        }
+
+    # User has a specific nextlink_role → fetch their permissions
+    c = conn.cursor()
+    c.execute(
+        'SELECT perm_type, perm_value FROM nextlink_role_permissions WHERE role = ?',
+        (nextlink_role,)
+    )
+    perms = c.fetchall()
+
+    allowed_tabs = []
+    allowed_features = []
+    for row in perms:
+        perm_type, perm_value = row['perm_type'], row['perm_value']
+        if perm_type == 'tab':
+            allowed_tabs.append(perm_value)
+        elif perm_type == 'feature':
+            allowed_features.append(perm_value)
+
+    return {
+        'restricted': True,
+        'allowed_tabs': allowed_tabs,
+        'allowed_features': allowed_features,
     }
 
 
@@ -20603,6 +21020,9 @@ def _load_session_bootstrap_for_user(user_id):
         except Exception:
             pass
 
+    # Compute RBAC tab permissions
+    tab_permissions = _get_nextlink_tab_permissions(user, conn)
+
     bootstrap = {
         'user': _serialize_user_row(user),
         'memberships': memberships,
@@ -20625,6 +21045,7 @@ def _load_session_bootstrap_for_user(user_id):
         },
         'tenantSettings': tenant_settings,
         'branding': branding,
+        'tabPermissions': tab_permissions,
     }
     conn.close()
     return bootstrap
@@ -23043,6 +23464,7 @@ def _aviat_background_task_inner(task_id, ips, task_types, maintenance_params=No
 
 @app.route('/api/aviat/run', methods=['POST'])
 @require_auth
+@require_tab('device-firmware-updater')
 def aviat_run_tasks():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -23112,6 +23534,7 @@ def aviat_run_tasks():
 
 @app.route('/api/aviat/activate-scheduled', methods=['POST'])
 @require_auth
+@require_tab('device-firmware-updater')
 def aviat_activate_scheduled():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -23268,6 +23691,7 @@ def aviat_get_reboot_required():
 
 @app.route('/api/aviat/reboot-required/run', methods=['POST'])
 @require_auth
+@require_tab('device-firmware-updater')
 def aviat_run_reboot_required():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -23372,6 +23796,7 @@ def aviat_run_reboot_required():
 
 @app.route('/api/aviat/scheduled/sync', methods=['POST'])
 @require_auth
+@require_tab('device-firmware-updater')
 def aviat_sync_scheduled():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -23399,6 +23824,7 @@ def aviat_sync_scheduled():
 
 @app.route('/api/aviat/queue', methods=['GET', 'POST'])
 @require_auth
+@require_tab('device-firmware-updater')
 def aviat_queue_state():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -23441,6 +23867,7 @@ def aviat_queue_state():
 
 @app.route('/api/aviat/check-status', methods=['POST'])
 @require_auth
+@require_tab('device-firmware-updater')
 def aviat_check_status():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -23507,6 +23934,7 @@ def aviat_check_status():
 
 @app.route('/api/aviat/precheck/recheck', methods=['POST'])
 @require_auth
+@require_tab('device-firmware-updater')
 def aviat_recheck_precheck():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -23567,6 +23995,7 @@ def aviat_recheck_precheck():
 
 @app.route('/api/aviat/fix-stp', methods=['POST'])
 @require_auth
+@require_tab('device-firmware-updater')
 def aviat_fix_stp():
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -23600,6 +24029,7 @@ def aviat_fix_stp():
 
 @app.route('/api/aviat/abort/<task_id>', methods=['POST'])
 @require_auth
+@require_tab('device-firmware-updater')
 def aviat_abort_task(task_id):
     if not HAS_AVIAT:
         return jsonify({'error': 'Aviat backend not available'}), 503
@@ -24368,6 +24798,7 @@ def cambium_catalog():
 
 @app.route('/api/cambium/device-info', methods=['POST'])
 @require_auth
+@require_tab('device-firmware-updater')
 def cambium_device_info():
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
@@ -24399,6 +24830,8 @@ def cambium_device_info():
 
 
 @app.route('/api/cambium/check-status', methods=['POST'])
+@require_auth
+@require_tab('device-firmware-updater')
 def cambium_check_status():
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
@@ -24434,6 +24867,7 @@ def cambium_check_status():
 
 @app.route('/api/cambium/queue', methods=['GET', 'POST'])
 @require_auth
+@require_tab('device-firmware-updater')
 def cambium_queue_state():
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
@@ -24493,6 +24927,7 @@ def cambium_queue_state():
 
 @app.route('/api/cambium/run', methods=['POST'])
 @require_auth
+@require_tab('device-firmware-updater')
 def cambium_run_tasks():
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
@@ -24675,6 +25110,7 @@ def cambium_get_status(task_id):
 
 @app.route('/api/cambium/abort/<task_id>', methods=['POST'])
 @require_auth
+@require_tab('device-firmware-updater')
 def cambium_abort_task(task_id):
     if not HAS_CAMBIUM:
         return jsonify({'error': 'Cambium backend not available'}), 503
@@ -26051,6 +26487,7 @@ def _build_ftth_fiber_customer_base_config(data: dict):
 
 @app.route('/api/generate-ftth-fiber-customer', methods=['POST'])
 @require_auth
+@require_tab('ftth-home')
 def generate_ftth_fiber_customer():
     data = request.get_json(silent=True) or {}
     apply_compliance_flag = bool(data.get('apply_compliance', True))
@@ -26653,6 +27090,7 @@ def _build_switch_profile_config(data: dict):
 
 @app.route('/api/generate-mt-switch-config', methods=['POST'])
 @require_auth
+@require_tab('switch-maker')
 def generate_mt_switch_config():
     data = request.get_json(silent=True) or {}
     try:
@@ -26849,6 +27287,7 @@ def _build_ftth_1036_config(data: dict):
 
 @app.route('/api/generate-ftth-fiber-site', methods=['POST'])
 @require_auth
+@require_tab('ftth-home')
 def generate_ftth_fiber_site():
     data = request.get_json(silent=True) or {}
     try:
@@ -26972,6 +27411,7 @@ def _build_isd_fiber_config(data: dict, backhauls):
 
 @app.route('/api/generate-ftth-isd-fiber', methods=['POST'])
 @require_auth
+@require_tab('ftth-home')
 def generate_ftth_isd_fiber():
     data = request.get_json(silent=True) or {}
     try:
@@ -27003,6 +27443,7 @@ def generate_ftth_isd_fiber():
 
 @app.route('/api/ftth-home/mf2-package', methods=['POST'])
 @require_auth
+@require_tab('ftth-home')
 def generate_ftth_home_mf2_package():
     """Generate MF2 ZIP with updated gateway and primary IP in 2-ihub-startup 831.xml."""
     data = request.get_json() or {}
@@ -27120,6 +27561,7 @@ def _sanitize_bng2_transport_output(config_text: str) -> str:
 
 @app.route('/api/mt/<config_type>/config', methods=['POST'])
 @require_auth
+@require_tab('tower')
 def mt_generate_config(config_type):
     if not HAS_MT_CONFIG_GEN:
         return jsonify({'error': f'MikroTik config generator unavailable: {MT_CONFIG_GEN_ERROR}'}), 503
@@ -27157,6 +27599,7 @@ def mt_generate_config(config_type):
 
 @app.route('/api/mt/<config_type>/portmap', methods=['POST'])
 @require_auth
+@require_tab('tower')
 def mt_generate_portmap(config_type):
     if not HAS_MT_CONFIG_GEN:
         return jsonify({'error': f'MikroTik config generator unavailable: {MT_CONFIG_GEN_ERROR}'}), 503
@@ -27283,6 +27726,7 @@ def serve_ui_catchall(path: str):
 
 @app.route('/api/bulk-ssh-fetch', methods=['POST'])
 @require_auth
+@require_tab('bulk-config')
 def bulk_ssh_fetch():
     """
     Bulk SSH fetch: connect to multiple MikroTik devices concurrently and
@@ -27410,6 +27854,7 @@ def bulk_ssh_fetch():
 
 @app.route('/api/bulk-generate', methods=['POST'])
 @require_auth
+@require_tab('bulk-config')
 def bulk_generate():
     """
     Bulk config generation for multiple sites.
@@ -27540,6 +27985,7 @@ def bulk_generate():
 
 @app.route('/api/bulk-migration-analyze', methods=['POST'])
 @require_auth
+@require_tab('bulk-config')
 def bulk_migration_analyze():
     """
     Bulk migration analysis: SSH-fetch configs from multiple devices,
@@ -27757,6 +28203,7 @@ def bulk_migration_analyze():
 
 @app.route('/api/bulk-compliance-scan', methods=['POST'])
 @require_auth
+@require_tab('bulk-config')
 def bulk_compliance_scan():
     """
     Bulk compliance scanner: validate multiple configs against RFC-09-10-25.
@@ -28099,6 +28546,7 @@ def bulk_compliance_scan():
 
 @app.route('/api/bulk-migration-execute', methods=['POST'])
 @require_auth
+@require_tab('bulk-config')
 def bulk_migration_execute():
     """
     Execute migration transformation on previously-analyzed device configs.

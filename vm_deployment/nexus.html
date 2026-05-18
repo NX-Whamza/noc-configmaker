@@ -8191,6 +8191,9 @@
                         <span id="adminAuditTabWrapper" style="display:none;">
                             <button id="adminTabAudit" onclick="switchAdminTab('audit')" style="background:transparent; color:var(--text-color); border:1px solid var(--border-color); border-radius:6px; padding:6px 16px; font-size:12px; cursor:pointer;">Audit Log</button>
                         </span>
+                        <span id="adminNextlinkRolesTabWrapper" style="display:none;">
+                            <button id="adminTabNextlinkRoles" onclick="switchAdminTab('nextlink-roles')" style="background:transparent; color:var(--text-color); border:1px solid var(--border-color); border-radius:6px; padding:6px 16px; font-size:12px; cursor:pointer;">NEXTLINK ROLES</button>
+                        </span>
                     </div>
 
                     <!-- Feedback section (existing content wrapped) -->
@@ -8467,6 +8470,53 @@
                         <div class="section" style="margin-bottom:24px;">
                             <h2 style="font-size:14px; margin-bottom:12px; color:var(--text-color);">Today's Usage</h2>
                             <div id="adminUsageDisplay" style="font-size:13px; color:var(--text-color);">Loading...</div>
+                        </div>
+                    </div>
+
+                    <!-- Nextlink Roles section (platform_admin only) -->
+                    <div id="adminNextlinkRolesPanel" class="admin-subtab-content" style="display:none;">
+                        <h3 style="color:var(--text-color); margin-bottom:16px;">Nextlink Role Permissions</h3>
+                        <p class="hint" style="color:var(--text-color-secondary); font-size:12px; margin-bottom:20px;">Configure which tabs and features each Nextlink role can access. Super admin and platform admin bypass this matrix.</p>
+
+                        <div class="nl-roles-container" style="display:flex; flex-direction:column; gap:20px;">
+                            <!-- Role Selector & Save -->
+                            <div class="nl-role-selector" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                                <label style="font-size:12px; color:var(--text-color-secondary);">Role:</label>
+                                <select id="nlRoleSelect" style="padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px;"></select>
+                                <button type="button" id="nlLoadRoleBtn" onclick="loadNlRoleGrid()" style="background:transparent; border:1px solid var(--border-color); border-radius:6px; padding:6px 14px; font-size:12px; color:var(--text-color); cursor:pointer;">Load</button>
+                                <button type="button" id="nlSaveRoleBtn" onclick="saveNextlinkRolePerms()" style="background:var(--primary-color); color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:12px; cursor:pointer;">Save</button>
+                            </div>
+
+                            <!-- Tab Access -->
+                            <div class="nl-perm-section">
+                                <h4 style="color:var(--text-color); font-size:13px; margin-bottom:10px;">Tab Access</h4>
+                                <div id="nlTabGrid" class="nl-checkbox-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:10px;"></div>
+                            </div>
+
+                            <!-- Feature Access -->
+                            <div class="nl-perm-section">
+                                <h4 style="color:var(--text-color); font-size:13px; margin-bottom:10px;">Feature Access</h4>
+                                <div id="nlFeatureGrid" class="nl-checkbox-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:10px;"></div>
+                            </div>
+
+                            <hr style="border:none; border-top:1px solid var(--border-color); margin:10px 0;">
+
+                            <!-- Assign Role to User -->
+                            <div class="nl-assign-section">
+                                <h4 style="color:var(--text-color); font-size:13px; margin-bottom:12px;">Assign Role to User</h4>
+                                <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                                    <div style="display:flex; align-items:center; gap:6px;">
+                                        <label style="font-size:12px; color:var(--text-color-secondary);">User Email:</label>
+                                        <input type="email" id="nlAssignEmail" placeholder="user@team.nxlink.com" style="padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px; width:220px;" />
+                                    </div>
+                                    <div style="display:flex; align-items:center; gap:6px;">
+                                        <label style="font-size:12px; color:var(--text-color-secondary);">Role:</label>
+                                        <select id="nlAssignRole" style="padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px;"></select>
+                                    </div>
+                                    <button type="button" id="nlAssignBtn" onclick="assignNextlinkRoleToUser()" style="background:var(--primary-color); color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:12px; cursor:pointer;">Assign</button>
+                                </div>
+                                <div id="nlAssignStatus" class="status-msg" style="color:var(--text-color-secondary); font-size:12px; margin-top:8px;"></div>
+                            </div>
                         </div>
                     </div>
 
@@ -11981,6 +12031,7 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                                 applySessionBootstrap(session);
                                 updateUserDisplay();
                                 if (typeof applyAdminPanelRoles === 'function') applyAdminPanelRoles(session);
+                                if (typeof applyNextlinkTabPermissions === 'function') applyNextlinkTabPermissions(session);
                                 window.dispatchEvent(new CustomEvent('session-bootstrap-loaded', { detail: session }));
                             })
                             .catch(error => {
@@ -27320,6 +27371,7 @@ Ready for translation!`);
                 apikeys: document.getElementById('adminApiKeysSection'),
                 invite: document.getElementById('adminInviteSection'),
                 usage: document.getElementById('adminUsageSection'),
+                'nextlink-roles': document.getElementById('adminNextlinkRolesPanel'),
             };
             const buttons = {
                 feedback: document.getElementById('adminTabFeedback'),
@@ -27329,6 +27381,7 @@ Ready for translation!`);
                 apikeys: document.getElementById('adminTabApiKeys'),
                 invite: document.getElementById('adminTabInvite'),
                 usage: document.getElementById('adminTabUsage'),
+                'nextlink-roles': document.getElementById('adminTabNextlinkRoles'),
             };
 
             // Hide all sections and reset all buttons
@@ -27347,6 +27400,159 @@ Ready for translation!`);
             else if (tab === 'platform') { loadAdminTenants(); loadAdminUsers(); }
             else if (tab === 'apikeys') loadApiKeys();
             else if (tab === 'usage') loadTenantUsage();
+            else if (tab === 'nextlink-roles') loadNextlinkRoleData();
+        }
+
+        // ── Nextlink Roles Functions ────────────────────────────────────────────
+        let _nlRoleMatrix = {};
+        let _nlAvailableTabs = [];
+        let _nlAvailableFeatures = [];
+
+        async function loadNextlinkRoleData() {
+            try {
+                const res = await fetch('/api/admin/nextlink-role-permissions', {
+                    headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || '') }
+                });
+                if (!res.ok) throw new Error('Failed to load role permissions');
+                const data = await res.json();
+                _nlRoleMatrix = data.matrix || {};
+                _nlAvailableTabs = data.available_tabs || [];
+                _nlAvailableFeatures = data.available_features || [];
+
+                // Populate role select with the predefined Nextlink role set
+                const roles = ['super_admin', 'noc', 'netlaunch', 'rdo', 'admins', 'fiber_team', 'infra_tech'];
+                const knownRoles = new Set(roles);
+                Object.keys(_nlRoleMatrix).forEach(r => knownRoles.add(r));
+                const roleSelect = document.getElementById('nlRoleSelect');
+                const assignSelect = document.getElementById('nlAssignRole');
+                if (roleSelect) {
+                    roleSelect.innerHTML = '';
+                    Array.from(knownRoles).sort().forEach(r => {
+                        const opt = document.createElement('option');
+                        opt.value = r;
+                        opt.textContent = r;
+                        roleSelect.appendChild(opt);
+                    });
+                }
+                if (assignSelect) {
+                    assignSelect.innerHTML = '<option value="">(none)</option>';
+                    Array.from(knownRoles).sort().forEach(r => {
+                        const opt = document.createElement('option');
+                        opt.value = r;
+                        opt.textContent = r;
+                        assignSelect.appendChild(opt);
+                    });
+                }
+            } catch (e) {
+                console.error('loadNextlinkRoleData failed:', e);
+                alert('Failed to load role data: ' + e.message);
+            }
+        }
+
+        function loadNlRoleGrid() {
+            const role = document.getElementById('nlRoleSelect').value;
+            if (!role) return;
+            renderNlMatrixGrid(role);
+        }
+
+        function renderNlMatrixGrid(role) {
+            const roleData = _nlRoleMatrix[role] || { tabs: [], features: [] };
+            const allowedTabs = new Set(roleData.tabs || []);
+            const allowedFeatures = new Set(roleData.features || []);
+
+            const tabGrid = document.getElementById('nlTabGrid');
+            if (tabGrid) {
+                tabGrid.innerHTML = _nlAvailableTabs.map(t => `
+                    <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-color);">
+                        <input type="checkbox" data-perm-type="tab" data-perm-value="${t.value}" ${allowedTabs.has(t.value) ? 'checked' : ''}>
+                        <span>${t.label}</span>
+                    </label>
+                `).join('');
+            }
+
+            const featureGrid = document.getElementById('nlFeatureGrid');
+            if (featureGrid) {
+                featureGrid.innerHTML = _nlAvailableFeatures.map(f => `
+                    <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-color);">
+                        <input type="checkbox" data-perm-type="feature" data-perm-value="${f.value}" ${allowedFeatures.has(f.value) ? 'checked' : ''}>
+                        <span>${f.label}</span>
+                    </label>
+                `).join('');
+            }
+        }
+
+        async function saveNextlinkRolePerms() {
+            const role = document.getElementById('nlRoleSelect').value;
+            if (!role) {
+                alert('Please select a role first.');
+                return;
+            }
+            const tabs = Array.from(document.querySelectorAll('#nlTabGrid input:checked')).map(el => el.getAttribute('data-perm-value'));
+            const features = Array.from(document.querySelectorAll('#nlFeatureGrid input:checked')).map(el => el.getAttribute('data-perm-value'));
+            try {
+                const res = await fetch('/api/admin/nextlink-role-permissions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || '')
+                    },
+                    body: JSON.stringify({ role, tabs, features })
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    alert('Save failed: ' + (err.error || res.statusText));
+                    return;
+                }
+                // Refresh matrix
+                await loadNextlinkRoleData();
+                renderNlMatrixGrid(role);
+                const statusEl = document.getElementById('nlAssignStatus');
+                if (statusEl) statusEl.textContent = 'Saved successfully.';
+            } catch (e) {
+                alert('Save failed: ' + e.message);
+            }
+        }
+
+        async function assignNextlinkRoleToUser() {
+            const email = document.getElementById('nlAssignEmail').value.trim();
+            const role = document.getElementById('nlAssignRole').value || null;
+            const statusEl = document.getElementById('nlAssignStatus');
+            if (!email) {
+                if (statusEl) statusEl.textContent = 'Email is required.';
+                return;
+            }
+            // Look up user by email first
+            try {
+                const userRes = await fetch('/api/admin/users?email=' + encodeURIComponent(email), {
+                    headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || '') }
+                });
+                if (!userRes.ok) {
+                    if (statusEl) statusEl.textContent = 'User lookup failed.';
+                    return;
+                }
+                const userData = await userRes.json();
+                const user = (userData.users || []).find(u => (u.email || '').toLowerCase() === email.toLowerCase());
+                if (!user) {
+                    if (statusEl) statusEl.textContent = 'User not found.';
+                    return;
+                }
+                const res = await fetch('/api/admin/users/' + user.id + '/nextlink-role', {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || '')
+                    },
+                    body: JSON.stringify({ nextlink_role: role })
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    if (statusEl) statusEl.textContent = 'Assign failed: ' + (err.error || res.statusText);
+                    return;
+                }
+                if (statusEl) statusEl.textContent = `Assigned ${role || '(none)'} to ${email}.`;
+            } catch (e) {
+                if (statusEl) statusEl.textContent = 'Assign failed: ' + e.message;
+            }
         }
 
         // ── Profile Avatar (top bar) ────────────────────────────────────────────
@@ -27638,6 +27844,7 @@ Ready for translation!`);
             const apiKeysWrapper = document.getElementById('adminApiKeysTabWrapper');
             const inviteWrapper = document.getElementById('adminInviteTabWrapper');
             const usageWrapper = document.getElementById('adminUsageTabWrapper');
+            const nextlinkRolesWrapper = document.getElementById('adminNextlinkRolesTabWrapper');
             const sidebarAdminBtn = document.getElementById('sidebarAdminBtn');
 
             // Tenant Settings tab: visible to all adminPanel users (tenant_admin + platform_admin)
@@ -27652,6 +27859,8 @@ Ready for translation!`);
             if (platformWrapper) platformWrapper.style.display = permissions.platformAdmin ? 'inline' : 'none';
             // Audit Log tab: platform_admin only
             if (auditWrapper) auditWrapper.style.display = permissions.platformAdmin ? 'inline' : 'none';
+            // Nextlink Roles tab: platform_admin only
+            if (nextlinkRolesWrapper) nextlinkRolesWrapper.style.display = permissions.platformAdmin ? 'inline' : 'none';
 
             if (sidebarAdminBtn) {
                 sidebarAdminBtn.style.display = permissions.adminPanel ? '' : 'none';
@@ -27666,6 +27875,51 @@ Ready for translation!`);
 
             // Apply tenant branding
             if (session.branding) applyBrandingFromBootstrap(session.branding);
+        }
+
+        function applyNextlinkTabPermissions(session) {
+            // Null-guard for stale pre-Phase-1 localStorage bootstrap.
+            // Missing or null tabPermissions = show everything (no restriction).
+            if (!session || !session.tabPermissions || session.tabPermissions === null) return;
+
+            const tp = session.tabPermissions;
+            if (!tp.restricted) return;  // platform_admin / super_admin bypass
+
+            const allowedTabs = new Set(tp.allowed_tabs || []);
+            const allowedFeatures = new Set(tp.allowed_features || []);
+
+            // Universal tabs always visible
+            const universalTabs = new Set(['home', 'completed-configs', 'log-history', 'admin-panel']);
+
+            // Hide nav items whose data-tab is not in allowedTabs
+            document.querySelectorAll('[data-tab]').forEach(el => {
+                const tabValue = el.getAttribute('data-tab');
+                if (universalTabs.has(tabValue)) return;
+                if (!allowedTabs.has(tabValue)) {
+                    el.style.display = 'none';
+                }
+            });
+
+            // Hide elements gated by data-feature not in allowedFeatures
+            document.querySelectorAll('[data-feature]').forEach(el => {
+                const featureValue = el.getAttribute('data-feature');
+                if (!allowedFeatures.has(featureValue)) {
+                    el.style.display = 'none';
+                }
+            });
+
+            // Hide dropdown parents whose ALL children are hidden
+            document.querySelectorAll('.nav-item.dropdown').forEach(parent => {
+                const childLinks = parent.querySelectorAll('a[data-tab]');
+                const visibleChildren = Array.from(childLinks).filter(c => c.style.display !== 'none');
+                if (childLinks.length > 0 && visibleChildren.length === 0) {
+                    parent.style.display = 'none';
+                }
+            });
+
+            // Expose allowed sets on window for any other code that needs them
+            window._nextlinkAllowedTabs = allowedTabs;
+            window._nextlinkAllowedFeatures = allowedFeatures;
         }
 
         async function loadTenantSettings() {
@@ -28705,6 +28959,9 @@ Ready for translation!`);
             const cachedBootstrap = window.sessionBootstrap || null;
             if (cachedBootstrap && typeof applyAdminPanelRoles === 'function') {
                 applyAdminPanelRoles(cachedBootstrap);
+            }
+            if (cachedBootstrap && typeof applyNextlinkTabPermissions === 'function') {
+                applyNextlinkTabPermissions(cachedBootstrap);
             }
         }
 

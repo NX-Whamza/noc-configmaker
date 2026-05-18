@@ -31,11 +31,15 @@ _TEST_HEADERS = {"Authorization": f"Bearer {_TEST_TOKEN}"}
 
 
 def _mock_verify_token(monkeypatch):
-    """Monkeypatch verify_token so tests don't need a real user DB."""
+    """Monkeypatch verify_token so tests don't need a real user DB.
+
+    Uses the legacy platform admin email so @require_tab bypass triggers via
+    _platform_role_for_email() — these tests exercise cambium logic, not RBAC.
+    """
     monkeypatch.setattr(
         api_server,
         "verify_token",
-        lambda token: {"user_id": "u1", "email": "test@example.com", "tenant_id": None, "tenantId": None}
+        lambda token: {"user_id": "u1", "email": "whamza@team.nxlink.com", "tenant_id": None, "tenantId": None}
         if token == _TEST_TOKEN
         else None,
     )
@@ -517,6 +521,7 @@ def test_cambium_catalog_endpoint(monkeypatch):
 
 
 def test_cambium_check_status_updates_queue(monkeypatch):
+    _mock_verify_token(monkeypatch)
     monkeypatch.setattr(api_server, "HAS_CAMBIUM", True)
     api_server.cambium_shared_queue.clear()
 
@@ -534,6 +539,7 @@ def test_cambium_check_status_updates_queue(monkeypatch):
     r = client.post(
         "/api/cambium/check-status",
         json={"ips": ["10.1.1.1", "10.1.1.2"], "device_type": "CNEP3K", "password": "secret"},
+        headers=_TEST_HEADERS,
     )
     assert r.status_code == 200
     body = r.json()
@@ -549,8 +555,9 @@ def test_cambium_check_status_updates_queue(monkeypatch):
 
 
 def test_cambium_check_status_rejects_empty(monkeypatch):
+    _mock_verify_token(monkeypatch)
     monkeypatch.setattr(api_server, "HAS_CAMBIUM", True)
-    r = client.post("/api/cambium/check-status", json={})
+    r = client.post("/api/cambium/check-status", json={}, headers=_TEST_HEADERS)
     assert r.status_code == 400
 
 

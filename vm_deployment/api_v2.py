@@ -48,8 +48,10 @@ except Exception:
     from vm_deployment.tenant_defaults import load_infrastructure_defaults, load_runtime_app_config, load_tenant_defaults
 try:
     from api_server import verify_token as _verify_session_token
+    from api_server import _platform_role_for_email
 except Exception:
     from vm_deployment.api_server import verify_token as _verify_session_token
+    from vm_deployment.api_server import _platform_role_for_email
 
 
 router = APIRouter(prefix="/api/v2", tags=["NEXUS API v2"])
@@ -1805,6 +1807,77 @@ def _require_scope(required: str) -> Callable[..., Dict[str, Any]]:
             _reserve_nonce(key_id, nonce)
 
         return {"api_key": token, "scopes": sorted(scopes)}
+
+    return _dep
+
+
+def require_tab_v2(tab_value: str):
+    """Dependency to gate FastAPI routes by nextlink role tab permissions.
+
+    Allows machine-to-machine (API key) access to pass through.
+    For session-based auth: allows platform_admin (via _platform_role_for_email)
+    or super_admin nextlink_role. Others require explicit tab permission in
+    nextlink_role_permissions.
+
+    Note: JWT session_user payload only carries email/user_id/exp. platform_admin
+    check uses email-based _platform_role_for_email (matches codebase pattern).
+    nextlink_role is looked up from users.db per call.
+    """
+    async def _dep(
+        auth: Dict[str, Any] = Depends(_require_scope("actions.read")),
+    ) -> Dict[str, Any]:
+        # Machine-to-machine API keys pass through. M2M keys are tenant-scoped,
+        # not user-scoped — no nextlink_role applies. Tab gating only governs
+        # session-authenticated browser/UI callers.
+        if auth.get("auth_type") != "session":
+            return auth
+
+        session_user = auth.get("session_user") or {}
+        email = (session_user.get("email") or "").strip().lower()
+        user_id = session_user.get("user_id") or session_user.get("id")
+
+        # Bypass 1: platform_admin via email lookup (matches codebase convention)
+        if email and _platform_role_for_email(email) == "platform_admin":
+            return auth
+
+        # Look up nextlink_role from DB. try/finally guarantees connection
+        # close even if a SQLite error fires mid-query (file handle safety).
+        nextlink_role = None
+        allowed = False
+        db_path = os.path.join("secure_data", "users.db")
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            if user_id:
+                c.execute("SELECT nextlink_role FROM users WHERE id = ?", (user_id,))
+            elif email:
+                c.execute("SELECT nextlink_role FROM users WHERE email = ?", (email,))
+            row = c.fetchone() if (user_id or email) else None
+            if row:
+                nextlink_role = row["nextlink_role"]
+
+            # Bypass 2: super_admin nextlink_role
+            if nextlink_role == "super_admin":
+                return auth
+
+            # Deny: no nextlink_role assigned
+            if not nextlink_role:
+                raise HTTPException(status_code=403, detail="Your role does not have access to this tool")
+
+            # Check tab permission
+            c.execute(
+                "SELECT 1 FROM nextlink_role_permissions WHERE role = ? AND perm_type = 'tab' AND perm_value = ?",
+                (nextlink_role, tab_value),
+            )
+            allowed = c.fetchone() is not None
+        finally:
+            conn.close()
+
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Your role does not have access to this tool")
+
+        return auth
 
     return _dep
 
@@ -4274,7 +4347,7 @@ def v2_nexus_enterprise_feeding(
             }
         },
     ),
-    _: Dict[str, Any] = Depends(_require_scope("actions.read")),
+    _: Dict[str, Any] = Depends(require_tab_v2("enterprise-feeding")),
 ):
     return _envelope(status="ok", data=_render_enterprise_feeding(payload), message="Enterprise feeding config generated")
 
@@ -4290,7 +4363,7 @@ def v2_nexus_enterprise_feeding_outstate(
             }
         },
     ),
-    _: Dict[str, Any] = Depends(_require_scope("actions.read")),
+    _: Dict[str, Any] = Depends(require_tab_v2("enterprise-feeding")),
 ):
     return _envelope(status="ok", data=_render_enterprise_feeding_outstate(payload), message="Out-of-state enterprise feeding config generated")
 
@@ -4306,7 +4379,7 @@ def v2_nexus_config_diff(
             }
         },
     ),
-    _: Dict[str, Any] = Depends(_require_scope("actions.read")),
+    _: Dict[str, Any] = Depends(require_tab_v2("config-diff")),
 ):
     return _envelope(status="ok", data=_compute_config_diff(payload), message="Config diff computed")
 
@@ -4322,7 +4395,7 @@ def v2_nexus_command_vault_catalog(
             }
         },
     ),
-    _: Dict[str, Any] = Depends(_require_scope("actions.read")),
+    _: Dict[str, Any] = Depends(require_tab_v2("command-vault")),
 ):
     return _envelope(status="ok", data=_command_vault_catalog(payload), message="Command Vault catalog")
 
@@ -4338,7 +4411,7 @@ def v2_nexus_6ghz_instate(
             }
         },
     ),
-    _: Dict[str, Any] = Depends(_require_scope("actions.read")),
+    _: Dict[str, Any] = Depends(require_tab_v2("ccr2004")),
 ):
     return _envelope(status="ok", data=_render_6ghz_switch(payload), message="6GHz in-state config generated")
 
@@ -4362,7 +4435,7 @@ def v2_nexus_6ghz_outstate(
             },
         },
     ),
-    _: Dict[str, Any] = Depends(_require_scope("actions.read")),
+    _: Dict[str, Any] = Depends(require_tab_v2("ccr2004")),
 ):
     return _envelope(status="ok", data=_render_6ghz_switch_outstate(payload), message="6GHz out-of-state config generated")
 
@@ -4378,7 +4451,7 @@ def v2_nexus_enterprise_mpls(
             }
         },
     ),
-    _: Dict[str, Any] = Depends(_require_scope("actions.read")),
+    _: Dict[str, Any] = Depends(require_tab_v2("enterprise-mpls")),
 ):
     return _envelope(status="ok", data=_render_mpls_enterprise(payload), message="MPLS enterprise config generated")
 
