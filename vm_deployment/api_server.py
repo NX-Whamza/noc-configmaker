@@ -690,8 +690,10 @@ _DEFAULT_FEATURES = {
 # Backend source of truth: keep this synchronized with
 # `.claude/skills/nexus-section-find/data/tab_index.md`
 NEXTLINK_TAB_CATALOG = {
+    # NOTE: Universal tabs (home, completed-configs, log-history, admin-panel) are
+    # intentionally absent — they are always visible regardless of role and would
+    # only clutter the admin permission matrix. Frontend hardcodes them as universal.
     "tabs": [
-        {"value": "home", "label": "Home dashboard"},
         # MikroTik / wireless
         {"value": "tower", "label": "MikroTik Config Generator", "group": "MikroTik / Wireless"},
         {"value": "enterprise", "label": "Non-MPLS Enterprise", "group": "MikroTik / Wireless"},
@@ -710,16 +712,14 @@ NEXTLINK_TAB_CATALOG = {
         # FTTH
         {"value": "ftth-home", "label": "FTTH Configuration", "group": "FTTH"},
         # Migration / ops
-        {"value": "command-vault", "label": "Command Vault (Nokia/Cisco/MikroTik)", "group": "Reference & Vault"},
-        {"value": "cisco-config", "label": "Cisco Port Setup", "group": "Reference & Vault"},
-        {"value": "unimus-backup-configs", "label": "Unimus Backup Configs", "group": "Reference & Vault"},
         {"value": "config-diff", "label": "Config Diff Viewer", "group": "Migration & Operations"},
         {"value": "bulk-config", "label": "Bulk Operations Center", "group": "Migration & Operations"},
         {"value": "maintenance", "label": "Scheduled Maintenance", "group": "Migration & Operations"},
         {"value": "compliance-scanner", "label": "Compliance Scanner", "group": "Migration & Operations"},
-        {"value": "completed-configs", "label": "Completed Configs (history)"},
-        {"value": "log-history", "label": "Log History"},
-        {"value": "admin-panel", "label": "Admin Panel"},
+        # Reference & Vault
+        {"value": "command-vault", "label": "Command Vault (Nokia/Cisco/MikroTik)", "group": "Reference & Vault"},
+        {"value": "cisco-config", "label": "Cisco Port Setup", "group": "Reference & Vault"},
+        {"value": "unimus-backup-configs", "label": "Unimus Backup Configs", "group": "Reference & Vault"},
     ],
     "features": [
         {"value": "mikrotik", "label": "MikroTik Generator", "group": "Features"},
@@ -19585,7 +19585,7 @@ def admin_update_user_nextlink_role(user_id):
             conn.close()
             return jsonify({'error': 'User not found'}), 404
 
-        previous_role = target_user.get('nextlink_role')
+        previous_role = target_user['nextlink_role']
 
         # Update the user's nextlink_role
         c.execute(
