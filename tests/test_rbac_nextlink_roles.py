@@ -11,6 +11,7 @@ import importlib
 import os
 import sqlite3
 import sys
+import uuid
 from pathlib import Path
 
 
@@ -42,7 +43,7 @@ def _patch_dbs(monkeypatch, api_server):
     monkeypatch.setattr(api_server.os.path, "exists", lambda p: True if str(p) == "secure_data" else original_exists(p))
     monkeypatch.setattr(api_server.os, "makedirs", lambda *args, **kwargs: None)
     monkeypatch.setattr(api_server.sqlite3, "connect", connect_override)
-    monkeypatch.setattr(api_server, "DEFAULT_PASSWORD", "rbac-nl-test-pw")
+    monkeypatch.setattr(api_server, "DEFAULT_PASSWORD", uuid.uuid4().hex)
     return db_uris, anchors
 
 
