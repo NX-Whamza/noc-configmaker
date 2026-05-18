@@ -504,3 +504,74 @@ def test_v2_native_route_enforces_tab(monkeypatch):
     finally:
         for conn in anchors.values():
             conn.close()
+
+
+def test_admin_patch_user_nextlink_role_end_to_end(monkeypatch):
+    """Regression: PATCH /api/admin/users/<id>/nextlink-role must return 200,
+    not 500. This endpoint shipped two `sqlite3.Row.get()` bugs (commits b4b2119
+    and ee7b627) because no test exercised the full call path including the
+    audit log write. This test exists to prevent that class of bug from
+    recurring — anything that touches the audit log on this endpoint must
+    survive an end-to-end call."""
+    api_server = _load_api_server()
+    db_uris, anchors = _patch_dbs(monkeypatch, api_server)
+    try:
+        client = api_server.app.test_client()
+        admin_email = "whamza@team.nxlink.com"
+        token = _login(client, api_server, admin_email)
+
+        # Create a target user to patch
+        target_email = "target@team.nxlink.com"
+        _login(client, api_server, target_email)
+        conn = sqlite3.connect(db_uris["users.db"], uri=True)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("SELECT id FROM users WHERE email = ?", (target_email,))
+        target_user_id = c.fetchone()["id"]
+        conn.close()
+
+        # Assign 'noc' role
+        response = client.patch(
+            f"/api/admin/users/{target_user_id}/nextlink-role",
+            json={"nextlink_role": "noc"},
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        # Must be 200, NOT 500. A 500 here would mean an unhandled exception
+        # somewhere in the call path (the historical .get() bug).
+        assert response.status_code == 200, (
+            f"PATCH nextlink-role returned {response.status_code}: {response.get_data(as_text=True)}"
+        )
+        body = response.get_json() or {}
+        assert body.get("success") is True
+        assert body.get("nextlink_role") == "noc"
+
+        # Verify DB actually got updated
+        conn = sqlite3.connect(db_uris["users.db"], uri=True)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("SELECT nextlink_role FROM users WHERE id = ?", (target_user_id,))
+        assert c.fetchone()["nextlink_role"] == "noc"
+        conn.close()
+
+        # Clear the role (null) — also touches audit log path with previous_role set
+        response = client.patch(
+            f"/api/admin/users/{target_user_id}/nextlink-role",
+            json={"nextlink_role": None},
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        assert response.status_code == 200, (
+            f"PATCH nextlink-role to null returned {response.status_code}: {response.get_data(as_text=True)}"
+        )
+        body = response.get_json() or {}
+        assert body.get("nextlink_role") is None
+
+        # Invalid role rejected (allowlist check)
+        response = client.patch(
+            f"/api/admin/users/{target_user_id}/nextlink-role",
+            json={"nextlink_role": "made_up_role"},
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        assert response.status_code == 400
+    finally:
+        for conn in anchors.values():
+            conn.close()

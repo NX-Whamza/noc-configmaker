@@ -4596,58 +4596,29 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 28px;
+            gap: 22px;
         }
 
-        .nexus-loading-logo {
-            width: 88px;
-            height: 88px;
-            display: block;
-            animation: nexus-pulse 2s ease-in-out infinite;
+        /* Pure-CSS spinner — no image asset dependency.
+           Orange brand color on top of a faint same-color ring. */
+        .nexus-spinner {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            border: 3px solid rgba(255, 122, 0, 0.15);
+            border-top-color: #ff7a00;
+            animation: nexus-spin 0.9s linear infinite;
         }
 
-        @keyframes nexus-pulse {
-            0%, 100% {
-                transform: scale(1);
-                opacity: 1;
-            }
-            50% {
-                transform: scale(1.04);
-                opacity: 0.95;
-            }
-        }
-
-        .nexus-loading-bar {
-            width: 240px;
-            height: 3px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 3px;
-            overflow: hidden;
-        }
-
-        .nexus-loading-bar::after {
-            content: '';
-            display: block;
-            height: 100%;
-            width: 40%;
-            background: linear-gradient(90deg, transparent, #ff7a00, transparent);
-            animation: nexus-slide 1.5s ease-in-out infinite;
-        }
-
-        @keyframes nexus-slide {
-            0% {
-                transform: translateX(-100%);
-            }
-            100% {
-                transform: translateX(400%);
-            }
+        @keyframes nexus-spin {
+            to { transform: rotate(360deg); }
         }
 
         .nexus-loading-text {
-            color: var(--text-soft);
-            font-size: 14px;
-            font-weight: 500;
-            letter-spacing: 0.05em;
+            color: #b7c6d9;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.18em;
             text-transform: uppercase;
         }
 
@@ -4657,9 +4628,8 @@
 <body>
     <div id="nexusLoadingOverlay" class="nexus-loading-overlay hidden">
         <div class="nexus-loading-inner">
-            <img src="assets/favicon.svg" alt="NEXUS" class="nexus-loading-logo">
-            <div class="nexus-loading-bar"></div>
-            <div class="nexus-loading-text">Loading NEXUS...</div>
+            <div class="nexus-spinner"></div>
+            <div class="nexus-loading-text">Loading NEXUS</div>
         </div>
     </div>
 

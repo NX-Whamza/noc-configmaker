@@ -19602,7 +19602,7 @@ def admin_update_user_nextlink_role(user_id):
                 'new_role': nextlink_role
             },
             target_user_id=user_id,
-            target_email=target_user.get('email')
+            target_email=target_user['email']
         )
 
         conn.close()
