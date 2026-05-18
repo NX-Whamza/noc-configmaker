@@ -25,6 +25,7 @@ def test_aviat_status_abort_and_stream_work_from_persisted_store(monkeypatch):
     monkeypatch.setattr(api_server, "HAS_AVIAT", True)
     monkeypatch.setattr(api_server, "ensure_secure_data_dir", lambda: task_root)
     monkeypatch.setattr(api_server, "verify_token", lambda token: {"user_id": "user-a", "email": "a@example.com", "tenant_id": None, "tenantId": None} if token == "test-token" else None)
+    monkeypatch.setattr(api_server, "_platform_role_for_email", lambda email: "platform_admin")
     api_server._BACKGROUND_TASK_STORE_DIR = None
     api_server.aviat_tasks.clear()
     api_server.aviat_log_queues.clear()
@@ -74,6 +75,7 @@ def test_cambium_status_and_abort_work_from_persisted_store(monkeypatch):
     monkeypatch.setattr(api_server, "HAS_CAMBIUM", True)
     monkeypatch.setattr(api_server, "ensure_secure_data_dir", lambda: task_root)
     monkeypatch.setattr(api_server, "verify_token", lambda token: {"user_id": "user-a", "email": "a@example.com", "tenant_id": None, "tenantId": None} if token == "test-token" else None)
+    monkeypatch.setattr(api_server, "_platform_role_for_email", lambda email: "platform_admin")
     api_server._BACKGROUND_TASK_STORE_DIR = None
     api_server.cambium_tasks.clear()
     api_server.cambium_log_queues.clear()
@@ -193,6 +195,7 @@ def test_aviat_queue_is_tenant_scoped(monkeypatch):
         return None
 
     monkeypatch.setattr(api_server, "verify_token", _verify_token)
+    monkeypatch.setattr(api_server, "_platform_role_for_email", lambda email: "platform_admin")
     monkeypatch.setattr(
         api_server,
         "_get_request_tenant_context",
@@ -257,6 +260,7 @@ def test_aviat_run_blocks_missing_local_firmware_file(monkeypatch):
     monkeypatch.setattr(api_server, "_check_quota", lambda *args, **kwargs: None)
     monkeypatch.setattr(api_server, "_increment_usage", lambda *args, **kwargs: None)
     monkeypatch.setattr(api_server, "verify_token", lambda token: {"user_id": "user-a", "email": "a@example.com", "tenant_id": "tenant-a", "tenantId": "tenant-a"} if token == "test-token" else None)
+    monkeypatch.setattr(api_server, "_platform_role_for_email", lambda email: "platform_admin")
     monkeypatch.setattr(
         api_server,
         "_get_request_tenant_context",

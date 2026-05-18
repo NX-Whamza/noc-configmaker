@@ -10790,30 +10790,49 @@ def require_auth(f):
 def require_tab(tab_value):
     """Decorator to require access to a specific tab via nextlink role permissions.
 
-    Allows: platform_admin OR super_admin nextlink_role.
+    Allows: platform_admin (via _platform_role_for_email) OR super_admin nextlink_role.
     Denies: users without nextlink_role OR users whose role lacks the tab permission.
+
+    Note: JWT payload (request.current_user) only contains id/user_id/email/exp.
+    platform_role check uses email-based _platform_role_for_email (matches existing
+    codebase pattern, 28+ usages). nextlink_role is looked up from users.db per call.
     """
     def decorator(f):
         @wraps(f)
         def wrapper(*args, **kwargs):
             user_info = getattr(request, 'current_user', {}) or {}
-            # camelCase keys only, no snake_case fallback
-            platform_role = user_info.get('platformRole') or 'user'
-            nextlink_role = user_info.get('nextlinkRole')
+            email = user_info.get('email', '') or ''
 
-            # Bypass: platform_admin OR super_admin nextlink_role
-            if platform_role == 'platform_admin' or nextlink_role == 'super_admin':
+            # Bypass 1: platform_admin via email lookup (matches codebase convention)
+            if _platform_role_for_email(email) == 'platform_admin':
                 return f(*args, **kwargs)
 
-            # Deny: no nextlink_role
-            if not nextlink_role:
-                return jsonify({'success': False, 'error': 'Your role does not have access to this tool'}), 403
-
-            # Check database for tab permission
+            # Look up nextlink_role from DB
+            user_id = user_info.get('user_id') or user_info.get('id')
+            nextlink_role = None
             db_path = os.path.join('secure_data', 'users.db')
             conn = sqlite3.connect(db_path)
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
+            if user_id:
+                c.execute("SELECT nextlink_role FROM users WHERE id = ?", (user_id,))
+            elif email:
+                c.execute("SELECT nextlink_role FROM users WHERE email = ?", (email,))
+            row = c.fetchone() if (user_id or email) else None
+            if row:
+                nextlink_role = row['nextlink_role']
+
+            # Bypass 2: super_admin nextlink_role
+            if nextlink_role == 'super_admin':
+                conn.close()
+                return f(*args, **kwargs)
+
+            # Deny: no nextlink_role assigned
+            if not nextlink_role:
+                conn.close()
+                return jsonify({'success': False, 'error': 'Your role does not have access to this tool'}), 403
+
+            # Check tab permission
             c.execute(
                 "SELECT 1 FROM nextlink_role_permissions WHERE role = ? AND perm_type = 'tab' AND perm_value = ?",
                 (nextlink_role, tab_value)

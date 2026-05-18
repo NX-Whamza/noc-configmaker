@@ -87,10 +87,11 @@ def test_check_status_uses_queue_target_version_for_downgrade(monkeypatch):
     monkeypatch.setattr(
         api_server,
         "verify_token",
-        lambda token: {"user_id": "u1", "email": "test@example.com", "tenant_id": None, "tenantId": None}
+        lambda token: {"user_id": "u1", "email": "whamza@team.nxlink.com", "tenant_id": None, "tenantId": None}
         if token == "test-token"
         else None,
     )
+    monkeypatch.setattr(api_server, "_platform_role_for_email", lambda email: "platform_admin")
     monkeypatch.setattr(
         api_server,
         "aviat_check_device_status",

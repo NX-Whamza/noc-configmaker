@@ -48,8 +48,10 @@ except Exception:
     from vm_deployment.tenant_defaults import load_infrastructure_defaults, load_runtime_app_config, load_tenant_defaults
 try:
     from api_server import verify_token as _verify_session_token
+    from api_server import _platform_role_for_email
 except Exception:
     from vm_deployment.api_server import verify_token as _verify_session_token
+    from vm_deployment.api_server import _platform_role_for_email
 
 
 router = APIRouter(prefix="/api/v2", tags=["NEXUS API v2"])
@@ -1813,8 +1815,13 @@ def require_tab_v2(tab_value: str):
     """Dependency to gate FastAPI routes by nextlink role tab permissions.
 
     Allows machine-to-machine (API key) access to pass through.
-    For session-based auth: allows platform_admin or super_admin nextlink_role.
-    Others require explicit tab permission in nextlink_role_permissions.
+    For session-based auth: allows platform_admin (via _platform_role_for_email)
+    or super_admin nextlink_role. Others require explicit tab permission in
+    nextlink_role_permissions.
+
+    Note: JWT session_user payload only carries email/user_id/exp. platform_admin
+    check uses email-based _platform_role_for_email (matches codebase pattern).
+    nextlink_role is looked up from users.db per call.
     """
     async def _dep(
         auth: Dict[str, Any] = Depends(_require_scope("actions.read")),
@@ -1824,22 +1831,38 @@ def require_tab_v2(tab_value: str):
             return auth
 
         session_user = auth.get("session_user") or {}
-        platform_role = session_user.get("platformRole") or "user"
-        nextlink_role = session_user.get("nextlinkRole")
+        email = (session_user.get("email") or "").strip().lower()
+        user_id = session_user.get("user_id") or session_user.get("id")
 
-        # Bypass: platform_admin OR super_admin nextlink_role
-        if platform_role == "platform_admin" or nextlink_role == "super_admin":
+        # Bypass 1: platform_admin via email lookup (matches codebase convention)
+        if email and _platform_role_for_email(email) == "platform_admin":
             return auth
 
-        # Deny: no nextlink_role
-        if not nextlink_role:
-            raise HTTPException(status_code=403, detail="Your role does not have access to this tool")
-
-        # Check database for tab permission
+        # Look up nextlink_role from DB
+        nextlink_role = None
         db_path = os.path.join("secure_data", "users.db")
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
+        if user_id:
+            c.execute("SELECT nextlink_role FROM users WHERE id = ?", (user_id,))
+        elif email:
+            c.execute("SELECT nextlink_role FROM users WHERE email = ?", (email,))
+        row = c.fetchone() if (user_id or email) else None
+        if row:
+            nextlink_role = row["nextlink_role"]
+
+        # Bypass 2: super_admin nextlink_role
+        if nextlink_role == "super_admin":
+            conn.close()
+            return auth
+
+        # Deny: no nextlink_role assigned
+        if not nextlink_role:
+            conn.close()
+            raise HTTPException(status_code=403, detail="Your role does not have access to this tool")
+
+        # Check tab permission
         c.execute(
             "SELECT 1 FROM nextlink_role_permissions WHERE role = ? AND perm_type = 'tab' AND perm_value = ?",
             (nextlink_role, tab_value),
