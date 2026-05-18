@@ -20566,6 +20566,7 @@ def _serialize_user_row(user):
         'platformRole': user['platform_role'] or ('platform_admin' if user['is_platform_admin'] else 'user'),
         'isPlatformAdmin': bool(user['is_platform_admin']),
         'profilePhoto': dict(user).get('profile_photo') or None,
+        'nextlinkRole': user.get('nextlink_role'),
     }
 
 
