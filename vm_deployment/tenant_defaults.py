@@ -95,7 +95,7 @@ def load_tenant_defaults(include_sensitive: bool = True) -> Dict[str, Any]:
             "allowed_email_domain": _env_first("NEXUS_ALLOWED_EMAIL_DOMAIN", "ALLOWED_EMAIL_DOMAIN"),
         },
         "routing": {
-            "asn": _env_first("NEXUS_DEFAULT_ASN", "NEXTLINK_DEFAULT_ASN", default="65000"),
+            "asn": _env_first("NEXUS_DEFAULT_ASN", "NEXTLINK_DEFAULT_ASN", default="26077"),
             "route_reflector_peers": _route_reflector_peers(),
             "bng_peers": bng_peers,
             "default_bng_peer": _env_first("NEXUS_BNG_PEER_DEFAULT", "BNG_PEER_DEFAULT", default=next(iter(bng_peers.values()), "")),

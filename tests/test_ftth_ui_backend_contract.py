@@ -83,8 +83,8 @@ def test_ftth_ui_contract_outstate_renders_nebraska_style_blocks():
     assert "name=vpls1000-bng1" in config
     assert "cisco-static-id=1249" in config
     assert "# ENGINEERING-COMPLIANCE-APPLIED" in config
-    assert "name=RR1" in config
-    assert "name=RR2" in config
+    assert "name=CR7" in config
+    assert "name=CR8" in config
     assert "output.network=bgp-networks" in config
     assert "WALLED-GARDEN" in config
     assert 'dst-address-list=!WALLED-GARDEN src-address-list=unauth' in config
@@ -108,8 +108,8 @@ def test_ftth_ui_contract_instate_keeps_standard_bridge_layout():
     assert "name=vpls1000-bng1" not in config
     assert "/routing bgp template" in config
     assert "/routing bgp connection" in config
-    assert "name=RR1" in config
-    assert "name=RR2" in config
+    assert "name=CR7" in config
+    assert "name=CR8" in config
     assert "/ip dhcp-server option" in config
     assert "add code=43 name=opt43 value=0x012d68747470733a2f2f6e61342e6e6f6b69616163732e6e6f6b69612e636f6d3a31373534372f6e6578746c696e6b020561646d696e030561646d696e" in config
     assert "/ip dhcp-server option sets" in config
@@ -258,7 +258,7 @@ def test_ftth_bng_prefers_tenant_defaults_when_payload_values_are_omitted(monkey
     assert "noc@acme.example" in config
 
 
-def test_ftth_bng_uses_neutral_defaults_when_tenant_values_are_absent(monkeypatch):
+def test_ftth_bng_uses_nextlink_defaults_when_tenant_values_are_absent(monkeypatch):
     for name in (
         "NEXUS_DEFAULT_ASN",
         "NEXUS_ROUTE_REFLECTOR_PEERS_JSON",
@@ -284,9 +284,9 @@ def test_ftth_bng_uses_neutral_defaults_when_tenant_values_are_absent(monkeypatc
     assert data.get("success") is True
     config = data.get("config", "")
 
-    assert "set default as=65000 disabled=no output.network=bgp-networks router-id=10.26.1.108" in config
-    assert "name=RR1" in config
-    assert "remote.address=192.0.2.10/32" in config
-    assert "name=RR2" in config
-    assert "remote.address=192.0.2.11/32" in config
+    assert "set default as=26077 disabled=no output.network=bgp-networks router-id=10.26.1.108" in config
+    assert "name=CR7" in config
+    assert "remote.address=10.2.0.107/32" in config
+    assert "name=CR8" in config
+    assert "remote.address=10.2.0.108/32" in config
     assert "noc@example.com" in config
