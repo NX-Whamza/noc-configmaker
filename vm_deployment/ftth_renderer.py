@@ -22,11 +22,11 @@ _LEGACY_SECRET_REPLACEMENTS = {
 }
 
 _NEUTRAL_FTTH_DEFAULTS = {
-    "asn": "65000",
-    "peer_1_name": "RR1",
-    "peer_2_name": "RR2",
-    "peer_1_address": "192.0.2.10/32",
-    "peer_2_address": "192.0.2.11/32",
+    "asn": "26077",
+    "peer_1_name": "CR7",
+    "peer_2_name": "CR8",
+    "peer_1_address": "10.2.0.107/32",
+    "peer_2_address": "10.2.0.108/32",
     "bng_1_ip": "198.51.100.10",
     "bng_2_ip": "198.51.100.11",
     "snmp_contact": "noc@example.com",
