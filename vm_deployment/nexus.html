@@ -4568,7 +4568,13 @@
             }
         }
 
-        /* Nexus Loading Overlay */
+        /* Nexus Loading Overlay
+           Default state: HIDDEN. This handles the common case (refresh / direct
+           access with an existing session) — no FOUC, no spinner flash.
+           Visibility is opted-in by the inline <script> at the top of <body>,
+           which adds `nexus-loading-pending` to <html> when sessionStorage
+           signals "we just came from a successful login". That class wins via
+           specificity until hideNexusLoading() removes it. */
         .nexus-loading-overlay {
             position: fixed;
             top: 0;
@@ -4581,12 +4587,24 @@
             align-items: center;
             justify-content: center;
             z-index: 10000;
-            opacity: 1;
-            visibility: visible;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
             transition: opacity 300ms ease, visibility 300ms ease;
         }
 
-        .nexus-loading-overlay.hidden {
+        /* When the inline head/body script sets this class, the overlay
+           becomes visible IMMEDIATELY — before any body content paints. */
+        html.nexus-loading-pending .nexus-loading-overlay {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+        }
+
+        /* Explicit hide — used by hideNexusLoading() to fade out after
+           applySessionBootstrap completes. Wins over the pending class. */
+        .nexus-loading-overlay.hidden,
+        html.nexus-loading-pending .nexus-loading-overlay.hidden {
             opacity: 0;
             visibility: hidden;
             pointer-events: none;
@@ -4623,10 +4641,24 @@
         }
 
     </style>
+    <script>
+        // Synchronous head script — runs before <body> renders.
+        // If we just came from a successful login (login.html set the flag),
+        // tag <html> so the overlay is visible from the very first paint.
+        // Eliminates the flash-of-app-content between login redirect and the
+        // async bootstrap-fetch path that previously hid the overlay.
+        (function () {
+            try {
+                if (sessionStorage.getItem('nexus_loading') === '1') {
+                    document.documentElement.classList.add('nexus-loading-pending');
+                }
+            } catch (e) { /* sessionStorage blocked — fall through */ }
+        })();
+    </script>
 </head>
 
 <body>
-    <div id="nexusLoadingOverlay" class="nexus-loading-overlay hidden">
+    <div id="nexusLoadingOverlay" class="nexus-loading-overlay">
         <div class="nexus-loading-inner">
             <div class="nexus-spinner"></div>
             <div class="nexus-loading-text">Loading NEXUS</div>
@@ -27322,6 +27354,10 @@ Ready for translation!`);
             if (overlay) {
                 overlay.classList.add('hidden');
             }
+            // Clear the pending class too — keeps <html> tidy for any
+            // observers/extensions and avoids stale state if the overlay
+            // is ever re-shown via showNexusLoading().
+            document.documentElement.classList.remove('nexus-loading-pending');
             sessionStorage.removeItem('nexus_loading');
         }
 
