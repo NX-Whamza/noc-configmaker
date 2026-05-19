@@ -720,6 +720,9 @@ NEXTLINK_TAB_CATALOG = {
         {"value": "command-vault", "label": "Command Vault (Nokia/Cisco/MikroTik)", "group": "Reference & Vault"},
         {"value": "cisco-config", "label": "Cisco Port Setup", "group": "Reference & Vault"},
         {"value": "unimus-backup-configs", "label": "Unimus Backup Configs", "group": "Reference & Vault"},
+        # History & Logs
+        {"value": "completed-configs", "label": "Completed Configs (history)", "group": "History & Logs"},
+        {"value": "log-history", "label": "Log History", "group": "History & Logs"},
     ],
     "features": [
         {"value": "mikrotik", "label": "MikroTik Generator", "group": "Features"},

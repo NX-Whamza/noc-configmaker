@@ -4657,6 +4657,358 @@
             text-transform: uppercase;
         }
 
+        /* ============================================================
+           NEXTLINK ROLES — refined utilitarian admin panel
+           Mobile-first responsive. Touch targets ≥ 44px.
+           ============================================================ */
+        .nl-panel {
+            --nl-accent: #ff7a00;
+            --nl-accent-soft: rgba(255, 122, 0, 0.12);
+            --nl-accent-edge: rgba(255, 122, 0, 0.35);
+            --nl-surface: rgba(255, 255, 255, 0.02);
+            --nl-surface-elev: rgba(255, 255, 255, 0.04);
+            --nl-border-q: rgba(255, 255, 255, 0.08);
+            --nl-border-s: rgba(255, 255, 255, 0.14);
+            --nl-text-mute: rgba(183, 198, 217, 0.65);
+
+            display: flex !important;
+            flex-direction: column;
+            gap: 18px;
+        }
+        .nl-panel.hidden,
+        .admin-subtab-content[style*="display:none"].nl-panel {
+            display: none !important;
+        }
+
+        .nl-header {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .nl-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-color);
+            letter-spacing: -0.01em;
+            margin: 0;
+        }
+        .nl-subtitle {
+            font-size: 12px;
+            color: var(--nl-text-mute);
+            line-height: 1.55;
+            margin: 0;
+            max-width: 560px;
+        }
+
+        .nl-info-banner {
+            font-size: 12px;
+            line-height: 1.55;
+            color: var(--text-color);
+            padding: 11px 14px;
+            border-radius: 6px;
+            background: var(--nl-accent-soft);
+            border-left: 3px solid var(--nl-accent);
+        }
+        .nl-info-banner strong {
+            color: var(--nl-accent);
+            font-weight: 600;
+            margin-right: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-size: 10.5px;
+        }
+        .nl-info-banner-row { display: block; }
+        .nl-info-banner-row + .nl-info-banner-row { margin-top: 6px; }
+
+        /* Toolbar: role selector + Load + Save */
+        .nl-toolbar {
+            display: flex;
+            align-items: stretch;
+            gap: 8px;
+            padding: 12px;
+            background: var(--nl-surface-elev);
+            border: 1px solid var(--nl-border-q);
+            border-radius: 10px;
+            flex-wrap: wrap;
+        }
+        .nl-toolbar-label {
+            font-size: 10.5px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--nl-text-mute);
+            align-self: center;
+            padding: 0 4px;
+        }
+
+        .nl-select {
+            flex: 1 1 200px;
+            min-height: 40px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--nl-border-s);
+            background: var(--input-bg, rgba(0,0,0,0.25));
+            color: var(--text-color);
+            font-size: 13px;
+            font-family: inherit;
+            cursor: pointer;
+            transition: border-color 150ms ease, box-shadow 150ms ease;
+        }
+        .nl-select:hover { border-color: var(--nl-accent-edge); }
+        .nl-select:focus {
+            outline: none;
+            border-color: var(--nl-accent);
+            box-shadow: 0 0 0 3px var(--nl-accent-soft);
+        }
+
+        /* Buttons — three variants */
+        .nl-btn {
+            min-height: 40px;
+            padding: 0 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            font-family: inherit;
+            cursor: pointer;
+            transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            white-space: nowrap;
+            line-height: 1;
+        }
+        .nl-btn-primary {
+            background: var(--nl-accent);
+            color: #fff;
+            border: 1px solid var(--nl-accent);
+        }
+        .nl-btn-primary:hover { background: #ff8b1f; border-color: #ff8b1f; }
+        .nl-btn-primary:active { transform: translateY(1px); }
+        .nl-btn-secondary {
+            background: transparent;
+            color: var(--text-color);
+            border: 1px solid var(--nl-border-s);
+        }
+        .nl-btn-secondary:hover {
+            background: var(--nl-surface);
+            border-color: var(--nl-accent-edge);
+            color: var(--nl-accent);
+        }
+        .nl-btn-icon {
+            background: transparent;
+            color: var(--nl-text-mute);
+            border: 1px solid var(--nl-border-s);
+            min-width: 40px;
+            padding: 0;
+            font-size: 16px;
+        }
+        .nl-btn-icon:hover {
+            color: var(--nl-accent);
+            border-color: var(--nl-accent-edge);
+        }
+
+        /* Section card */
+        .nl-section {
+            background: var(--nl-surface);
+            border: 1px solid var(--nl-border-q);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .nl-section-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--nl-border-q);
+            background: var(--nl-surface-elev);
+        }
+        .nl-section-head h4 {
+            font-size: 11.5px;
+            font-weight: 600;
+            color: var(--text-color);
+            margin: 0;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        .nl-section-body {
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        /* Group inside a section */
+        .nl-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .nl-group-heading {
+            font-size: 10.5px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.09em;
+            color: var(--nl-text-mute);
+            padding-left: 10px;
+            border-left: 2px solid var(--nl-accent);
+            margin: 4px 0 4px;
+            line-height: 1.4;
+        }
+        .nl-checkbox-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 2px;
+        }
+
+        /* Custom checkbox — 44px tap target */
+        .nl-check {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 11px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            user-select: none;
+            transition: background 120ms ease;
+            min-height: 44px;
+            box-sizing: border-box;
+        }
+        .nl-check:hover {
+            background: var(--nl-surface-elev);
+        }
+        .nl-check input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+            width: 1px;
+            height: 1px;
+        }
+        .nl-check-box {
+            flex-shrink: 0;
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            border: 1.5px solid var(--nl-border-s);
+            background: transparent;
+            position: relative;
+            transition: all 150ms ease;
+        }
+        .nl-check input:checked + .nl-check-box {
+            background: var(--nl-accent);
+            border-color: var(--nl-accent);
+        }
+        .nl-check input:checked + .nl-check-box::after {
+            content: '';
+            position: absolute;
+            left: 5.5px;
+            top: 1px;
+            width: 5px;
+            height: 11px;
+            border: solid #fff;
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+        .nl-check input:focus-visible + .nl-check-box {
+            box-shadow: 0 0 0 3px var(--nl-accent-soft);
+            border-color: var(--nl-accent);
+        }
+        .nl-check-label {
+            font-size: 13px;
+            color: var(--text-color);
+            line-height: 1.35;
+        }
+
+        /* Universal note (at bottom of tab section body) */
+        .nl-universal-note {
+            font-size: 11.5px;
+            line-height: 1.55;
+            color: var(--nl-text-mute);
+            padding: 11px 12px;
+            background: var(--nl-surface-elev);
+            border: 1px solid var(--nl-border-q);
+            border-left: 3px solid var(--nl-accent);
+            border-radius: 6px;
+            margin-top: 6px;
+        }
+        .nl-universal-note strong {
+            color: var(--nl-accent);
+            font-weight: 600;
+        }
+        .nl-universal-note em { font-style: normal; opacity: 0.85; }
+
+        /* Assign Role form */
+        .nl-assign-form {
+            display: grid;
+            gap: 12px;
+        }
+        .nl-field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .nl-field label {
+            font-size: 10.5px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--nl-text-mute);
+        }
+        .nl-assign-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 4px;
+        }
+        .nl-status {
+            font-size: 12px;
+            line-height: 1.4;
+            padding: 10px 12px;
+            border-radius: 6px;
+            background: var(--nl-surface-elev);
+            border: 1px solid var(--nl-border-q);
+            color: var(--text-color);
+            transition: all 200ms ease;
+        }
+        .nl-status:empty { display: none; }
+        .nl-status.nl-status-ok {
+            background: rgba(74, 222, 128, 0.08);
+            border-color: rgba(74, 222, 128, 0.35);
+            color: #4ade80;
+        }
+        .nl-status.nl-status-err {
+            background: rgba(239, 68, 68, 0.08);
+            border-color: rgba(239, 68, 68, 0.35);
+            color: #f87171;
+        }
+
+        /* MOBILE — ≤ 720px: single column, stacked toolbar, full-width buttons */
+        @media (max-width: 720px) {
+            .nl-checkbox-grid { grid-template-columns: 1fr; }
+            .nl-toolbar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .nl-toolbar-label {
+                margin-bottom: -2px;
+                padding: 0;
+                align-self: flex-start;
+            }
+            .nl-toolbar .nl-select,
+            .nl-toolbar .nl-btn { width: 100%; }
+            .nl-section-head { padding: 11px 14px; }
+            .nl-section-body { padding: 12px 14px; }
+            .nl-title { font-size: 16px; }
+            .nl-assign-actions { flex-direction: row; }
+            .nl-assign-actions .nl-btn-primary { flex: 1; }
+            .nl-assign-actions .nl-btn-icon { flex: 0 0 44px; min-width: 44px; }
+            .nl-check { padding: 12px 8px; }
+        }
+
+        /* TABLET — 721–1024px: two cols */
+        @media (min-width: 721px) and (max-width: 1024px) {
+            .nl-checkbox-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+
     </style>
     <script>
         // Synchronous head script — runs before <body> renders.
@@ -8595,51 +8947,63 @@
                     </div>
 
                     <!-- Nextlink Roles section (platform_admin only) -->
-                    <div id="adminNextlinkRolesPanel" class="admin-subtab-content" style="display:none;">
-                        <h3 style="color:var(--text-color); margin-bottom:16px;">Nextlink Role Permissions</h3>
-                        <p class="hint" style="color:var(--text-color-secondary); font-size:12px; margin-bottom:20px;">Configure which tabs and features each Nextlink role can access. Super admin and platform admin bypass this matrix.</p>
+                    <div id="adminNextlinkRolesPanel" class="admin-subtab-content nl-panel" style="display:none;">
+                        <!-- Header -->
+                        <div class="nl-header">
+                            <h3 class="nl-title">Nextlink Role Permissions</h3>
+                            <p class="nl-subtitle">Configure which tabs and features each Nextlink role can access. Super admin and platform admin bypass this matrix entirely.</p>
+                        </div>
 
-                        <div class="nl-roles-container" style="display:flex; flex-direction:column; gap:20px;">
-                            <!-- Role Selector & Save -->
-                            <div class="nl-role-selector" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-                                <label style="font-size:12px; color:var(--text-color-secondary);">Role:</label>
-                                <select id="nlRoleSelect" style="padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px;"></select>
-                                <button type="button" id="nlLoadRoleBtn" onclick="loadNlRoleGrid()" style="background:transparent; border:1px solid var(--border-color); border-radius:6px; padding:6px 14px; font-size:12px; color:var(--text-color); cursor:pointer;">Load</button>
-                                <button type="button" id="nlSaveRoleBtn" onclick="saveNextlinkRolePerms()" style="background:var(--primary-color); color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:12px; cursor:pointer;">Save</button>
+                        <!-- Info banner — user must refresh after assignment -->
+                        <div class="nl-info-banner">
+                            <span class="nl-info-banner-row"><strong>Important</strong>When you change a user's role, they must log out and log back in (or hard-refresh their browser) for the new permissions to take effect — their session bootstrap is cached client-side.</span>
+                        </div>
+
+                        <!-- Role selector toolbar -->
+                        <div class="nl-toolbar" role="toolbar" aria-label="Role selector">
+                            <span class="nl-toolbar-label">Role</span>
+                            <select id="nlRoleSelect" class="nl-select" aria-label="Select role to edit"></select>
+                            <button type="button" id="nlLoadRoleBtn" onclick="loadNlRoleGrid()" class="nl-btn nl-btn-secondary">Load</button>
+                            <button type="button" id="nlSaveRoleBtn" onclick="saveNextlinkRolePerms()" class="nl-btn nl-btn-primary">Save</button>
+                        </div>
+
+                        <!-- Tab Access -->
+                        <div class="nl-section">
+                            <div class="nl-section-head"><h4>Tab Access</h4></div>
+                            <div class="nl-section-body">
+                                <div id="nlTabGrid"></div>
                             </div>
+                        </div>
 
-                            <!-- Tab Access -->
-                            <div class="nl-perm-section">
-                                <h4 style="color:var(--text-color); font-size:13px; margin-bottom:10px;">Tab Access</h4>
-                                <div id="nlTabGrid" class="nl-checkbox-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:10px;"></div>
+                        <!-- Feature Access -->
+                        <div class="nl-section">
+                            <div class="nl-section-head"><h4>Feature Access</h4></div>
+                            <div class="nl-section-body">
+                                <div id="nlFeatureGrid"></div>
                             </div>
+                        </div>
 
-                            <!-- Feature Access -->
-                            <div class="nl-perm-section">
-                                <h4 style="color:var(--text-color); font-size:13px; margin-bottom:10px;">Feature Access</h4>
-                                <div id="nlFeatureGrid" class="nl-checkbox-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:10px;"></div>
-                            </div>
-
-                            <hr style="border:none; border-top:1px solid var(--border-color); margin:10px 0;">
-
-                            <!-- Assign Role to User -->
-                            <div class="nl-assign-section">
-                                <h4 style="color:var(--text-color); font-size:13px; margin-bottom:12px;">Assign Role to User</h4>
-                                <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-                                    <div style="display:flex; align-items:center; gap:6px;">
-                                        <label style="font-size:12px; color:var(--text-color-secondary);">User:</label>
-                                        <select id="nlAssignUserSelect" style="padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px; width:260px;">
+                        <!-- Assign Role to User -->
+                        <div class="nl-section">
+                            <div class="nl-section-head"><h4>Assign Role to User</h4></div>
+                            <div class="nl-section-body">
+                                <div class="nl-assign-form">
+                                    <div class="nl-field">
+                                        <label for="nlAssignUserSelect">User</label>
+                                        <select id="nlAssignUserSelect" class="nl-select">
                                             <option value="">(select user)</option>
                                         </select>
                                     </div>
-                                    <div style="display:flex; align-items:center; gap:6px;">
-                                        <label style="font-size:12px; color:var(--text-color-secondary);">Role:</label>
-                                        <select id="nlAssignRole" style="padding:6px 10px; border-radius:6px; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-color); font-size:12px;"></select>
+                                    <div class="nl-field">
+                                        <label for="nlAssignRole">Role</label>
+                                        <select id="nlAssignRole" class="nl-select"></select>
                                     </div>
-                                    <button type="button" id="nlAssignBtn" onclick="assignNextlinkRoleToUser()" style="background:var(--primary-color); color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:12px; cursor:pointer;">Assign</button>
-                                    <button type="button" id="nlRefreshUsersBtn" title="Refresh user list" style="background:transparent; border:1px solid var(--border-color); border-radius:6px; padding:6px 10px; font-size:12px; color:var(--text-color); cursor:pointer;">↻</button>
+                                    <div class="nl-assign-actions">
+                                        <button type="button" id="nlAssignBtn" onclick="assignNextlinkRoleToUser()" class="nl-btn nl-btn-primary" style="flex:1;">Assign Role</button>
+                                        <button type="button" id="nlRefreshUsersBtn" class="nl-btn nl-btn-icon" title="Refresh user list" aria-label="Refresh user list">↻</button>
+                                    </div>
+                                    <div id="nlAssignStatus" class="nl-status"></div>
                                 </div>
-                                <div id="nlAssignStatus" class="status-msg" style="color:var(--text-color-secondary); font-size:12px; margin-top:8px;"></div>
                             </div>
                         </div>
                     </div>
@@ -27687,35 +28051,40 @@ Ready for translation!`);
                 'FTTH',
                 'Migration & Operations',
                 'Reference & Vault',
+                'History & Logs',
             ];
             // Append any unexpected groups not in groupOrder
             Object.keys(tabGroups).forEach(g => { if (!groupOrder.includes(g)) groupOrder.push(g); });
 
-            const itemCellStyle = 'display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-color); padding:2px 0;';
-            const gridStyle = 'display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:2px 14px;';
-            const groupHeadingStyle = 'font-size:11px; text-transform:uppercase; color:#888; margin:10px 0 4px; letter-spacing:0.6px; font-weight:600;';
+            // Helper to render a single checkbox item using the custom .nl-check pattern.
+            // 44px tap target, full keyboard a11y via native <input type="checkbox">.
+            function _nlCheckHtml(permType, permValue, label, checked) {
+                const escLabel = String(label).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+                return `
+                    <label class="nl-check">
+                        <input type="checkbox" data-perm-type="${permType}" data-perm-value="${permValue}" ${checked ? 'checked' : ''}>
+                        <span class="nl-check-box" aria-hidden="true"></span>
+                        <span class="nl-check-label">${escLabel}</span>
+                    </label>
+                `;
+            }
 
             const tabGrid = document.getElementById('nlTabGrid');
             if (tabGrid) {
                 const groupedTabsHtml = groupOrder
                     .filter(g => tabGroups[g])
                     .map(g => `
-                        <div style="margin-bottom:10px;">
-                            <h5 style="${groupHeadingStyle}">${g}</h5>
-                            <div style="${gridStyle}">
-                                ${tabGroups[g].map(t => `
-                                    <label style="${itemCellStyle}">
-                                        <input type="checkbox" data-perm-type="tab" data-perm-value="${t.value}" ${allowedTabs.has(t.value) ? 'checked' : ''}>
-                                        <span>${t.label}</span>
-                                    </label>
-                                `).join('')}
+                        <div class="nl-group">
+                            <h5 class="nl-group-heading">${g}</h5>
+                            <div class="nl-checkbox-grid">
+                                ${tabGroups[g].map(t => _nlCheckHtml('tab', t.value, t.label, allowedTabs.has(t.value))).join('')}
                             </div>
                         </div>
                     `).join('');
 
                 const universalNote = `
-                    <div style="opacity:0.55; border-top:1px dashed #444; padding-top:6px; margin-top:8px; font-size:11px; color:var(--text-color-secondary);">
-                        <em>Always visible to everyone: home · completed-configs · log-history. Admin panel is shown to platform admins only.</em>
+                    <div class="nl-universal-note">
+                        <strong>Always visible:</strong> <em>Home is shown to every authenticated user. Admin Panel is shown to platform admins only.</em>
                     </div>
                 `;
 
@@ -27736,15 +28105,10 @@ Ready for translation!`);
                 const featureGroupKeys = Object.keys(featureGroups);
                 const hideFeatureHeading = featureGroupKeys.length === 1;
                 featureGrid.innerHTML = featureGroupKeys.map(g => `
-                    <div style="margin-bottom:10px;">
-                        ${hideFeatureHeading ? '' : `<h5 style="${groupHeadingStyle}">${g}</h5>`}
-                        <div style="${gridStyle}">
-                            ${featureGroups[g].map(f => `
-                                <label style="${itemCellStyle}">
-                                    <input type="checkbox" data-perm-type="feature" data-perm-value="${f.value}" ${allowedFeatures.has(f.value) ? 'checked' : ''}>
-                                    <span>${f.label}</span>
-                                </label>
-                            `).join('')}
+                    <div class="nl-group">
+                        ${hideFeatureHeading ? '' : `<h5 class="nl-group-heading">${g}</h5>`}
+                        <div class="nl-checkbox-grid">
+                            ${featureGroups[g].map(f => _nlCheckHtml('feature', f.value, f.label, allowedFeatures.has(f.value))).join('')}
                         </div>
                     </div>
                 `).join('');
@@ -27788,8 +28152,16 @@ Ready for translation!`);
             const userId = userSelect ? userSelect.value : '';
             const role = document.getElementById('nlAssignRole').value || null;
             const statusEl = document.getElementById('nlAssignStatus');
+            // Helper: set status with one of three visual states (neutral/ok/err).
+            const setStatus = (text, kind) => {
+                if (!statusEl) return;
+                statusEl.textContent = text;
+                statusEl.classList.remove('nl-status-ok', 'nl-status-err');
+                if (kind === 'ok') statusEl.classList.add('nl-status-ok');
+                if (kind === 'err') statusEl.classList.add('nl-status-err');
+            };
             if (!userId) {
-                if (statusEl) statusEl.textContent = 'Please select a user.';
+                setStatus('Please select a user.', 'err');
                 return;
             }
             try {
@@ -27803,18 +28175,16 @@ Ready for translation!`);
                 });
                 if (!res.ok) {
                     const err = await res.json();
-                    if (statusEl) statusEl.textContent = 'Assign failed: ' + (err.error || res.statusText);
+                    setStatus('Assign failed: ' + (err.error || res.statusText), 'err');
                     return;
                 }
                 const selectedOption = userSelect.querySelector(`option[value="${userId}"]`);
                 const userEmail = selectedOption ? selectedOption.getAttribute('data-email') : 'user';
-                if (statusEl) statusEl.textContent = `Assigned ${role || '(none)'} to ${userEmail}.`;
-                statusEl.style.color = 'var(--success-color, #22c55e)';
-                setTimeout(() => { if (statusEl) statusEl.style.color = 'var(--text-color-secondary)'; }, 2500);
+                setStatus(`Assigned ${role || '(none)'} to ${userEmail}. They need to log out + back in to see the change.`, 'ok');
                 // Refresh the user list to reflect the change
                 await loadNextlinkUsers();
             } catch (e) {
-                if (statusEl) statusEl.textContent = 'Assign failed: ' + e.message;
+                setStatus('Assign failed: ' + e.message, 'err');
             }
         }
 
@@ -28151,8 +28521,14 @@ Ready for translation!`);
             const allowedTabs = new Set(tp.allowed_tabs || []);
             const allowedFeatures = new Set(tp.allowed_features || []);
 
-            // Universal tabs always visible
-            const universalTabs = new Set(['home', 'completed-configs', 'log-history', 'admin-panel']);
+            // Truly universal tabs — never gated by Nextlink role.
+            //   - 'home' is the landing tab; every user lands here.
+            //   - 'admin-panel' is gated separately by applyAdminPanelRoles()
+            //     which checks platform_admin; non-admins never see it anyway.
+            // Note: completed-configs and log-history ARE configurable per role
+            // (in NEXTLINK_TAB_CATALOG under "History & Logs"). If a role
+            // doesn't have them checked, they'll be hidden like any other tab.
+            const universalTabs = new Set(['home', 'admin-panel']);
 
             // Hide nav items whose data-tab is not in allowedTabs
             document.querySelectorAll('[data-tab]').forEach(el => {
