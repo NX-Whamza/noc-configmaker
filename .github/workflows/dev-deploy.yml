@@ -1,0 +1,24 @@
+name: Deploy Dev Environment
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: dev-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy-dev:
+    name: Deploy to Dev VM
+    runs-on: [self-hosted, nexus-dev-deploy]
+    environment: dev-deploy
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Deploy
+        env:
+          NEXUS_APP_GIT_SHA: ${{ github.sha }}
+        run: bash /home/whamza/nexus-dev/scripts/deploy-dev.sh "dev-${{ github.sha }}"

@@ -47,8 +47,11 @@ services:
   backend:
     build: .
     restart: unless-stopped
+    cap_drop:
+      - ALL
     cap_add:
       - NET_ADMIN
+      - NET_RAW
     logging:
       driver: json-file
       options:
@@ -58,7 +61,7 @@ services:
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       JWT_SECRET: ${JWT_SECRET:-}
       DEFAULT_PASSWORD: ${DEFAULT_PASSWORD:-CHANGE_ME}
-      AUTH_EXPOSE_RESET_TOKEN: ${AUTH_EXPOSE_RESET_TOKEN:-true}
+      AUTH_EXPOSE_RESET_TOKEN: ${AUTH_EXPOSE_RESET_TOKEN:-false}
       PASSWORD_HASH_ITERATIONS: ${PASSWORD_HASH_ITERATIONS:-310000}
       SSO_STATE_MAX_AGE_SECONDS: ${SSO_STATE_MAX_AGE_SECONDS:-600}
       NOC_CORS_ORIGINS: ${NOC_CORS_ORIGINS:-http://localhost,http://127.0.0.1,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173}
