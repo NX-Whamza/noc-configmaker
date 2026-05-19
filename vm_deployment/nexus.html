@@ -4937,15 +4937,26 @@
         }
         .nl-universal-note em { font-style: normal; opacity: 0.85; }
 
-        /* Assign Role form */
+        /* Assign Role form — tight vertical rhythm */
         .nl-assign-form {
             display: grid;
-            gap: 12px;
+            gap: 8px;
         }
         .nl-field {
             display: flex;
             flex-direction: column;
-            gap: 6px;
+            gap: 4px;
+        }
+        /* Desktop ≥ 721px: put User + Role side-by-side, action row below */
+        @media (min-width: 721px) {
+            .nl-assign-form {
+                grid-template-columns: 1fr 1fr;
+                column-gap: 12px;
+            }
+            .nl-assign-actions,
+            .nl-status {
+                grid-column: 1 / -1;
+            }
         }
         .nl-field label {
             font-size: 10.5px;
@@ -28530,11 +28541,25 @@ Ready for translation!`);
             // doesn't have them checked, they'll be hidden like any other tab.
             const universalTabs = new Set(['home', 'admin-panel']);
 
-            // Hide nav items whose data-tab is not in allowedTabs
+            // The DOM has TWO nav surfaces rendering the same tab list:
+            //   1. Sidebar (.sb-item[data-sb-tab="X"])  ← the visible left nav
+            //   2. Legacy top/mobile nav ([data-tab="X"]) ← may still be present
+            // BOTH must be filtered or the user sees the tabs in the surface
+            // we forgot to filter. Combine both selectors.
+            const isHidden = (tabValue) => !universalTabs.has(tabValue) && !allowedTabs.has(tabValue);
+
+            // 1) Sidebar items (data-sb-tab) — the primary nav on desktop + mobile
+            document.querySelectorAll('[data-sb-tab]').forEach(el => {
+                const tabValue = el.getAttribute('data-sb-tab');
+                if (isHidden(tabValue)) {
+                    el.style.display = 'none';
+                }
+            });
+
+            // 2) Legacy nav items (data-tab)
             document.querySelectorAll('[data-tab]').forEach(el => {
                 const tabValue = el.getAttribute('data-tab');
-                if (universalTabs.has(tabValue)) return;
-                if (!allowedTabs.has(tabValue)) {
+                if (isHidden(tabValue)) {
                     el.style.display = 'none';
                 }
             });
@@ -28547,7 +28572,19 @@ Ready for translation!`);
                 }
             });
 
-            // Hide dropdown parents whose ALL children are hidden
+            // 3) Hide sidebar group wrappers (.sb-group) whose ALL data-sb-tab
+            //    children are now hidden. Without this, you'd see an empty
+            //    expandable group with no items inside.
+            document.querySelectorAll('.sb-group').forEach(group => {
+                const childItems = group.querySelectorAll('[data-sb-tab]');
+                if (childItems.length === 0) return;
+                const visibleChildren = Array.from(childItems).filter(c => c.style.display !== 'none');
+                if (visibleChildren.length === 0) {
+                    group.style.display = 'none';
+                }
+            });
+
+            // 4) Legacy dropdown parents
             document.querySelectorAll('.nav-item.dropdown').forEach(parent => {
                 const childLinks = parent.querySelectorAll('a[data-tab]');
                 const visibleChildren = Array.from(childLinks).filter(c => c.style.display !== 'none');
