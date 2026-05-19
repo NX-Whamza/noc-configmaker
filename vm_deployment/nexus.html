@@ -4617,11 +4617,28 @@
             gap: 22px;
         }
 
-        /* Pure-CSS spinner — no image asset dependency.
-           Orange brand color on top of a faint same-color ring. */
+        /* Logo + spinner: logo stays still in the center, orange ring
+           rotates around it. If logo asset fails (onerror handler),
+           the spinner ring alone is still a valid loading affordance. */
+        .nexus-spinner-wrap {
+            position: relative;
+            width: 88px;
+            height: 88px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .nexus-loading-logo {
+            width: 48px;
+            height: 48px;
+            display: block;
+            user-select: none;
+        }
         .nexus-spinner {
-            width: 56px;
-            height: 56px;
+            position: absolute;
+            inset: 0;
+            width: 88px;
+            height: 88px;
             border-radius: 50%;
             border: 3px solid rgba(255, 122, 0, 0.15);
             border-top-color: #ff7a00;
@@ -4643,16 +4660,24 @@
     </style>
     <script>
         // Synchronous head script — runs before <body> renders.
-        // If we just came from a successful login (login.html set the flag),
-        // tag <html> so the overlay is visible from the very first paint.
-        // Eliminates the flash-of-app-content between login redirect and the
-        // async bootstrap-fetch path that previously hid the overlay.
+        // Shows the loading overlay during the auth-verify + session-bootstrap
+        // window for ANY nexus.html load that has an auth token:
+        //   - fresh login (login.html just set auth_token)
+        //   - browser refresh while logged in
+        //   - direct navigation (bookmark, back button)
+        //   - new tab with existing session
+        //
+        // If there's no auth_token, the auth IIFE will redirect to login.html
+        // — no point flashing the overlay first.
+        //
+        // Hidden again by hideNexusLoading() once applySessionBootstrap
+        // completes (or on any auth/bootstrap failure path).
         (function () {
             try {
-                if (sessionStorage.getItem('nexus_loading') === '1') {
+                if (localStorage.getItem('auth_token')) {
                     document.documentElement.classList.add('nexus-loading-pending');
                 }
-            } catch (e) { /* sessionStorage blocked — fall through */ }
+            } catch (e) { /* storage blocked — fall through, no overlay */ }
         })();
     </script>
 </head>
@@ -4660,7 +4685,10 @@
 <body>
     <div id="nexusLoadingOverlay" class="nexus-loading-overlay">
         <div class="nexus-loading-inner">
-            <div class="nexus-spinner"></div>
+            <div class="nexus-spinner-wrap">
+                <img src="/assets/favicon.svg" alt="" class="nexus-loading-logo" onerror="this.style.display='none'">
+                <div class="nexus-spinner"></div>
+            </div>
             <div class="nexus-loading-text">Loading NEXUS</div>
         </div>
     </div>
@@ -12064,12 +12092,11 @@ ipv4 address 10.10.10.1 255.255.255.252</div>
                 return;
             }
 
-            // Check if we should show the loading overlay (set by login page on successful login)
-            const shouldShowLoading = sessionStorage.getItem('nexus_loading') === '1';
-            if (shouldShowLoading) {
-                const overlay = document.getElementById('nexusLoadingOverlay');
-                if (overlay) overlay.classList.remove('hidden');
-            }
+            // Overlay visibility is handled by the synchronous head script
+            // (reads localStorage.auth_token, adds nexus-loading-pending to <html>).
+            // No additional show logic is needed here — the overlay is already
+            // visible from the very first paint. hideNexusLoading() in the
+            // success/failure paths below will fade it out.
 
             // Verify token is still valid (async, but don't block page load if backend is down)
             // Use same API detection logic as main API_BASE

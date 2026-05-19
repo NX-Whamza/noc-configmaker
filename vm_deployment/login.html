@@ -481,11 +481,26 @@
             gap: 22px;
         }
 
-        /* Pure-CSS spinner — no image asset dependency.
-           Orange brand color on top of a faint same-color ring. */
+        /* Logo + spinner: logo static in center, orange ring rotates around it. */
+        .nexus-spinner-wrap {
+            position: relative;
+            width: 88px;
+            height: 88px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .nexus-loading-logo {
+            width: 48px;
+            height: 48px;
+            display: block;
+            user-select: none;
+        }
         .nexus-spinner {
-            width: 56px;
-            height: 56px;
+            position: absolute;
+            inset: 0;
+            width: 88px;
+            height: 88px;
             border-radius: 50%;
             border: 3px solid rgba(255, 122, 0, 0.15);
             border-top-color: #ff7a00;
@@ -548,7 +563,10 @@
 <body>
     <div id="nexusLoadingOverlay" class="nexus-loading-overlay hidden">
         <div class="nexus-loading-inner">
-            <div class="nexus-spinner"></div>
+            <div class="nexus-spinner-wrap">
+                <img src="/assets/favicon.svg" alt="" class="nexus-loading-logo" onerror="this.style.display='none'">
+                <div class="nexus-spinner"></div>
+            </div>
             <div class="nexus-loading-text">Loading NEXUS</div>
         </div>
     </div>
